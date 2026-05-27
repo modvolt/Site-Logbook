@@ -809,3 +809,273 @@ export const GetStorageObjectParams = zod.object({
 })
 
 
+/**
+ * @summary List activities
+ */
+export const ListActivitiesQueryParams = zod.object({
+  "archived": zod.coerce.boolean().optional(),
+  "mine": zod.coerce.boolean().optional()
+})
+
+export const ListActivitiesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "createdByUserName": zod.string().nullish(),
+  "timerStartedAt": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "materialsTotalCost": zod.number().optional(),
+  "isArchived": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListActivitiesResponse = zod.array(ListActivitiesResponseItem)
+
+
+/**
+ * @summary Create a new activity
+ */
+
+
+
+export const CreateActivityBody = zod.object({
+  "name": zod.string().min(1),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish()
+})
+
+
+/**
+ * @summary Get an activity by id
+ */
+export const GetActivityParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetActivityResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "createdByUserName": zod.string().nullish(),
+  "timerStartedAt": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "materialsTotalCost": zod.number().optional(),
+  "isArchived": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update an activity
+ */
+export const UpdateActivityParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateActivityBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "isArchived": zod.boolean().optional()
+})
+
+export const UpdateActivityResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "createdByUserName": zod.string().nullish(),
+  "timerStartedAt": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "materialsTotalCost": zod.number().optional(),
+  "isArchived": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete an activity
+ */
+export const DeleteActivityParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Start the activity timer
+ */
+export const StartActivityTimerParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const StartActivityTimerResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "createdByUserName": zod.string().nullish(),
+  "timerStartedAt": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "materialsTotalCost": zod.number().optional(),
+  "isArchived": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Stop the activity timer and accumulate hours
+ */
+export const StopActivityTimerParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const StopActivityTimerResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "createdByUserName": zod.string().nullish(),
+  "timerStartedAt": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "materialsTotalCost": zod.number().optional(),
+  "isArchived": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary List materials for an activity
+ */
+export const ListActivityMaterialsParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const ListActivityMaterialsResponseItem = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.string()
+})
+export const ListActivityMaterialsResponse = zod.array(ListActivityMaterialsResponseItem)
+
+
+/**
+ * @summary Add a material to an activity
+ */
+export const CreateActivityMaterialParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+
+
+
+export const CreateActivityMaterialBody = zod.object({
+  "name": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean().optional(),
+  "sortOrder": zod.number().optional()
+})
+
+
+/**
+ * @summary Update an activity material
+ */
+export const UpdateActivityMaterialParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "materialId": zod.coerce.number()
+})
+
+
+
+
+export const UpdateActivityMaterialBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean().optional(),
+  "sortOrder": zod.number().optional()
+})
+
+export const UpdateActivityMaterialResponse = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete an activity material
+ */
+export const DeleteActivityMaterialParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "materialId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Get current user's hours/activities stats
+ */
+export const GetMyStatsResponse = zod.object({
+  "activityHoursWeek": zod.number(),
+  "activityHoursMonth": zod.number(),
+  "activityHoursAll": zod.number(),
+  "activitiesActiveCount": zod.number(),
+  "jobHoursWeek": zod.number(),
+  "jobHoursMonth": zod.number(),
+  "jobHoursAll": zod.number(),
+  "jobsDoneCount": zod.number()
+})
+
+
+/**
+ * @summary Recent done jobs with hours
+ */
+export const GetMyDoneJobsQueryParams = zod.object({
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetMyDoneJobsResponseItem = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string(),
+  "clientSite": zod.string().nullish(),
+  "hoursSpent": zod.number().nullable(),
+  "status": zod.string().optional()
+})
+export const GetMyDoneJobsResponse = zod.array(GetMyDoneJobsResponseItem)
+
+

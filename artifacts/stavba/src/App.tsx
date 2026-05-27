@@ -19,6 +19,9 @@ import Settings from "@/pages/settings";
 import Admin from "@/pages/admin";
 import Login from "@/pages/login";
 import UsersAdmin from "@/pages/users-admin";
+import Activities from "@/pages/activities";
+import ActivityDetail from "@/pages/activity-detail";
+import MyOverview from "@/pages/my-overview";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +57,9 @@ function AuthenticatedApp() {
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/people" component={People} />
+        <Route path="/activities" component={Activities} />
+        <Route path="/activities/:id" component={ActivityDetail} />
+        <Route path="/me" component={MyOverview} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />
         <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>

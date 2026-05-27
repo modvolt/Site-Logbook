@@ -399,6 +399,113 @@ export interface UserPreferencesInput {
   exportColumns?: string[] | null;
 }
 
+export interface Activity {
+  id: number;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  createdByUserId?: number | null;
+  /** @nullable */
+  createdByUserName?: string | null;
+  /** @nullable */
+  timerStartedAt?: string | null;
+  /** @nullable */
+  hoursSpent?: number | null;
+  materialsTotalCost?: number;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActivityInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+}
+
+export interface ActivityUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  hoursSpent?: number | null;
+  isArchived?: boolean;
+}
+
+export interface ActivityMaterial {
+  id: number;
+  activityId: number;
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface ActivityMaterialInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done?: boolean;
+  sortOrder?: number;
+}
+
+export interface ActivityMaterialUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done?: boolean;
+  sortOrder?: number;
+}
+
+export interface MyStats {
+  activityHoursWeek: number;
+  activityHoursMonth: number;
+  activityHoursAll: number;
+  activitiesActiveCount: number;
+  jobHoursWeek: number;
+  jobHoursMonth: number;
+  jobHoursAll: number;
+  jobsDoneCount: number;
+}
+
+export interface MyJobSummary {
+  id: number;
+  title: string;
+  date: string;
+  /** @nullable */
+  clientSite?: string | null;
+  /** @nullable */
+  hoursSpent: number | null;
+  status?: string;
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
@@ -417,5 +524,14 @@ status?: string;
  * @nullable
  */
 assignedPersonId?: number | null;
+};
+
+export type ListActivitiesParams = {
+archived?: boolean;
+mine?: boolean;
+};
+
+export type GetMyDoneJobsParams = {
+limit?: number;
 };
 

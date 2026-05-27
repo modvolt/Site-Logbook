@@ -6,6 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './activity';
+export * from './activityInput';
+export * from './activityMaterial';
+export * from './activityMaterialInput';
+export * from './activityMaterialUpdate';
+export * from './activityUpdate';
 export * from './attachment';
 export * from './attachmentInput';
 export * from './authUser';
@@ -13,17 +19,21 @@ export * from './customer';
 export * from './customerInput';
 export * from './dashboardSummary';
 export * from './errorEnvelope';
+export * from './getMyDoneJobsParams';
 export * from './healthStatus';
 export * from './job';
 export * from './jobInput';
 export * from './jobStatusUpdate';
 export * from './jobUpdate';
+export * from './listActivitiesParams';
 export * from './listJobsParams';
 export * from './loginInput';
 export * from './material';
 export * from './materialInput';
 export * from './materialUpdate';
 export * from './meResponse';
+export * from './myJobSummary';
+export * from './myStats';
 export * from './person';
 export * from './personInput';
 export * from './setupInput';

@@ -29,6 +29,10 @@ tags:
     description: Authentication and session management
   - name: users
     description: User management (admin)
+  - name: activities
+    description: Long-term activities with timers and materials
+  - name: me
+    description: Current user's overview and statistics
 
 paths:
   /healthz:
@@ -873,6 +877,274 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /activities:
+    get:
+      operationId: listActivities
+      tags: [activities]
+      summary: List activities
+      parameters:
+        - name: archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: mine
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of activities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Activity"
+    post:
+      operationId: createActivity
+      tags: [activities]
+      summary: Create a new activity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+
+  /activities/{id}:
+    get:
+      operationId: getActivity
+      tags: [activities]
+      summary: Get an activity by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateActivity
+      tags: [activities]
+      summary: Update an activity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+    delete:
+      operationId: deleteActivity
+      tags: [activities]
+      summary: Delete an activity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /activities/{id}/timer/start:
+    post:
+      operationId: startActivityTimer
+      tags: [activities]
+      summary: Start the activity timer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activity with running timer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+
+  /activities/{id}/timer/stop:
+    post:
+      operationId: stopActivityTimer
+      tags: [activities]
+      summary: Stop the activity timer and accumulate hours
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Activity with updated hours
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+
+  /activities/{activityId}/materials:
+    get:
+      operationId: listActivityMaterials
+      tags: [activities]
+      summary: List materials for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Materials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityMaterial"
+    post:
+      operationId: createActivityMaterial
+      tags: [activities]
+      summary: Add a material to an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityMaterialInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityMaterial"
+
+  /activities/{activityId}/materials/{materialId}:
+    patch:
+      operationId: updateActivityMaterial
+      tags: [activities]
+      summary: Update an activity material
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: materialId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityMaterialUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityMaterial"
+    delete:
+      operationId: deleteActivityMaterial
+      tags: [activities]
+      summary: Delete an activity material
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: materialId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /me/stats:
+    get:
+      operationId: getMyStats
+      tags: [me]
+      summary: Get current user's hours/activities stats
+      responses:
+        "200":
+          description: Stats summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyStats"
+
+  /me/jobs:
+    get:
+      operationId: getMyDoneJobs
+      tags: [me]
+      summary: Recent done jobs with hours
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Recent done jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MyJobSummary"
+
 components:
   schemas:
     HealthStatus:
@@ -1392,6 +1664,160 @@ components:
           type: ["array", "null"]
           items:
             type: string
+
+    Activity:
+      type: object
+      required: [id, name, isArchived, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+        customerName:
+          type: ["string", "null"]
+        createdByUserId:
+          type: ["integer", "null"]
+        createdByUserName:
+          type: ["string", "null"]
+        timerStartedAt:
+          type: ["string", "null"]
+        hoursSpent:
+          type: ["number", "null"]
+        materialsTotalCost:
+          type: number
+        isArchived:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    ActivityInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+
+    ActivityUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+        hoursSpent:
+          type: ["number", "null"]
+        isArchived:
+          type: boolean
+
+    ActivityMaterial:
+      type: object
+      required: [id, activityId, name, done, sortOrder, createdAt]
+      properties:
+        id:
+          type: integer
+        activityId:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+
+    ActivityMaterialInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+
+    ActivityMaterialUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+
+    MyStats:
+      type: object
+      required: [activityHoursWeek, activityHoursMonth, activityHoursAll, activitiesActiveCount, jobHoursWeek, jobHoursMonth, jobHoursAll, jobsDoneCount]
+      properties:
+        activityHoursWeek:
+          type: number
+        activityHoursMonth:
+          type: number
+        activityHoursAll:
+          type: number
+        activitiesActiveCount:
+          type: integer
+        jobHoursWeek:
+          type: number
+        jobHoursMonth:
+          type: number
+        jobHoursAll:
+          type: number
+        jobsDoneCount:
+          type: integer
+
+    MyJobSummary:
+      type: object
+      required: [id, title, date, hoursSpent]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        date:
+          type: string
+        clientSite:
+          type: ["string", "null"]
+        hoursSpent:
+          type: ["number", "null"]
+        status:
+          type: string
 
     ErrorEnvelope:
       type: object

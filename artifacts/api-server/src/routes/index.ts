@@ -11,6 +11,8 @@ import storageRouter from "./storage";
 import authRouter from "./auth";
 import usersRouter from "./users";
 import preferencesRouter from "./preferences";
+import activitiesRouter from "./activities";
+import meRouter from "./me";
 
 const router: IRouter = Router();
 
@@ -26,5 +28,7 @@ router.use(storageRouter);
 router.use(authRouter);
 router.use(usersRouter);
 router.use(preferencesRouter);
+router.use(activitiesRouter);
+router.use(meRouter);
 
 export default router;

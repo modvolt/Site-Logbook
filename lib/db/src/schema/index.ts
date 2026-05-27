@@ -6,3 +6,5 @@ export * from "./attachments";
 export * from "./materials";
 export * from "./users";
 export * from "./user-preferences";
+export * from "./activities";
+export * from "./activity-materials";

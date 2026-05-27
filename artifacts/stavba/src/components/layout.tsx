@@ -1,16 +1,36 @@
 import { Link, useLocation } from "wouter";
-import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye } from "lucide-react";
+import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye, Hammer, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-const navItems = [
+type NavItem = {
+  href: string;
+  icon: typeof Home;
+  label: string;
+  color: string;
+  activeBg: string;
+  hoverBg: string;
+  match?: (loc: string) => boolean;
+};
+
+const desktopNavItems: NavItem[] = [
   { href: "/", icon: Home, label: "Dnes", color: "text-amber-500", activeBg: "bg-amber-500 text-white", hoverBg: "hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-950/30" },
   { href: "/calendar", icon: Calendar, label: "Kalendář", color: "text-blue-500", activeBg: "bg-blue-500 text-white", hoverBg: "hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30" },
   { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "bg-violet-500 text-white", hoverBg: "hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-950/30" },
+  { href: "/activities", icon: Hammer, label: "Dlouhodobé akce", color: "text-orange-500", activeBg: "bg-orange-500 text-white", hoverBg: "hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30", match: (l) => l === "/activities" || l.startsWith("/activities/") },
   { href: "/customers", icon: Building2, label: "Zákazníci", color: "text-emerald-500", activeBg: "bg-emerald-500 text-white", hoverBg: "hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30" },
   { href: "/people", icon: Users, label: "Zaměstnanci", color: "text-teal-500", activeBg: "bg-teal-500 text-white", hoverBg: "hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-950/30" },
+  { href: "/me", icon: UserIcon, label: "Můj přehled", color: "text-indigo-500", activeBg: "bg-indigo-500 text-white", hoverBg: "hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/30" },
+];
+
+const mobileNavItems: NavItem[] = [
+  { href: "/", icon: Home, label: "Dnes", color: "text-amber-500", activeBg: "", hoverBg: "" },
+  { href: "/calendar", icon: Calendar, label: "Kalendář", color: "text-blue-500", activeBg: "", hoverBg: "" },
+  { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "", hoverBg: "" },
+  { href: "/activities", icon: Hammer, label: "Akce", color: "text-orange-500", activeBg: "", hoverBg: "", match: (l) => l === "/activities" || l.startsWith("/activities/") },
+  { href: "/me", icon: UserIcon, label: "Já", color: "text-indigo-500", activeBg: "", hoverBg: "" },
 ];
 
 const ROLE_BADGE: Record<string, string> = {
@@ -34,6 +54,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const isActive = (item: NavItem) => (item.match ? item.match(location) : location === item.href);
+
   return (
     <div className="flex min-h-[100dvh] w-full bg-background flex-col md:flex-row">
       {/* Desktop Sidebar */}
@@ -56,18 +78,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location === item.href;
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {desktopNavItems.map((item) => {
+            const active = isActive(item);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? `${item.activeBg}` : `text-muted-foreground ${item.hoverBg}`
+                  active ? `${item.activeBg}` : `text-muted-foreground ${item.hoverBg}`
                 }`}
               >
-                <item.icon className={`h-5 w-5 ${isActive ? "text-white" : item.color}`} />
+                <item.icon className={`h-5 w-5 ${active ? "text-white" : item.color}`} />
                 {item.label}
               </Link>
             );
@@ -159,14 +181,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card flex items-center justify-around h-16 px-1 z-40 safe-area-bottom">
-        {navItems.map((item) => {
-          const isActive = location === item.href;
+        {mobileNavItems.map((item) => {
+          const active = isActive(item);
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`flex flex-col items-center justify-center w-full h-full space-y-0.5 transition-colors ${
-                isActive ? item.color : "text-muted-foreground"
+                active ? item.color : "text-muted-foreground"
               }`}
             >
               <item.icon className="h-5 w-5" />
