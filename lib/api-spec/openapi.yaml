@@ -1,22 +1,31 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Stavba Job Tracker API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: jobs
+    description: Job/order management
+  - name: tasks
+    description: Tasks and checklists per job
+  - name: attachments
+    description: Attachments per job
+  - name: people
+    description: People / assigned workers
+  - name: dashboard
+    description: Dashboard summaries
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +33,402 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List jobs, optionally filtered by date range
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            description: ISO date string (YYYY-MM-DD)
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            description: ISO date string (YYYY-MM-DD)
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: assignedPersonId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Create a new job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a job by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateJob
+      tags: [jobs]
+      summary: Update a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobUpdate"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteJob
+      tags: [jobs]
+      summary: Delete a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /jobs/{id}/status:
+    patch:
+      operationId: updateJobStatus
+      tags: [jobs]
+      summary: Quick-update job status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobStatusUpdate"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+
+  /jobs/{jobId}/tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List tasks for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create a task for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /jobs/{jobId}/tasks/{taskId}:
+    patch:
+      operationId: updateTask
+      tags: [tasks]
+      summary: Update a task (e.g. toggle done)
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdate"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      tags: [tasks]
+      summary: Delete a task
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /jobs/{jobId}/attachments:
+    get:
+      operationId: listAttachments
+      tags: [attachments]
+      summary: List attachments for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Attachment"
+    post:
+      operationId: createAttachment
+      tags: [attachments]
+      summary: Add an attachment to a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachmentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+
+  /jobs/{jobId}/attachments/{attachmentId}:
+    delete:
+      operationId: deleteAttachment
+      tags: [attachments]
+      summary: Delete an attachment
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /people:
+    get:
+      operationId: listPeople
+      tags: [people]
+      summary: List all people
+      responses:
+        "200":
+          description: People
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Person"
+    post:
+      operationId: createPerson
+      tags: [people]
+      summary: Create a person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+
+  /people/{id}:
+    patch:
+      operationId: updatePerson
+      tags: [people]
+      summary: Update a person
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+    delete:
+      operationId: deletePerson
+      tags: [people]
+      summary: Delete a person
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/today:
+    get:
+      operationId: getTodayJobs
+      tags: [dashboard]
+      summary: Get today's jobs
+      responses:
+        "200":
+          description: Today's jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +439,248 @@ components:
       required:
         - status
 
+    Job:
+      type: object
+      required: [id, title, type, date, status, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          description: "site_visit | consultation | planned_work | service_call | change | other"
+        clientSite:
+          type: ["string", "null"]
+        date:
+          type: string
+          description: ISO date (YYYY-MM-DD)
+        startTime:
+          type: ["string", "null"]
+          description: "HH:MM"
+        endTime:
+          type: ["string", "null"]
+          description: "HH:MM"
+        status:
+          type: string
+          description: "planned | in_progress | done | cancelled"
+        assignedPersonId:
+          type: ["integer", "null"]
+        assignedPersonName:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        hoursSpent:
+          type: ["number", "null"]
+        price:
+          type: ["number", "null"]
+        transportKm:
+          type: ["number", "null"]
+        transportCost:
+          type: ["number", "null"]
+        fines:
+          type: ["number", "null"]
+        parking:
+          type: ["number", "null"]
+        taskCount:
+          type: integer
+        taskDoneCount:
+          type: integer
+        attachmentCount:
+          type: integer
+        createdAt:
+          type: string
+
+    JobInput:
+      type: object
+      required: [title, type, date, status]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        type:
+          type: string
+        clientSite:
+          type: ["string", "null"]
+        date:
+          type: string
+        startTime:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
+        status:
+          type: string
+        assignedPersonId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        hoursSpent:
+          type: ["number", "null"]
+        price:
+          type: ["number", "null"]
+        transportKm:
+          type: ["number", "null"]
+        transportCost:
+          type: ["number", "null"]
+        fines:
+          type: ["number", "null"]
+        parking:
+          type: ["number", "null"]
+
+    JobUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        type:
+          type: string
+        clientSite:
+          type: ["string", "null"]
+        date:
+          type: string
+        startTime:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
+        status:
+          type: string
+        assignedPersonId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        hoursSpent:
+          type: ["number", "null"]
+        price:
+          type: ["number", "null"]
+        transportKm:
+          type: ["number", "null"]
+        transportCost:
+          type: ["number", "null"]
+        fines:
+          type: ["number", "null"]
+        parking:
+          type: ["number", "null"]
+
+    JobStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    Task:
+      type: object
+      required: [id, jobId, title, done, isChangeRequest, createdAt]
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        title:
+          type: string
+        done:
+          type: boolean
+        isChangeRequest:
+          type: boolean
+          description: Marks this task as a change request / extra work
+        createdAt:
+          type: string
+
+    TaskInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        isChangeRequest:
+          type: boolean
+
+    TaskUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        done:
+          type: boolean
+        isChangeRequest:
+          type: boolean
+
+    Attachment:
+      type: object
+      required: [id, jobId, type, createdAt]
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        type:
+          type: string
+          description: "photo | delivery_note | receipt | invoice | manual_item"
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+          description: base64 data URL or file path
+        description:
+          type: ["string", "null"]
+        amount:
+          type: ["number", "null"]
+          description: For manual items and invoices
+        createdAt:
+          type: string
+
+    AttachmentInput:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        amount:
+          type: ["number", "null"]
+
+    Person:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        createdAt:
+          type: string
+
+    PersonInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    DashboardSummary:
+      type: object
+      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek]
+      properties:
+        todayCount:
+          type: integer
+        weekCount:
+          type: integer
+        plannedCount:
+          type: integer
+        inProgressCount:
+          type: integer
+        doneCount:
+          type: integer
+        totalHoursThisWeek:
+          type: number
+        totalRevenueThisWeek:
+          type: number
