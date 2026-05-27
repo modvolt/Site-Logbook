@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "heic2any": "^0.0.4",
     "xlsx": "^0.18.5"
   }
 }

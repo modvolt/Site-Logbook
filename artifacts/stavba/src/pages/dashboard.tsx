@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
@@ -42,6 +42,7 @@ function DashboardJobRow({ job }: { job: any }) {
   const updateStatus = useUpdateJobStatus();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const elapsed = useTimer(job.timerStartedAt);
   const isRunning = !!job.timerStartedAt;
 
@@ -91,56 +92,54 @@ function DashboardJobRow({ job }: { job: any }) {
         </div>
       )}
 
-      <Link href={`/jobs/${job.id}`}>
-        <div className="p-4">
-          {/* Title row + date on right */}
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <h3 className="font-bold text-lg leading-tight flex-1">{job.title}</h3>
-            <div className="text-right shrink-0">
-              <div className="text-base font-bold text-foreground">
-                {job.startTime && job.endTime ? `${job.startTime} – ${job.endTime}` : job.startTime || ""}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {format(new Date(job.date), "d.M.yyyy", { locale: cs })}
-              </div>
+      <div className="p-4 cursor-pointer" onClick={() => setLocation(`/jobs/${job.id}`)}>
+        {/* Title row + date on right */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="font-bold text-lg leading-tight flex-1">{job.title}</h3>
+          <div className="text-right shrink-0">
+            <div className="text-base font-bold text-foreground">
+              {job.startTime && job.endTime ? `${job.startTime} – ${job.endTime}` : job.startTime || ""}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {format(new Date(job.date), "d.M.yyyy", { locale: cs })}
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-2 mb-3">
-            <TypeBadge type={job.type} />
-            <StatusBadge status={job.status} />
-          </div>
-
-          <div className="space-y-1 text-sm text-muted-foreground">
-            {job.clientSite && (
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 shrink-0" />
-                <span className="truncate">{job.clientSite}</span>
-              </div>
-            )}
-            {job.address && (
-              <div className="flex items-center gap-2">
-                <Navigation className="w-4 h-4 shrink-0 text-blue-500" />
-                <a
-                  href={`https://waze.com/ul?q=${encodeURIComponent(job.address)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={e => e.stopPropagation()}
-                  className="text-blue-500 hover:underline truncate"
-                >
-                  {job.address}
-                </a>
-              </div>
-            )}
-            {job.assignedPersonName && (
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 shrink-0" />
-                <span className="truncate">{job.assignedPersonName}</span>
-              </div>
-            )}
-          </div>
         </div>
-      </Link>
+
+        <div className="flex flex-wrap gap-2 mb-3">
+          <TypeBadge type={job.type} />
+          <StatusBadge status={job.status} />
+        </div>
+
+        <div className="space-y-1 text-sm text-muted-foreground">
+          {job.clientSite && (
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 shrink-0" />
+              <span className="truncate">{job.clientSite}</span>
+            </div>
+          )}
+          {job.address && (
+            <div className="flex items-center gap-2">
+              <Navigation className="w-4 h-4 shrink-0 text-blue-500" />
+              <a
+                href={`https://waze.com/ul?q=${encodeURIComponent(job.address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="text-blue-500 hover:underline truncate"
+              >
+                {job.address}
+              </a>
+            </div>
+          )}
+          {job.assignedPersonName && (
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 shrink-0" />
+              <span className="truncate">{job.assignedPersonName}</span>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Action bar */}
       <div className="border-t flex">

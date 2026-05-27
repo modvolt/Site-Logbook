@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { 
-  useCreateJob, useListPeople, useCreateTask, 
+  useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
   useListCustomers,
   getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey 
 } from "@workspace/api-client-react";
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -28,6 +28,7 @@ export default function JobForm() {
   const { toast } = useToast();
   const createJob = useCreateJob();
   const createTask = useCreateTask();
+  const createMaterial = useCreateMaterial();
   
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
   const { data: customers } = useListCustomers({ query: { queryKey: getListCustomersQueryKey() } });
@@ -50,6 +51,9 @@ export default function JobForm() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [tasks, setTasks] = useState<string[]>([]);
   const [newTaskInput, setNewTaskInput] = useState("");
+  type MaterialRow = { name: string; quantity: string; unit: string; pricePerUnit: string };
+  const [materials, setMaterials] = useState<MaterialRow[]>([]);
+  const [newMaterial, setNewMaterial] = useState<MaterialRow>({ name: "", quantity: "", unit: "ks", pricePerUnit: "" });
   const customerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -97,6 +101,14 @@ export default function JobForm() {
 
   const removeTask = (i: number) => setTasks(prev => prev.filter((_, idx) => idx !== i));
 
+  const addMaterial = () => {
+    if (!newMaterial.name.trim()) return;
+    setMaterials(prev => [...prev, { ...newMaterial }]);
+    setNewMaterial({ name: "", quantity: "", unit: "ks", pricePerUnit: "" });
+  };
+
+  const removeMaterial = (i: number) => setMaterials(prev => prev.filter((_, idx) => idx !== i));
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title.trim()) {
@@ -121,10 +133,19 @@ export default function JobForm() {
     createJob.mutate({ data: jobData }, {
       onSuccess: async (newJob) => {
         queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
-        if (tasks.length > 0) {
-          for (const title of tasks) {
-            await createTask.mutateAsync({ jobId: newJob.id, data: { title } }).catch(() => {});
-          }
+        for (const title of tasks) {
+          await createTask.mutateAsync({ jobId: newJob.id, data: { title } }).catch(() => {});
+        }
+        for (const m of materials) {
+          await createMaterial.mutateAsync({
+            jobId: newJob.id,
+            data: {
+              name: m.name,
+              quantity: m.quantity ? parseFloat(m.quantity) : null,
+              unit: m.unit || null,
+              pricePerUnit: m.pricePerUnit ? parseFloat(m.pricePerUnit) : null,
+            },
+          }).catch(() => {});
         }
         toast({ title: "Zakázka vytvořena" });
         setLocation(`/jobs/${newJob.id}`);
@@ -327,6 +348,63 @@ export default function JobForm() {
               />
               <Button type="button" onClick={addTask} disabled={!newTaskInput.trim()} variant="secondary" className="h-12 px-4 shrink-0">
                 <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Materials section */}
+          <div className="space-y-3 pt-2 border-t">
+            <Label className="text-base flex items-center gap-2 pt-2"><ShoppingCart className="h-4 w-4" /> Materiál</Label>
+            {materials.length > 0 && (
+              <div className="space-y-2">
+                {materials.map((m, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg border text-sm">
+                    <span className="flex-1 font-medium truncate">{m.name}</span>
+                    {m.quantity && <span className="text-muted-foreground shrink-0">{m.quantity} {m.unit}</span>}
+                    {m.pricePerUnit && <span className="text-muted-foreground shrink-0">{m.pricePerUnit} Kč/ks</span>}
+                    <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" onClick={() => removeMaterial(i)}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Input
+                value={newMaterial.name}
+                onChange={e => setNewMaterial(p => ({ ...p, name: e.target.value }))}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addMaterial(); } }}
+                placeholder="Název materiálu..."
+                className="h-12 text-base"
+              />
+              <div className="grid grid-cols-3 gap-2">
+                <Input
+                  value={newMaterial.quantity}
+                  onChange={e => setNewMaterial(p => ({ ...p, quantity: e.target.value }))}
+                  placeholder="Množství"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-10"
+                />
+                <Input
+                  value={newMaterial.unit}
+                  onChange={e => setNewMaterial(p => ({ ...p, unit: e.target.value }))}
+                  placeholder="Jednotka"
+                  className="h-10"
+                />
+                <Input
+                  value={newMaterial.pricePerUnit}
+                  onChange={e => setNewMaterial(p => ({ ...p, pricePerUnit: e.target.value }))}
+                  placeholder="Kč/ks"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-10"
+                />
+              </div>
+              <Button type="button" onClick={addMaterial} disabled={!newMaterial.name.trim()} variant="secondary" className="h-11 w-full">
+                <Plus className="h-4 w-4 mr-2" /> Přidat materiál
               </Button>
             </div>
           </div>

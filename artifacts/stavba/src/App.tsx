@@ -13,6 +13,7 @@ import JobDetail from "@/pages/job-detail";
 import JobForm from "@/pages/job-form";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
+import CustomerDetail from "@/pages/customer-detail";
 import Settings from "@/pages/settings";
 
 const queryClient = new QueryClient({
@@ -34,6 +35,7 @@ function Router() {
         <Route path="/jobs/new" component={JobForm} />
         <Route path="/jobs/:id" component={JobDetail} />
         <Route path="/customers" component={Customers} />
+        <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/people" component={People} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />

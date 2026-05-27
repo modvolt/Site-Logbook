@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { 
   useListCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer, 
   getListCustomersQueryKey 
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Trash2, Plus, Edit3, Save, X, Phone } from "lucide-react";
+import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type CustomerForm = { companyName: string; contactPerson: string; phone: string };
@@ -18,6 +19,7 @@ const emptyForm: CustomerForm = { companyName: "", contactPerson: "", phone: "" 
 export default function Customers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const { data: customers, isLoading } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() }
@@ -188,7 +190,10 @@ export default function Customers() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
+                  <div
+                    className="flex items-center gap-3 cursor-pointer"
+                    onClick={() => setLocation(`/customers/${customer.id}`)}
+                  >
                     <div className="bg-primary/10 p-2.5 rounded-full text-primary shrink-0">
                       <Building2 className="h-5 w-5" />
                     </div>
@@ -199,20 +204,25 @@ export default function Customers() {
                           <span className="text-sm text-muted-foreground">{customer.contactPerson}</span>
                         )}
                         {customer.phone && (
-                          <a href={`tel:${customer.phone}`} className="flex items-center gap-1 text-sm text-primary font-medium hover:underline">
+                          <a
+                            href={`tel:${customer.phone}`}
+                            className="flex items-center gap-1 text-sm text-primary font-medium hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <Phone className="h-3.5 w-3.5" />
                             {customer.phone}
                           </a>
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={() => startEdit(customer)}>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground" onClick={(e) => { e.stopPropagation(); startEdit(customer); }}>
                         <Edit3 className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10" onClick={() => handleDelete(customer.id)}>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); handleDelete(customer.id); }}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground ml-1" />
                     </div>
                   </div>
                 )}

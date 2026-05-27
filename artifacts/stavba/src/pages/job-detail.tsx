@@ -25,9 +25,19 @@ import { useToast } from "@/hooks/use-toast";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 
 async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<string> {
+  let processedFile = file;
+  // Convert HEIC/HEIF to JPEG (iPhones, some shared Android photos)
+  if (
+    file.type === "image/heic" || file.type === "image/heif" ||
+    file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif")
+  ) {
+    const heic2any = (await import("heic2any")).default;
+    const blob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }) as Blob;
+    processedFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
+  }
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(processedFile);
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
       const scale = Math.min(1, maxPx / Math.max(img.width, img.height));

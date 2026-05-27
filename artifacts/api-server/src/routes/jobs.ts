@@ -23,6 +23,10 @@ function numericJobFields(data: Record<string, unknown>) {
   for (const f of fields) {
     if (f in data) out[f] = toStr(data[f] as number | null | undefined);
   }
+  // Drizzle timestamp columns require Date objects, not ISO strings
+  if ("timerStartedAt" in out && out.timerStartedAt != null) {
+    out.timerStartedAt = new Date(out.timerStartedAt as string);
+  }
   return out;
 }
 
