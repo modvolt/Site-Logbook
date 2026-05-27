@@ -12,7 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 function useTimer(timerStartedAt: string | null | undefined) {
@@ -168,6 +168,63 @@ function DashboardJobRow({ job }: { job: any }) {
   );
 }
 
+function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
+  const runningJob = jobs.find(j => !!j.timerStartedAt);
+  const updateJob = useUpdateJob();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const elapsed = useTimer(runningJob?.timerStartedAt);
+
+  if (!runningJob) return null;
+
+  const handleStop = () => {
+    const elapsedHours = elapsed / 3600;
+    updateJob.mutate(
+      { id: runningJob.id, data: { timerStartedAt: null, hoursSpent: Math.round(elapsedHours * 100) / 100 } },
+      {
+        onSuccess: (data) => {
+          queryClient.setQueryData(getGetJobQueryKey(runningJob.id), data);
+          queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          toast({ title: `Čas zastaven — ${formatElapsed(elapsed)} (${elapsedHours.toFixed(2)} h)` });
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl bg-green-500 text-white shadow-lg overflow-hidden">
+      <div className="px-4 pt-4 pb-3">
+        <div className="flex items-center gap-2 mb-1 opacity-80">
+          <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+          <span className="text-xs font-semibold uppercase tracking-wider">Měří se čas</span>
+        </div>
+        <div
+          className="font-bold text-lg leading-tight cursor-pointer hover:underline mb-3"
+          onClick={() => setLocation(`/jobs/${runningJob.id}`)}
+        >
+          {runningJob.title}
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Timer className="w-5 h-5 opacity-80" />
+            <span className="font-mono text-3xl font-bold tracking-tight">{formatElapsed(elapsed)}</span>
+          </div>
+          <Button
+            onClick={handleStop}
+            disabled={updateJob.isPending}
+            variant="secondary"
+            className="h-11 px-5 bg-white/20 hover:bg-white/30 text-white border-white/30 font-bold text-base shrink-0"
+          >
+            <Square className="w-4 h-4 mr-2 fill-current" /> Zastavit
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WeekEmployeeRow({ person, weekFrom, weekTo }: { person: any; weekFrom: string; weekTo: string }) {
   const { data: jobs } = useListJobs({ from: weekFrom, to: weekTo, assignedPersonId: person.id }, {
     query: { queryKey: getListJobsQueryKey({ from: weekFrom, to: weekTo, assignedPersonId: person.id }) }
@@ -213,6 +270,8 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
       <h1 className="text-2xl font-bold mb-6">Dnes</h1>
+
+      {jobs && <ActiveTimerBanner jobs={jobs} />}
 
       {loadingSummary ? (
         <Skeleton className="h-32 w-full mb-8" />
