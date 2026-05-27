@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
@@ -9,7 +9,33 @@ import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { exportJobsToXlsx, exportJobsToPdf } from "@/lib/export-jobs";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  exportJobsToXlsx,
+  exportJobsToPdf,
+  EXPORT_COLUMNS,
+  DEFAULT_EXPORT_COLUMNS,
+  type ExportColumnKey,
+} from "@/lib/export-jobs";
+
+const EXPORT_COLUMNS_STORAGE_KEY = "stavba.exportColumns.v1";
+
+function loadStoredColumns(): ExportColumnKey[] {
+  if (typeof window === "undefined") return DEFAULT_EXPORT_COLUMNS;
+  try {
+    const raw = window.localStorage.getItem(EXPORT_COLUMNS_STORAGE_KEY);
+    if (!raw) return DEFAULT_EXPORT_COLUMNS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_EXPORT_COLUMNS;
+    const valid = new Set(DEFAULT_EXPORT_COLUMNS);
+    const filtered = parsed.filter((k): k is ExportColumnKey =>
+      typeof k === "string" && valid.has(k as ExportColumnKey)
+    );
+    return filtered.length > 0 ? filtered : DEFAULT_EXPORT_COLUMNS;
+  } catch {
+    return DEFAULT_EXPORT_COLUMNS;
+  }
+}
 
 export default function Jobs() {
   const [status, setStatus] = useState<string>("all");
@@ -18,6 +44,20 @@ export default function Jobs() {
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [selectedColumns, setSelectedColumns] = useState<ExportColumnKey[]>(
+    loadStoredColumns
+  );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        EXPORT_COLUMNS_STORAGE_KEY,
+        JSON.stringify(selectedColumns)
+      );
+    } catch {
+      // ignore quota/availability errors
+    }
+  }, [selectedColumns]);
 
   const { data: jobs, isLoading } = useListJobs(
     status !== "all" ? { status } : {},
@@ -46,13 +86,39 @@ export default function Jobs() {
     }
   );
 
+  const orderedSelected = DEFAULT_EXPORT_COLUMNS.filter(k =>
+    selectedColumns.includes(k)
+  );
+  const hasColumns = orderedSelected.length > 0;
+
+  function toggleColumn(key: ExportColumnKey, checked: boolean) {
+    setSelectedColumns(prev => {
+      const set = new Set(prev);
+      if (checked) set.add(key);
+      else set.delete(key);
+      return DEFAULT_EXPORT_COLUMNS.filter(k => set.has(k));
+    });
+  }
+
+  function selectAllColumns() {
+    setSelectedColumns(DEFAULT_EXPORT_COLUMNS);
+  }
+
+  function clearAllColumns() {
+    setSelectedColumns([]);
+  }
+
   function handleExport() {
     setExporting(true);
     try {
       const data = exportJobs ?? [];
       const fromLabel = exportFrom || "začátek";
       const toLabel = exportTo || "konec";
-      exportJobsToXlsx(data, `zakázky-${fromLabel}–${toLabel}.xlsx`);
+      exportJobsToXlsx(
+        data,
+        `zakázky-${fromLabel}–${toLabel}.xlsx`,
+        orderedSelected
+      );
       setExportOpen(false);
     } finally {
       setExporting(false);
@@ -69,6 +135,7 @@ export default function Jobs() {
         from: exportFrom || undefined,
         to: exportTo || undefined,
         filename: `zakázky-${fromLabel}–${toLabel}.pdf`,
+        columnKeys: orderedSelected,
       });
       setExportOpen(false);
     } finally {
@@ -126,7 +193,7 @@ export default function Jobs() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5" />
-              Export zakázek do Excelu
+              Export zakázek
             </DialogTitle>
           </DialogHeader>
 
@@ -155,15 +222,55 @@ export default function Jobs() {
               </div>
             </div>
 
-            <div className="rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground">
-              {exportJobs != null
-                ? `${exportJobs.length} zakázek bude exportováno`
-                : "Načítám…"}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Sloupce v exportu</Label>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={selectAllColumns}
+                    className="text-primary hover:underline"
+                  >
+                    Vybrat vše
+                  </button>
+                  <span className="text-muted-foreground">·</span>
+                  <button
+                    type="button"
+                    onClick={clearAllColumns}
+                    className="text-primary hover:underline"
+                  >
+                    Zrušit vše
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2 rounded-md border p-3 max-h-48 overflow-y-auto">
+                {EXPORT_COLUMNS.map(col => {
+                  const checked = selectedColumns.includes(col.key);
+                  const id = `export-col-${col.key}`;
+                  return (
+                    <div key={col.key} className="flex items-center gap-2">
+                      <Checkbox
+                        id={id}
+                        checked={checked}
+                        onCheckedChange={(v) => toggleColumn(col.key, v === true)}
+                      />
+                      <Label
+                        htmlFor={id}
+                        className="text-sm font-normal cursor-pointer"
+                      >
+                        {col.label}
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            <p className="text-xs text-muted-foreground">
-              Soubor bude obsahovat: název, datum, typ, stav, zákazník, hodiny Vašek/Jonáš, cenu, km, parkování, pokuty a poznámky.
-            </p>
+            <div className="rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground">
+              {exportJobs != null
+                ? `${exportJobs.length} zakázek bude exportováno · ${orderedSelected.length} sloupců`
+                : "Načítám…"}
+            </div>
           </div>
 
           <DialogFooter className="gap-2 flex-wrap">
@@ -173,7 +280,7 @@ export default function Jobs() {
             <Button
               variant="outline"
               onClick={handleExportPdf}
-              disabled={exporting || exportJobs == null}
+              disabled={exporting || exportJobs == null || !hasColumns}
               className="gap-2"
             >
               <Download className="h-4 w-4" />
@@ -181,7 +288,7 @@ export default function Jobs() {
             </Button>
             <Button
               onClick={handleExport}
-              disabled={exporting || exportJobs == null}
+              disabled={exporting || exportJobs == null || !hasColumns}
               className="gap-2"
             >
               <Download className="h-4 w-4" />

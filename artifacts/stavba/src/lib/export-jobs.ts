@@ -22,7 +22,147 @@ type Job = {
   notes?: string | null;
 };
 
-const COL_WIDTHS = [30, 12, 20, 15, 25, 10, 10, 12, 8, 10, 10, 40];
+export type ExportColumnKey =
+  | "title"
+  | "date"
+  | "type"
+  | "status"
+  | "customer"
+  | "hoursVasek"
+  | "hoursJonas"
+  | "price"
+  | "transportKm"
+  | "parking"
+  | "fines"
+  | "notes";
+
+type ColumnDef = {
+  key: ExportColumnKey;
+  label: string;
+  xlsxWidth: number;
+  pdfWidth: number | "auto";
+  pdfAlign?: "left" | "right" | "center";
+  numeric?: boolean;
+  totalKey?: keyof ReturnType<typeof calcTotals>;
+  value: (job: Job) => string | number;
+};
+
+export const EXPORT_COLUMNS: ColumnDef[] = [
+  {
+    key: "title",
+    label: "Název zakázky",
+    xlsxWidth: 30,
+    pdfWidth: 40,
+    value: (j) => (j.type === "change" ? `${j.title} [Vícepráce]` : j.title),
+  },
+  {
+    key: "date",
+    label: "Datum",
+    xlsxWidth: 12,
+    pdfWidth: 18,
+    value: (j) => j.date,
+  },
+  {
+    key: "type",
+    label: "Typ",
+    xlsxWidth: 20,
+    pdfWidth: 22,
+    value: (j) =>
+      JOB_TYPES[j.type as keyof typeof JOB_TYPES]?.label ?? j.type,
+  },
+  {
+    key: "status",
+    label: "Stav",
+    xlsxWidth: 15,
+    pdfWidth: 18,
+    value: (j) =>
+      JOB_STATUSES[j.status as keyof typeof JOB_STATUSES]?.label ?? j.status,
+  },
+  {
+    key: "customer",
+    label: "Zákazník / stavba",
+    xlsxWidth: 25,
+    pdfWidth: 30,
+    value: (j) => j.customerCompanyName || j.clientSite || "",
+  },
+  {
+    key: "hoursVasek",
+    label: "Hod. Vašek",
+    xlsxWidth: 10,
+    pdfWidth: 14,
+    pdfAlign: "right",
+    numeric: true,
+    totalKey: "hoursVasek",
+    value: (j) => j.hoursVasek ?? "",
+  },
+  {
+    key: "hoursJonas",
+    label: "Hod. Jonáš",
+    xlsxWidth: 10,
+    pdfWidth: 14,
+    pdfAlign: "right",
+    numeric: true,
+    totalKey: "hoursJonas",
+    value: (j) => j.hoursJonas ?? "",
+  },
+  {
+    key: "price",
+    label: "Cena (Kč)",
+    xlsxWidth: 12,
+    pdfWidth: 16,
+    pdfAlign: "right",
+    numeric: true,
+    totalKey: "price",
+    value: (j) => j.price ?? "",
+  },
+  {
+    key: "transportKm",
+    label: "Km",
+    xlsxWidth: 8,
+    pdfWidth: 10,
+    pdfAlign: "right",
+    numeric: true,
+    totalKey: "transportKm",
+    value: (j) => j.transportKm ?? "",
+  },
+  {
+    key: "parking",
+    label: "Parkování",
+    xlsxWidth: 10,
+    pdfWidth: 16,
+    pdfAlign: "right",
+    numeric: true,
+    totalKey: "parking",
+    value: (j) => j.parking ?? "",
+  },
+  {
+    key: "fines",
+    label: "Pokuty",
+    xlsxWidth: 10,
+    pdfWidth: 13,
+    pdfAlign: "right",
+    numeric: true,
+    totalKey: "fines",
+    value: (j) => j.fines ?? "",
+  },
+  {
+    key: "notes",
+    label: "Poznámky",
+    xlsxWidth: 40,
+    pdfWidth: "auto",
+    value: (j) => j.notes ?? "",
+  },
+];
+
+export const DEFAULT_EXPORT_COLUMNS: ExportColumnKey[] = EXPORT_COLUMNS.map(
+  (c) => c.key
+);
+
+function selectColumns(keys?: ExportColumnKey[]): ColumnDef[] {
+  if (!keys || keys.length === 0) return EXPORT_COLUMNS;
+  const set = new Set(keys);
+  return EXPORT_COLUMNS.filter((c) => set.has(c.key));
+}
 
 function calcTotals(jobs: Job[]) {
   return {
@@ -41,7 +181,13 @@ function fmt(n: number): number | string {
   return n === 0 ? "" : n;
 }
 
-export function exportJobsToXlsx(jobs: Job[], filename?: string) {
+export function exportJobsToXlsx(
+  jobs: Job[],
+  filename?: string,
+  columnKeys?: ExportColumnKey[]
+) {
+  const cols = selectColumns(columnKeys);
+
   const standardJobs = jobs.filter((j) => j.type !== "change");
   const vicepraceJobs = jobs.filter((j) => j.type === "change");
 
@@ -57,12 +203,7 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
   ];
 
   const summaryRows = [
-    [
-      "Počet zakázek",
-      totAll.count,
-      totStd.count,
-      totVic.count,
-    ],
+    ["Počet zakázek", totAll.count, totStd.count, totVic.count],
     [
       "Hodiny – Vašek",
       fmt(totAll.hoursVasek),
@@ -81,12 +222,7 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
       fmt(totStd.hoursVasek + totStd.hoursJonas),
       fmt(totVic.hoursVasek + totVic.hoursJonas),
     ],
-    [
-      "Cena (Kč)",
-      fmt(totAll.price),
-      fmt(totStd.price),
-      fmt(totVic.price),
-    ],
+    ["Cena (Kč)", fmt(totAll.price), fmt(totStd.price), fmt(totVic.price)],
     [
       "Doprava (km)",
       fmt(totAll.transportKm),
@@ -105,67 +241,20 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
       fmt(totStd.parking),
       fmt(totVic.parking),
     ],
-    [
-      "Pokuty (Kč)",
-      fmt(totAll.fines),
-      fmt(totStd.fines),
-      fmt(totVic.fines),
-    ],
+    ["Pokuty (Kč)", fmt(totAll.fines), fmt(totStd.fines), fmt(totVic.fines)],
   ];
 
-  const dataHeader = [
-    "Název zakázky",
-    "Datum",
-    "Typ",
-    "Stav",
-    "Zákazník / stavba",
-    "Hod. Vašek",
-    "Hod. Jonáš",
-    "Cena (Kč)",
-    "Km",
-    "Parkování",
-    "Pokuty",
-    "Poznámky",
-  ];
-
-  const dataRows = jobs.map((job) => {
-    const typeCfg = JOB_TYPES[job.type as keyof typeof JOB_TYPES];
-    const statusCfg = JOB_STATUSES[job.status as keyof typeof JOB_STATUSES];
-    const customer = job.customerCompanyName || job.clientSite || "";
-    const isVicerace = job.type === "change";
-
-    return [
-      isVicerace ? `${job.title} [Vícepráce]` : job.title,
-      job.date,
-      typeCfg?.label ?? job.type,
-      statusCfg?.label ?? job.status,
-      customer,
-      job.hoursVasek ?? "",
-      job.hoursJonas ?? "",
-      job.price ?? "",
-      job.transportKm ?? "",
-      job.parking ?? "",
-      job.fines ?? "",
-      job.notes ?? "",
-    ];
+  const dataHeader = cols.map((c) => c.label);
+  const dataRows = jobs.map((job) => cols.map((c) => c.value(job)));
+  const totalsRow = cols.map((c, i) => {
+    if (i === 0) return `Celkem zakázek: ${jobs.length}`;
+    if (c.totalKey) {
+      const v = totAll[c.totalKey];
+      return typeof v === "number" ? fmt(v) : "";
+    }
+    return "";
   });
 
-  const totalsRow = [
-    `Celkem zakázek: ${jobs.length}`,
-    "",
-    "",
-    "",
-    "",
-    fmt(totAll.hoursVasek),
-    fmt(totAll.hoursJonas),
-    fmt(totAll.price),
-    fmt(totAll.transportKm),
-    fmt(totAll.parking),
-    fmt(totAll.fines),
-    "",
-  ];
-
-  const SUMMARY_TITLE_ROW = 0;
   const SUMMARY_HEADER_ROW = 2;
   const SUMMARY_DATA_START = 3;
   const SUMMARY_DATA_END = SUMMARY_DATA_START + summaryRows.length - 1;
@@ -186,7 +275,7 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-  ws["!cols"] = COL_WIDTHS.map((w) => ({ wch: w }));
+  ws["!cols"] = cols.map((c) => ({ wch: c.xlsxWidth }));
 
   const DARK = "1E3A5F";
   const ACCENT = "2563EB";
@@ -304,8 +393,14 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
 
 export function exportJobsToPdf(
   jobs: Job[],
-  options?: { from?: string; to?: string; filename?: string }
+  options?: {
+    from?: string;
+    to?: string;
+    filename?: string;
+    columnKeys?: ExportColumnKey[];
+  }
 ) {
+  const cols = selectColumns(options?.columnKeys);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
 
   const standardJobs = jobs.filter((j) => j.type !== "change");
@@ -389,60 +484,34 @@ export function exportJobsToPdf(
     margin: { left: 14 },
   });
 
-  const summaryEndY = (doc as unknown as { lastAutoTable: { finalY: number } })
-    .lastAutoTable.finalY + 6;
+  const summaryEndY =
+    (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable
+      .finalY + 6;
 
-  const dataHeader = [
-    "Název zakázky",
-    "Datum",
-    "Typ",
-    "Stav",
-    "Zákazník / stavba",
-    "Hod. Vašek",
-    "Hod. Jonáš",
-    "Cena (Kč)",
-    "Km",
-    "Parkování",
-    "Pokuty",
-    "Poznámky",
-  ];
+  const dataHeader = cols.map((c) => c.label);
 
-  const dataRows = jobs.map((job) => {
-    const typeCfg = JOB_TYPES[job.type as keyof typeof JOB_TYPES];
-    const statusCfg = JOB_STATUSES[job.status as keyof typeof JOB_STATUSES];
-    const customer = job.customerCompanyName || job.clientSite || "";
-    const isVicerace = job.type === "change";
+  const dataRows = jobs.map((job) =>
+    cols.map((c) => {
+      const v = c.value(job);
+      return v === "" || v == null ? "" : String(v);
+    })
+  );
 
-    return [
-      isVicerace ? `${job.title} [Vícepráce]` : job.title,
-      job.date,
-      typeCfg?.label ?? job.type,
-      statusCfg?.label ?? job.status,
-      customer,
-      job.hoursVasek != null ? String(job.hoursVasek) : "",
-      job.hoursJonas != null ? String(job.hoursJonas) : "",
-      job.price != null ? String(job.price) : "",
-      job.transportKm != null ? String(job.transportKm) : "",
-      job.parking != null ? String(job.parking) : "",
-      job.fines != null ? String(job.fines) : "",
-      job.notes ?? "",
-    ];
+  const totalsRow = cols.map((c, i) => {
+    if (i === 0) return `Celkem: ${jobs.length}`;
+    if (c.totalKey) {
+      const v = totAll[c.totalKey];
+      return typeof v === "number" && v > 0 ? String(v) : "";
+    }
+    return "";
   });
 
-  const totalsRow = [
-    `Celkem: ${jobs.length}`,
-    "",
-    "",
-    "",
-    "",
-    totAll.hoursVasek > 0 ? String(totAll.hoursVasek) : "",
-    totAll.hoursJonas > 0 ? String(totAll.hoursJonas) : "",
-    totAll.price > 0 ? String(totAll.price) : "",
-    totAll.transportKm > 0 ? String(totAll.transportKm) : "",
-    totAll.parking > 0 ? String(totAll.parking) : "",
-    totAll.fines > 0 ? String(totAll.fines) : "",
-    "",
-  ];
+  const columnStyles: Record<number, Record<string, unknown>> = {};
+  cols.forEach((c, i) => {
+    const style: Record<string, unknown> = { cellWidth: c.pdfWidth };
+    if (c.pdfAlign) style.halign = c.pdfAlign;
+    columnStyles[i] = style;
+  });
 
   autoTable(doc, {
     startY: summaryEndY,
@@ -450,20 +519,7 @@ export function exportJobsToPdf(
     body: [...dataRows, totalsRow],
     styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
     headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
-    columnStyles: {
-      0: { cellWidth: 40 },
-      1: { cellWidth: 18 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: 18 },
-      4: { cellWidth: 30 },
-      5: { cellWidth: 14, halign: "right" },
-      6: { cellWidth: 14, halign: "right" },
-      7: { cellWidth: 16, halign: "right" },
-      8: { cellWidth: 10, halign: "right" },
-      9: { cellWidth: 16, halign: "right" },
-      10: { cellWidth: 13, halign: "right" },
-      11: { cellWidth: "auto" },
-    },
+    columnStyles,
     didParseCell: (data: any) => {
       if (data.row.index === dataRows.length) {
         data.cell.styles.fontStyle = "bold";
