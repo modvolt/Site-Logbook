@@ -1,0 +1,1 @@
+- [Object storage setup](object-storage.md) — attachments now stored in GCS; url column holds /objects/... paths; legacy base64 still displays via getAttachmentUrl() fallback.

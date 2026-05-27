@@ -9,6 +9,7 @@ import {
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
   useListCustomers, getListCustomersQueryKey
 } from "@workspace/api-client-react";
+import { useUpload } from "@workspace/object-storage-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
@@ -24,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 
-async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<string> {
+async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
   let processedFile = file;
   // Convert HEIC/HEIF to JPEG (iPhones, some shared Android photos)
   if (
@@ -49,11 +50,21 @@ async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<
       const ctx = canvas.getContext("2d");
       if (!ctx) { reject(new Error("No canvas context")); return; }
       ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+      canvas.toBlob((blob) => {
+        if (!blob) { reject(new Error("Canvas toBlob failed")); return; }
+        const outName = processedFile.name.replace(/\.(heic|heif)$/i, ".jpg");
+        resolve(new File([blob], outName, { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
     };
     img.onerror = reject;
     img.src = objectUrl;
   });
+}
+
+function getAttachmentUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:")) return url;
+  return `/api/storage${url}`;
 }
 
 function useSaveFlash() {
@@ -582,14 +593,20 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
     });
   };
 
-  const handleTaskPhoto = (taskId: number, file: File) => {
-    compressImage(file).then((url) => {
-      createAttachment.mutate({ jobId, data: { type: "photo", fileName: file.name, url, description: `Foto k úkolu` } }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) });
-          toast({ title: "Fotografie uložena" });
-        }
-      });
+  const { uploadFile: uploadPhotoForTask } = useUpload();
+
+  const handleTaskPhoto = async (taskId: number, file: File) => {
+    const prepared = await prepareImageFile(file);
+    const result = await uploadPhotoForTask(prepared);
+    if (!result) {
+      toast({ title: "Nahrání selhalo", variant: "destructive" });
+      return;
+    }
+    createAttachment.mutate({ jobId, data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: `Foto k úkolu` } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) });
+        toast({ title: "Fotografie uložena" });
+      }
     });
   };
 
@@ -890,29 +907,29 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
 
   const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const { uploadFile: uploadDoklad, isUploading: isUploadingDoklad } = useUpload();
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
 
-    const isPhoto = file.type.startsWith("image/");
+    const isPhoto = file.type.startsWith("image/") ||
+      file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
     const type = isPhoto ? "receipt" : "invoice";
-    const getUrl = isPhoto
-      ? compressImage(file)
-      : new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve(ev.target?.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
 
-    getUrl.then((url) => {
-      createAttachment.mutate({ jobId, data: { type, fileName: file.name, url } }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-          toast({ title: "Doklad uložen" });
-        }
-      });
+    const toUpload = isPhoto ? await prepareImageFile(file) : file;
+    const result = await uploadDoklad(toUpload);
+    if (!result) {
+      toast({ title: "Nahrání selhalo", variant: "destructive" });
+      return;
+    }
+
+    createAttachment.mutate({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+        toast({ title: "Doklad uložen" });
+      }
     });
   };
 
@@ -943,37 +960,40 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
         <div className="flex gap-2">
           <Button 
             onClick={() => fileInputRef.current?.click()} 
-            disabled={createAttachment.isPending}
+            disabled={createAttachment.isPending || isUploadingDoklad}
             variant="secondary"
             className="flex-1 h-12 text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> Vyfotit / nahrát doklad
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? "Nahrávám..." : "Vyfotit / nahrát doklad"}
           </Button>
         </div>
 
         {doklady.length > 0 && (
           <div className="space-y-2">
-            {doklady.map(doc => (
-              <div key={doc.id} className="flex items-center gap-3 p-3 bg-muted/40 border rounded-lg group">
-                <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded text-amber-600 dark:text-amber-400 shrink-0">
-                  <FileImage className="w-4 h-4" />
+            {doklady.map(doc => {
+              const displayUrl = getAttachmentUrl(doc.url);
+              return (
+                <div key={doc.id} className="flex items-center gap-3 p-3 bg-muted/40 border rounded-lg group">
+                  <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded text-amber-600 dark:text-amber-400 shrink-0">
+                    <FileImage className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{doc.fileName || "Doklad"}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{doc.type === "invoice" ? "Faktura" : doc.type === "receipt" ? "Účtenka" : "Dodací list"}</p>
+                  </div>
+                  {displayUrl && (
+                    <a href={displayUrl} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">Zobrazit</a>
+                  )}
+                  <Button 
+                    variant="ghost" size="icon" 
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    onClick={() => handleDelete(doc.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{doc.fileName || "Doklad"}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{doc.type === "invoice" ? "Faktura" : doc.type === "receipt" ? "Účtenka" : "Dodací list"}</p>
-                </div>
-                {doc.url && doc.url.startsWith("data:image") && (
-                  <a href={doc.url} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">Zobrazit</a>
-                )}
-                <Button 
-                  variant="ghost" size="icon" 
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                  onClick={() => handleDelete(doc.id)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -999,21 +1019,28 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const { uploadFile: uploadPhoto, isUploading: isUploadingPhoto } = useUpload();
+
+  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
 
-    compressImage(file).then((url) => {
-      createAttachment.mutate({ 
-        jobId, 
-        data: { type: "photo", fileName: file.name, url, description: "Foto ze stavby" } 
-      }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-          toast({ title: "Fotografie uložena" });
-        }
-      });
+    const prepared = await prepareImageFile(file);
+    const result = await uploadPhoto(prepared);
+    if (!result) {
+      toast({ title: "Nahrání selhalo", variant: "destructive" });
+      return;
+    }
+
+    createAttachment.mutate({ 
+      jobId, 
+      data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: "Foto ze stavby" } 
+    }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+        toast({ title: "Fotografie uložena" });
+      }
     });
   };
 
@@ -1042,32 +1069,35 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
           />
           <Button 
             onClick={() => fileInputRef.current?.click()} 
-            disabled={createAttachment.isPending}
+            disabled={createAttachment.isPending || isUploadingPhoto}
             className="flex-1 h-14 bg-primary text-primary-foreground text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> Vyfotit stavbu
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? "Nahrávám..." : "Vyfotit stavbu"}
           </Button>
         </div>
 
         {photos.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {photos.map(photo => (
-              <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden border group bg-muted">
-                {photo.url ? (
-                  <img src={photo.url} alt={photo.fileName || "Fotografie"} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                    <Camera className="w-8 h-8 opacity-20" />
-                  </div>
-                )}
-                <button 
-                  onClick={() => handleDelete(photo.id)}
-                  className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-destructive shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
+            {photos.map(photo => {
+              const src = getAttachmentUrl(photo.url);
+              return (
+                <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden border group bg-muted">
+                  {src ? (
+                    <img src={src} alt={photo.fileName || "Fotografie"} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                      <Camera className="w-8 h-8 opacity-20" />
+                    </div>
+                  )}
+                  <button 
+                    onClick={() => handleDelete(photo.id)}
+                    className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-destructive shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
         
