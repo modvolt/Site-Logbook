@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
 import { sortJobsDoneLast } from "@/lib/job-sort";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Download, Calendar } from "lucide-react";
+import { Search, Download, Calendar, Save, Pencil, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,12 @@ import {
   type ExportColumnKey,
 } from "@/lib/export-jobs";
 import { loadCompanySettings } from "@/lib/company-settings";
+import {
+  loadPresets,
+  savePresets,
+  createPresetId,
+  type ExportPreset,
+} from "@/lib/export-presets";
 
 const EXPORT_COLUMNS_STORAGE_KEY = "stavba.exportColumns.v1";
 
@@ -63,6 +69,67 @@ export default function Jobs() {
     loadStoredColumns
   );
   const [isHydrated, setIsHydrated] = useState(false);
+  const [presets, setPresets] = useState<ExportPreset[]>(() => loadPresets());
+  const [activePresetId, setActivePresetId] = useState<string>("");
+
+  function persistPresets(next: ExportPreset[]) {
+    setPresets(next);
+    savePresets(next);
+  }
+
+  function handleApplyPreset(id: string) {
+    setActivePresetId(id);
+    const preset = presets.find(p => p.id === id);
+    if (!preset) return;
+    persistColumns(DEFAULT_EXPORT_COLUMNS.filter(k => preset.columns.includes(k)));
+  }
+
+  function handleSavePreset() {
+    const name = window.prompt("Název předvolby:");
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const existing = presets.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      const ok = window.confirm(`Předvolba "${trimmed}" už existuje. Přepsat?`);
+      if (!ok) return;
+      const next = presets.map(p =>
+        p.id === existing.id ? { ...p, columns: [...orderedSelected] } : p
+      );
+      persistPresets(next);
+      setActivePresetId(existing.id);
+      return;
+    }
+    const preset: ExportPreset = {
+      id: createPresetId(),
+      name: trimmed,
+      columns: [...orderedSelected],
+    };
+    persistPresets([...presets, preset]);
+    setActivePresetId(preset.id);
+  }
+
+  function handleRenamePreset() {
+    const preset = presets.find(p => p.id === activePresetId);
+    if (!preset) return;
+    const name = window.prompt("Přejmenovat předvolbu:", preset.name);
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === preset.name) return;
+    const next = presets.map(p =>
+      p.id === preset.id ? { ...p, name: trimmed } : p
+    );
+    persistPresets(next);
+  }
+
+  function handleDeletePreset() {
+    const preset = presets.find(p => p.id === activePresetId);
+    if (!preset) return;
+    const ok = window.confirm(`Smazat předvolbu "${preset.name}"?`);
+    if (!ok) return;
+    persistPresets(presets.filter(p => p.id !== preset.id));
+    setActivePresetId("");
+  }
 
   const { data: serverPrefs, isFetched: serverPrefsFetched } = useGetMyPreferences({
     query: {
@@ -280,6 +347,62 @@ export default function Jobs() {
                   value={exportTo}
                   onChange={e => setExportTo(e.target.value)}
                 />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">Předvolby</Label>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={activePresetId || "__none"}
+                  onValueChange={(v) => {
+                    if (v === "__none") {
+                      setActivePresetId("");
+                    } else {
+                      handleApplyPreset(v);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Vybrat předvolbu…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">— bez předvolby —</SelectItem>
+                    {presets.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleSavePreset}
+                  disabled={!hasColumns}
+                  title="Uložit jako novou předvolbu"
+                >
+                  <Save className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleRenamePreset}
+                  disabled={!activePresetId}
+                  title="Přejmenovat předvolbu"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleDeletePreset}
+                  disabled={!activePresetId}
+                  title="Smazat předvolbu"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             </div>
 
