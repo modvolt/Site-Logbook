@@ -37,8 +37,13 @@ export const ListJobsResponseItem = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
@@ -67,8 +72,11 @@ export const CreateJobBody = zod.object({
   "endTime": zod.string().nullish(),
   "status": zod.string(),
   "assignedPersonId": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
@@ -95,8 +103,13 @@ export const GetJobResponse = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
@@ -128,8 +141,11 @@ export const UpdateJobBody = zod.object({
   "endTime": zod.string().nullish(),
   "status": zod.string().optional(),
   "assignedPersonId": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
@@ -148,8 +164,13 @@ export const UpdateJobResponse = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
@@ -192,8 +213,13 @@ export const UpdateJobStatusResponse = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
@@ -217,6 +243,7 @@ export const ListTasksResponseItem = zod.object({
   "id": zod.number(),
   "jobId": zod.number(),
   "title": zod.string(),
+  "description": zod.string().nullish(),
   "done": zod.boolean(),
   "isChangeRequest": zod.boolean().describe('Marks this task as a change request \/ extra work'),
   "createdAt": zod.string()
@@ -236,6 +263,7 @@ export const CreateTaskParams = zod.object({
 
 export const CreateTaskBody = zod.object({
   "title": zod.string().min(1),
+  "description": zod.string().nullish(),
   "isChangeRequest": zod.boolean().optional()
 })
 
@@ -253,6 +281,7 @@ export const UpdateTaskParams = zod.object({
 
 export const UpdateTaskBody = zod.object({
   "title": zod.string().min(1).optional(),
+  "description": zod.string().nullish(),
   "done": zod.boolean().optional(),
   "isChangeRequest": zod.boolean().optional()
 })
@@ -261,6 +290,7 @@ export const UpdateTaskResponse = zod.object({
   "id": zod.number(),
   "jobId": zod.number(),
   "title": zod.string(),
+  "description": zod.string().nullish(),
   "done": zod.boolean(),
   "isChangeRequest": zod.boolean().describe('Marks this task as a change request \/ extra work'),
   "createdAt": zod.string()
@@ -373,6 +403,65 @@ export const DeletePersonParams = zod.object({
 
 
 /**
+ * @summary List all customers
+ */
+export const ListCustomersResponseItem = zod.object({
+  "id": zod.number(),
+  "companyName": zod.string(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
+
+
+/**
+ * @summary Create a customer
+ */
+
+
+
+export const CreateCustomerBody = zod.object({
+  "companyName": zod.string().min(1),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a customer
+ */
+export const UpdateCustomerParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateCustomerBody = zod.object({
+  "companyName": zod.string().min(1),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish()
+})
+
+export const UpdateCustomerResponse = zod.object({
+  "id": zod.number(),
+  "companyName": zod.string(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a customer
+ */
+export const DeleteCustomerParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary Get dashboard summary stats
  */
 export const GetDashboardSummaryResponse = zod.object({
@@ -400,8 +489,13 @@ export const GetTodayJobsResponseItem = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
   "price": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),

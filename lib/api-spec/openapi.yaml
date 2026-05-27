@@ -17,6 +17,8 @@ tags:
     description: Attachments per job
   - name: people
     description: People / assigned workers
+  - name: customers
+    description: Customer companies
   - name: dashboard
     description: Dashboard summaries
 
@@ -401,6 +403,80 @@ paths:
         "204":
           description: Deleted
 
+  /customers:
+    get:
+      operationId: listCustomers
+      tags: [customers]
+      summary: List all customers
+      responses:
+        "200":
+          description: Customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Customer"
+    post:
+      operationId: createCustomer
+      tags: [customers]
+      summary: Create a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+
+  /customers/{id}:
+    patch:
+      operationId: updateCustomer
+      tags: [customers]
+      summary: Update a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCustomer
+      tags: [customers]
+      summary: Delete a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -439,6 +515,33 @@ components:
       required:
         - status
 
+    Customer:
+      type: object
+      required: [id, companyName, createdAt]
+      properties:
+        id:
+          type: integer
+        companyName:
+          type: string
+        contactPerson:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CustomerInput:
+      type: object
+      required: [companyName]
+      properties:
+        companyName:
+          type: string
+          minLength: 1
+        contactPerson:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+
     Job:
       type: object
       required: [id, title, type, date, status, createdAt]
@@ -468,9 +571,19 @@ components:
           type: ["integer", "null"]
         assignedPersonName:
           type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+        customerCompanyName:
+          type: ["string", "null"]
+        customerPhone:
+          type: ["string", "null"]
         notes:
           type: ["string", "null"]
         hoursSpent:
+          type: ["number", "null"]
+        hoursVasek:
+          type: ["number", "null"]
+        hoursJonas:
           type: ["number", "null"]
         price:
           type: ["number", "null"]
@@ -512,9 +625,15 @@ components:
           type: string
         assignedPersonId:
           type: ["integer", "null"]
+        customerId:
+          type: ["integer", "null"]
         notes:
           type: ["string", "null"]
         hoursSpent:
+          type: ["number", "null"]
+        hoursVasek:
+          type: ["number", "null"]
+        hoursJonas:
           type: ["number", "null"]
         price:
           type: ["number", "null"]
@@ -547,9 +666,15 @@ components:
           type: string
         assignedPersonId:
           type: ["integer", "null"]
+        customerId:
+          type: ["integer", "null"]
         notes:
           type: ["string", "null"]
         hoursSpent:
+          type: ["number", "null"]
+        hoursVasek:
+          type: ["number", "null"]
+        hoursJonas:
           type: ["number", "null"]
         price:
           type: ["number", "null"]
@@ -579,6 +704,8 @@ components:
           type: integer
         title:
           type: string
+        description:
+          type: ["string", "null"]
         done:
           type: boolean
         isChangeRequest:
@@ -594,6 +721,8 @@ components:
         title:
           type: string
           minLength: 1
+        description:
+          type: ["string", "null"]
         isChangeRequest:
           type: boolean
 
@@ -603,6 +732,8 @@ components:
         title:
           type: string
           minLength: 1
+        description:
+          type: ["string", "null"]
         done:
           type: boolean
         isChangeRequest:

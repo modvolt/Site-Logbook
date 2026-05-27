@@ -32,9 +32,19 @@ export interface Job {
   /** @nullable */
   assignedPersonName?: string | null;
   /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
   /** @nullable */
   price?: number | null;
   /** @nullable */

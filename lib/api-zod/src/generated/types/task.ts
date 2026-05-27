@@ -10,6 +10,8 @@ export interface Task {
   id: number;
   jobId: number;
   title: string;
+  /** @nullable */
+  description?: string | null;
   done: boolean;
   /** Marks this task as a change request / extra work */
   isChangeRequest: boolean;

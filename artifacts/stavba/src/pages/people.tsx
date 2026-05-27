@@ -28,31 +28,31 @@ export default function People() {
       onSuccess: () => {
         setNewPersonName("");
         queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
-        toast({ title: "Person added successfully" });
+        toast({ title: "Pracovník přidán" });
       },
       onError: () => {
-        toast({ title: "Failed to add person", variant: "destructive" });
+        toast({ title: "Nepodařilo se přidat pracovníka", variant: "destructive" });
       }
     });
   };
 
   const handleDeletePerson = (id: number) => {
-    if (!confirm("Are you sure you want to remove this person?")) return;
+    if (!confirm("Opravdu chcete odebrat tohoto pracovníka?")) return;
     
     deletePerson.mutate({ id }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
-        toast({ title: "Person removed" });
+        toast({ title: "Pracovník odebrán" });
       },
       onError: () => {
-        toast({ title: "Failed to remove person", variant: "destructive" });
+        toast({ title: "Nepodařilo se odebrat pracovníka", variant: "destructive" });
       }
     });
   };
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
-      <h1 className="text-2xl font-bold mb-6">Team</h1>
+      <h1 className="text-2xl font-bold mb-6">Tým</h1>
 
       <Card className="mb-8 border-primary/20 bg-primary/5">
         <CardContent className="p-4">
@@ -62,13 +62,13 @@ export default function People() {
               <Input 
                 value={newPersonName}
                 onChange={e => setNewPersonName(e.target.value)}
-                placeholder="Worker name..." 
+                placeholder="Jméno pracovníka..." 
                 className="pl-10 h-14 text-base bg-background" 
               />
             </div>
             <Button type="submit" disabled={!newPersonName.trim() || createPerson.isPending} className="h-14 px-6">
               <Plus className="h-5 w-5 md:mr-2" />
-              <span className="hidden md:inline">Add</span>
+              <span className="hidden md:inline">Přidat</span>
             </Button>
           </form>
         </CardContent>
@@ -102,7 +102,7 @@ export default function People() {
         ) : (
           <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <User className="h-12 w-12 mx-auto mb-4 opacity-20" />
-            <p>No team members added yet.</p>
+            <p>Zatím žádní pracovníci.</p>
           </div>
         )}
       </div>

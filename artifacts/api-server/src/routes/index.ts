@@ -4,6 +4,7 @@ import jobsRouter from "./jobs";
 import tasksRouter from "./tasks";
 import attachmentsRouter from "./attachments";
 import peopleRouter from "./people";
+import customersRouter from "./customers";
 import dashboardRouter from "./dashboard";
 
 const router: IRouter = Router();
@@ -13,6 +14,7 @@ router.use(jobsRouter);
 router.use(tasksRouter);
 router.use(attachmentsRouter);
 router.use(peopleRouter);
+router.use(customersRouter);
 router.use(dashboardRouter);
 
 export default router;

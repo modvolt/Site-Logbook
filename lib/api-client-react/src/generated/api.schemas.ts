@@ -9,6 +9,25 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface Customer {
+  id: number;
+  companyName: string;
+  /** @nullable */
+  contactPerson?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  createdAt: string;
+}
+
+export interface CustomerInput {
+  /** @minLength 1 */
+  companyName: string;
+  /** @nullable */
+  contactPerson?: string | null;
+  /** @nullable */
+  phone?: string | null;
+}
+
 export interface Job {
   id: number;
   title: string;
@@ -35,9 +54,19 @@ export interface Job {
   /** @nullable */
   assignedPersonName?: string | null;
   /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
   /** @nullable */
   price?: number | null;
   /** @nullable */
@@ -69,9 +98,15 @@ export interface JobInput {
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
   /** @nullable */
   price?: number | null;
   /** @nullable */
@@ -99,9 +134,15 @@ export interface JobUpdate {
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
   /** @nullable */
   price?: number | null;
   /** @nullable */
@@ -122,6 +163,8 @@ export interface Task {
   id: number;
   jobId: number;
   title: string;
+  /** @nullable */
+  description?: string | null;
   done: boolean;
   /** Marks this task as a change request / extra work */
   isChangeRequest: boolean;
@@ -131,12 +174,16 @@ export interface Task {
 export interface TaskInput {
   /** @minLength 1 */
   title: string;
+  /** @nullable */
+  description?: string | null;
   isChangeRequest?: boolean;
 }
 
 export interface TaskUpdate {
   /** @minLength 1 */
   title?: string;
+  /** @nullable */
+  description?: string | null;
   done?: boolean;
   isChangeRequest?: boolean;
 }

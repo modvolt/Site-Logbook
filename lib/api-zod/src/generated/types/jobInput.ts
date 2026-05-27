@@ -21,9 +21,15 @@ export interface JobInput {
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
   /** @nullable */
   price?: number | null;
   /** @nullable */

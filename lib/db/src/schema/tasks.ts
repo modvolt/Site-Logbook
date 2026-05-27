@@ -7,6 +7,7 @@ export const tasksTable = pgTable("tasks", {
   id: serial("id").primaryKey(),
   jobId: integer("job_id").notNull().references(() => jobsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  description: text("description"),
   done: boolean("done").notNull().default(false),
   isChangeRequest: boolean("is_change_request").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),

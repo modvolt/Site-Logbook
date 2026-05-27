@@ -6,11 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface TaskUpdate {
+export interface CustomerInput {
   /** @minLength 1 */
-  title?: string;
+  companyName: string;
   /** @nullable */
-  description?: string | null;
-  done?: boolean;
-  isChangeRequest?: boolean;
+  contactPerson?: string | null;
+  /** @nullable */
+  phone?: string | null;
 }

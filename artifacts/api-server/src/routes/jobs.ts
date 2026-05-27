@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, lte, sql, count } from "drizzle-orm";
-import { db, jobsTable, tasksTable, attachmentsTable, peopleTable } from "@workspace/db";
+import { db, jobsTable, tasksTable, attachmentsTable, peopleTable, customersTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
   CreateJobBody,
@@ -37,9 +37,22 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     assignedPersonName = person?.name ?? null;
   }
 
+  let customerCompanyName: string | null = null;
+  let customerPhone: string | null = null;
+  if (job.customerId) {
+    const [customer] = await db
+      .select({ companyName: customersTable.companyName, phone: customersTable.phone })
+      .from(customersTable)
+      .where(eq(customersTable.id, job.customerId));
+    customerCompanyName = customer?.companyName ?? null;
+    customerPhone = customer?.phone ?? null;
+  }
+
   return {
     ...job,
     hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
+    hoursVasek: job.hoursVasek != null ? Number(job.hoursVasek) : null,
+    hoursJonas: job.hoursJonas != null ? Number(job.hoursJonas) : null,
     price: job.price != null ? Number(job.price) : null,
     transportKm: job.transportKm != null ? Number(job.transportKm) : null,
     transportCost: job.transportCost != null ? Number(job.transportCost) : null,
@@ -49,6 +62,8 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     taskDoneCount: taskCounts?.done ?? 0,
     attachmentCount: attachmentCount?.total ?? 0,
     assignedPersonName,
+    customerCompanyName,
+    customerPhone,
     createdAt: job.createdAt.toISOString(),
   };
 }

@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { useParams, Link } from "wouter";
+import { useState, useRef, useCallback } from "react";
+import { useParams } from "wouter";
 import { format } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey, 
@@ -10,18 +10,26 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
-  ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, Paperclip, CreditCard,
-  AlertCircle
+  ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
+  AlertCircle, Phone, Building2, Receipt, FileImage
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { JOB_STATUSES, JOB_TYPES, StatusBadge, TypeBadge } from "@/components/badges";
+import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
+
+function useSaveFlash() {
+  const [saved, setSaved] = useState(false);
+  const flash = useCallback(() => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1400);
+  }, []);
+  return { saved, flash };
+}
 
 export default function JobDetail() {
   const params = useParams();
@@ -52,14 +60,14 @@ export default function JobDetail() {
   }
 
   if (!job) {
-    return <div className="p-8 text-center">Job not found</div>;
+    return <div className="p-8 text-center">Zakázka nenalezena</div>;
   }
 
   const handleStatusChange = (newStatus: string) => {
     updateStatus.mutate({ id, data: { status: newStatus } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
-        toast({ title: "Status updated" });
+        toast({ title: "Stav změněn" });
       }
     });
   };
@@ -81,7 +89,7 @@ export default function JobDetail() {
             <TypeBadge type={job.type} />
             <div className="flex items-center text-sm text-muted-foreground font-medium bg-muted px-2 py-0.5 rounded-full">
               <Clock className="w-3.5 h-3.5 mr-1" />
-              {format(new Date(job.date), "MMM d")}
+              {format(new Date(job.date), "d.M.yyyy")}
             </div>
             {job.clientSite && (
               <div className="flex items-center text-sm text-muted-foreground font-medium bg-muted px-2 py-0.5 rounded-full whitespace-nowrap">
@@ -94,9 +102,9 @@ export default function JobDetail() {
       </div>
 
       <div className="p-4 max-w-3xl mx-auto w-full space-y-4">
-        {/* Sections */}
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
+        <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} />
         <CostsSection job={job} isExpanded={expandedSection === "costs"} onToggle={() => toggleSection("costs")} />
@@ -104,8 +112,6 @@ export default function JobDetail() {
     </div>
   );
 }
-
-// Subcomponents
 
 function StatusDropdown({ currentStatus, onChange }: { currentStatus: string, onChange: (s: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -127,7 +133,7 @@ function StatusDropdown({ currentStatus, onChange }: { currentStatus: string, on
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-48 bg-card border rounded-lg shadow-xl z-40 overflow-hidden">
+          <div className="absolute right-0 mt-2 w-52 bg-card border rounded-lg shadow-xl z-40 overflow-hidden">
             {Object.entries(JOB_STATUSES).map(([key, cfg]) => {
               const SIcon = cfg.icon;
               return (
@@ -189,44 +195,56 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
         setIsEditing(false);
-        toast({ title: "Notes updated" });
+        toast({ title: "Poznámky uloženy" });
       }
     });
   };
 
   return (
     <SectionCard 
-      title="Job Details" 
+      title="Detaily zakázky" 
       icon={FileText} 
       isExpanded={isExpanded} 
       onToggle={onToggle}
-      summary={job.notes ? "Has notes" : "No notes"}
+      summary={job.notes ? "Obsahuje poznámky" : "Bez poznámek"}
     >
       <div className="p-4 space-y-4">
         <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
           <div>
-            <p className="text-muted-foreground mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Date & Time</p>
-            <p className="font-medium">{format(new Date(job.date), "MMM d, yyyy")}</p>
+            <p className="text-muted-foreground mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Datum a čas</p>
+            <p className="font-medium">{format(new Date(job.date), "d.M.yyyy")}</p>
             {(job.startTime || job.endTime) && (
-              <p className="text-muted-foreground">{job.startTime || '?'} - {job.endTime || '?'}</p>
+              <p className="text-muted-foreground">{job.startTime || '?'} – {job.endTime || '?'}</p>
             )}
           </div>
           <div>
-            <p className="text-muted-foreground mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5" /> Assigned To</p>
-            <p className="font-medium">{job.assignedPersonName || "Unassigned"}</p>
+            <p className="text-muted-foreground mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5" /> Přiřazeno</p>
+            <p className="font-medium">{job.assignedPersonName || "Nepřiřazeno"}</p>
           </div>
           <div className="col-span-2">
-            <p className="text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Client / Site</p>
-            <p className="font-medium">{job.clientSite || "Not specified"}</p>
+            <p className="text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Zákazník / Stavba</p>
+            <p className="font-medium">{job.clientSite || "Nezadáno"}</p>
+            {job.customerCompanyName && (
+              <div className="flex items-center gap-2 mt-1">
+                <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground">{job.customerCompanyName}</span>
+                {job.customerPhone && (
+                  <a href={`tel:${job.customerPhone}`} className="flex items-center gap-1 text-primary font-medium hover:underline ml-1">
+                    <Phone className="w-3.5 h-3.5" />
+                    {job.customerPhone}
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
         <div className="pt-4 border-t">
           <div className="flex justify-between items-center mb-2">
-            <p className="font-bold">Notes</p>
+            <p className="font-bold">Poznámky</p>
             {!isEditing ? (
               <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-8">
-                <Edit3 className="w-4 h-4 mr-2" /> Edit
+                <Edit3 className="w-4 h-4 mr-2" /> Upravit
               </Button>
             ) : (
               <div className="flex gap-2">
@@ -234,7 +252,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                   <X className="w-4 h-4" />
                 </Button>
                 <Button size="sm" onClick={saveNotes} disabled={updateJob.isPending} className="h-8">
-                  <Save className="w-4 h-4 mr-2" /> Save
+                  <Save className="w-4 h-4 mr-2" /> Uložit
                 </Button>
               </div>
             )}
@@ -245,12 +263,12 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
               value={notes} 
               onChange={e => setNotes(e.target.value)} 
               className="min-h-[100px] text-base"
-              placeholder="Add notes..."
+              placeholder="Přidat poznámky..."
               autoFocus
             />
           ) : (
             <div className="bg-muted/30 p-3 rounded-lg min-h-[80px] text-sm whitespace-pre-wrap">
-              {job.notes || <span className="text-muted-foreground italic">No notes added.</span>}
+              {job.notes || <span className="text-muted-foreground italic">Žádné poznámky.</span>}
             </div>
           )}
         </div>
@@ -267,7 +285,9 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
+  const createAttachment = useCreateAttachment();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [isChange, setIsChange] = useState(false);
@@ -275,7 +295,6 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
-    
     createTask.mutate({ jobId, data: { title: newTaskTitle, isChangeRequest: isChange } }, {
       onSuccess: () => {
         setNewTaskTitle("");
@@ -292,10 +311,30 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const handleDeleteTask = (taskId: number) => {
-    if (!confirm("Delete this task?")) return;
+    if (!confirm("Smazat tento úkol?")) return;
     deleteTask.mutate({ jobId, taskId }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) })
     });
+  };
+
+  const handleUpdateTask = (taskId: number, data: { title?: string; description?: string }) => {
+    updateTask.mutate({ jobId, taskId, data }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) })
+    });
+  };
+
+  const handleTaskPhoto = (taskId: number, file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const url = e.target?.result as string;
+      createAttachment.mutate({ jobId, data: { type: "photo", fileName: file.name, url, description: `Foto k úkolu` } }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) });
+          toast({ title: "Fotografie uložena" });
+        }
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const regularTasks = tasks?.filter(t => !t.isChangeRequest) || [];
@@ -303,11 +342,11 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
 
   const doneCount = tasks?.filter(t => t.done).length || 0;
   const totalCount = tasks?.length || 0;
-  const summary = totalCount > 0 ? `${doneCount}/${totalCount} completed` : "No tasks";
+  const summary = totalCount > 0 ? `${doneCount}/${totalCount} hotovo` : "Žádné úkoly";
 
   return (
     <SectionCard 
-      title="Tasks & Checklist" 
+      title="Úkoly a checklist" 
       icon={CheckCircle2} 
       isExpanded={isExpanded} 
       onToggle={onToggle}
@@ -319,7 +358,7 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
             <Input 
               value={newTaskTitle} 
               onChange={e => setNewTaskTitle(e.target.value)} 
-              placeholder="Add a new task..." 
+              placeholder="Přidat nový úkol..." 
               className="h-12 text-base flex-1 bg-background"
             />
             <Button type="submit" disabled={!newTaskTitle.trim() || createTask.isPending} className="h-12 px-6">
@@ -328,18 +367,18 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
           </div>
           <div className="flex items-center space-x-2">
             <Checkbox id="isChange" checked={isChange} onCheckedChange={(c) => setIsChange(!!c)} className="w-5 h-5" />
-            <label htmlFor="isChange" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center">
-              Mark as extra work / change request <AlertCircle className="w-3.5 h-3.5 ml-1.5 text-indigo-500" />
+            <label htmlFor="isChange" className="text-sm font-medium leading-none flex items-center">
+              Označit jako vícepráce <AlertCircle className="w-3.5 h-3.5 ml-1.5 text-indigo-500" />
             </label>
           </div>
         </form>
 
         {regularTasks.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Tasks</h4>
+            <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Úkoly</h4>
             <div className="space-y-1">
               {regularTasks.map(task => (
-                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+                <TaskRow key={task.id} task={task} jobId={jobId} onToggle={handleToggleTask} onDelete={handleDeleteTask} onUpdate={handleUpdateTask} onTaskPhoto={handleTaskPhoto} />
               ))}
             </div>
           </div>
@@ -348,11 +387,11 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
         {changeRequests.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-sm font-bold text-indigo-600 uppercase tracking-wider flex items-center">
-              <AlertCircle className="w-4 h-4 mr-1" /> Change Requests
+              <AlertCircle className="w-4 h-4 mr-1" /> Vícepráce
             </h4>
             <div className="space-y-1 bg-indigo-50/50 dark:bg-indigo-950/20 p-2 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
               {changeRequests.map(task => (
-                <TaskRow key={task.id} task={task} onToggle={handleToggleTask} onDelete={handleDeleteTask} />
+                <TaskRow key={task.id} task={task} jobId={jobId} onToggle={handleToggleTask} onDelete={handleDeleteTask} onUpdate={handleUpdateTask} onTaskPhoto={handleTaskPhoto} isChangeRequest />
               ))}
             </div>
           </div>
@@ -360,7 +399,7 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
         
         {totalCount === 0 && (
           <div className="text-center py-6 text-muted-foreground">
-            No tasks added yet.
+            Zatím žádné úkoly.
           </div>
         )}
       </div>
@@ -368,195 +407,196 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   );
 }
 
-function TaskRow({ task, onToggle, onDelete }: any) {
+function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequest = false }: {
+  task: any;
+  jobId: number;
+  onToggle: (id: number, done: boolean) => void;
+  onDelete: (id: number) => void;
+  onUpdate: (id: number, data: { title?: string; description?: string }) => void;
+  onTaskPhoto: (id: number, file: File) => void;
+  isChangeRequest?: boolean;
+}) {
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(task.title);
+  const [editDesc, setEditDesc] = useState(task.description || "");
+
+  const saveEdit = () => {
+    if (editTitle.trim()) {
+      onUpdate(task.id, { title: editTitle.trim(), description: editDesc.trim() || undefined });
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="p-3 bg-card border rounded-lg space-y-2">
+        <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} className="h-10 text-sm font-medium" autoFocus />
+        {isChangeRequest && (
+          <Textarea 
+            value={editDesc} 
+            onChange={e => setEditDesc(e.target.value)} 
+            placeholder="Popis materiálu / práce..."
+            className="min-h-[60px] text-sm resize-none"
+          />
+        )}
+        <div className="flex gap-2">
+          <Button size="sm" onClick={saveEdit} className="h-8 text-xs px-3"><Save className="w-3.5 h-3.5 mr-1" /> Uložit</Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} className="h-8 text-xs px-2"><X className="w-3.5 h-3.5" /></Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-start gap-3 p-3 bg-card border rounded-lg hover:bg-muted/50 transition-colors group">
+    <div className="flex items-start gap-2 p-3 bg-card border rounded-lg hover:bg-muted/50 transition-colors group">
       <Checkbox 
         checked={task.done} 
         onCheckedChange={(c) => onToggle(task.id, !!c)} 
-        className="mt-0.5 w-6 h-6 rounded-full border-2 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
+        className="mt-0.5 w-6 h-6 rounded-full border-2 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500 shrink-0"
       />
-      <div className={`flex-1 text-base ${task.done ? 'line-through text-muted-foreground' : 'font-medium'}`}>
-        {task.title}
+      <div className="flex-1 min-w-0">
+        <div className={`text-base ${task.done ? 'line-through text-muted-foreground' : 'font-medium'}`}>
+          {task.title}
+        </div>
+        {task.description && (
+          <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{task.description}</p>
+        )}
       </div>
-      <Button 
-        variant="ghost" 
-        size="icon" 
-        onClick={() => onDelete(task.id)} 
-        className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-destructive shrink-0 transition-opacity"
-      >
-        <Trash2 className="w-4 h-4" />
-      </Button>
+      <div className="flex items-center gap-1 shrink-0">
+        {isChangeRequest && (
+          <Button 
+            variant="ghost" size="icon"
+            onClick={() => setEditing(true)}
+            className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-foreground transition-opacity"
+          >
+            <Edit3 className="w-4 h-4" />
+          </Button>
+        )}
+        <input 
+          type="file" accept="image/*" capture="environment" ref={cameraRef}
+          className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) onTaskPhoto(task.id, f); }}
+        />
+        <Button 
+          variant="ghost" size="icon"
+          onClick={() => cameraRef.current?.click()}
+          className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-blue-500 transition-opacity"
+        >
+          <Camera className="w-4 h-4" />
+        </Button>
+        <div className="w-2" />
+        <Button 
+          variant="ghost" size="icon"
+          onClick={() => onDelete(task.id)} 
+          className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-destructive transition-opacity"
+        >
+          <Trash2 className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }
 
-function WorkSummarySection({ job, isExpanded, onToggle }: any) {
-  const updateJob = useUpdateJob();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  
-  const [hours, setHours] = useState(job.hoursSpent?.toString() || "");
-  const [price, setPrice] = useState(job.price?.toString() || "");
-
-  const handleSave = () => {
-    updateJob.mutate({ 
-      id: job.id, 
-      data: { 
-        hoursSpent: hours ? parseFloat(hours) : null,
-        price: price ? parseFloat(price) : null
-      } 
-    }, {
-      onSuccess: (data) => {
-        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
-        toast({ title: "Work summary saved" });
-      }
-    });
-  };
-
-  const summary = (job.hoursSpent || job.price) 
-    ? `${job.hoursSpent || 0}h logged • $${job.price || 0}`
-    : "Not logged";
-
-  return (
-    <SectionCard 
-      title="Work Summary" 
-      icon={Clock} 
-      isExpanded={isExpanded} 
-      onToggle={onToggle}
-      summary={summary}
-    >
-      <div className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Hours Spent</label>
-            <div className="relative">
-              <Input 
-                type="number" 
-                step="0.5" 
-                value={hours} 
-                onChange={e => setHours(e.target.value)} 
-                className="h-14 text-lg pl-4 pr-10" 
-                placeholder="0.0"
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Price</label>
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">$</span>
-              <Input 
-                type="number" 
-                step="0.01" 
-                value={price} 
-                onChange={e => setPrice(e.target.value)} 
-                className="h-14 text-lg pl-8" 
-                placeholder="0.00"
-              />
-            </div>
-          </div>
-        </div>
-        <Button onClick={handleSave} disabled={updateJob.isPending} className="w-full h-12">
-          <Save className="w-5 h-5 mr-2" /> Save Summary
-        </Button>
-      </div>
-    </SectionCard>
-  );
-}
-
-function CostsSection({ job, isExpanded, onToggle }: any) {
-  const updateJob = useUpdateJob();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  
-  const [costs, setCosts] = useState({
-    transportKm: job.transportKm?.toString() || "",
-    transportCost: job.transportCost?.toString() || "",
-    fines: job.fines?.toString() || "",
-    parking: job.parking?.toString() || ""
+function DokladySection({ jobId, isExpanded, onToggle }: any) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { data: attachments } = useListAttachments(jobId, {
+    query: { enabled: isExpanded, queryKey: getListAttachmentsQueryKey(jobId) }
   });
+  
+  const createAttachment = useCreateAttachment();
+  const deleteAttachment = useDeleteAttachment();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const handleSave = () => {
-    const data = {
-      transportKm: costs.transportKm ? parseFloat(costs.transportKm) : null,
-      transportCost: costs.transportCost ? parseFloat(costs.transportCost) : null,
-      fines: costs.fines ? parseFloat(costs.fines) : null,
-      parking: costs.parking ? parseFloat(costs.parking) : null,
+  const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const url = event.target?.result as string;
+      const type = file.type.startsWith("image/") ? "receipt" : "invoice";
+      createAttachment.mutate({ jobId, data: { type, fileName: file.name, url } }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+          toast({ title: "Doklad uložen" });
+        }
+      });
     };
-    
-    updateJob.mutate({ id: job.id, data }, {
-      onSuccess: (data) => {
-        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
-        toast({ title: "Costs saved" });
-      }
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleDelete = (id: number) => {
+    if (!confirm("Smazat tento doklad?")) return;
+    deleteAttachment.mutate({ jobId, attachmentId: id }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
     });
   };
 
-  const hasCosts = job.transportKm || job.transportCost || job.fines || job.parking;
-
   return (
-    <SectionCard 
-      title="Travel & Expenses" 
-      icon={CreditCard} 
-      isExpanded={isExpanded} 
+    <SectionCard
+      title="Doklady"
+      icon={Receipt}
+      isExpanded={isExpanded}
       onToggle={onToggle}
-      summary={hasCosts ? "Expenses logged" : "None"}
+      summary={doklady.length > 0 ? `${doklady.length} dokladů` : "Žádné doklady"}
     >
       <div className="p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Transport Distance</label>
-            <div className="relative">
-              <Input 
-                type="number" 
-                value={costs.transportKm} 
-                onChange={e => setCosts(prev => ({...prev, transportKm: e.target.value}))} 
-                className="h-14 text-base pr-10" 
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">km</span>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Transport Cost</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-              <Input 
-                type="number" 
-                value={costs.transportCost} 
-                onChange={e => setCosts(prev => ({...prev, transportCost: e.target.value}))} 
-                className="h-14 text-base pl-7" 
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Parking</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-              <Input 
-                type="number" 
-                value={costs.parking} 
-                onChange={e => setCosts(prev => ({...prev, parking: e.target.value}))} 
-                className="h-14 text-base pl-7" 
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Fines</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-              <Input 
-                type="number" 
-                value={costs.fines} 
-                onChange={e => setCosts(prev => ({...prev, fines: e.target.value}))} 
-                className="h-14 text-base pl-7" 
-              />
-            </div>
-          </div>
+        <input 
+          type="file" 
+          accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
+          capture="environment"
+          ref={fileInputRef} 
+          onChange={handleFileUpload} 
+          className="hidden" 
+        />
+        <div className="flex gap-2">
+          <Button 
+            onClick={() => fileInputRef.current?.click()} 
+            disabled={createAttachment.isPending}
+            variant="secondary"
+            className="flex-1 h-12 text-base"
+          >
+            <Camera className="w-5 h-5 mr-2" /> Vyfotit / nahrát doklad
+          </Button>
         </div>
-        <Button onClick={handleSave} disabled={updateJob.isPending} className="w-full h-12" variant="secondary">
-          <Save className="w-5 h-5 mr-2" /> Save Expenses
-        </Button>
+
+        {doklady.length > 0 && (
+          <div className="space-y-2">
+            {doklady.map(doc => (
+              <div key={doc.id} className="flex items-center gap-3 p-3 bg-muted/40 border rounded-lg group">
+                <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded text-amber-600 dark:text-amber-400 shrink-0">
+                  <FileImage className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{doc.fileName || "Doklad"}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{doc.type === "invoice" ? "Faktura" : doc.type === "receipt" ? "Účtenka" : "Dodací list"}</p>
+                </div>
+                {doc.url && doc.url.startsWith("data:image") && (
+                  <a href={doc.url} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">Zobrazit</a>
+                )}
+                <Button 
+                  variant="ghost" size="icon" 
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  onClick={() => handleDelete(doc.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {doklady.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+            <Receipt className="w-10 h-10 mx-auto mb-2 opacity-20" />
+            <p className="text-sm">Přidejte faktury, účtenky nebo dodací listy.</p>
+          </div>
+        )}
       </div>
     </SectionCard>
   );
@@ -582,24 +622,20 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
       const base64Url = event.target?.result as string;
       createAttachment.mutate({ 
         jobId, 
-        data: { 
-          type: "photo", 
-          fileName: file.name,
-          url: base64Url,
-          description: "Site photo" 
-        } 
+        data: { type: "photo", fileName: file.name, url: base64Url, description: "Foto ze stavby" } 
       }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-          toast({ title: "Photo saved" });
+          toast({ title: "Fotografie uložena" });
         }
       });
     };
     reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleDelete = (attachmentId: number) => {
-    if (!confirm("Delete this attachment?")) return;
+    if (!confirm("Smazat tuto fotografii?")) return;
     deleteAttachment.mutate({ jobId, attachmentId }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
     });
@@ -609,28 +645,24 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   
   return (
     <SectionCard 
-      title="Photos & Attachments" 
+      title="Fotodokumentace" 
       icon={Camera} 
       isExpanded={isExpanded} 
       onToggle={onToggle}
-      summary={attachments?.length ? `${attachments.length} items` : "No photos"}
+      summary={photos.length > 0 ? `${photos.length} fotek` : "Žádné fotky"}
     >
       <div className="p-4 space-y-6">
         <div className="flex gap-3">
           <input 
-            type="file" 
-            accept="image/*" 
-            capture="environment" 
-            ref={fileInputRef} 
-            onChange={handlePhotoCapture} 
-            className="hidden" 
+            type="file" accept="image/*" capture="environment" 
+            ref={fileInputRef} onChange={handlePhotoCapture} className="hidden" 
           />
           <Button 
             onClick={() => fileInputRef.current?.click()} 
             disabled={createAttachment.isPending}
             className="flex-1 h-14 bg-primary text-primary-foreground text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> Take Photo
+            <Camera className="w-5 h-5 mr-2" /> Vyfotit stavbu
           </Button>
         </div>
 
@@ -639,7 +671,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             {photos.map(photo => (
               <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden border group bg-muted">
                 {photo.url ? (
-                  <img src={photo.url} alt={photo.fileName || "Photo"} className="w-full h-full object-cover" />
+                  <img src={photo.url} alt={photo.fileName || "Fotografie"} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                     <Camera className="w-8 h-8 opacity-20" />
@@ -647,7 +679,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
                 )}
                 <button 
                   onClick={() => handleDelete(photo.id)}
-                  className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-destructive shadow-sm"
+                  className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-destructive shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -656,12 +688,211 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
           </div>
         )}
         
-        {(!attachments || attachments.length === 0) && (
+        {photos.length === 0 && (
           <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <Camera className="w-10 h-10 mx-auto mb-2 opacity-20" />
-            <p>Take photos of the site, receipts, or documents.</p>
+            <p>Foťte průběh prací, stav stavby apod.</p>
           </div>
         )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function WorkSummarySection({ job, isExpanded, onToggle }: any) {
+  const updateJob = useUpdateJob();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { saved, flash } = useSaveFlash();
+  
+  const [hoursVasek, setHoursVasek] = useState(job.hoursVasek?.toString() || "");
+  const [hoursJonas, setHoursJonas] = useState(job.hoursJonas?.toString() || "");
+  const [price, setPrice] = useState(job.price?.toString() || "");
+
+  const totalHours = (parseFloat(hoursVasek) || 0) + (parseFloat(hoursJonas) || 0);
+
+  const handleSave = () => {
+    updateJob.mutate({ 
+      id: job.id, 
+      data: { 
+        hoursVasek: hoursVasek ? parseFloat(hoursVasek) : null,
+        hoursJonas: hoursJonas ? parseFloat(hoursJonas) : null,
+        hoursSpent: totalHours || null,
+        price: price ? parseFloat(price) : null
+      } 
+    }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        flash();
+        toast({ title: "Souhrn uložen" });
+      }
+    });
+  };
+
+  const summary = (job.hoursVasek || job.hoursJonas || job.price)
+    ? `${totalHours.toFixed(1) !== "0.0" ? totalHours.toFixed(1) + "h" : ""} ${job.price ? "• " + Number(job.price).toLocaleString("cs-CZ") + " Kč" : ""}`.trim()
+    : "Nevyplněno";
+
+  return (
+    <SectionCard 
+      title="Souhrn práce" 
+      icon={Clock} 
+      isExpanded={isExpanded} 
+      onToggle={onToggle}
+      summary={summary}
+    >
+      <div className="p-4 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-muted-foreground">Vašek (h)</label>
+            <div className="relative">
+              <Input 
+                type="number" step="0.5" value={hoursVasek} 
+                onChange={e => setHoursVasek(e.target.value)} 
+                className="h-14 text-lg pl-4 pr-10" placeholder="0.0"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-muted-foreground">Jonáš (h)</label>
+            <div className="relative">
+              <Input 
+                type="number" step="0.5" value={hoursJonas} 
+                onChange={e => setHoursJonas(e.target.value)} 
+                className="h-14 text-lg pl-4 pr-10" placeholder="0.0"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
+            </div>
+          </div>
+        </div>
+        
+        {(parseFloat(hoursVasek) > 0 || parseFloat(hoursJonas) > 0) && (
+          <div className="text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
+            Celkem: <span className="font-semibold text-foreground">{totalHours.toFixed(1)} h</span>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <label className="text-sm font-bold text-muted-foreground">Cena za práci (Kč) — volitelné</label>
+          <div className="relative">
+            <Input 
+              type="number" step="1" value={price} 
+              onChange={e => setPrice(e.target.value)} 
+              className="h-14 text-lg pr-14" placeholder="0"
+            />
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">Kč</span>
+          </div>
+        </div>
+
+        <Button 
+          onClick={handleSave} 
+          disabled={updateJob.isPending} 
+          className={`w-full h-12 transition-colors ${saved ? "bg-green-500 hover:bg-green-500 text-white" : ""}`}
+        >
+          <Save className="w-5 h-5 mr-2" /> {saved ? "Uloženo ✓" : "Uložit souhrn"}
+        </Button>
+      </div>
+    </SectionCard>
+  );
+}
+
+function CostsSection({ job, isExpanded, onToggle }: any) {
+  const updateJob = useUpdateJob();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { saved, flash } = useSaveFlash();
+  
+  const [costs, setCosts] = useState({
+    transportKm: job.transportKm?.toString() || "",
+    fines: job.fines?.toString() || "",
+    parking: job.parking?.toString() || ""
+  });
+
+  const handleSave = () => {
+    const data = {
+      transportKm: costs.transportKm ? parseFloat(costs.transportKm) : null,
+      fines: costs.fines ? parseFloat(costs.fines) : null,
+      parking: costs.parking ? parseFloat(costs.parking) : null,
+    };
+    
+    updateJob.mutate({ id: job.id, data }, {
+      onSuccess: (updated) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), updated);
+        flash();
+        toast({ title: "Výdaje uloženy" });
+      }
+    });
+  };
+
+  const hasCosts = job.transportKm || job.fines || job.parking;
+
+  const costsLabel = hasCosts
+    ? [
+        job.transportKm ? `${Number(job.transportKm)} km` : null,
+        job.parking ? `P: ${Number(job.parking).toLocaleString("cs-CZ")} Kč` : null,
+        job.fines ? `Pok.: ${Number(job.fines).toLocaleString("cs-CZ")} Kč` : null,
+      ].filter(Boolean).join(" • ")
+    : "Žádné výdaje";
+
+  return (
+    <SectionCard 
+      title="Cestovní výdaje" 
+      icon={CreditCard} 
+      isExpanded={isExpanded} 
+      onToggle={onToggle}
+      summary={costsLabel}
+    >
+      <div className="p-4 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2 space-y-2">
+            <label className="text-sm font-bold text-muted-foreground">Vzdálenost</label>
+            <div className="relative">
+              <Input 
+                type="number" 
+                value={costs.transportKm} 
+                onChange={e => setCosts(prev => ({...prev, transportKm: e.target.value}))} 
+                className="h-14 text-base pr-12" 
+                placeholder="0"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">km</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-muted-foreground">Parkování (Kč)</label>
+            <div className="relative">
+              <Input 
+                type="number" 
+                value={costs.parking} 
+                onChange={e => setCosts(prev => ({...prev, parking: e.target.value}))} 
+                className="h-14 text-base pr-12" 
+                placeholder="0"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-bold text-muted-foreground">Pokuty (Kč)</label>
+            <div className="relative">
+              <Input 
+                type="number" 
+                value={costs.fines} 
+                onChange={e => setCosts(prev => ({...prev, fines: e.target.value}))} 
+                className="h-14 text-base pr-12" 
+                placeholder="0"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
+            </div>
+          </div>
+        </div>
+        <Button 
+          onClick={handleSave} 
+          disabled={updateJob.isPending} 
+          variant="secondary"
+          className={`w-full h-12 transition-colors ${saved ? "bg-green-500 hover:bg-green-500 text-white" : ""}`}
+        >
+          <Save className="w-5 h-5 mr-2" /> {saved ? "Uloženo ✓" : "Uložit výdaje"}
+        </Button>
       </div>
     </SectionCard>
   );

@@ -9,5 +9,7 @@
 export interface TaskInput {
   /** @minLength 1 */
   title: string;
+  /** @nullable */
+  description?: string | null;
   isChangeRequest?: boolean;
 }

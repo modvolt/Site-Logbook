@@ -8,6 +8,8 @@
 
 export * from './attachment';
 export * from './attachmentInput';
+export * from './customer';
+export * from './customerInput';
 export * from './dashboardSummary';
 export * from './healthStatus';
 export * from './job';
