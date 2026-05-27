@@ -24,7 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
-import { computeTimerHours } from "@/pages/dashboard";
+import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
 
 async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
   let processedFile = file;
@@ -166,6 +166,17 @@ export default function JobDetail() {
     });
   };
 
+  const handleUsePresetTime = () => {
+    const hours = hoursFromPresetTimes(job?.startTime, job?.endTime);
+    if (!hours) return;
+    updateJob.mutate({ id, data: { hoursSpent: hours } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(id), data);
+        toast({ title: `Uloženo ${hours.toFixed(2)} h podle plánu (${job.startTime}–${job.endTime})` });
+      }
+    });
+  };
+
   const handleAddVisit = () => {
     const params = new URLSearchParams();
     params.set("date", format(new Date(), "yyyy-MM-dd"));
@@ -210,20 +221,44 @@ export default function JobDetail() {
           </div>
 
           {/* Timer + Visit controls */}
-          <div className="flex gap-2 px-1">
+          <div className="flex gap-2 px-1 flex-wrap">
             {isTimerRunning ? (
-              <Button onClick={handleTimerStop} disabled={updateJob.isPending} variant="destructive" className="flex-1 h-10 text-sm">
+              <Button onClick={handleTimerStop} disabled={updateJob.isPending} variant="destructive" className="flex-1 h-10 text-sm min-w-[140px]">
                 <Square className="w-4 h-4 mr-2 fill-current" /> Zastavit čas ({formatElapsed(elapsed)})
               </Button>
             ) : (
-              <Button onClick={handleTimerStart} disabled={updateJob.isPending} className="flex-1 h-10 text-sm bg-green-600 hover:bg-green-700 text-white">
-                <Play className="w-4 h-4 mr-2 fill-current" /> Spustit čas
-              </Button>
+              <>
+                <Button onClick={handleTimerStart} disabled={updateJob.isPending} className="flex-1 h-10 text-sm bg-green-600 hover:bg-green-700 text-white min-w-[120px]">
+                  <Play className="w-4 h-4 mr-2 fill-current" /> Spustit čas
+                </Button>
+                {(() => {
+                  const planHours = hoursFromPresetTimes(job.startTime, job.endTime);
+                  if (!planHours) return null;
+                  return (
+                    <Button
+                      onClick={handleUsePresetTime}
+                      disabled={updateJob.isPending}
+                      variant="outline"
+                      className="flex-1 h-10 text-sm border-blue-300 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20 min-w-[140px]"
+                      title={`Použít naplánovaný čas ${job.startTime}–${job.endTime}`}
+                    >
+                      <Clock className="w-4 h-4 mr-2" /> Plán ({planHours.toFixed(2)} h)
+                    </Button>
+                  );
+                })()}
+              </>
             )}
             <Button onClick={handleAddVisit} variant="outline" className="h-10 px-3 text-sm border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20">
               <CalendarPlus className="w-4 h-4 mr-1.5" /> Výjezd
             </Button>
           </div>
+          {!isTimerRunning && job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
+            <div className="px-1 text-sm text-muted-foreground flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" />
+              Strávený čas: <span className="font-bold text-foreground">{Number(job.hoursSpent).toFixed(2)} h</span>
+              <span className="text-xs">(editovatelné v Souhrnu práce)</span>
+            </div>
+          )}
         </div>
       </div>
 

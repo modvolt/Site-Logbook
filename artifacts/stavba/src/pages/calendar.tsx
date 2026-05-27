@@ -2,7 +2,7 @@ import { useState } from "react";
 import { format, startOfWeek, addDays, startOfMonth, endOfMonth, endOfWeek, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
 import { cs } from "date-fns/locale";
 import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JobCard } from "@/components/job-card";
 import { JOB_TYPES } from "@/components/badges";
@@ -64,6 +64,7 @@ export default function Calendar() {
           {days.map((d) => {
             const dateStr = format(d, "yyyy-MM-dd");
             const dayJobs = jobs?.filter(job => job.date === dateStr) || [];
+            const dayHours = dayJobs.reduce((s, j) => s + (j.hoursSpent ? Number(j.hoursSpent) : 0), 0);
             const isSelected = isSameDay(d, selectedDate);
             const isCurrentMonth = isSameMonth(d, monthStart);
             const isToday = isSameDay(d, new Date());
@@ -77,10 +78,20 @@ export default function Calendar() {
                   ${isSelected ? 'ring-2 ring-primary ring-inset bg-primary/5' : 'hover:bg-muted/80'}
                 `}
               >
-                <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full mb-1
-                  ${isToday ? 'bg-primary text-primary-foreground' : 'text-foreground'}
-                `}>
-                  {format(d, "d")}
+                <div className="flex items-center justify-between mb-1">
+                  <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full
+                    ${isToday ? 'bg-primary text-primary-foreground' : 'text-foreground'}
+                  `}>
+                    {format(d, "d")}
+                  </div>
+                  {dayHours > 0 && (
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+                      title={`Celkem ${dayHours.toFixed(2)} h`}
+                    >
+                      {dayHours.toFixed(1)}h
+                    </span>
+                  )}
                 </div>
                 
                 <div className="space-y-1">
@@ -107,10 +118,19 @@ export default function Calendar() {
         </div>
 
         <div className="p-4 pb-24 md:pb-8">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-2">
             <h2 className="text-lg font-bold capitalize">
               {format(selectedDate, "EEEE d. MMMM", { locale: cs })}
             </h2>
+            {(() => {
+              const total = selectedDateJobs.reduce((s, j) => s + (j.hoursSpent ? Number(j.hoursSpent) : 0), 0);
+              if (total <= 0) return null;
+              return (
+                <span className="inline-flex items-center gap-1 text-sm font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                  <Timer className="w-3.5 h-3.5" /> {total.toFixed(2)} h
+                </span>
+              );
+            })()}
           </div>
 
           {selectedDateJobs.length > 0 ? (

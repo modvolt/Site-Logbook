@@ -4,7 +4,7 @@ import { cs } from "date-fns/locale";
 import { Job } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge, TypeBadge } from "@/components/badges";
-import { Clock, MapPin, User, ChevronRight, Navigation } from "lucide-react";
+import { Clock, MapPin, User, ChevronRight, Navigation, Timer } from "lucide-react";
 
 export function JobCard({ job }: { job: Job }) {
   return (
@@ -16,9 +16,14 @@ export function JobCard({ job }: { job: Job }) {
             <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap gap-2 mb-3 items-center">
             <TypeBadge type={job.type} />
             <StatusBadge status={job.status} />
+            {job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                <Timer className="w-3 h-3" /> {Number(job.hoursSpent).toFixed(2)} h
+              </span>
+            )}
           </div>
 
           <div className="space-y-1.5 text-sm text-muted-foreground">

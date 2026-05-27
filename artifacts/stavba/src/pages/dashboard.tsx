@@ -29,6 +29,16 @@ function useTimer(timerStartedAt: string | null | undefined) {
   return elapsed;
 }
 
+export function hoursFromPresetTimes(startTime: string | null | undefined, endTime: string | null | undefined): number | null {
+  if (!startTime || !endTime) return null;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  if ([sh, sm, eh, em].some(n => Number.isNaN(n))) return null;
+  let mins = eh * 60 + em - (sh * 60 + sm);
+  if (mins <= 0) return null;
+  return Math.round((mins / 60) * 100) / 100;
+}
+
 export function computeTimerHours(elapsedSeconds: number, existingHoursSpent: number | string | null | undefined) {
   const existing = existingHoursSpent ? Number(existingHoursSpent) : 0;
   if (elapsedSeconds < 300) {
