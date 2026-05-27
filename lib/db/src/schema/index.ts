@@ -4,3 +4,4 @@ export * from "./jobs";
 export * from "./tasks";
 export * from "./attachments";
 export * from "./materials";
+export * from "./users";

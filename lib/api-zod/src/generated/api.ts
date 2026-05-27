@@ -608,6 +608,139 @@ export const GetTodayJobsResponse = zod.array(GetTodayJobsResponseItem)
 
 
 /**
+ * @summary Sign in with username and password
+ */
+
+
+
+
+export const LoginBody = zod.object({
+  "username": zod.string().min(1),
+  "password": zod.string().min(1)
+})
+
+export const LoginResponse = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Current authenticated user (or setup info)
+ */
+export const GetMeResponse = zod.object({
+  "authenticated": zod.boolean(),
+  "needsSetup": zod.boolean().describe('True when no users exist yet — show setup screen'),
+  "user": zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+}).optional()
+})
+
+
+/**
+ * @summary Create the very first admin user (only allowed when no users exist)
+ */
+export const setupFirstAdminBodyUsernameMin = 3;
+
+export const setupFirstAdminBodyPasswordMin = 6;
+
+
+
+
+export const SetupFirstAdminBody = zod.object({
+  "username": zod.string().min(setupFirstAdminBodyUsernameMin),
+  "password": zod.string().min(setupFirstAdminBodyPasswordMin),
+  "name": zod.string().min(1),
+  "email": zod.string().nullish()
+})
+
+
+/**
+ * @summary List all users (admin only)
+ */
+export const ListUsersResponseItem = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+export const ListUsersResponse = zod.array(ListUsersResponseItem)
+
+
+/**
+ * @summary Create a new user (admin only)
+ */
+export const createUserBodyUsernameMin = 3;
+
+export const createUserBodyPasswordMin = 6;
+
+
+
+
+export const CreateUserBody = zod.object({
+  "username": zod.string().min(createUserBodyUsernameMin),
+  "password": zod.string().min(createUserBodyPasswordMin),
+  "name": zod.string().min(1),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Update user (admin only)
+ */
+export const UpdateUserParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+export const updateUserBodyPasswordMin = 6;
+
+
+
+export const UpdateUserBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "email": zod.string().nullish(),
+  "role": zod.string().optional(),
+  "isActive": zod.boolean().optional(),
+  "password": zod.string().min(updateUserBodyPasswordMin).optional().describe('Only set when changing the password')
+})
+
+export const UpdateUserResponse = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete user (admin only)
+ */
+export const DeleteUserParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * Returns a presigned GCS URL for direct upload. The client sends JSON
 metadata here, then uploads the file directly to the returned URL.
 

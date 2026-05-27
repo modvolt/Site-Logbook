@@ -8,6 +8,7 @@
 
 export * from './attachment';
 export * from './attachmentInput';
+export * from './authUser';
 export * from './customer';
 export * from './customerInput';
 export * from './dashboardSummary';
@@ -18,13 +19,18 @@ export * from './jobInput';
 export * from './jobStatusUpdate';
 export * from './jobUpdate';
 export * from './listJobsParams';
+export * from './loginInput';
 export * from './material';
 export * from './materialInput';
 export * from './materialUpdate';
+export * from './meResponse';
 export * from './person';
 export * from './personInput';
+export * from './setupInput';
 export * from './task';
 export * from './taskInput';
 export * from './taskUpdate';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
+export * from './userInput';
+export * from './userUpdate';

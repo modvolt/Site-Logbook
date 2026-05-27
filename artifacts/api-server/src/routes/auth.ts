@@ -1,0 +1,97 @@
+import { Router, type IRouter } from "express";
+import { eq, sql } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { db, usersTable, USER_ROLES, type User, type UserRole } from "@workspace/db";
+import { LoginBody, SetupFirstAdminBody } from "@workspace/api-zod";
+
+const router: IRouter = Router();
+
+function serializeUser(u: User) {
+  return {
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    isActive: u.isActive,
+    createdAt: u.createdAt.toISOString(),
+  };
+}
+
+async function countUsers(): Promise<number> {
+  const [row] = await db.select({ c: sql<number>`count(*)::int` }).from(usersTable);
+  return row?.c ?? 0;
+}
+
+router.get("/auth/me", async (req, res): Promise<void> => {
+  const totalUsers = await countUsers();
+  if (req.auth) {
+    const [u] = await db.select().from(usersTable).where(eq(usersTable.id, req.auth.userId));
+    if (!u || !u.isActive) {
+      req.session.destroy(() => undefined);
+      res.json({ authenticated: false, needsSetup: totalUsers === 0 });
+      return;
+    }
+    res.json({ authenticated: true, needsSetup: false, user: serializeUser(u) });
+    return;
+  }
+  res.json({ authenticated: false, needsSetup: totalUsers === 0 });
+});
+
+router.post("/auth/login", async (req, res): Promise<void> => {
+  const parsed = LoginBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { username, password } = parsed.data;
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.username, username));
+  if (!user || !user.isActive) {
+    res.status(401).json({ error: "Neplatné přihlašovací údaje" });
+    return;
+  }
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) {
+    res.status(401).json({ error: "Neplatné přihlašovací údaje" });
+    return;
+  }
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.role = user.role as UserRole;
+  req.session.name = user.name;
+  res.json(serializeUser(user));
+});
+
+router.post("/auth/logout", (req, res): void => {
+  req.session.destroy(() => {
+    res.clearCookie("stavba.sid");
+    res.sendStatus(204);
+  });
+});
+
+router.post("/auth/setup", async (req, res): Promise<void> => {
+  const total = await countUsers();
+  if (total > 0) {
+    res.status(409).json({ error: "Setup již proběhl" });
+    return;
+  }
+  const parsed = SetupFirstAdminBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { username, password, name, email } = parsed.data;
+  const passwordHash = await bcrypt.hash(password, 10);
+  const [user] = await db
+    .insert(usersTable)
+    .values({ username, passwordHash, name, email: email ?? null, role: "admin", isActive: true })
+    .returning();
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.role = user.role as UserRole;
+  req.session.name = user.name;
+  res.status(201).json(serializeUser(user));
+});
+
+export { serializeUser, USER_ROLES };
+export default router;

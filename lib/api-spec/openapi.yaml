@@ -25,6 +25,10 @@ tags:
     description: Dashboard summaries
   - name: Storage
     description: Object storage upload and serving endpoints.
+  - name: auth
+    description: Authentication and session management
+  - name: users
+    description: User management (admin)
 
 paths:
   /healthz:
@@ -601,6 +605,148 @@ paths:
                 items:
                   $ref: "#/components/schemas/Job"
 
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out current session
+      responses:
+        "204":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Current authenticated user (or setup info)
+      responses:
+        "200":
+          description: Current user state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+
+  /auth/setup:
+    post:
+      operationId: setupFirstAdmin
+      tags: [auth]
+      summary: Create the very first admin user (only allowed when no users exist)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupInput"
+      responses:
+        "201":
+          description: First admin created and signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "409":
+          description: Setup already completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuthUser"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+
+  /users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
   /storage/uploads/request-url:
     post:
       tags: [Storage]
@@ -1091,6 +1237,103 @@ components:
           description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.
         metadata:
           $ref: '#/components/schemas/UploadUrlRequest'
+    AuthUser:
+      type: object
+      required: [id, username, name, role, isActive, createdAt]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+          description: "guest | master | admin"
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+
+    LoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+
+    MeResponse:
+      type: object
+      required: [authenticated, needsSetup]
+      properties:
+        authenticated:
+          type: boolean
+        needsSetup:
+          type: boolean
+          description: True when no users exist yet — show setup screen
+        user:
+          $ref: "#/components/schemas/AuthUser"
+
+    SetupInput:
+      type: object
+      required: [username, password, name]
+      properties:
+        username:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 6
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: ["string", "null"]
+
+    UserInput:
+      type: object
+      required: [username, password, name, role]
+      properties:
+        username:
+          type: string
+          minLength: 3
+        password:
+          type: string
+          minLength: 6
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+          description: "guest | master | admin"
+        isActive:
+          type: boolean
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: ["string", "null"]
+        role:
+          type: string
+        isActive:
+          type: boolean
+        password:
+          type: string
+          minLength: 6
+          description: Only set when changing the password
+
     ErrorEnvelope:
       type: object
       required: [error]

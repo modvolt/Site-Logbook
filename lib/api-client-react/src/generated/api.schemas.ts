@@ -324,6 +324,71 @@ export interface UploadUrlResponse {
   metadata?: UploadUrlRequest;
 }
 
+export interface AuthUser {
+  id: number;
+  username: string;
+  name: string;
+  /** @nullable */
+  email?: string | null;
+  /** guest | master | admin */
+  role: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface LoginInput {
+  /** @minLength 1 */
+  username: string;
+  /** @minLength 1 */
+  password: string;
+}
+
+export interface MeResponse {
+  authenticated: boolean;
+  /** True when no users exist yet — show setup screen */
+  needsSetup: boolean;
+  user?: AuthUser;
+}
+
+export interface SetupInput {
+  /** @minLength 3 */
+  username: string;
+  /** @minLength 6 */
+  password: string;
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  email?: string | null;
+}
+
+export interface UserInput {
+  /** @minLength 3 */
+  username: string;
+  /** @minLength 6 */
+  password: string;
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  email?: string | null;
+  /** guest | master | admin */
+  role: string;
+  isActive?: boolean;
+}
+
+export interface UserUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  email?: string | null;
+  role?: string;
+  isActive?: boolean;
+  /**
+     * Only set when changing the password
+     * @minLength 6
+     */
+  password?: string;
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
