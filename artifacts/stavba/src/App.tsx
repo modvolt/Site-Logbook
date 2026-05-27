@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -16,6 +17,8 @@ import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
 import Settings from "@/pages/settings";
 import Admin from "@/pages/admin";
+import Login from "@/pages/login";
+import UsersAdmin from "@/pages/users-admin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,7 +29,20 @@ const queryClient = new QueryClient({
   },
 });
 
-function Router() {
+function AdminOnly({ component: Component }: { component: React.ComponentType }) {
+  const { can } = useAuth();
+  if (!can("manageUsers")) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-lg font-semibold mb-2">Přístup odepřen</p>
+        <p className="text-sm text-muted-foreground">Tato stránka je dostupná pouze pro administrátory.</p>
+      </div>
+    );
+  }
+  return <Component />;
+}
+
+function AuthenticatedApp() {
   return (
     <Layout>
       <Switch>
@@ -40,10 +56,24 @@ function Router() {
         <Route path="/people" component={People} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />
+        <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
         <Route component={NotFound} />
       </Switch>
     </Layout>
   );
+}
+
+function Router() {
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center text-muted-foreground">
+        Načítám…
+      </div>
+    );
+  }
+  if (!isAuthenticated) return <Login />;
+  return <AuthenticatedApp />;
 }
 
 function App() {
@@ -52,7 +82,9 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
+            <AuthProvider>
+              <Router />
+            </AuthProvider>
           </WouterRouter>
           <Toaster />
         </TooltipProvider>
