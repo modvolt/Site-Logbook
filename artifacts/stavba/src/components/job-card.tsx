@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { format } from "date-fns";
+import { cs } from "date-fns/locale";
 import { Job } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge, TypeBadge } from "@/components/badges";
@@ -24,9 +25,9 @@ export function JobCard({ job }: { job: Job }) {
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4" />
               <span>
-                {format(new Date(job.date), "MMM d, yyyy")}
+                {format(new Date(job.date), "d.M.yyyy", { locale: cs })}
                 {job.startTime && ` • ${job.startTime}`}
-                {job.endTime && ` - ${job.endTime}`}
+                {job.endTime && ` – ${job.endTime}`}
               </span>
             </div>
             

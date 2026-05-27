@@ -1,11 +1,12 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "wouter";
 import { format } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey, 
   useUpdateJobStatus, useUpdateJob,
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
-  useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment 
+  useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
+  useListCustomers, getListCustomersQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
@@ -187,15 +188,50 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   
-  const [isEditing, setIsEditing] = useState(false);
+  const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(job.notes || "");
+
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState(job.clientSite || "");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(job.customerId || null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const customerDropRef = useRef<HTMLDivElement>(null);
+
+  const { data: customers } = useListCustomers({
+    query: { queryKey: getListCustomersQueryKey() }
+  });
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (customerDropRef.current && !customerDropRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filteredCustomers = customers?.filter(c =>
+    c.companyName.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    (c.contactPerson || "").toLowerCase().includes(customerSearch.toLowerCase())
+  ) || [];
 
   const saveNotes = () => {
     updateJob.mutate({ id: job.id, data: { notes } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
-        setIsEditing(false);
+        setEditingNotes(false);
         toast({ title: "Poznámky uloženy" });
+      }
+    });
+  };
+
+  const saveCustomer = () => {
+    updateJob.mutate({ id: job.id, data: { clientSite: customerSearch || null, customerId: selectedCustomerId } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        setEditingCustomer(false);
+        toast({ title: "Zákazník uložen" });
       }
     });
   };
@@ -221,20 +257,75 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
             <p className="text-muted-foreground mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5" /> Přiřazeno</p>
             <p className="font-medium">{job.assignedPersonName || "Nepřiřazeno"}</p>
           </div>
+          
+          {/* Customer / Site editable */}
           <div className="col-span-2">
-            <p className="text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Zákazník / Stavba</p>
-            <p className="font-medium">{job.clientSite || "Nezadáno"}</p>
-            {job.customerCompanyName && (
-              <div className="flex items-center gap-2 mt-1">
-                <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <span className="text-muted-foreground">{job.customerCompanyName}</span>
-                {job.customerPhone && (
-                  <a href={`tel:${job.customerPhone}`} className="flex items-center gap-1 text-primary font-medium hover:underline ml-1">
-                    <Phone className="w-3.5 h-3.5" />
-                    {job.customerPhone}
-                  </a>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Zákazník / Stavba</p>
+              {!editingCustomer ? (
+                <Button variant="ghost" size="sm" onClick={() => { setEditingCustomer(true); setCustomerSearch(job.clientSite || ""); setSelectedCustomerId(job.customerId || null); }} className="h-7 text-xs">
+                  <Edit3 className="w-3 h-3 mr-1" /> Upravit
+                </Button>
+              ) : (
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingCustomer(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
+                  <Button size="sm" onClick={saveCustomer} disabled={updateJob.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
+                </div>
+              )}
+            </div>
+            
+            {editingCustomer ? (
+              <div ref={customerDropRef} className="relative">
+                <Input
+                  value={customerSearch}
+                  onChange={e => { setCustomerSearch(e.target.value); setShowDropdown(true); setSelectedCustomerId(null); }}
+                  onFocus={() => setShowDropdown(true)}
+                  placeholder="Hledat zákazníka nebo zadat adresu..."
+                  className="h-11 text-sm"
+                  autoFocus
+                />
+                {selectedCustomerId && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <Building2 className="w-3 h-3 text-primary" />
+                    <span className="text-xs text-primary font-medium">{customers?.find(c => c.id === selectedCustomerId)?.companyName}</span>
+                    <button onClick={() => { setSelectedCustomerId(null); }} className="text-muted-foreground hover:text-destructive ml-1"><X className="w-3 h-3" /></button>
+                  </div>
+                )}
+                {showDropdown && filteredCustomers.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 bg-card border rounded-lg shadow-xl mt-1 max-h-40 overflow-y-auto">
+                    {filteredCustomers.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-muted transition-colors border-b last:border-b-0"
+                        onClick={() => { setSelectedCustomerId(c.id); setCustomerSearch(c.companyName); setShowDropdown(false); }}
+                      >
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <div>
+                          <p className="font-medium text-sm">{c.companyName}</p>
+                          {c.contactPerson && <p className="text-xs text-muted-foreground">{c.contactPerson}</p>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
+            ) : (
+              <>
+                <p className="font-medium">{job.clientSite || "Nezadáno"}</p>
+                {job.customerCompanyName && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground">{job.customerCompanyName}</span>
+                    {job.customerPhone && (
+                      <a href={`tel:${job.customerPhone}`} className="flex items-center gap-1 text-primary font-medium hover:underline ml-1">
+                        <Phone className="w-3.5 h-3.5" />
+                        {job.customerPhone}
+                      </a>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -242,13 +333,13 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
         <div className="pt-4 border-t">
           <div className="flex justify-between items-center mb-2">
             <p className="font-bold">Poznámky</p>
-            {!isEditing ? (
-              <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-8">
+            {!editingNotes ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditingNotes(true)} className="h-8">
                 <Edit3 className="w-4 h-4 mr-2" /> Upravit
               </Button>
             ) : (
               <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { setIsEditing(false); setNotes(job.notes || ""); }} className="h-8">
+                <Button variant="ghost" size="sm" onClick={() => { setEditingNotes(false); setNotes(job.notes || ""); }} className="h-8">
                   <X className="w-4 h-4" />
                 </Button>
                 <Button size="sm" onClick={saveNotes} disabled={updateJob.isPending} className="h-8">
@@ -258,7 +349,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
             )}
           </div>
           
-          {isEditing ? (
+          {editingNotes ? (
             <Textarea 
               value={notes} 
               onChange={e => setNotes(e.target.value)} 
