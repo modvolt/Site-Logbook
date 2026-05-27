@@ -3,7 +3,7 @@ import { useParams, useLocation } from "wouter";
 import { format } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey, 
-  useUpdateJobStatus, useUpdateJob,
+  useUpdateJobStatus, useUpdateJob, useDeleteJob,
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
@@ -166,6 +166,21 @@ export default function JobDetail() {
     });
   };
 
+  const deleteJob = useDeleteJob();
+  const handleDeleteJob = () => {
+    if (!confirm(`Opravdu smazat zakázku „${job?.title}"? Tato akce je nevratná.`)) return;
+    deleteJob.mutate({ id }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
+        toast({ title: "Zakázka smazána" });
+        setLocation("/jobs");
+      },
+      onError: () => {
+        toast({ title: "Nepodařilo se smazat zakázku", variant: "destructive" });
+      }
+    });
+  };
+
   const handleUsePresetTime = () => {
     const hours = hoursFromPresetTimes(job?.startTime, job?.endTime);
     if (!hours) return;
@@ -204,6 +219,16 @@ export default function JobDetail() {
             </Button>
             <h1 className="text-xl font-bold flex-1 truncate leading-tight">{job.title}</h1>
             <StatusDropdown currentStatus={job.status} onChange={handleStatusChange} />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleDeleteJob}
+              disabled={deleteJob.isPending}
+              className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+              title="Smazat zakázku"
+            >
+              <Trash2 className="h-5 w-5" />
+            </Button>
           </div>
           
           <div className="flex gap-2 px-12 overflow-x-auto no-scrollbar">
@@ -355,6 +380,25 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   const [editingAddress, setEditingAddress] = useState(false);
   const [addressDraft, setAddressDraft] = useState(job.address || "");
 
+  const [editingDate, setEditingDate] = useState(false);
+  const [dateDraft, setDateDraft] = useState(job.date || "");
+  const [startTimeDraft, setStartTimeDraft] = useState(job.startTime || "");
+  const [endTimeDraft, setEndTimeDraft] = useState(job.endTime || "");
+
+  const saveDate = () => {
+    if (!dateDraft) {
+      toast({ title: "Datum je povinné", variant: "destructive" });
+      return;
+    }
+    updateJob.mutate({ id: job.id, data: { date: dateDraft, startTime: startTimeDraft || null, endTime: endTimeDraft || null } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        setEditingDate(false);
+        toast({ title: "Datum a čas uloženy" });
+      }
+    });
+  };
+
   const saveAddress = () => {
     updateJob.mutate({ id: job.id, data: { address: addressDraft || null } }, {
       onSuccess: (data) => {
@@ -420,11 +464,33 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
     >
       <div className="p-4 space-y-4">
         <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
-          <div>
-            <p className="text-muted-foreground mb-1 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Datum a čas</p>
-            <p className="font-medium">{format(new Date(job.date), "d.M.yyyy")}</p>
-            {(job.startTime || job.endTime) && (
-              <p className="text-muted-foreground">{job.startTime || '?'} – {job.endTime || '?'}</p>
+          <div className="col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-muted-foreground flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Datum a čas</p>
+              {!editingDate ? (
+                <Button variant="ghost" size="sm" onClick={() => { setEditingDate(true); setDateDraft(job.date || ""); setStartTimeDraft(job.startTime || ""); setEndTimeDraft(job.endTime || ""); }} className="h-7 text-xs">
+                  <Edit3 className="w-3 h-3 mr-1" /> Upravit
+                </Button>
+              ) : (
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingDate(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
+                  <Button size="sm" onClick={saveDate} disabled={updateJob.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
+                </div>
+              )}
+            </div>
+            {editingDate ? (
+              <div className="grid grid-cols-3 gap-2">
+                <Input type="date" value={dateDraft} onChange={e => setDateDraft(e.target.value)} className="h-10 text-sm" />
+                <Input type="time" value={startTimeDraft} onChange={e => setStartTimeDraft(e.target.value)} className="h-10 text-sm" placeholder="Začátek" />
+                <Input type="time" value={endTimeDraft} onChange={e => setEndTimeDraft(e.target.value)} className="h-10 text-sm" placeholder="Konec" />
+              </div>
+            ) : (
+              <>
+                <p className="font-medium">{format(new Date(job.date), "d.M.yyyy")}</p>
+                {(job.startTime || job.endTime) && (
+                  <p className="text-muted-foreground">{job.startTime || '?'} – {job.endTime || '?'}</p>
+                )}
+              </>
             )}
           </div>
           <div>
