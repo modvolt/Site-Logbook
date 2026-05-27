@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
+import { computeTimerHours } from "@/pages/dashboard";
 
 async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
   let processedFile = file;
@@ -152,11 +153,15 @@ export default function JobDetail() {
   };
 
   const handleTimerStop = () => {
-    const elapsedHours = Math.round((elapsed / 3600) * 100) / 100;
-    updateJob.mutate({ id, data: { timerStartedAt: null, hoursSpent: elapsedHours || null } }, {
+    const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, job?.hoursSpent);
+    updateJob.mutate({ id, data: { timerStartedAt: null, hoursSpent: newTotal || null } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
-        toast({ title: `Čas zastaven — ${formatElapsed(elapsed)} (${elapsedHours} h uloženo)` });
+        toast({
+          title: belowThreshold
+            ? `Čas zastaven — pod 5 min, nezapočítáno`
+            : `Čas zastaven — +${added.toFixed(2)} h (celkem ${newTotal.toFixed(2)} h)`,
+        });
       }
     });
   };

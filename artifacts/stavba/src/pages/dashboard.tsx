@@ -29,6 +29,16 @@ function useTimer(timerStartedAt: string | null | undefined) {
   return elapsed;
 }
 
+export function computeTimerHours(elapsedSeconds: number, existingHoursSpent: number | string | null | undefined) {
+  const existing = existingHoursSpent ? Number(existingHoursSpent) : 0;
+  if (elapsedSeconds < 300) {
+    return { newTotal: existing, added: 0, belowThreshold: true };
+  }
+  const added = Math.round((elapsedSeconds / 3600) * 100) / 100;
+  const newTotal = Math.round((existing + added) * 100) / 100;
+  return { newTotal, added, belowThreshold: false };
+}
+
 function formatElapsed(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -65,15 +75,19 @@ function DashboardJobRow({ job }: { job: any }) {
   const handleStop = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const elapsedHours = elapsed / 3600;
+    const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, job.hoursSpent);
     updateJob.mutate(
-      { id: job.id, data: { timerStartedAt: null, hoursSpent: Math.round(elapsedHours * 100) / 100 } },
+      { id: job.id, data: { timerStartedAt: null, hoursSpent: newTotal } },
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(job.id), data);
           queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          toast({ title: `Čas zastaven — ${formatElapsed(elapsed)} (${(elapsedHours).toFixed(2)} h)` });
+          toast({
+            title: belowThreshold
+              ? `Čas zastaven — pod 5 min, nezapočítáno`
+              : `Čas zastaven — +${added.toFixed(2)} h (celkem ${newTotal.toFixed(2)} h)`,
+          });
         },
       }
     );
@@ -179,15 +193,19 @@ function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
   if (!runningJob) return null;
 
   const handleStop = () => {
-    const elapsedHours = elapsed / 3600;
+    const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, runningJob.hoursSpent);
     updateJob.mutate(
-      { id: runningJob.id, data: { timerStartedAt: null, hoursSpent: Math.round(elapsedHours * 100) / 100 } },
+      { id: runningJob.id, data: { timerStartedAt: null, hoursSpent: newTotal } },
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(runningJob.id), data);
           queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          toast({ title: `Čas zastaven — ${formatElapsed(elapsed)} (${elapsedHours.toFixed(2)} h)` });
+          toast({
+            title: belowThreshold
+              ? `Čas zastaven — pod 5 min, nezapočítáno`
+              : `Čas zastaven — +${added.toFixed(2)} h (celkem ${newTotal.toFixed(2)} h)`,
+          });
         },
       }
     );
