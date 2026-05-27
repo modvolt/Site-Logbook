@@ -77,6 +77,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   const url = req.originalUrl.split("?")[0];
   if (url.startsWith("/api/auth/")) return next();
+  if (url.startsWith("/api/preferences")) return next();
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
   return requireWriteAccess(req, res, next);
 });

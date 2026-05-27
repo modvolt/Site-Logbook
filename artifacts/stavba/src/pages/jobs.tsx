@@ -1,5 +1,13 @@
-import { useState, useEffect } from "react";
-import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  useListJobs,
+  getListJobsQueryKey,
+  useGetMyPreferences,
+  useUpdateMyPreferences,
+  getGetMyPreferencesQueryKey,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
 import { sortJobsDoneLast } from "@/lib/job-sort";
@@ -22,18 +30,21 @@ import { loadCompanySettings } from "@/lib/company-settings";
 
 const EXPORT_COLUMNS_STORAGE_KEY = "stavba.exportColumns.v1";
 
+function sanitizeColumns(raw: unknown): ExportColumnKey[] | null {
+  if (!Array.isArray(raw)) return null;
+  const valid = new Set(DEFAULT_EXPORT_COLUMNS);
+  const filtered = raw.filter((k): k is ExportColumnKey =>
+    typeof k === "string" && valid.has(k as ExportColumnKey)
+  );
+  return filtered.length > 0 ? filtered : null;
+}
+
 function loadStoredColumns(): ExportColumnKey[] {
   if (typeof window === "undefined") return DEFAULT_EXPORT_COLUMNS;
   try {
     const raw = window.localStorage.getItem(EXPORT_COLUMNS_STORAGE_KEY);
     if (!raw) return DEFAULT_EXPORT_COLUMNS;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_EXPORT_COLUMNS;
-    const valid = new Set(DEFAULT_EXPORT_COLUMNS);
-    const filtered = parsed.filter((k): k is ExportColumnKey =>
-      typeof k === "string" && valid.has(k as ExportColumnKey)
-    );
-    return filtered.length > 0 ? filtered : DEFAULT_EXPORT_COLUMNS;
+    return sanitizeColumns(JSON.parse(raw)) ?? DEFAULT_EXPORT_COLUMNS;
   } catch {
     return DEFAULT_EXPORT_COLUMNS;
   }
@@ -46,20 +57,67 @@ export default function Jobs() {
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
+  const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedColumns, setSelectedColumns] = useState<ExportColumnKey[]>(
     loadStoredColumns
   );
+  const [isHydrated, setIsHydrated] = useState(false);
 
+  const { data: serverPrefs, isFetched: serverPrefsFetched } = useGetMyPreferences({
+    query: {
+      queryKey: getGetMyPreferencesQueryKey(),
+      enabled: isAuthenticated,
+      staleTime: 60_000,
+      retry: false,
+    },
+  });
+
+  // One-time hydration: if authenticated, prefer server value; otherwise mark
+  // local state as authoritative immediately.
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        EXPORT_COLUMNS_STORAGE_KEY,
-        JSON.stringify(selectedColumns)
-      );
-    } catch {
-      // ignore quota/availability errors
+    if (isHydrated) return;
+    if (!isAuthenticated) {
+      setIsHydrated(true);
+      return;
     }
-  }, [selectedColumns]);
+    if (!serverPrefsFetched) return;
+    const fromServer = sanitizeColumns(serverPrefs?.exportColumns);
+    if (fromServer) setSelectedColumns(fromServer);
+    setIsHydrated(true);
+  }, [isAuthenticated, serverPrefs, serverPrefsFetched, isHydrated]);
+
+  const { mutate: saveServerPrefs } = useUpdateMyPreferences();
+
+  // Persist user-driven changes. Local storage is always written; server is
+  // updated only when authenticated and hydration has completed, so the
+  // initial server snapshot is never overwritten by stale local state.
+  const persistColumns = useCallback(
+    (next: ExportColumnKey[]) => {
+      setSelectedColumns(next);
+      try {
+        window.localStorage.setItem(
+          EXPORT_COLUMNS_STORAGE_KEY,
+          JSON.stringify(next)
+        );
+      } catch {
+        // ignore quota/availability errors
+      }
+      if (isAuthenticated && isHydrated) {
+        saveServerPrefs(
+          { data: { exportColumns: next } },
+          {
+            onSuccess: () => {
+              queryClient.setQueryData(getGetMyPreferencesQueryKey(), {
+                exportColumns: next,
+              });
+            },
+          }
+        );
+      }
+    },
+    [isAuthenticated, isHydrated, saveServerPrefs, queryClient]
+  );
 
   const { data: jobs, isLoading } = useListJobs(
     status !== "all" ? { status } : {},
@@ -94,20 +152,18 @@ export default function Jobs() {
   const hasColumns = orderedSelected.length > 0;
 
   function toggleColumn(key: ExportColumnKey, checked: boolean) {
-    setSelectedColumns(prev => {
-      const set = new Set(prev);
-      if (checked) set.add(key);
-      else set.delete(key);
-      return DEFAULT_EXPORT_COLUMNS.filter(k => set.has(k));
-    });
+    const set = new Set(selectedColumns);
+    if (checked) set.add(key);
+    else set.delete(key);
+    persistColumns(DEFAULT_EXPORT_COLUMNS.filter(k => set.has(k)));
   }
 
   function selectAllColumns() {
-    setSelectedColumns(DEFAULT_EXPORT_COLUMNS);
+    persistColumns([...DEFAULT_EXPORT_COLUMNS]);
   }
 
   function clearAllColumns() {
-    setSelectedColumns([]);
+    persistColumns([]);
   }
 
   function handleExport() {

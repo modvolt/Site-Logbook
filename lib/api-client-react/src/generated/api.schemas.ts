@@ -389,6 +389,16 @@ export interface UserUpdate {
   password?: string;
 }
 
+export interface UserPreferences {
+  /** @nullable */
+  exportColumns: string[] | null;
+}
+
+export interface UserPreferencesInput {
+  /** @nullable */
+  exportColumns?: string[] | null;
+}
+
 export interface ErrorEnvelope {
   error: string;
 }

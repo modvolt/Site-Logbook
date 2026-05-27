@@ -677,6 +677,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /preferences:
+    get:
+      operationId: getMyPreferences
+      tags: [auth]
+      summary: Get the current user's preferences
+      responses:
+        "200":
+          description: Current user preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPreferences"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateMyPreferences
+      tags: [auth]
+      summary: Update the current user's preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserPreferencesInput"
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPreferences"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users:
     get:
       operationId: listUsers
@@ -1333,6 +1375,23 @@ components:
           type: string
           minLength: 6
           description: Only set when changing the password
+
+    UserPreferences:
+      type: object
+      required: [exportColumns]
+      properties:
+        exportColumns:
+          type: ["array", "null"]
+          items:
+            type: string
+
+    UserPreferencesInput:
+      type: object
+      properties:
+        exportColumns:
+          type: ["array", "null"]
+          items:
+            type: string
 
     ErrorEnvelope:
       type: object

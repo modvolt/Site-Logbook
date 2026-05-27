@@ -33,4 +33,6 @@ export * from './taskUpdate';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
 export * from './userInput';
+export * from './userPreferences';
+export * from './userPreferencesInput';
 export * from './userUpdate';

@@ -667,6 +667,26 @@ export const SetupFirstAdminBody = zod.object({
 
 
 /**
+ * @summary Get the current user's preferences
+ */
+export const GetMyPreferencesResponse = zod.object({
+  "exportColumns": zod.array(zod.string()).nullable()
+})
+
+
+/**
+ * @summary Update the current user's preferences
+ */
+export const UpdateMyPreferencesBody = zod.object({
+  "exportColumns": zod.array(zod.string()).nullish()
+})
+
+export const UpdateMyPreferencesResponse = zod.object({
+  "exportColumns": zod.array(zod.string()).nullable()
+})
+
+
+/**
  * @summary List all users (admin only)
  */
 export const ListUsersResponseItem = zod.object({
