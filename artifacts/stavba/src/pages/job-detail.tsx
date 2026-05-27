@@ -24,6 +24,28 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 
+async function compressImage(file: File, maxPx = 1920, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("No canvas context")); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
+
 function useSaveFlash() {
   const [saved, setSaved] = useState(false);
   const flash = useCallback(() => {
@@ -551,17 +573,14 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const handleTaskPhoto = (taskId: number, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const url = e.target?.result as string;
+    compressImage(file).then((url) => {
       createAttachment.mutate({ jobId, data: { type: "photo", fileName: file.name, url, description: `Foto k úkolu` } }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) });
           toast({ title: "Fotografie uložena" });
         }
       });
-    };
-    reader.readAsDataURL(file);
+    });
   };
 
   const regularTasks = tasks?.filter(t => !t.isChangeRequest) || [];
@@ -864,20 +883,27 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const url = event.target?.result as string;
-      const type = file.type.startsWith("image/") ? "receipt" : "invoice";
+    const isPhoto = file.type.startsWith("image/");
+    const type = isPhoto ? "receipt" : "invoice";
+    const getUrl = isPhoto
+      ? compressImage(file)
+      : new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+    getUrl.then((url) => {
       createAttachment.mutate({ jobId, data: { type, fileName: file.name, url } }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
           toast({ title: "Doklad uložen" });
         }
       });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    });
   };
 
   const handleDelete = (id: number) => {
@@ -966,22 +992,19 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Url = event.target?.result as string;
+    compressImage(file).then((url) => {
       createAttachment.mutate({ 
         jobId, 
-        data: { type: "photo", fileName: file.name, url: base64Url, description: "Foto ze stavby" } 
+        data: { type: "photo", fileName: file.name, url, description: "Foto ze stavby" } 
       }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
           toast({ title: "Fotografie uložena" });
         }
       });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    });
   };
 
   const handleDelete = (attachmentId: number) => {
