@@ -35,6 +35,11 @@ export interface Job {
   type: string;
   /** @nullable */
   clientSite?: string | null;
+  /**
+     * Physical address for navigation (Waze/Maps)
+     * @nullable
+     */
+  address?: string | null;
   /** ISO date (YYYY-MM-DD) */
   date: string;
   /**
@@ -77,9 +82,15 @@ export interface Job {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /**
+     * ISO timestamp when timer was started
+     * @nullable
+     */
+  timerStartedAt?: string | null;
   taskCount?: number;
   taskDoneCount?: number;
   attachmentCount?: number;
+  materialCount?: number;
   createdAt: string;
 }
 
@@ -89,6 +100,8 @@ export interface JobInput {
   type: string;
   /** @nullable */
   clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
   date: string;
   /** @nullable */
   startTime?: string | null;
@@ -125,6 +138,8 @@ export interface JobUpdate {
   type?: string;
   /** @nullable */
   clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
   date?: string;
   /** @nullable */
   startTime?: string | null;
@@ -153,6 +168,46 @@ export interface JobUpdate {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /** @nullable */
+  timerStartedAt?: string | null;
+}
+
+export interface Material {
+  id: number;
+  jobId: number;
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface MaterialInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+}
+
+export interface MaterialUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done?: boolean;
 }
 
 export interface JobStatusUpdate {

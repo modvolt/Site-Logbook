@@ -1,18 +1,19 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useParams } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { format } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey, 
   useUpdateJobStatus, useUpdateJob,
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
+  useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
   useListCustomers, getListCustomersQueryKey
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
-  AlertCircle, Phone, Building2, Receipt, FileImage
+  AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -32,8 +33,29 @@ function useSaveFlash() {
   return { saved, flash };
 }
 
+function useJobTimer(timerStartedAt: string | null | undefined) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!timerStartedAt) { setElapsed(0); return; }
+    const update = () => setElapsed(Math.floor((Date.now() - new Date(timerStartedAt).getTime()) / 1000));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [timerStartedAt]);
+  return elapsed;
+}
+
+function formatElapsed(s: number) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, "0")}m`;
+  return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+}
+
 export default function JobDetail() {
   const params = useParams();
+  const [, setLocation] = useLocation();
   const id = parseInt(params.id || "0", 10);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -45,6 +67,10 @@ export default function JobDetail() {
   });
   
   const updateStatus = useUpdateJobStatus();
+  const updateJob = useUpdateJob();
+
+  const elapsed = useJobTimer(job?.timerStartedAt);
+  const isTimerRunning = !!job?.timerStartedAt;
   
   const toggleSection = (section: string) => {
     setExpandedSection(prev => prev === section ? null : section);
@@ -73,10 +99,45 @@ export default function JobDetail() {
     });
   };
 
+  const handleTimerStart = () => {
+    updateJob.mutate({ id, data: { timerStartedAt: new Date().toISOString(), status: "in_progress" } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(id), data);
+        toast({ title: "Měření času spuštěno" });
+      }
+    });
+  };
+
+  const handleTimerStop = () => {
+    const elapsedHours = Math.round((elapsed / 3600) * 100) / 100;
+    updateJob.mutate({ id, data: { timerStartedAt: null, hoursSpent: elapsedHours || null } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(id), data);
+        toast({ title: `Čas zastaven — ${formatElapsed(elapsed)} (${elapsedHours} h uloženo)` });
+      }
+    });
+  };
+
+  const handleAddVisit = () => {
+    const params = new URLSearchParams();
+    params.set("date", format(new Date(), "yyyy-MM-dd"));
+    if (job.customerId) params.set("customerId", job.customerId.toString());
+    if (job.clientSite) params.set("clientSite", job.clientSite);
+    setLocation(`/jobs/new?${params.toString()}`);
+  };
+
   return (
     <div className="flex flex-col min-h-[100dvh] bg-muted/20 pb-20 md:pb-8">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-card border-b shadow-sm">
+        {isTimerRunning && (
+          <div className="bg-green-500 text-white px-4 py-1.5 flex items-center justify-between text-sm font-medium">
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" /> Měření času probíhá
+            </span>
+            <span className="font-mono font-bold">{formatElapsed(elapsed)}</span>
+          </div>
+        )}
         <div className="p-4 max-w-3xl mx-auto w-full flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={() => window.history.back()} className="shrink-0">
@@ -99,12 +160,29 @@ export default function JobDetail() {
               </div>
             )}
           </div>
+
+          {/* Timer + Visit controls */}
+          <div className="flex gap-2 px-1">
+            {isTimerRunning ? (
+              <Button onClick={handleTimerStop} disabled={updateJob.isPending} variant="destructive" className="flex-1 h-10 text-sm">
+                <Square className="w-4 h-4 mr-2 fill-current" /> Zastavit čas ({formatElapsed(elapsed)})
+              </Button>
+            ) : (
+              <Button onClick={handleTimerStart} disabled={updateJob.isPending} className="flex-1 h-10 text-sm bg-green-600 hover:bg-green-700 text-white">
+                <Play className="w-4 h-4 mr-2 fill-current" /> Spustit čas
+              </Button>
+            )}
+            <Button onClick={handleAddVisit} variant="outline" className="h-10 px-3 text-sm border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20">
+              <CalendarPlus className="w-4 h-4 mr-1.5" /> Výjezd
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="p-4 max-w-3xl mx-auto w-full space-y-4">
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
+        <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} />
@@ -190,6 +268,19 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(job.notes || "");
+
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressDraft, setAddressDraft] = useState(job.address || "");
+
+  const saveAddress = () => {
+    updateJob.mutate({ id: job.id, data: { address: addressDraft || null } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        setEditingAddress(false);
+        toast({ title: "Adresa uložena" });
+      }
+    });
+  };
 
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [customerSearch, setCustomerSearch] = useState(job.clientSite || "");
@@ -330,7 +421,52 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
           </div>
         </div>
 
-        <div className="pt-4 border-t">
+        {/* Address / Waze navigation */}
+        <div className="col-span-2 pt-2">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-muted-foreground flex items-center gap-1 text-sm"><Navigation className="w-3.5 h-3.5 text-blue-500" /> Adresa (navigace)</p>
+            {!editingAddress && (
+              <Button variant="ghost" size="sm" onClick={() => setEditingAddress(true)} className="h-7 text-xs">
+                <Edit3 className="w-3 h-3 mr-1" /> Upravit
+              </Button>
+            )}
+          </div>
+          {editingAddress ? (
+            <div className="space-y-2">
+              <Input
+                value={addressDraft}
+                onChange={e => setAddressDraft(e.target.value)}
+                placeholder="Korunní 47, Praha 2"
+                className="h-10 text-sm"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={saveAddress} disabled={updateJob.isPending} className="h-8 px-3 text-xs">
+                  <Save className="w-3 h-3 mr-1" /> Uložit
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setEditingAddress(false); setAddressDraft(job.address || ""); }} className="h-8 px-2 text-xs">
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          ) : job.address ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">{job.address}</span>
+              <a
+                href={`https://waze.com/ul?q=${encodeURIComponent(job.address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-blue-500 hover:underline font-medium ml-1"
+              >
+                <Navigation className="w-3.5 h-3.5" /> Waze
+              </a>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">Nezadána</p>
+          )}
+        </div>
+
+        <div className="pt-4 border-t col-span-2">
           <div className="flex justify-between items-center mb-2">
             <p className="font-bold">Poznámky</p>
             {!editingNotes ? (
@@ -492,6 +628,129 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
           <div className="text-center py-6 text-muted-foreground">
             Zatím žádné úkoly.
           </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
+  const { data: materials } = useListMaterials(jobId, {
+    query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
+  });
+  const createMaterial = useCreateMaterial();
+  const updateMaterial = useUpdateMaterial();
+  const deleteMaterial = useDeleteMaterial();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const [newName, setNewName] = useState("");
+  const [newQty, setNewQty] = useState("");
+  const [newUnit, setNewUnit] = useState("ks");
+  const [newPrice, setNewPrice] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<any>({});
+
+  const totalCost = materials?.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0) || 0;
+  const summary = materials?.length ? `${materials.length} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: newQty ? parseFloat(newQty) : null, unit: newUnit || null, pricePerUnit: newPrice ? parseFloat(newPrice) : null } }, {
+      onSuccess: () => {
+        setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
+        queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey(jobId) });
+      }
+    });
+  };
+
+  const handleDelete = (materialId: number) => {
+    if (!confirm("Smazat materiál?")) return;
+    deleteMaterial.mutate({ jobId, materialId }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey(jobId) });
+        toast({ title: "Materiál odstraněn" });
+      }
+    });
+  };
+
+  const startEdit = (m: any) => { setEditingId(m.id); setEditDraft({ name: m.name, quantity: m.quantity ?? "", unit: m.unit ?? "ks", pricePerUnit: m.pricePerUnit ?? "" }); };
+  const cancelEdit = () => { setEditingId(null); setEditDraft({}); };
+  const saveEdit = () => {
+    if (!editDraft.name?.trim()) return;
+    updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: editDraft.quantity !== "" ? parseFloat(editDraft.quantity) : null, unit: editDraft.unit || null, pricePerUnit: editDraft.pricePerUnit !== "" ? parseFloat(editDraft.pricePerUnit) : null } }, {
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey(jobId) }); cancelEdit(); }
+    });
+  };
+
+  return (
+    <SectionCard title="Materiál" icon={ShoppingCart} isExpanded={isExpanded} onToggle={onToggle} summary={summary}>
+      <div className="p-4 space-y-4">
+        {/* Add form */}
+        <form onSubmit={handleAdd} className="space-y-2">
+          <div className="flex gap-2">
+            <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Název materiálu..." className="h-12 text-base flex-1 bg-background" />
+            <Button type="submit" disabled={!newName.trim() || createMaterial.isPending} className="h-12 px-4">
+              <Plus className="w-5 h-5" />
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Input value={newQty} onChange={e => setNewQty(e.target.value)} placeholder="Množství" type="number" min="0" step="any" className="h-10 text-sm w-24 bg-background" />
+            <Input value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="Jednotka" className="h-10 text-sm w-20 bg-background" />
+            <Input value={newPrice} onChange={e => setNewPrice(e.target.value)} placeholder="Cena/ks (Kč)" type="number" min="0" step="any" className="h-10 text-sm flex-1 bg-background" />
+          </div>
+        </form>
+
+        {/* Materials list */}
+        {materials && materials.length > 0 ? (
+          <div className="space-y-1.5">
+            {materials.map((m: any) => (
+              editingId === m.id ? (
+                <div key={m.id} className="p-3 border rounded-lg space-y-2 bg-card">
+                  <Input value={editDraft.name} onChange={e => setEditDraft((d: any) => ({ ...d, name: e.target.value }))} className="h-9 text-sm" autoFocus />
+                  <div className="flex gap-2">
+                    <Input value={editDraft.quantity} onChange={e => setEditDraft((d: any) => ({ ...d, quantity: e.target.value }))} placeholder="Množ." type="number" className="h-9 text-sm w-24" />
+                    <Input value={editDraft.unit} onChange={e => setEditDraft((d: any) => ({ ...d, unit: e.target.value }))} placeholder="Jedn." className="h-9 text-sm w-20" />
+                    <Input value={editDraft.pricePerUnit} onChange={e => setEditDraft((d: any) => ({ ...d, pricePerUnit: e.target.value }))} placeholder="Cena/ks" type="number" className="h-9 text-sm flex-1" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={saveEdit} disabled={updateMaterial.isPending} className="h-8 text-xs px-3"><Save className="w-3.5 h-3.5 mr-1" /> Uložit</Button>
+                    <Button size="sm" variant="ghost" onClick={cancelEdit} className="h-8 text-xs px-2"><X className="w-3.5 h-3.5" /></Button>
+                  </div>
+                </div>
+              ) : (
+                <div key={m.id} className="flex items-center gap-2 p-3 bg-card border rounded-lg hover:bg-muted/50 transition-colors">
+                  <ShoppingCart className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium text-sm">{m.name}</span>
+                    {(m.quantity != null || m.unit) && (
+                      <span className="text-muted-foreground text-xs ml-2">{m.quantity} {m.unit}</span>
+                    )}
+                  </div>
+                  {m.pricePerUnit != null && (
+                    <span className="text-sm font-semibold text-emerald-600 shrink-0">
+                      {m.quantity ? `${(m.pricePerUnit * m.quantity).toLocaleString("cs-CZ")} Kč` : `${m.pricePerUnit} Kč/ks`}
+                    </span>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(m)} className="h-8 w-8 p-0 shrink-0">
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(m.id)} className="h-8 w-8 p-0 text-destructive shrink-0">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              )
+            ))}
+            {totalCost > 0 && (
+              <div className="flex justify-between items-center pt-2 px-1 text-sm font-bold border-t mt-2">
+                <span>Celkem materiál</span>
+                <span className="text-emerald-600">{totalCost.toLocaleString("cs-CZ")} Kč</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-6 text-muted-foreground text-sm">Žádný materiál zatím.</div>
         )}
       </div>
     </SectionCard>

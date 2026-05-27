@@ -55,7 +55,7 @@ router.post("/jobs/:jobId/attachments", async (req, res): Promise<void> => {
 
   const [att] = await db
     .insert(attachmentsTable)
-    .values({ jobId: params.data.jobId, ...parsed.data })
+    .values({ jobId: params.data.jobId, ...parsed.data } as any)
     .returning();
 
   res.status(201).json(serializeAttachment(att));

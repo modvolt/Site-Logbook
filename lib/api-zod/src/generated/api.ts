@@ -31,6 +31,7 @@ export const ListJobsResponseItem = zod.object({
   "title": zod.string(),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
   "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
   "startTime": zod.string().nullish().describe('HH:MM'),
   "endTime": zod.string().nullish().describe('HH:MM'),
@@ -49,9 +50,11 @@ export const ListJobsResponseItem = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
   "createdAt": zod.string()
 })
 export const ListJobsResponse = zod.array(ListJobsResponseItem)
@@ -67,6 +70,7 @@ export const CreateJobBody = zod.object({
   "title": zod.string().min(1),
   "type": zod.string(),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish(),
   "date": zod.string(),
   "startTime": zod.string().nullish(),
   "endTime": zod.string().nullish(),
@@ -97,6 +101,7 @@ export const GetJobResponse = zod.object({
   "title": zod.string(),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
   "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
   "startTime": zod.string().nullish().describe('HH:MM'),
   "endTime": zod.string().nullish().describe('HH:MM'),
@@ -115,9 +120,11 @@ export const GetJobResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
   "createdAt": zod.string()
 })
 
@@ -136,6 +143,7 @@ export const UpdateJobBody = zod.object({
   "title": zod.string().min(1).optional(),
   "type": zod.string().optional(),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish(),
   "date": zod.string().optional(),
   "startTime": zod.string().nullish(),
   "endTime": zod.string().nullish(),
@@ -150,7 +158,8 @@ export const UpdateJobBody = zod.object({
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
-  "parking": zod.number().nullish()
+  "parking": zod.number().nullish(),
+  "timerStartedAt": zod.string().nullish()
 })
 
 export const UpdateJobResponse = zod.object({
@@ -158,6 +167,7 @@ export const UpdateJobResponse = zod.object({
   "title": zod.string(),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
   "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
   "startTime": zod.string().nullish().describe('HH:MM'),
   "endTime": zod.string().nullish().describe('HH:MM'),
@@ -176,9 +186,11 @@ export const UpdateJobResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
   "createdAt": zod.string()
 })
 
@@ -207,6 +219,7 @@ export const UpdateJobStatusResponse = zod.object({
   "title": zod.string(),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
   "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
   "startTime": zod.string().nullish().describe('HH:MM'),
   "endTime": zod.string().nullish().describe('HH:MM'),
@@ -225,9 +238,11 @@ export const UpdateJobStatusResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
   "createdAt": zod.string()
 })
 
@@ -303,6 +318,86 @@ export const UpdateTaskResponse = zod.object({
 export const DeleteTaskParams = zod.object({
   "jobId": zod.coerce.number(),
   "taskId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List materials for a job
+ */
+export const ListMaterialsParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const ListMaterialsResponseItem = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.string()
+})
+export const ListMaterialsResponse = zod.array(ListMaterialsResponseItem)
+
+
+/**
+ * @summary Add a material to a job
+ */
+export const CreateMaterialParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+
+
+
+export const CreateMaterialBody = zod.object({
+  "name": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish()
+})
+
+
+/**
+ * @summary Update a material item
+ */
+export const UpdateMaterialParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "materialId": zod.coerce.number()
+})
+
+
+
+
+export const UpdateMaterialBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean().optional()
+})
+
+export const UpdateMaterialResponse = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a material item
+ */
+export const DeleteMaterialParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "materialId": zod.coerce.number()
 })
 
 
@@ -483,6 +578,7 @@ export const GetTodayJobsResponseItem = zod.object({
   "title": zod.string(),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
   "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
   "startTime": zod.string().nullish().describe('HH:MM'),
   "endTime": zod.string().nullish().describe('HH:MM'),
@@ -501,9 +597,11 @@ export const GetTodayJobsResponseItem = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
   "createdAt": zod.string()
 })
 export const GetTodayJobsResponse = zod.array(GetTodayJobsResponseItem)

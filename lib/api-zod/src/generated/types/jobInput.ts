@@ -12,6 +12,8 @@ export interface JobInput {
   type: string;
   /** @nullable */
   clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
   date: string;
   /** @nullable */
   startTime?: string | null;

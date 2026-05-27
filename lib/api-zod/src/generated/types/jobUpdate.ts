@@ -12,6 +12,8 @@ export interface JobUpdate {
   type?: string;
   /** @nullable */
   clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
   date?: string;
   /** @nullable */
   startTime?: string | null;
@@ -40,4 +42,6 @@ export interface JobUpdate {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /** @nullable */
+  timerStartedAt?: string | null;
 }

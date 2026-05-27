@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -21,6 +21,8 @@ export default function JobForm() {
   const search = useSearch();
   const queryParams = new URLSearchParams(search);
   const initialDate = queryParams.get("date") || format(new Date(), "yyyy-MM-dd");
+  const initialClientSite = queryParams.get("clientSite") || "";
+  const initialCustomerId = queryParams.get("customerId") ? parseInt(queryParams.get("customerId")!) : null;
   
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -33,14 +35,15 @@ export default function JobForm() {
   const [formData, setFormData] = useState({
     title: "",
     type: "planned_work",
-    clientSite: "",
+    clientSite: initialClientSite,
+    address: "",
     date: initialDate,
     startTime: "",
     endTime: "",
     assignedPersonId: "none",
     status: "planned",
     notes: "",
-    customerId: null as number | null,
+    customerId: initialCustomerId,
   });
 
   const [customerSearch, setCustomerSearch] = useState("");
@@ -105,6 +108,7 @@ export default function JobForm() {
       title: formData.title,
       type: formData.type,
       clientSite: formData.clientSite || null,
+      address: formData.address || null,
       date: formData.date,
       startTime: formData.startTime || null,
       endTime: formData.endTime || null,
@@ -228,6 +232,25 @@ export default function JobForm() {
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="address" className="text-base flex items-center gap-1.5"><Navigation className="h-4 w-4 text-blue-500" /> Adresa stavby (pro navigaci)</Label>
+            <Input
+              id="address" name="address" value={formData.address} onChange={handleChange}
+              placeholder="např. Korunní 47, Praha 2"
+              className="h-14 text-base"
+            />
+            {formData.address && (
+              <a
+                href={`https://waze.com/ul?q=${encodeURIComponent(formData.address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-sm text-blue-500 hover:underline"
+              >
+                <Navigation className="h-3.5 w-3.5" /> Otevřít ve Waze
+              </a>
             )}
           </div>
 

@@ -15,6 +15,8 @@ tags:
     description: Tasks and checklists per job
   - name: attachments
     description: Attachments per job
+  - name: materials
+    description: Material/supply lists per job
   - name: people
     description: People / assigned workers
   - name: customers
@@ -261,6 +263,98 @@ paths:
           schema:
             type: integer
         - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /jobs/{jobId}/materials:
+    get:
+      operationId: listMaterials
+      tags: [materials]
+      summary: List materials for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Materials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Material"
+    post:
+      operationId: createMaterial
+      tags: [materials]
+      summary: Add a material to a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+
+  /jobs/{jobId}/materials/{materialId}:
+    patch:
+      operationId: updateMaterial
+      tags: [materials]
+      summary: Update a material item
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: materialId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+    delete:
+      operationId: deleteMaterial
+      tags: [materials]
+      summary: Delete a material item
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: materialId
           in: path
           required: true
           schema:
@@ -555,6 +649,9 @@ components:
           description: "site_visit | consultation | planned_work | service_call | change | other"
         clientSite:
           type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+          description: Physical address for navigation (Waze/Maps)
         date:
           type: string
           description: ISO date (YYYY-MM-DD)
@@ -595,11 +692,16 @@ components:
           type: ["number", "null"]
         parking:
           type: ["number", "null"]
+        timerStartedAt:
+          type: ["string", "null"]
+          description: ISO timestamp when timer was started
         taskCount:
           type: integer
         taskDoneCount:
           type: integer
         attachmentCount:
+          type: integer
+        materialCount:
           type: integer
         createdAt:
           type: string
@@ -614,6 +716,8 @@ components:
         type:
           type: string
         clientSite:
+          type: ["string", "null"]
+        address:
           type: ["string", "null"]
         date:
           type: string
@@ -656,6 +760,8 @@ components:
           type: string
         clientSite:
           type: ["string", "null"]
+        address:
+          type: ["string", "null"]
         date:
           type: string
         startTime:
@@ -686,6 +792,60 @@ components:
           type: ["number", "null"]
         parking:
           type: ["number", "null"]
+        timerStartedAt:
+          type: ["string", "null"]
+
+    Material:
+      type: object
+      required: [id, jobId, name, done, sortOrder, createdAt]
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+
+    MaterialInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+
+    MaterialUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+        done:
+          type: boolean
 
     JobStatusUpdate:
       type: object

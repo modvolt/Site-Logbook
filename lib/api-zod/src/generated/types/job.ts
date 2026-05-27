@@ -13,6 +13,11 @@ export interface Job {
   type: string;
   /** @nullable */
   clientSite?: string | null;
+  /**
+     * Physical address for navigation (Waze/Maps)
+     * @nullable
+     */
+  address?: string | null;
   /** ISO date (YYYY-MM-DD) */
   date: string;
   /**
@@ -55,8 +60,14 @@ export interface Job {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /**
+     * ISO timestamp when timer was started
+     * @nullable
+     */
+  timerStartedAt?: string | null;
   taskCount?: number;
   taskDoneCount?: number;
   attachmentCount?: number;
+  materialCount?: number;
   createdAt: string;
 }

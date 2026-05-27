@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, lte, sql, count } from "drizzle-orm";
-import { db, jobsTable, tasksTable, attachmentsTable, peopleTable, customersTable } from "@workspace/db";
+import { db, jobsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
   CreateJobBody,
@@ -13,6 +13,18 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+const toStr = (v: number | null | undefined): string | null | undefined =>
+  v != null ? String(v) : v as null | undefined;
+
+function numericJobFields(data: Record<string, unknown>) {
+  const fields = ["hoursSpent", "hoursVasek", "hoursJonas", "price", "transportKm", "transportCost", "fines", "parking"] as const;
+  const out: Record<string, unknown> = { ...data };
+  for (const f of fields) {
+    if (f in data) out[f] = toStr(data[f] as number | null | undefined);
+  }
+  return out;
+}
 
 async function enrichJob(job: typeof jobsTable.$inferSelect) {
   const [taskCounts] = await db
@@ -27,6 +39,11 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     .select({ total: count() })
     .from(attachmentsTable)
     .where(eq(attachmentsTable.jobId, job.id));
+
+  const [materialCount] = await db
+    .select({ total: count() })
+    .from(materialsTable)
+    .where(eq(materialsTable.jobId, job.id));
 
   let assignedPersonName: string | null = null;
   if (job.assignedPersonId) {
@@ -61,9 +78,11 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     taskCount: taskCounts?.total ?? 0,
     taskDoneCount: taskCounts?.done ?? 0,
     attachmentCount: attachmentCount?.total ?? 0,
+    materialCount: materialCount?.total ?? 0,
     assignedPersonName,
     customerCompanyName,
     customerPhone,
+    timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
     createdAt: job.createdAt.toISOString(),
   };
 }
@@ -100,7 +119,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
     return;
   }
 
-  const [job] = await db.insert(jobsTable).values(parsed.data).returning();
+  const [job] = await db.insert(jobsTable).values(numericJobFields(parsed.data) as any).returning();
   res.status(201).json(await enrichJob(job));
 });
 
@@ -135,7 +154,7 @@ router.patch("/jobs/:id", async (req, res): Promise<void> => {
 
   const [job] = await db
     .update(jobsTable)
-    .set(parsed.data)
+    .set(numericJobFields(parsed.data) as any)
     .where(eq(jobsTable.id, params.data.id))
     .returning();
 

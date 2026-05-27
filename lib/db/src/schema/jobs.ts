@@ -24,6 +24,8 @@ export const jobsTable = pgTable("jobs", {
   transportCost: numeric("transport_cost", { precision: 10, scale: 2 }),
   fines: numeric("fines", { precision: 10, scale: 2 }),
   parking: numeric("parking", { precision: 10, scale: 2 }),
+  address: text("address"),
+  timerStartedAt: timestamp("timer_started_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
