@@ -9,7 +9,7 @@ import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { exportJobsToXlsx } from "@/lib/export-jobs";
+import { exportJobsToXlsx, exportJobsToPdf } from "@/lib/export-jobs";
 
 export default function Jobs() {
   const [status, setStatus] = useState<string>("all");
@@ -53,6 +53,23 @@ export default function Jobs() {
       const fromLabel = exportFrom || "začátek";
       const toLabel = exportTo || "konec";
       exportJobsToXlsx(data, `zakázky-${fromLabel}–${toLabel}.xlsx`);
+      setExportOpen(false);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function handleExportPdf() {
+    setExporting(true);
+    try {
+      const data = exportJobs ?? [];
+      const fromLabel = exportFrom || "začátek";
+      const toLabel = exportTo || "konec";
+      exportJobsToPdf(data, {
+        from: exportFrom || undefined,
+        to: exportTo || undefined,
+        filename: `zakázky-${fromLabel}–${toLabel}.pdf`,
+      });
       setExportOpen(false);
     } finally {
       setExporting(false);
@@ -149,9 +166,18 @@ export default function Jobs() {
             </p>
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 flex-wrap">
             <Button variant="outline" onClick={() => setExportOpen(false)}>
               Zrušit
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPdf}
+              disabled={exporting || exportJobs == null}
+              className="gap-2"
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Exportuji…" : "Stáhnout PDF"}
             </Button>
             <Button
               onClick={handleExport}

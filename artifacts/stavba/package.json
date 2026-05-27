@@ -75,8 +75,10 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@workspace/object-storage-web": "workspace:*",
     "heic2any": "^0.0.4",
-    "xlsx": "^0.18.5",
-    "@workspace/object-storage-web": "workspace:*"
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "xlsx": "^0.18.5"
   }
 }
