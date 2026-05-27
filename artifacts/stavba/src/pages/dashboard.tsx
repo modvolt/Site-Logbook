@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { sortJobsDoneLast } from "@/lib/job-sort";
 
 function useTimer(timerStartedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState(0);
@@ -103,8 +104,11 @@ function DashboardJobRow({ job }: { job: any }) {
     );
   };
 
+  const finished = job.status === "done" || job.status === "cancelled";
   return (
-    <div className="bg-card border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+    <div className={`bg-card border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all ${
+      finished ? "opacity-65 saturate-50 hover:opacity-95 hover:saturate-100" : ""
+    }`}>
       {/* Timer banner when running */}
       {isRunning && (
         <div className="bg-green-500 text-white px-4 py-1.5 flex items-center justify-between">
@@ -343,7 +347,7 @@ export default function Dashboard() {
         {loadingJobs ? (
           [1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full" />)
         ) : jobs && jobs.length > 0 ? (
-          jobs.map(job => <DashboardJobRow key={job.id} job={job} />)
+          sortJobsDoneLast(jobs).map(job => <DashboardJobRow key={job.id} job={job} />)
         ) : (
           <div className="text-center py-12 px-4 border-2 border-dashed rounded-xl border-muted">
             <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />

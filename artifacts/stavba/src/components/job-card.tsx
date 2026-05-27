@@ -5,11 +5,17 @@ import { Job } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge, TypeBadge } from "@/components/badges";
 import { Clock, MapPin, User, ChevronRight, Navigation, Timer } from "lucide-react";
+import { isJobFinished } from "@/lib/job-sort";
 
 export function JobCard({ job }: { job: Job }) {
+  const finished = isJobFinished(job.status);
   return (
     <Link href={`/jobs/${job.id}`}>
-      <Card className="hover-elevate cursor-pointer border-l-4 border-l-primary mb-3">
+      <Card className={`hover-elevate cursor-pointer border-l-4 mb-3 transition-all ${
+        finished
+          ? "border-l-muted-foreground/40 bg-muted/40 opacity-65 saturate-50 hover:opacity-90 hover:saturate-100"
+          : "border-l-primary"
+      }`}>
         <CardContent className="p-4">
           <div className="flex justify-between items-start mb-2">
             <h3 className="font-bold text-lg leading-tight truncate pr-2">{job.title}</h3>

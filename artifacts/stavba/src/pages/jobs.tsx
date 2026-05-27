@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
+import { sortJobsDoneLast } from "@/lib/job-sort";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Download, Calendar } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -180,7 +181,7 @@ export default function Jobs() {
         {isLoading ? (
           [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full" />)
         ) : filtered && filtered.length > 0 ? (
-          filtered.map(job => <JobCard key={job.id} job={job} />)
+          sortJobsDoneLast(filtered).map(job => <JobCard key={job.id} job={job} />)
         ) : (
           <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <p>Žádné zakázky odpovídající vašemu hledání.</p>

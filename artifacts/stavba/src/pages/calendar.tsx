@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Plus, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JobCard } from "@/components/job-card";
 import { JOB_TYPES } from "@/components/badges";
+import { sortJobsDoneLast, isJobFinished } from "@/lib/job-sort";
 import { Link } from "wouter";
 
 export default function Calendar() {
@@ -23,7 +24,7 @@ export default function Calendar() {
   );
 
   const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
-  const selectedDateJobs = jobs?.filter(job => job.date === selectedDateStr) || [];
+  const selectedDateJobs = sortJobsDoneLast(jobs?.filter(job => job.date === selectedDateStr) || []);
 
   const nextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
   const prevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
@@ -66,7 +67,7 @@ export default function Calendar() {
         <div className="grid grid-cols-7 bg-border gap-px">
           {days.map((d) => {
             const dateStr = format(d, "yyyy-MM-dd");
-            const dayJobs = jobs?.filter(job => job.date === dateStr) || [];
+            const dayJobs = sortJobsDoneLast(jobs?.filter(job => job.date === dateStr) || []);
             const dayHours = dayJobs.reduce((s, j) => s + (j.hoursSpent ? Number(j.hoursSpent) : 0), 0);
             const isSelected = isSameDay(d, selectedDate);
             const dWeekStart = startOfWeek(d, { weekStartsOn: 1 });
@@ -105,7 +106,7 @@ export default function Calendar() {
                     return (
                       <div 
                         key={job.id} 
-                        className={`h-1.5 w-full rounded-full ${bgOnly} opacity-80`}
+                        className={`h-1.5 w-full rounded-full ${bgOnly} ${isJobFinished(job.status) ? 'opacity-30' : 'opacity-80'}`}
                         title={job.title}
                       />
                     );
