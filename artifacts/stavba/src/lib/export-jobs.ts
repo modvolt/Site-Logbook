@@ -398,10 +398,50 @@ export function exportJobsToPdf(
     to?: string;
     filename?: string;
     columnKeys?: ExportColumnKey[];
+    companyName?: string;
+    companyLogoDataUrl?: string;
   }
 ) {
   const cols = selectColumns(options?.columnKeys);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  const companyName = options?.companyName?.trim() ?? "";
+  const companyLogo = options?.companyLogoDataUrl ?? "";
+
+  let headerBottomY = 10;
+  const LOGO_MAX_W = 28;
+  const LOGO_MAX_H = 16;
+  let logoBottomY = 10;
+  if (companyLogo) {
+    try {
+      const fmt = companyLogo.startsWith("data:image/jpeg") ? "JPEG" : "PNG";
+      const props = doc.getImageProperties(companyLogo);
+      const ratio = props.width / props.height;
+      let w = LOGO_MAX_W;
+      let h = w / ratio;
+      if (h > LOGO_MAX_H) {
+        h = LOGO_MAX_H;
+        w = h * ratio;
+      }
+      const x = pageWidth - 14 - w;
+      const y = 10;
+      doc.addImage(companyLogo, fmt, x, y, w, h);
+      logoBottomY = y + h;
+    } catch {
+      // ignore unreadable logo
+    }
+  }
+
+  if (companyName) {
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 58, 95);
+    doc.text(companyName, 14, 9);
+    doc.setTextColor(0);
+    headerBottomY = Math.max(headerBottomY, 11);
+  }
+  headerBottomY = Math.max(headerBottomY, logoBottomY);
 
   const standardJobs = jobs.filter((j) => j.type !== "change");
   const vicepraceJobs = jobs.filter((j) => j.type === "change");
@@ -415,9 +455,12 @@ export function exportJobsToPdf(
       ? `${options?.from ?? "začátek"} – ${options?.to ?? "konec"}`
       : "všechna období";
 
+  const titleY = Math.max(14, headerBottomY + 4);
+  const metaY = titleY + 7;
+
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
-  doc.text("Přehled zakázek", 14, 14);
+  doc.text("Přehled zakázek", 14, titleY);
 
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
@@ -425,7 +468,7 @@ export function exportJobsToPdf(
   doc.text(
     `Datum exportu: ${today}   |   Rozsah: ${rangeLabel}   |   Zakázek celkem: ${jobs.length}`,
     14,
-    21
+    metaY
   );
   doc.setTextColor(0);
 
@@ -469,7 +512,7 @@ export function exportJobsToPdf(
   ];
 
   autoTable(doc, {
-    startY: 26,
+    startY: metaY + 5,
     head: [["Ukazatel", "Celkem", "Standardní zakázky", "Vícepráce"]],
     body: summaryTableData,
     styles: { fontSize: 7.5, cellPadding: 1.5 },

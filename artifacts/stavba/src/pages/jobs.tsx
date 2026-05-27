@@ -18,6 +18,7 @@ import {
   DEFAULT_EXPORT_COLUMNS,
   type ExportColumnKey,
 } from "@/lib/export-jobs";
+import { loadCompanySettings } from "@/lib/company-settings";
 
 const EXPORT_COLUMNS_STORAGE_KEY = "stavba.exportColumns.v1";
 
@@ -132,11 +133,14 @@ export default function Jobs() {
       const data = exportJobs ?? [];
       const fromLabel = exportFrom || "začátek";
       const toLabel = exportTo || "konec";
+      const company = loadCompanySettings();
       exportJobsToPdf(data, {
         from: exportFrom || undefined,
         to: exportTo || undefined,
         filename: `zakázky-${fromLabel}–${toLabel}.pdf`,
         columnKeys: orderedSelected,
+        companyName: company.name,
+        companyLogoDataUrl: company.logoDataUrl,
       });
       setExportOpen(false);
     } finally {
