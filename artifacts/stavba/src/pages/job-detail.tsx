@@ -112,6 +112,7 @@ export default function JobDetail() {
   
   const updateStatus = useUpdateJobStatus();
   const updateJob = useUpdateJob();
+  const deleteJob = useDeleteJob();
 
   const elapsed = useJobTimer(job?.timerStartedAt);
   const isTimerRunning = !!job?.timerStartedAt;
@@ -166,7 +167,6 @@ export default function JobDetail() {
     });
   };
 
-  const deleteJob = useDeleteJob();
   const handleDeleteJob = () => {
     if (!confirm(`Opravdu smazat zakázku „${job?.title}"? Tato akce je nevratná.`)) return;
     deleteJob.mutate({ id }, {
