@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { format, startOfWeek, addDays, startOfMonth, endOfMonth, endOfWeek, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
+import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks } from "date-fns";
 import { cs } from "date-fns/locale";
 import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
 import { ChevronLeft, ChevronRight, Plus, Timer } from "lucide-react";
@@ -12,10 +12,10 @@ export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(monthStart);
-  const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
-  const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
+  const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+  const startDate = subWeeks(currentWeekStart, 2);
+  const endDate = addDays(addWeeks(currentWeekStart, 3), -1);
+  const todayStart = startOfWeek(new Date(), { weekStartsOn: 1 });
 
   const { data: jobs } = useListJobs(
     { from: format(startDate, "yyyy-MM-dd"), to: format(endDate, "yyyy-MM-dd") },
@@ -25,29 +25,32 @@ export default function Calendar() {
   const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
   const selectedDateJobs = jobs?.filter(job => job.date === selectedDateStr) || [];
 
-  const nextMonth = () => setCurrentDate(addMonths(currentDate, 1));
-  const prevMonth = () => setCurrentDate(subMonths(currentDate, 1));
+  const nextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
+  const prevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
+  const goToday = () => { setCurrentDate(new Date()); setSelectedDate(new Date()); };
 
   const days: Date[] = [];
-  let day = startDate;
-  while (day <= endDate) {
-    days.push(day);
-    day = addDays(day, 1);
-  }
+  for (let i = 0; i < 35; i++) days.push(addDays(startDate, i));
 
   const weekDays = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 flex items-center justify-between border-b bg-card z-10 sticky top-0 md:top-0">
-        <h1 className="text-xl font-bold capitalize">
-          {format(currentDate, "LLLL yyyy", { locale: cs })}
-        </h1>
+        <div className="flex flex-col">
+          <h1 className="text-xl font-bold capitalize leading-tight">
+            {format(startDate, "d.M.", { locale: cs })} – {format(endDate, "d.M.yyyy", { locale: cs })}
+          </h1>
+          <span className="text-xs text-muted-foreground">5 týdnů</span>
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={prevMonth} className="h-10 w-10">
+          <Button variant="outline" size="icon" onClick={prevWeek} className="h-10 w-10" title="O týden zpět">
             <ChevronLeft className="h-5 w-5" />
           </Button>
-          <Button variant="outline" size="icon" onClick={nextMonth} className="h-10 w-10">
+          <Button variant="outline" onClick={goToday} className="h-10 px-3 text-sm">
+            Dnes
+          </Button>
+          <Button variant="outline" size="icon" onClick={nextWeek} className="h-10 w-10" title="O týden vpřed">
             <ChevronRight className="h-5 w-5" />
           </Button>
         </div>
@@ -66,7 +69,8 @@ export default function Calendar() {
             const dayJobs = jobs?.filter(job => job.date === dateStr) || [];
             const dayHours = dayJobs.reduce((s, j) => s + (j.hoursSpent ? Number(j.hoursSpent) : 0), 0);
             const isSelected = isSameDay(d, selectedDate);
-            const isCurrentMonth = isSameMonth(d, monthStart);
+            const dWeekStart = startOfWeek(d, { weekStartsOn: 1 });
+            const isCurrentWeek = isSameDay(dWeekStart, todayStart);
             const isToday = isSameDay(d, new Date());
 
             return (
@@ -74,7 +78,7 @@ export default function Calendar() {
                 key={d.toString()} 
                 onClick={() => setSelectedDate(d)}
                 className={`min-h-[80px] bg-card p-1 cursor-pointer transition-colors
-                  ${!isCurrentMonth ? 'opacity-50 bg-muted/50' : ''}
+                  ${isCurrentWeek ? 'bg-amber-50 dark:bg-amber-950/20' : ''}
                   ${isSelected ? 'ring-2 ring-primary ring-inset bg-primary/5' : 'hover:bg-muted/80'}
                 `}
               >
