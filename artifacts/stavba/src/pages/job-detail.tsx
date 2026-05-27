@@ -540,7 +540,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
   }
 
   return (
-    <div className="flex items-start gap-2 p-3 bg-card border rounded-lg hover:bg-muted/50 transition-colors group">
+    <div className="flex items-start gap-2 p-3 bg-card border rounded-lg hover:bg-muted/50 transition-colors">
       <Checkbox 
         checked={task.done} 
         onCheckedChange={(c) => onToggle(task.id, !!c)} 
@@ -559,7 +559,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
           <Button 
             variant="ghost" size="icon"
             onClick={() => setEditing(true)}
-            className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-foreground transition-opacity"
+            className="h-9 w-9 text-muted-foreground hover:text-foreground"
           >
             <Edit3 className="w-4 h-4" />
           </Button>
@@ -572,15 +572,15 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
         <Button 
           variant="ghost" size="icon"
           onClick={() => cameraRef.current?.click()}
-          className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-blue-500 transition-opacity"
+          className="h-9 w-9 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"
         >
           <Camera className="w-4 h-4" />
         </Button>
-        <div className="w-2" />
+        <div className="w-1" />
         <Button 
           variant="ghost" size="icon"
           onClick={() => onDelete(task.id)} 
-          className="opacity-0 group-hover:opacity-100 h-8 w-8 text-muted-foreground hover:text-destructive transition-opacity"
+          className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
         >
           <Trash2 className="w-4 h-4" />
         </Button>

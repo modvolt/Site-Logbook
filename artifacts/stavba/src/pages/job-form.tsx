@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2 } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -182,12 +182,18 @@ export default function JobForm() {
           <div className="space-y-2" ref={customerRef}>
             <Label className="text-base flex items-center gap-1.5"><Building2 className="h-4 w-4" /> Zákazník / Stavba</Label>
             {selectedCustomer ? (
-              <div className="flex items-center gap-2 h-14 px-4 rounded-lg border bg-muted/50">
+              <div className="flex items-center gap-2 h-auto min-h-14 px-4 py-2 rounded-lg border bg-muted/50">
                 <Building2 className="h-4 w-4 text-primary shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{selectedCustomer.companyName}</p>
                   {selectedCustomer.contactPerson && (
                     <p className="text-xs text-muted-foreground truncate">{selectedCustomer.contactPerson}</p>
+                  )}
+                  {selectedCustomer.phone && (
+                    <a href={`tel:${selectedCustomer.phone}`} className="flex items-center gap-1 text-sm text-primary font-medium hover:underline mt-0.5">
+                      <Phone className="h-3.5 w-3.5" />
+                      {selectedCustomer.phone}
+                    </a>
                   )}
                 </div>
                 <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={clearCustomer}>
