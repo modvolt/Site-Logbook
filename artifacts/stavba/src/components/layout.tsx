@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2 } from "lucide-react";
+import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
@@ -39,7 +39,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="p-4 border-t">
+        <div className="p-4 border-t space-y-1">
+          <Link
+            href="/admin"
+            className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+              location === "/admin"
+                ? "bg-rose-600 text-white"
+                : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+            }`}
+          >
+            <ShieldAlert className={`h-5 w-5 ${location === "/admin" ? "text-white" : "text-rose-600"}`} />
+            Admin
+          </Link>
           <Link
             href="/settings"
             className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${

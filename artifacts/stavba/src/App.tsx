@@ -15,6 +15,7 @@ import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
 import Settings from "@/pages/settings";
+import Admin from "@/pages/admin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +39,7 @@ function Router() {
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/people" component={People} />
         <Route path="/settings" component={Settings} />
+        <Route path="/admin" component={Admin} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
