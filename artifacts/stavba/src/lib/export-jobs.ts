@@ -24,8 +24,96 @@ type Job = {
 
 const COL_WIDTHS = [30, 12, 20, 15, 25, 10, 10, 12, 8, 10, 10, 40];
 
+function calcTotals(jobs: Job[]) {
+  return {
+    count: jobs.length,
+    hoursVasek: jobs.reduce((s, j) => s + (j.hoursVasek ?? 0), 0),
+    hoursJonas: jobs.reduce((s, j) => s + (j.hoursJonas ?? 0), 0),
+    price: jobs.reduce((s, j) => s + (j.price ?? 0), 0),
+    transportKm: jobs.reduce((s, j) => s + (j.transportKm ?? 0), 0),
+    transportCost: jobs.reduce((s, j) => s + (j.transportCost ?? 0), 0),
+    parking: jobs.reduce((s, j) => s + (j.parking ?? 0), 0),
+    fines: jobs.reduce((s, j) => s + (j.fines ?? 0), 0),
+  };
+}
+
+function fmt(n: number): number | string {
+  return n === 0 ? "" : n;
+}
+
 export function exportJobsToXlsx(jobs: Job[], filename?: string) {
-  const header = [
+  const standardJobs = jobs.filter((j) => j.type !== "change");
+  const vicepraceJobs = jobs.filter((j) => j.type === "change");
+
+  const totAll = calcTotals(jobs);
+  const totStd = calcTotals(standardJobs);
+  const totVic = calcTotals(vicepraceJobs);
+
+  const summaryHeaderRow = [
+    "Ukazatel",
+    "Celkem",
+    "Standardní zakázky",
+    "Vícepráce",
+  ];
+
+  const summaryRows = [
+    [
+      "Počet zakázek",
+      totAll.count,
+      totStd.count,
+      totVic.count,
+    ],
+    [
+      "Hodiny – Vašek",
+      fmt(totAll.hoursVasek),
+      fmt(totStd.hoursVasek),
+      fmt(totVic.hoursVasek),
+    ],
+    [
+      "Hodiny – Jonáš",
+      fmt(totAll.hoursJonas),
+      fmt(totStd.hoursJonas),
+      fmt(totVic.hoursJonas),
+    ],
+    [
+      "Celkem hodin",
+      fmt(totAll.hoursVasek + totAll.hoursJonas),
+      fmt(totStd.hoursVasek + totStd.hoursJonas),
+      fmt(totVic.hoursVasek + totVic.hoursJonas),
+    ],
+    [
+      "Cena (Kč)",
+      fmt(totAll.price),
+      fmt(totStd.price),
+      fmt(totVic.price),
+    ],
+    [
+      "Doprava (km)",
+      fmt(totAll.transportKm),
+      fmt(totStd.transportKm),
+      fmt(totVic.transportKm),
+    ],
+    [
+      "Doprava (Kč)",
+      fmt(totAll.transportCost),
+      fmt(totStd.transportCost),
+      fmt(totVic.transportCost),
+    ],
+    [
+      "Parkování (Kč)",
+      fmt(totAll.parking),
+      fmt(totStd.parking),
+      fmt(totVic.parking),
+    ],
+    [
+      "Pokuty (Kč)",
+      fmt(totAll.fines),
+      fmt(totStd.fines),
+      fmt(totVic.fines),
+    ],
+  ];
+
+  const dataHeader = [
     "Název zakázky",
     "Datum",
     "Typ",
@@ -40,7 +128,7 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
     "Poznámky",
   ];
 
-  const rows = jobs.map((job) => {
+  const dataRows = jobs.map((job) => {
     const typeCfg = JOB_TYPES[job.type as keyof typeof JOB_TYPES];
     const statusCfg = JOB_STATUSES[job.status as keyof typeof JOB_STATUSES];
     const customer = job.customerCompanyName || job.clientSite || "";
@@ -62,41 +150,152 @@ export function exportJobsToXlsx(jobs: Job[], filename?: string) {
     ];
   });
 
-  const summaryRow = [
+  const totalsRow = [
     `Celkem zakázek: ${jobs.length}`,
     "",
     "",
     "",
     "",
-    jobs.reduce((s, j) => s + (j.hoursVasek ?? 0), 0) || "",
-    jobs.reduce((s, j) => s + (j.hoursJonas ?? 0), 0) || "",
-    jobs.reduce((s, j) => s + (j.price ?? 0), 0) || "",
-    jobs.reduce((s, j) => s + (j.transportKm ?? 0), 0) || "",
-    jobs.reduce((s, j) => s + (j.parking ?? 0), 0) || "",
-    jobs.reduce((s, j) => s + (j.fines ?? 0), 0) || "",
+    fmt(totAll.hoursVasek),
+    fmt(totAll.hoursJonas),
+    fmt(totAll.price),
+    fmt(totAll.transportKm),
+    fmt(totAll.parking),
+    fmt(totAll.fines),
     "",
   ];
 
-  const data = [header, ...rows, [], summaryRow];
+  const SUMMARY_TITLE_ROW = 0;
+  const SUMMARY_HEADER_ROW = 2;
+  const SUMMARY_DATA_START = 3;
+  const SUMMARY_DATA_END = SUMMARY_DATA_START + summaryRows.length - 1;
+  const GAP_ROW = SUMMARY_DATA_END + 1;
+  const DATA_HEADER_ROW = GAP_ROW + 1;
 
-  const ws = XLSX.utils.aoa_to_sheet(data);
+  const aoa: unknown[][] = [
+    ["PŘEHLED ZAKÁZEK"],
+    [],
+    summaryHeaderRow,
+    ...summaryRows,
+    [],
+    dataHeader,
+    ...dataRows,
+    [],
+    totalsRow,
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
 
   ws["!cols"] = COL_WIDTHS.map((w) => ({ wch: w }));
 
-  const headerRange = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-  for (let c = headerRange.s.c; c <= headerRange.e.c; c++) {
-    const cellAddr = XLSX.utils.encode_cell({ r: 0, c });
-    if (ws[cellAddr]) {
-      ws[cellAddr].s = {
-        font: { bold: true },
-        fill: { fgColor: { rgb: "1E3A5F" }, patternType: "solid" },
+  const DARK = "1E3A5F";
+  const ACCENT = "2563EB";
+  const LIGHT_BLUE = "DBEAFE";
+  const LIGHT_GREY = "F3F4F6";
+
+  const titleCell = ws["A1"];
+  if (titleCell) {
+    titleCell.s = {
+      font: { bold: true, sz: 14, color: { rgb: DARK } },
+    };
+  }
+
+  for (let c = 0; c < 4; c++) {
+    const addr = XLSX.utils.encode_cell({ r: SUMMARY_HEADER_ROW, c });
+    if (ws[addr]) {
+      ws[addr].s = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: DARK }, patternType: "solid" },
+        alignment: { horizontal: c === 0 ? "left" : "center" },
+      };
+    }
+  }
+
+  for (let r = SUMMARY_DATA_START; r <= SUMMARY_DATA_END; r++) {
+    const isEven = (r - SUMMARY_DATA_START) % 2 === 0;
+    for (let c = 0; c < 4; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (ws[addr]) {
+        ws[addr].s = {
+          fill: {
+            fgColor: { rgb: isEven ? LIGHT_BLUE : "FFFFFF" },
+            patternType: "solid",
+          },
+          font: c === 0 ? { bold: false } : { bold: true },
+          alignment: { horizontal: c === 0 ? "left" : "center" },
+        };
+      }
+    }
+  }
+
+  for (let c = 0; c < dataHeader.length; c++) {
+    const addr = XLSX.utils.encode_cell({ r: DATA_HEADER_ROW, c });
+    if (ws[addr]) {
+      ws[addr].s = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: ACCENT }, patternType: "solid" },
         alignment: { horizontal: "center" },
+      };
+    }
+  }
+
+  const totalRowIndex = DATA_HEADER_ROW + dataRows.length + 1;
+  for (let c = 0; c < dataHeader.length; c++) {
+    const addr = XLSX.utils.encode_cell({ r: totalRowIndex, c });
+    if (ws[addr]) {
+      ws[addr].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: LIGHT_GREY }, patternType: "solid" },
       };
     }
   }
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Zakázky");
+
+  const summaryAoa: unknown[][] = [
+    ["PŘEHLED ZAKÁZEK – SOUHRN"],
+    [],
+    summaryHeaderRow,
+    ...summaryRows,
+  ];
+  const summaryWs = XLSX.utils.aoa_to_sheet(summaryAoa);
+  summaryWs["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 22 }, { wch: 14 }];
+
+  const sumTitleCell = summaryWs["A1"];
+  if (sumTitleCell) {
+    sumTitleCell.s = {
+      font: { bold: true, sz: 13, color: { rgb: DARK } },
+    };
+  }
+  for (let c = 0; c < 4; c++) {
+    const addr = XLSX.utils.encode_cell({ r: 2, c });
+    if (summaryWs[addr]) {
+      summaryWs[addr].s = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: DARK }, patternType: "solid" },
+        alignment: { horizontal: c === 0 ? "left" : "center" },
+      };
+    }
+  }
+  for (let r = 3; r < 3 + summaryRows.length; r++) {
+    const isEven = (r - 3) % 2 === 0;
+    for (let c = 0; c < 4; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (summaryWs[addr]) {
+        summaryWs[addr].s = {
+          fill: {
+            fgColor: { rgb: isEven ? LIGHT_BLUE : "FFFFFF" },
+            patternType: "solid",
+          },
+          font: c === 0 ? { bold: false } : { bold: true },
+          alignment: { horizontal: c === 0 ? "left" : "center" },
+        };
+      }
+    }
+  }
+
+  XLSX.utils.book_append_sheet(wb, summaryWs, "Přehled");
 
   const today = new Date().toISOString().split("T")[0];
   const outFile = filename ?? `zakázky-${today}.xlsx`;
@@ -108,6 +307,12 @@ export function exportJobsToPdf(
   options?: { from?: string; to?: string; filename?: string }
 ) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  const standardJobs = jobs.filter((j) => j.type !== "change");
+  const vicepraceJobs = jobs.filter((j) => j.type === "change");
+  const totAll = calcTotals(jobs);
+  const totStd = calcTotals(standardJobs);
+  const totVic = calcTotals(vicepraceJobs);
 
   const today = new Date().toLocaleDateString("cs-CZ");
   const rangeLabel =
@@ -122,10 +327,72 @@ export function exportJobsToPdf(
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(100);
-  doc.text(`Datum exportu: ${today}   |   Rozsah: ${rangeLabel}   |   Zakázek: ${jobs.length}`, 14, 21);
+  doc.text(
+    `Datum exportu: ${today}   |   Rozsah: ${rangeLabel}   |   Zakázek celkem: ${jobs.length}`,
+    14,
+    21
+  );
   doc.setTextColor(0);
 
-  const header = [
+  const summaryTableData = [
+    [
+      "Počet zakázek",
+      String(totAll.count),
+      String(totStd.count),
+      String(totVic.count),
+    ],
+    [
+      "Hodiny – Vašek",
+      totAll.hoursVasek > 0 ? String(totAll.hoursVasek) : "–",
+      totStd.hoursVasek > 0 ? String(totStd.hoursVasek) : "–",
+      totVic.hoursVasek > 0 ? String(totVic.hoursVasek) : "–",
+    ],
+    [
+      "Hodiny – Jonáš",
+      totAll.hoursJonas > 0 ? String(totAll.hoursJonas) : "–",
+      totStd.hoursJonas > 0 ? String(totStd.hoursJonas) : "–",
+      totVic.hoursJonas > 0 ? String(totVic.hoursJonas) : "–",
+    ],
+    [
+      "Cena (Kč)",
+      totAll.price > 0 ? String(totAll.price) : "–",
+      totStd.price > 0 ? String(totStd.price) : "–",
+      totVic.price > 0 ? String(totVic.price) : "–",
+    ],
+    [
+      "Doprava (km)",
+      totAll.transportKm > 0 ? String(totAll.transportKm) : "–",
+      totStd.transportKm > 0 ? String(totStd.transportKm) : "–",
+      totVic.transportKm > 0 ? String(totVic.transportKm) : "–",
+    ],
+    [
+      "Doprava (Kč)",
+      totAll.transportCost > 0 ? String(totAll.transportCost) : "–",
+      totStd.transportCost > 0 ? String(totStd.transportCost) : "–",
+      totVic.transportCost > 0 ? String(totVic.transportCost) : "–",
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: 26,
+    head: [["Ukazatel", "Celkem", "Standardní zakázky", "Vícepráce"]],
+    body: summaryTableData,
+    styles: { fontSize: 7.5, cellPadding: 1.5 },
+    headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold" },
+    columnStyles: {
+      0: { cellWidth: 36 },
+      1: { cellWidth: 22, halign: "right", fontStyle: "bold" },
+      2: { cellWidth: 30, halign: "right" },
+      3: { cellWidth: 22, halign: "right" },
+    },
+    tableWidth: 110,
+    margin: { left: 14 },
+  });
+
+  const summaryEndY = (doc as unknown as { lastAutoTable: { finalY: number } })
+    .lastAutoTable.finalY + 6;
+
+  const dataHeader = [
     "Název zakázky",
     "Datum",
     "Typ",
@@ -140,7 +407,7 @@ export function exportJobsToPdf(
     "Poznámky",
   ];
 
-  const rows = jobs.map((job) => {
+  const dataRows = jobs.map((job) => {
     const typeCfg = JOB_TYPES[job.type as keyof typeof JOB_TYPES];
     const statusCfg = JOB_STATUSES[job.status as keyof typeof JOB_STATUSES];
     const customer = job.customerCompanyName || job.clientSite || "";
@@ -168,21 +435,21 @@ export function exportJobsToPdf(
     "",
     "",
     "",
-    String(jobs.reduce((s, j) => s + (j.hoursVasek ?? 0), 0) || ""),
-    String(jobs.reduce((s, j) => s + (j.hoursJonas ?? 0), 0) || ""),
-    String(jobs.reduce((s, j) => s + (j.price ?? 0), 0) || ""),
-    String(jobs.reduce((s, j) => s + (j.transportKm ?? 0), 0) || ""),
-    String(jobs.reduce((s, j) => s + (j.parking ?? 0), 0) || ""),
-    String(jobs.reduce((s, j) => s + (j.fines ?? 0), 0) || ""),
+    totAll.hoursVasek > 0 ? String(totAll.hoursVasek) : "",
+    totAll.hoursJonas > 0 ? String(totAll.hoursJonas) : "",
+    totAll.price > 0 ? String(totAll.price) : "",
+    totAll.transportKm > 0 ? String(totAll.transportKm) : "",
+    totAll.parking > 0 ? String(totAll.parking) : "",
+    totAll.fines > 0 ? String(totAll.fines) : "",
     "",
   ];
 
   autoTable(doc, {
-    startY: 26,
-    head: [header],
-    body: [...rows, totalsRow],
+    startY: summaryEndY,
+    head: [dataHeader],
+    body: [...dataRows, totalsRow],
     styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
-    headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold" },
+    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
     columnStyles: {
       0: { cellWidth: 40 },
       1: { cellWidth: 18 },
@@ -197,10 +464,18 @@ export function exportJobsToPdf(
       10: { cellWidth: 13, halign: "right" },
       11: { cellWidth: "auto" },
     },
-    didParseCell: (data) => {
-      if (data.row.index === rows.length) {
+    didParseCell: (data: any) => {
+      if (data.row.index === dataRows.length) {
         data.cell.styles.fontStyle = "bold";
         data.cell.styles.fillColor = [240, 240, 240];
+      }
+    },
+    willDrawCell: (data: any) => {
+      if (data.row.section === "body" && data.row.index < dataRows.length) {
+        const job = jobs[data.row.index];
+        if (job?.type === "change") {
+          data.cell.styles.fillColor = [254, 243, 199];
+        }
       }
     },
   });
