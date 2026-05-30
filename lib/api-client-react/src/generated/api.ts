@@ -62,6 +62,8 @@ import type {
   MyStats,
   Person,
   PersonInput,
+  SendJobEmailInput,
+  SendJobEmailResult,
   SetupInput,
   Task,
   TaskInput,
@@ -680,6 +682,78 @@ export const useUpdateJobStatus = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateJobStatusMutationOptions(options));
+    }
+
+export const getSendJobEmailUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/send-email`
+}
+
+/**
+ * @summary Email the job sheet PDF to the customer
+ */
+export const sendJobEmail = async (id: number,
+    sendJobEmailInput: SendJobEmailInput, options?: RequestInit): Promise<SendJobEmailResult> => {
+
+  return customFetch<SendJobEmailResult>(getSendJobEmailUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendJobEmailInput,)
+  }
+);}
+
+
+
+
+export const getSendJobEmailMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendJobEmail>>, TError,{id: number;data: BodyType<SendJobEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendJobEmail>>, TError,{id: number;data: BodyType<SendJobEmailInput>}, TContext> => {
+
+const mutationKey = ['sendJobEmail'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendJobEmail>>, {id: number;data: BodyType<SendJobEmailInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  sendJobEmail(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendJobEmailMutationResult = NonNullable<Awaited<ReturnType<typeof sendJobEmail>>>
+    export type SendJobEmailMutationBody = BodyType<SendJobEmailInput>
+    export type SendJobEmailMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Email the job sheet PDF to the customer
+ */
+export const useSendJobEmail = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendJobEmail>>, TError,{id: number;data: BodyType<SendJobEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendJobEmail>>,
+        TError,
+        {id: number;data: BodyType<SendJobEmailInput>},
+        TContext
+      > => {
+      return useMutation(getSendJobEmailMutationOptions(options));
     }
 
 export const getListTasksUrl = (jobId: number,) => {

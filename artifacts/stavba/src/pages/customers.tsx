@@ -16,6 +16,7 @@ type CustomerForm = {
   companyName: string;
   contactPerson: string;
   phone: string;
+  email: string;
   ic: string;
   dic: string;
   address: string;
@@ -25,6 +26,7 @@ const emptyForm: CustomerForm = {
   companyName: "",
   contactPerson: "",
   phone: "",
+  email: "",
   ic: "",
   dic: "",
   address: "",
@@ -56,6 +58,7 @@ export default function Customers() {
         companyName: newForm.companyName.trim(),
         contactPerson: newForm.contactPerson.trim() || null,
         phone: newForm.phone.trim() || null,
+        email: newForm.email.trim() || null,
         ic: newForm.ic.trim() || null,
         dic: newForm.dic.trim() || null,
         address: newForm.address.trim() || null,
@@ -77,6 +80,7 @@ export default function Customers() {
       companyName: c.companyName,
       contactPerson: c.contactPerson || "",
       phone: c.phone || "",
+      email: c.email || "",
       ic: c.ic || "",
       dic: c.dic || "",
       address: c.address || "",
@@ -90,6 +94,7 @@ export default function Customers() {
         companyName: editForm.companyName.trim(),
         contactPerson: editForm.contactPerson.trim() || null,
         phone: editForm.phone.trim() || null,
+        email: editForm.email.trim() || null,
         ic: editForm.ic.trim() || null,
         dic: editForm.dic.trim() || null,
         address: editForm.address.trim() || null,
@@ -159,6 +164,16 @@ export default function Customers() {
                     className="h-12 text-base"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1 block">E-mail</label>
+                <Input
+                  value={newForm.email}
+                  onChange={e => setNewForm(p => ({ ...p, email: e.target.value }))}
+                  placeholder="email@firma.cz"
+                  type="email"
+                  className="h-12 text-base"
+                />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -232,6 +247,13 @@ export default function Customers() {
                         className="h-11"
                       />
                     </div>
+                    <Input
+                      value={editForm.email}
+                      onChange={e => setEditForm(p => ({ ...p, email: e.target.value }))}
+                      placeholder="E-mail"
+                      type="email"
+                      className="h-11"
+                    />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Input
                         value={editForm.ic}

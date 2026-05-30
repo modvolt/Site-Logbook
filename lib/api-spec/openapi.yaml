@@ -208,6 +208,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
+  /jobs/{id}/send-email:
+    post:
+      operationId: sendJobEmail
+      tags: [jobs]
+      summary: Email the job sheet PDF to the customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendJobEmailInput"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendJobEmailResult"
+
   /jobs/{jobId}/tasks:
     get:
       operationId: listTasks
@@ -1681,6 +1706,8 @@ components:
           type: ["string", "null"]
         phone:
           type: ["string", "null"]
+        email:
+          type: ["string", "null"]
         ic:
           type: ["string", "null"]
         dic:
@@ -1688,6 +1715,30 @@ components:
         address:
           type: ["string", "null"]
         createdAt:
+          type: string
+
+    SendJobEmailInput:
+      type: object
+      required: [pdfBase64]
+      properties:
+        pdfBase64:
+          type: string
+          description: Base64-encoded PDF of the job sheet
+        to:
+          type: ["string", "null"]
+          description: Optional override recipient; defaults to the customer's stored email
+        subject:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+
+    SendJobEmailResult:
+      type: object
+      required: [sent, to]
+      properties:
+        sent:
+          type: boolean
+        to:
           type: string
 
     CustomerInput:
@@ -1700,6 +1751,8 @@ components:
         contactPerson:
           type: ["string", "null"]
         phone:
+          type: ["string", "null"]
+        email:
           type: ["string", "null"]
         ic:
           type: ["string", "null"]
@@ -1815,6 +1868,8 @@ components:
         customerCompanyName:
           type: ["string", "null"]
         customerPhone:
+          type: ["string", "null"]
+        customerEmail:
           type: ["string", "null"]
         notes:
           type: ["string", "null"]

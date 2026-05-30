@@ -63,7 +63,7 @@ export default function CustomerDetail() {
 
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({
-    companyName: "", contactPerson: "", phone: "", ic: "", dic: "", address: "",
+    companyName: "", contactPerson: "", phone: "", email: "", ic: "", dic: "", address: "",
   });
 
   // Contacts UI state
@@ -89,6 +89,7 @@ export default function CustomerDetail() {
       companyName: customer.companyName,
       contactPerson: customer.contactPerson || "",
       phone: customer.phone || "",
+      email: customer.email || "",
       ic: customer.ic || "",
       dic: customer.dic || "",
       address: customer.address || "",
@@ -105,6 +106,7 @@ export default function CustomerDetail() {
           companyName: editForm.companyName.trim(),
           contactPerson: editForm.contactPerson.trim() || null,
           phone: editForm.phone.trim() || null,
+          email: editForm.email.trim() || null,
           ic: editForm.ic.trim() || null,
           dic: editForm.dic.trim() || null,
           address: editForm.address.trim() || null,
@@ -363,6 +365,16 @@ export default function CustomerDetail() {
                     />
                   </div>
                 </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-1 block">E-mail</label>
+                  <Input
+                    value={editForm.email}
+                    onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
+                    placeholder="email@firma.cz"
+                    type="email"
+                    className="h-11"
+                  />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="text-sm font-medium text-muted-foreground mb-1 block">IČ</label>
@@ -425,6 +437,15 @@ export default function CustomerDetail() {
                     >
                       <Phone className="h-4 w-4 shrink-0" />
                       <span className="text-sm">{customer.phone}</span>
+                    </a>
+                  )}
+                  {customer.email && (
+                    <a
+                      href={`mailto:${customer.email}`}
+                      className="flex items-center gap-2 text-primary font-medium hover:underline"
+                    >
+                      <Mail className="h-4 w-4 shrink-0" />
+                      <span className="text-sm">{customer.email}</span>
                     </a>
                   )}
                   {customer.ic && (

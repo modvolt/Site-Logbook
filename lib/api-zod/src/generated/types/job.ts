@@ -43,6 +43,8 @@ export interface Job {
   /** @nullable */
   customerPhone?: string | null;
   /** @nullable */
+  customerEmail?: string | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;

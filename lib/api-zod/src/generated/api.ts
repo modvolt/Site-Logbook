@@ -41,6 +41,7 @@ export const ListJobsResponseItem = zod.object({
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),
@@ -124,6 +125,7 @@ export const GetJobResponse = zod.object({
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),
@@ -195,6 +197,7 @@ export const UpdateJobResponse = zod.object({
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),
@@ -250,6 +253,7 @@ export const UpdateJobStatusResponse = zod.object({
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),
@@ -268,6 +272,26 @@ export const UpdateJobStatusResponse = zod.object({
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
   "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Email the job sheet PDF to the customer
+ */
+export const SendJobEmailParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SendJobEmailBody = zod.object({
+  "pdfBase64": zod.string().describe('Base64-encoded PDF of the job sheet'),
+  "to": zod.string().nullish().describe('Optional override recipient; defaults to the customer\'s stored email'),
+  "subject": zod.string().nullish(),
+  "message": zod.string().nullish()
+})
+
+export const SendJobEmailResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string()
 })
 
 
@@ -529,6 +553,7 @@ export const ListCustomersResponseItem = zod.object({
   "companyName": zod.string(),
   "contactPerson": zod.string().nullish(),
   "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
   "ic": zod.string().nullish(),
   "dic": zod.string().nullish(),
   "address": zod.string().nullish(),
@@ -547,6 +572,7 @@ export const CreateCustomerBody = zod.object({
   "companyName": zod.string().min(1),
   "contactPerson": zod.string().nullish(),
   "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
   "ic": zod.string().nullish(),
   "dic": zod.string().nullish(),
   "address": zod.string().nullish()
@@ -567,6 +593,7 @@ export const UpdateCustomerBody = zod.object({
   "companyName": zod.string().min(1),
   "contactPerson": zod.string().nullish(),
   "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
   "ic": zod.string().nullish(),
   "dic": zod.string().nullish(),
   "address": zod.string().nullish()
@@ -577,6 +604,7 @@ export const UpdateCustomerResponse = zod.object({
   "companyName": zod.string(),
   "contactPerson": zod.string().nullish(),
   "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
   "ic": zod.string().nullish(),
   "dic": zod.string().nullish(),
   "address": zod.string().nullish(),
@@ -943,6 +971,7 @@ export const GetTodayJobsResponseItem = zod.object({
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),

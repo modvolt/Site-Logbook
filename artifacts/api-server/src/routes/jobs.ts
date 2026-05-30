@@ -11,7 +11,10 @@ import {
   UpdateJobStatusParams,
   UpdateJobStatusBody,
   ReorderJobsBody,
+  SendJobEmailParams,
+  SendJobEmailBody,
 } from "@workspace/api-zod";
+import { sendGmailWithPdf } from "../lib/gmail";
 
 const router: IRouter = Router();
 
@@ -61,13 +64,15 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
 
   let customerCompanyName: string | null = null;
   let customerPhone: string | null = null;
+  let customerEmail: string | null = null;
   if (job.customerId) {
     const [customer] = await db
-      .select({ companyName: customersTable.companyName, phone: customersTable.phone })
+      .select({ companyName: customersTable.companyName, phone: customersTable.phone, email: customersTable.email })
       .from(customersTable)
       .where(eq(customersTable.id, job.customerId));
     customerCompanyName = customer?.companyName ?? null;
     customerPhone = customer?.phone ?? null;
+    customerEmail = customer?.email ?? null;
   }
 
   return {
@@ -88,6 +93,7 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     assignedPersonName,
     customerCompanyName,
     customerPhone,
+    customerEmail,
     timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
     createdAt: job.createdAt.toISOString(),
   };
@@ -257,6 +263,69 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
   }
 
   res.json(await enrichJob(job));
+});
+
+router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
+  const params = SendJobEmailParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const parsed = SendJobEmailBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  let customerEmail: string | null = null;
+  let customerCompanyName: string | null = null;
+  if (job.customerId) {
+    const [customer] = await db
+      .select({ companyName: customersTable.companyName, email: customersTable.email })
+      .from(customersTable)
+      .where(eq(customersTable.id, job.customerId));
+    customerEmail = customer?.email ?? null;
+    customerCompanyName = customer?.companyName ?? null;
+  }
+
+  const to = (parsed.data.to ?? customerEmail ?? "").trim();
+  if (!to) {
+    res.status(400).json({ error: "Zákazník nemá uložený e-mail." });
+    return;
+  }
+
+  const jobLabel = job.title ?? `Zakázka #${job.id}`;
+  const subject = parsed.data.subject?.trim() || `Zakázkový list – ${jobLabel}`;
+  const message =
+    parsed.data.message?.trim() ||
+    `Dobrý den${customerCompanyName ? `, ${customerCompanyName}` : ""},\n\n` +
+      `v příloze zasíláme zakázkový list k zakázce "${jobLabel}".\n\n` +
+      `S pozdravem,\nModvolt s.r.o.`;
+
+  const filename = `zakazkovy-list-${job.id}.pdf`;
+
+  try {
+    await sendGmailWithPdf({
+      to,
+      subject,
+      text: message,
+      pdfBase64: parsed.data.pdfBase64,
+      filename,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to send job email");
+    res.status(502).json({ error: err instanceof Error ? err.message : "Odeslání e-mailu selhalo." });
+    return;
+  }
+
+  res.json({ sent: true, to });
 });
 
 export default router;

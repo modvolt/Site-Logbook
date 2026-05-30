@@ -7,6 +7,7 @@ export const customersTable = pgTable("customers", {
   companyName: text("company_name").notNull(),
   contactPerson: text("contact_person"),
   phone: text("phone"),
+  email: text("email"),
   ic: text("ic"),
   dic: text("dic"),
   address: text("address"),

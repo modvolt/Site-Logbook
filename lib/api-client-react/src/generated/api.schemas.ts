@@ -17,12 +17,33 @@ export interface Customer {
   /** @nullable */
   phone?: string | null;
   /** @nullable */
+  email?: string | null;
+  /** @nullable */
   ic?: string | null;
   /** @nullable */
   dic?: string | null;
   /** @nullable */
   address?: string | null;
   createdAt: string;
+}
+
+export interface SendJobEmailInput {
+  /** Base64-encoded PDF of the job sheet */
+  pdfBase64: string;
+  /**
+     * Optional override recipient; defaults to the customer's stored email
+     * @nullable
+     */
+  to?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  message?: string | null;
+}
+
+export interface SendJobEmailResult {
+  sent: boolean;
+  to: string;
 }
 
 export interface CustomerInput {
@@ -32,6 +53,8 @@ export interface CustomerInput {
   contactPerson?: string | null;
   /** @nullable */
   phone?: string | null;
+  /** @nullable */
+  email?: string | null;
   /** @nullable */
   ic?: string | null;
   /** @nullable */
@@ -128,6 +151,8 @@ export interface Job {
   customerCompanyName?: string | null;
   /** @nullable */
   customerPhone?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
   /** @nullable */
   notes?: string | null;
   /** @nullable */

@@ -5,11 +5,16 @@ import {
   useGetJob, getGetJobQueryKey,
   useListTasks, getListTasksQueryKey,
   useListMaterials, getListMaterialsQueryKey,
+  useSendJobEmail,
 } from "@workspace/api-client-react";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Printer, PenLine, RotateCcw, Mail, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JOB_STATUSES, JOB_TYPES } from "@/components/badges";
+import { SignaturePad } from "@/components/signature-pad";
+import { useToast } from "@/hooks/use-toast";
+import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
+import contractorSignature from "@assets/podpis_firma_1780171718219.jpeg";
 
 const PRINT_CSS = `
 @media print {
@@ -38,6 +43,10 @@ export default function JobExport() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
   const [showPrice, setShowPrice] = useState(true);
+  const [customerSig, setCustomerSig] = useState<string | null>(null);
+  const [padOpen, setPadOpen] = useState(false);
+  const { toast } = useToast();
+  const sendEmail = useSendJobEmail();
 
   const { data: job, isLoading } = useGetJob(id, {
     query: { enabled: !!id, queryKey: getGetJobQueryKey(id) },
@@ -85,6 +94,34 @@ export default function JobExport() {
 
   const place = job.address || job.clientSite || "";
 
+  const handleSendEmail = async () => {
+    const recipient = job.customerEmail?.trim();
+    if (!recipient) {
+      toast({
+        variant: "destructive",
+        title: "Chybí e-mail zákazníka",
+        description: "Přidejte e-mail u zákazníka a zkuste to znovu.",
+      });
+      return;
+    }
+    const element = document.getElementById("zakazkovy-list");
+    if (!element) return;
+    try {
+      const pdfBase64 = await jobSheetPdfBase64(element);
+      const result = await sendEmail.mutateAsync({ id, data: { pdfBase64 } });
+      toast({
+        title: "E-mail odeslán",
+        description: `Zakázkový list byl odeslán na ${result.to}.`,
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Odeslání selhalo",
+        description: "E-mail se nepodařilo odeslat. Zkuste to prosím znovu.",
+      });
+    }
+  };
+
   return (
     <div className="min-h-[100dvh] bg-neutral-200 dark:bg-neutral-800 pb-16">
       <style>{PRINT_CSS}</style>
@@ -105,6 +142,19 @@ export default function JobExport() {
             />
             Zobrazit ceny
           </label>
+          <Button
+            variant="outline"
+            onClick={handleSendEmail}
+            disabled={sendEmail.isPending}
+            className="shrink-0"
+          >
+            {sendEmail.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Mail className="h-4 w-4 mr-2" />
+            )}
+            Odeslat e-mailem
+          </Button>
           <Button onClick={() => window.print()} className="shrink-0">
             <Printer className="h-4 w-4 mr-2" /> Tisk / Uložit PDF
           </Button>
@@ -287,8 +337,36 @@ export default function JobExport() {
               předáno a převzato bez vad a nedodělků.
             </p>
             <div className="grid grid-cols-2 gap-10 text-sm">
-              <SignatureBlock label="Zhotovitel" />
-              <SignatureBlock label="Objednatel" />
+              <SignatureBlock label="Zhotovitel" imageSrc={contractorSignature} />
+              <div>
+                <div className="h-16 flex items-end justify-center">
+                  {customerSig ? (
+                    <img src={customerSig} alt="Podpis objednatele" className="max-h-16 object-contain" />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPadOpen(true)}
+                      className="no-print mb-1"
+                    >
+                      <PenLine className="w-4 h-4 mr-2" /> Podepsat
+                    </Button>
+                  )}
+                </div>
+                <div className="border-t border-neutral-700 pt-1 text-neutral-600 flex items-center justify-between">
+                  <span>Objednatel</span>
+                  {customerSig && (
+                    <button
+                      type="button"
+                      onClick={() => setPadOpen(true)}
+                      className="no-print text-xs text-neutral-400 hover:text-neutral-600 flex items-center gap-1"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Přepsat
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <p className="text-xs text-neutral-500 mt-6">
               V ........................................ dne ........................
@@ -296,6 +374,13 @@ export default function JobExport() {
           </div>
         </div>
       </div>
+
+      <SignaturePad
+        open={padOpen}
+        onOpenChange={setPadOpen}
+        onSave={setCustomerSig}
+        title="Podpis objednatele"
+      />
     </div>
   );
 }
@@ -329,10 +414,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function SignatureBlock({ label }: { label: string }) {
+function SignatureBlock({ label, imageSrc }: { label: string; imageSrc?: string }) {
   return (
     <div>
-      <div className="h-16" />
+      <div className="h-16 flex items-end justify-center">
+        {imageSrc && <img src={imageSrc} alt={`Podpis – ${label}`} className="max-h-16 object-contain" />}
+      </div>
       <div className="border-t border-neutral-700 pt-1 text-neutral-600">{label}</div>
     </div>
   );

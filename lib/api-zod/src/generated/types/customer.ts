@@ -14,6 +14,8 @@ export interface Customer {
   /** @nullable */
   phone?: string | null;
   /** @nullable */
+  email?: string | null;
+  /** @nullable */
   ic?: string | null;
   /** @nullable */
   dic?: string | null;

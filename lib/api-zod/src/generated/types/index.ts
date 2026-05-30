@@ -48,6 +48,8 @@ export * from './myJobSummary';
 export * from './myStats';
 export * from './person';
 export * from './personInput';
+export * from './sendJobEmailInput';
+export * from './sendJobEmailResult';
 export * from './setupInput';
 export * from './task';
 export * from './taskInput';
