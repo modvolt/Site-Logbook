@@ -25,6 +25,7 @@ import Login from "@/pages/login";
 import UsersAdmin from "@/pages/users-admin";
 import Activities from "@/pages/activities";
 import ActivityDetail from "@/pages/activity-detail";
+import ActivityExport from "@/pages/activity-export";
 import MyOverview from "@/pages/my-overview";
 import Sklad from "@/pages/sklad";
 import Stroje from "@/pages/stroje";
@@ -86,6 +87,7 @@ function AuthenticatedApp() {
         <Route path="/stroje" component={Stroje} />
         <Route path="/stroje/:id" component={StrojDetail} />
         <Route path="/activities" component={Activities} />
+        <Route path="/activities/:id/export" component={ActivityExport} />
         <Route path="/activities/:id" component={ActivityDetail} />
         <Route path="/me" component={MyOverview} />
         <Route path="/settings" component={Settings} />

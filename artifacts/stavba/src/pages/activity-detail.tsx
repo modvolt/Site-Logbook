@@ -27,7 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
-  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw,
+  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -337,6 +337,14 @@ export default function ActivityDetail() {
           )}
         </CardContent>
       </Card>
+
+      <Button
+        variant="outline"
+        onClick={() => setLocation(`/activities/${id}/export`)}
+        className="w-full h-11 border-primary/40 text-primary hover:bg-primary/5"
+      >
+        <FileText className="h-4 w-4 mr-2" /> Podklad k fakturaci (PDF)
+      </Button>
 
       {/* Timer */}
       <Card className={running ? "border-emerald-500 border-2" : ""}>
