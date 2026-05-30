@@ -16,3 +16,4 @@ export * from "./customer-contacts";
 export * from "./customer-sites";
 export * from "./device-credentials";
 export * from "./audit-log";
+export * from "./time-entries";

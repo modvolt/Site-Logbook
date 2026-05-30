@@ -6,3 +6,4 @@
 - [PWA shared-device caching](pwa-shared-device-caching.md) — cache authenticated GET /api with NetworkFirst but purge the SW cache on logout so shared devices never leak one user's data to the next.
 - [Recurring occurrence dedupe](recurring-occurrence-dedupe.md) — auto-creating next recurring job on done-transition must dedupe by (type,date,title,customer); gating on status alone duplicates on reopen→re-done.
 - [Device credential vault authz](device-credential-vault-authz.md) — credential-vault routes gate to master+admin (not requireAuth); guests have read access by default & secrets are plaintext.
+- [Time-entry timer accumulation](time-entry-timer-accumulation.md) — per-person time_entries; setHours while timer runs MUST rebase timerStartedAt to now() in same UPDATE or stop double-counts.

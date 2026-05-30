@@ -20,6 +20,7 @@ import machinesRouter from "./machines";
 import warehouseItemsRouter from "./warehouse-items";
 import auditRouter from "./audit";
 import gdprRouter from "./gdpr";
+import timeEntriesRouter from "./time-entries";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(machinesRouter);
 router.use(warehouseItemsRouter);
 router.use(auditRouter);
 router.use(gdprRouter);
+router.use(timeEntriesRouter);
 
 export default router;

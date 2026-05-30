@@ -78,6 +78,9 @@ import type {
   Task,
   TaskInput,
   TaskUpdate,
+  TimeEntry,
+  TimeEntryInput,
+  TimeEntryUpdate,
   UploadUrlRequest,
   UploadUrlResponse,
   UserInput,
@@ -6358,6 +6361,884 @@ export const useDeleteActivityExtraWork = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteActivityExtraWorkMutationOptions(options));
+    }
+
+export const getListActivityTimeEntriesUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/time-entries`
+}
+
+/**
+ * @summary List per-person time entries for an activity
+ */
+export const listActivityTimeEntries = async (activityId: number, options?: RequestInit): Promise<TimeEntry[]> => {
+
+  return customFetch<TimeEntry[]>(getListActivityTimeEntriesUrl(activityId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListActivityTimeEntriesQueryKey = (activityId: number,) => {
+    return [
+    `/api/activities/${activityId}/time-entries`
+    ] as const;
+    }
+
+
+export const getListActivityTimeEntriesQueryOptions = <TData = Awaited<ReturnType<typeof listActivityTimeEntries>>, TError = ErrorType<unknown>>(activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityTimeEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListActivityTimeEntriesQueryKey(activityId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listActivityTimeEntries>>> = ({ signal }) => listActivityTimeEntries(activityId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(activityId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActivityTimeEntries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListActivityTimeEntriesQueryResult = NonNullable<Awaited<ReturnType<typeof listActivityTimeEntries>>>
+export type ListActivityTimeEntriesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List per-person time entries for an activity
+ */
+
+export function useListActivityTimeEntries<TData = Awaited<ReturnType<typeof listActivityTimeEntries>>, TError = ErrorType<unknown>>(
+ activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityTimeEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListActivityTimeEntriesQueryOptions(activityId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateActivityTimeEntryUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/time-entries`
+}
+
+/**
+ * @summary Add a person to an activity's time tracking
+ */
+export const createActivityTimeEntry = async (activityId: number,
+    timeEntryInput: TimeEntryInput, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getCreateActivityTimeEntryUrl(activityId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      timeEntryInput,)
+  }
+);}
+
+
+
+
+export const getCreateActivityTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityTimeEntry>>, TError,{activityId: number;data: BodyType<TimeEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createActivityTimeEntry>>, TError,{activityId: number;data: BodyType<TimeEntryInput>}, TContext> => {
+
+const mutationKey = ['createActivityTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createActivityTimeEntry>>, {activityId: number;data: BodyType<TimeEntryInput>}> = (props) => {
+          const {activityId,data} = props ?? {};
+
+          return  createActivityTimeEntry(activityId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateActivityTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof createActivityTimeEntry>>>
+    export type CreateActivityTimeEntryMutationBody = BodyType<TimeEntryInput>
+    export type CreateActivityTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add a person to an activity's time tracking
+ */
+export const useCreateActivityTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityTimeEntry>>, TError,{activityId: number;data: BodyType<TimeEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createActivityTimeEntry>>,
+        TError,
+        {activityId: number;data: BodyType<TimeEntryInput>},
+        TContext
+      > => {
+      return useMutation(getCreateActivityTimeEntryMutationOptions(options));
+    }
+
+export const getStartActivityTimeEntryUrl = (activityId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/time-entries/${personId}/start`
+}
+
+/**
+ * @summary Start a person's timer on an activity
+ */
+export const startActivityTimeEntry = async (activityId: number,
+    personId: number, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getStartActivityTimeEntryUrl(activityId,personId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getStartActivityTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext> => {
+
+const mutationKey = ['startActivityTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startActivityTimeEntry>>, {activityId: number;personId: number}> = (props) => {
+          const {activityId,personId} = props ?? {};
+
+          return  startActivityTimeEntry(activityId,personId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartActivityTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof startActivityTimeEntry>>>
+
+    export type StartActivityTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Start a person's timer on an activity
+ */
+export const useStartActivityTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startActivityTimeEntry>>,
+        TError,
+        {activityId: number;personId: number},
+        TContext
+      > => {
+      return useMutation(getStartActivityTimeEntryMutationOptions(options));
+    }
+
+export const getStopActivityTimeEntryUrl = (activityId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/time-entries/${personId}/stop`
+}
+
+/**
+ * @summary Stop a person's timer on an activity and accumulate hours
+ */
+export const stopActivityTimeEntry = async (activityId: number,
+    personId: number, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getStopActivityTimeEntryUrl(activityId,personId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getStopActivityTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof stopActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext> => {
+
+const mutationKey = ['stopActivityTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof stopActivityTimeEntry>>, {activityId: number;personId: number}> = (props) => {
+          const {activityId,personId} = props ?? {};
+
+          return  stopActivityTimeEntry(activityId,personId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StopActivityTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof stopActivityTimeEntry>>>
+
+    export type StopActivityTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Stop a person's timer on an activity and accumulate hours
+ */
+export const useStopActivityTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof stopActivityTimeEntry>>,
+        TError,
+        {activityId: number;personId: number},
+        TContext
+      > => {
+      return useMutation(getStopActivityTimeEntryMutationOptions(options));
+    }
+
+export const getUpdateActivityTimeEntryUrl = (activityId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/time-entries/${personId}`
+}
+
+/**
+ * @summary Manually set a person's hours on an activity
+ */
+export const updateActivityTimeEntry = async (activityId: number,
+    personId: number,
+    timeEntryUpdate: TimeEntryUpdate, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getUpdateActivityTimeEntryUrl(activityId,personId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      timeEntryUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateActivityTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateActivityTimeEntry>>, TError,{activityId: number;personId: number;data: BodyType<TimeEntryUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateActivityTimeEntry>>, TError,{activityId: number;personId: number;data: BodyType<TimeEntryUpdate>}, TContext> => {
+
+const mutationKey = ['updateActivityTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateActivityTimeEntry>>, {activityId: number;personId: number;data: BodyType<TimeEntryUpdate>}> = (props) => {
+          const {activityId,personId,data} = props ?? {};
+
+          return  updateActivityTimeEntry(activityId,personId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateActivityTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof updateActivityTimeEntry>>>
+    export type UpdateActivityTimeEntryMutationBody = BodyType<TimeEntryUpdate>
+    export type UpdateActivityTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Manually set a person's hours on an activity
+ */
+export const useUpdateActivityTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateActivityTimeEntry>>, TError,{activityId: number;personId: number;data: BodyType<TimeEntryUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateActivityTimeEntry>>,
+        TError,
+        {activityId: number;personId: number;data: BodyType<TimeEntryUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateActivityTimeEntryMutationOptions(options));
+    }
+
+export const getDeleteActivityTimeEntryUrl = (activityId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/time-entries/${personId}`
+}
+
+/**
+ * @summary Remove a person from an activity's time tracking
+ */
+export const deleteActivityTimeEntry = async (activityId: number,
+    personId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteActivityTimeEntryUrl(activityId,personId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteActivityTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext> => {
+
+const mutationKey = ['deleteActivityTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteActivityTimeEntry>>, {activityId: number;personId: number}> = (props) => {
+          const {activityId,personId} = props ?? {};
+
+          return  deleteActivityTimeEntry(activityId,personId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteActivityTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof deleteActivityTimeEntry>>>
+
+    export type DeleteActivityTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove a person from an activity's time tracking
+ */
+export const useDeleteActivityTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteActivityTimeEntry>>, TError,{activityId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteActivityTimeEntry>>,
+        TError,
+        {activityId: number;personId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteActivityTimeEntryMutationOptions(options));
+    }
+
+export const getListJobTimeEntriesUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/time-entries`
+}
+
+/**
+ * @summary List per-person time entries for a job
+ */
+export const listJobTimeEntries = async (jobId: number, options?: RequestInit): Promise<TimeEntry[]> => {
+
+  return customFetch<TimeEntry[]>(getListJobTimeEntriesUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListJobTimeEntriesQueryKey = (jobId: number,) => {
+    return [
+    `/api/jobs/${jobId}/time-entries`
+    ] as const;
+    }
+
+
+export const getListJobTimeEntriesQueryOptions = <TData = Awaited<ReturnType<typeof listJobTimeEntries>>, TError = ErrorType<unknown>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobTimeEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListJobTimeEntriesQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listJobTimeEntries>>> = ({ signal }) => listJobTimeEntries(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(jobId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listJobTimeEntries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListJobTimeEntriesQueryResult = NonNullable<Awaited<ReturnType<typeof listJobTimeEntries>>>
+export type ListJobTimeEntriesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List per-person time entries for a job
+ */
+
+export function useListJobTimeEntries<TData = Awaited<ReturnType<typeof listJobTimeEntries>>, TError = ErrorType<unknown>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobTimeEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListJobTimeEntriesQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateJobTimeEntryUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/time-entries`
+}
+
+/**
+ * @summary Add a person to a job's time tracking
+ */
+export const createJobTimeEntry = async (jobId: number,
+    timeEntryInput: TimeEntryInput, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getCreateJobTimeEntryUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      timeEntryInput,)
+  }
+);}
+
+
+
+
+export const getCreateJobTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJobTimeEntry>>, TError,{jobId: number;data: BodyType<TimeEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createJobTimeEntry>>, TError,{jobId: number;data: BodyType<TimeEntryInput>}, TContext> => {
+
+const mutationKey = ['createJobTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createJobTimeEntry>>, {jobId: number;data: BodyType<TimeEntryInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  createJobTimeEntry(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateJobTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof createJobTimeEntry>>>
+    export type CreateJobTimeEntryMutationBody = BodyType<TimeEntryInput>
+    export type CreateJobTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add a person to a job's time tracking
+ */
+export const useCreateJobTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJobTimeEntry>>, TError,{jobId: number;data: BodyType<TimeEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createJobTimeEntry>>,
+        TError,
+        {jobId: number;data: BodyType<TimeEntryInput>},
+        TContext
+      > => {
+      return useMutation(getCreateJobTimeEntryMutationOptions(options));
+    }
+
+export const getStartJobTimeEntryUrl = (jobId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/time-entries/${personId}/start`
+}
+
+/**
+ * @summary Start a person's timer on a job
+ */
+export const startJobTimeEntry = async (jobId: number,
+    personId: number, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getStartJobTimeEntryUrl(jobId,personId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getStartJobTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext> => {
+
+const mutationKey = ['startJobTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startJobTimeEntry>>, {jobId: number;personId: number}> = (props) => {
+          const {jobId,personId} = props ?? {};
+
+          return  startJobTimeEntry(jobId,personId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartJobTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof startJobTimeEntry>>>
+
+    export type StartJobTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Start a person's timer on a job
+ */
+export const useStartJobTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startJobTimeEntry>>,
+        TError,
+        {jobId: number;personId: number},
+        TContext
+      > => {
+      return useMutation(getStartJobTimeEntryMutationOptions(options));
+    }
+
+export const getStopJobTimeEntryUrl = (jobId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/time-entries/${personId}/stop`
+}
+
+/**
+ * @summary Stop a person's timer on a job and accumulate hours
+ */
+export const stopJobTimeEntry = async (jobId: number,
+    personId: number, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getStopJobTimeEntryUrl(jobId,personId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getStopJobTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof stopJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext> => {
+
+const mutationKey = ['stopJobTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof stopJobTimeEntry>>, {jobId: number;personId: number}> = (props) => {
+          const {jobId,personId} = props ?? {};
+
+          return  stopJobTimeEntry(jobId,personId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StopJobTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof stopJobTimeEntry>>>
+
+    export type StopJobTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Stop a person's timer on a job and accumulate hours
+ */
+export const useStopJobTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof stopJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof stopJobTimeEntry>>,
+        TError,
+        {jobId: number;personId: number},
+        TContext
+      > => {
+      return useMutation(getStopJobTimeEntryMutationOptions(options));
+    }
+
+export const getUpdateJobTimeEntryUrl = (jobId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/time-entries/${personId}`
+}
+
+/**
+ * @summary Manually set a person's hours on a job
+ */
+export const updateJobTimeEntry = async (jobId: number,
+    personId: number,
+    timeEntryUpdate: TimeEntryUpdate, options?: RequestInit): Promise<TimeEntry> => {
+
+  return customFetch<TimeEntry>(getUpdateJobTimeEntryUrl(jobId,personId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      timeEntryUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateJobTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobTimeEntry>>, TError,{jobId: number;personId: number;data: BodyType<TimeEntryUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateJobTimeEntry>>, TError,{jobId: number;personId: number;data: BodyType<TimeEntryUpdate>}, TContext> => {
+
+const mutationKey = ['updateJobTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateJobTimeEntry>>, {jobId: number;personId: number;data: BodyType<TimeEntryUpdate>}> = (props) => {
+          const {jobId,personId,data} = props ?? {};
+
+          return  updateJobTimeEntry(jobId,personId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateJobTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof updateJobTimeEntry>>>
+    export type UpdateJobTimeEntryMutationBody = BodyType<TimeEntryUpdate>
+    export type UpdateJobTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Manually set a person's hours on a job
+ */
+export const useUpdateJobTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobTimeEntry>>, TError,{jobId: number;personId: number;data: BodyType<TimeEntryUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateJobTimeEntry>>,
+        TError,
+        {jobId: number;personId: number;data: BodyType<TimeEntryUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateJobTimeEntryMutationOptions(options));
+    }
+
+export const getDeleteJobTimeEntryUrl = (jobId: number,
+    personId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/time-entries/${personId}`
+}
+
+/**
+ * @summary Remove a person from a job's time tracking
+ */
+export const deleteJobTimeEntry = async (jobId: number,
+    personId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteJobTimeEntryUrl(jobId,personId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteJobTimeEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext> => {
+
+const mutationKey = ['deleteJobTimeEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteJobTimeEntry>>, {jobId: number;personId: number}> = (props) => {
+          const {jobId,personId} = props ?? {};
+
+          return  deleteJobTimeEntry(jobId,personId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteJobTimeEntryMutationResult = NonNullable<Awaited<ReturnType<typeof deleteJobTimeEntry>>>
+
+    export type DeleteJobTimeEntryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove a person from a job's time tracking
+ */
+export const useDeleteJobTimeEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteJobTimeEntry>>, TError,{jobId: number;personId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteJobTimeEntry>>,
+        TError,
+        {jobId: number;personId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteJobTimeEntryMutationOptions(options));
     }
 
 export const getGetMyStatsUrl = () => {

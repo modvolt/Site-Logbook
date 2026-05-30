@@ -11,7 +11,12 @@ import {
   useListActivityExtraWorks, getListActivityExtraWorksQueryKey,
   useCreateActivityExtraWork, useUpdateActivityExtraWork, useDeleteActivityExtraWork,
   useListCustomers, getGetMyStatsQueryKey,
+  useListActivityTimeEntries, getListActivityTimeEntriesQueryKey,
+  useCreateActivityTimeEntry, useStartActivityTimeEntry, useStopActivityTimeEntry,
+  useUpdateActivityTimeEntry, useDeleteActivityTimeEntry,
+  useListPeople, getListPeopleQueryKey,
 } from "@workspace/api-client-react";
+import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useUpload } from "@workspace/object-storage-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -373,6 +378,9 @@ export default function ActivityDetail() {
         onChange={invalidate}
       />
 
+      {/* Per-employee time tracking */}
+      <ActivityTimeEntries activityId={id} canWrite={can("write")} onChange={invalidate} />
+
       {/* Extra works (vícepráce) */}
       <ExtraWorksSection activityId={id} canWrite={can("write")} />
 
@@ -641,6 +649,42 @@ type ExtraWork = {
   sortOrder: number;
   createdAt: string;
 };
+
+function ActivityTimeEntries({ activityId, canWrite, onChange }: { activityId: number; canWrite: boolean; onChange: () => void }) {
+  const queryClient = useQueryClient();
+  const listKey = getListActivityTimeEntriesQueryKey(activityId);
+  const { data: entries } = useListActivityTimeEntries(activityId, {
+    query: { queryKey: listKey, enabled: Number.isFinite(activityId) },
+  });
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+
+  const addPerson = useCreateActivityTimeEntry();
+  const startTimer = useStartActivityTimeEntry();
+  const stopTimer = useStopActivityTimeEntry();
+  const setHours = useUpdateActivityTimeEntry();
+  const removeEntry = useDeleteActivityTimeEntry();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: listKey });
+    onChange();
+  };
+
+  const busy = addPerson.isPending || startTimer.isPending || stopTimer.isPending || setHours.isPending || removeEntry.isPending;
+
+  return (
+    <TimeEntriesSection
+      entries={entries ?? []}
+      people={people ?? []}
+      canWrite={canWrite}
+      busy={busy}
+      onAddPerson={(personId) => addPerson.mutate({ activityId, data: { personId } }, { onSuccess: invalidate })}
+      onStart={(personId) => startTimer.mutate({ activityId, personId }, { onSuccess: invalidate })}
+      onStop={(personId) => stopTimer.mutate({ activityId, personId }, { onSuccess: invalidate })}
+      onSetHours={(personId, hours) => setHours.mutate({ activityId, personId, data: { hours } }, { onSuccess: invalidate })}
+      onRemove={(personId) => removeEntry.mutate({ activityId, personId }, { onSuccess: invalidate })}
+    />
+  );
+}
 
 function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
   const { toast } = useToast();

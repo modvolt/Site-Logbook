@@ -7,8 +7,14 @@ import {
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
-  useListCustomers, getListCustomersQueryKey
+  useListCustomers, getListCustomersQueryKey,
+  useListJobTimeEntries, getListJobTimeEntriesQueryKey,
+  useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
+  useUpdateJobTimeEntry, useDeleteJobTimeEntry,
+  useListPeople, getListPeopleQueryKey,
 } from "@workspace/api-client-react";
+import { TimeEntriesSection } from "@/components/time-entries-section";
+import { useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@workspace/object-storage-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
@@ -333,6 +339,7 @@ export default function JobDetail() {
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
         <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} />
+        <JobTimeEntries jobId={id} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} />
@@ -825,6 +832,43 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
         )}
       </div>
     </SectionCard>
+  );
+}
+
+function JobTimeEntries({ jobId }: { jobId: number }) {
+  const { can } = useAuth();
+  const queryClient = useQueryClient();
+  const listKey = getListJobTimeEntriesQueryKey(jobId);
+  const { data: entries } = useListJobTimeEntries(jobId, {
+    query: { queryKey: listKey, enabled: Number.isFinite(jobId) },
+  });
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+
+  const addPerson = useCreateJobTimeEntry();
+  const startTimer = useStartJobTimeEntry();
+  const stopTimer = useStopJobTimeEntry();
+  const setHours = useUpdateJobTimeEntry();
+  const removeEntry = useDeleteJobTimeEntry();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: listKey });
+    queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(jobId) });
+  };
+
+  const busy = addPerson.isPending || startTimer.isPending || stopTimer.isPending || setHours.isPending || removeEntry.isPending;
+
+  return (
+    <TimeEntriesSection
+      entries={entries ?? []}
+      people={people ?? []}
+      canWrite={can("write")}
+      busy={busy}
+      onAddPerson={(personId) => addPerson.mutate({ jobId, data: { personId } }, { onSuccess: invalidate })}
+      onStart={(personId) => startTimer.mutate({ jobId, personId }, { onSuccess: invalidate })}
+      onStop={(personId) => stopTimer.mutate({ jobId, personId }, { onSuccess: invalidate })}
+      onSetHours={(personId, hours) => setHours.mutate({ jobId, personId, data: { hours } }, { onSuccess: invalidate })}
+      onRemove={(personId) => removeEntry.mutate({ jobId, personId }, { onSuccess: invalidate })}
+    />
   );
 }
 

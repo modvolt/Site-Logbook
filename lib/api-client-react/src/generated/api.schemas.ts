@@ -728,6 +728,30 @@ export interface ActivityExtraWorkUpdate {
   sortOrder?: number;
 }
 
+export interface TimeEntry {
+  id: number;
+  personId: number;
+  personName: string;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
+  hours: number;
+  /** @nullable */
+  timerStartedAt?: string | null;
+  createdAt: string;
+}
+
+export interface TimeEntryInput {
+  personId: number;
+  /** @nullable */
+  hours?: number | null;
+}
+
+export interface TimeEntryUpdate {
+  hours: number;
+}
+
 export interface MyStats {
   activityHoursWeek: number;
   activityHoursMonth: number;

@@ -1749,6 +1749,218 @@ export const DeleteActivityExtraWorkParams = zod.object({
 
 
 /**
+ * @summary List per-person time entries for an activity
+ */
+export const ListActivityTimeEntriesParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const ListActivityTimeEntriesResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListActivityTimeEntriesResponse = zod.array(ListActivityTimeEntriesResponseItem)
+
+
+/**
+ * @summary Add a person to an activity's time tracking
+ */
+export const CreateActivityTimeEntryParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const CreateActivityTimeEntryBody = zod.object({
+  "personId": zod.number(),
+  "hours": zod.number().nullish()
+})
+
+
+/**
+ * @summary Start a person's timer on an activity
+ */
+export const StartActivityTimeEntryParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+export const StartActivityTimeEntryResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Stop a person's timer on an activity and accumulate hours
+ */
+export const StopActivityTimeEntryParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+export const StopActivityTimeEntryResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Manually set a person's hours on an activity
+ */
+export const UpdateActivityTimeEntryParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+export const UpdateActivityTimeEntryBody = zod.object({
+  "hours": zod.number()
+})
+
+export const UpdateActivityTimeEntryResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Remove a person from an activity's time tracking
+ */
+export const DeleteActivityTimeEntryParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List per-person time entries for a job
+ */
+export const ListJobTimeEntriesParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const ListJobTimeEntriesResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListJobTimeEntriesResponse = zod.array(ListJobTimeEntriesResponseItem)
+
+
+/**
+ * @summary Add a person to a job's time tracking
+ */
+export const CreateJobTimeEntryParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const CreateJobTimeEntryBody = zod.object({
+  "personId": zod.number(),
+  "hours": zod.number().nullish()
+})
+
+
+/**
+ * @summary Start a person's timer on a job
+ */
+export const StartJobTimeEntryParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+export const StartJobTimeEntryResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Stop a person's timer on a job and accumulate hours
+ */
+export const StopJobTimeEntryParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+export const StopJobTimeEntryResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Manually set a person's hours on a job
+ */
+export const UpdateJobTimeEntryParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+export const UpdateJobTimeEntryBody = zod.object({
+  "hours": zod.number()
+})
+
+export const UpdateJobTimeEntryResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "hours": zod.number(),
+  "timerStartedAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Remove a person from a job's time tracking
+ */
+export const DeleteJobTimeEntryParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "personId": zod.coerce.number()
+})
+
+
+/**
  * @summary Get current user's hours/activities stats
  */
 export const GetMyStatsResponse = zod.object({

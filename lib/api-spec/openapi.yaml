@@ -1842,6 +1842,286 @@ paths:
         "204":
           description: Deleted
 
+  /activities/{activityId}/time-entries:
+    get:
+      operationId: listActivityTimeEntries
+      tags: [activities]
+      summary: List per-person time entries for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Time entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimeEntry"
+    post:
+      operationId: createActivityTimeEntry
+      tags: [activities]
+      summary: Add a person to an activity's time tracking
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+
+  /activities/{activityId}/time-entries/{personId}/start:
+    post:
+      operationId: startActivityTimeEntry
+      tags: [activities]
+      summary: Start a person's timer on an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Time entry with running timer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+
+  /activities/{activityId}/time-entries/{personId}/stop:
+    post:
+      operationId: stopActivityTimeEntry
+      tags: [activities]
+      summary: Stop a person's timer on an activity and accumulate hours
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Time entry with updated hours
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+
+  /activities/{activityId}/time-entries/{personId}:
+    patch:
+      operationId: updateActivityTimeEntry
+      tags: [activities]
+      summary: Manually set a person's hours on an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+    delete:
+      operationId: deleteActivityTimeEntry
+      tags: [activities]
+      summary: Remove a person from an activity's time tracking
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /jobs/{jobId}/time-entries:
+    get:
+      operationId: listJobTimeEntries
+      tags: [jobs]
+      summary: List per-person time entries for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Time entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TimeEntry"
+    post:
+      operationId: createJobTimeEntry
+      tags: [jobs]
+      summary: Add a person to a job's time tracking
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+
+  /jobs/{jobId}/time-entries/{personId}/start:
+    post:
+      operationId: startJobTimeEntry
+      tags: [jobs]
+      summary: Start a person's timer on a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Time entry with running timer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+
+  /jobs/{jobId}/time-entries/{personId}/stop:
+    post:
+      operationId: stopJobTimeEntry
+      tags: [jobs]
+      summary: Stop a person's timer on a job and accumulate hours
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Time entry with updated hours
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+
+  /jobs/{jobId}/time-entries/{personId}:
+    patch:
+      operationId: updateJobTimeEntry
+      tags: [jobs]
+      summary: Manually set a person's hours on a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TimeEntryUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeEntry"
+    delete:
+      operationId: deleteJobTimeEntry
+      tags: [jobs]
+      summary: Remove a person from a job's time tracking
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: personId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
   /me/stats:
     get:
       operationId: getMyStats
@@ -2814,6 +3094,43 @@ components:
           type: boolean
         sortOrder:
           type: integer
+
+    TimeEntry:
+      type: object
+      required: [id, personId, personName, hours, createdAt]
+      properties:
+        id:
+          type: integer
+        personId:
+          type: integer
+        personName:
+          type: string
+        jobId:
+          type: ["integer", "null"]
+        activityId:
+          type: ["integer", "null"]
+        hours:
+          type: number
+        timerStartedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    TimeEntryInput:
+      type: object
+      required: [personId]
+      properties:
+        personId:
+          type: integer
+        hours:
+          type: ["number", "null"]
+
+    TimeEntryUpdate:
+      type: object
+      required: [hours]
+      properties:
+        hours:
+          type: number
 
     MyStats:
       type: object
