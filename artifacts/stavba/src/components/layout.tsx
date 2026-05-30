@@ -1,43 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye, Hammer, User as UserIcon, Package, Wrench, ScrollText, ShieldCheck, KeyRound } from "lucide-react";
+import { Briefcase, Plus, LogOut, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
+import { useLogout } from "@workspace/api-client-react";
 import { clearApiCache } from "@/lib/pwa";
 import { useQueryClient } from "@tanstack/react-query";
-
-type NavItem = {
-  href: string;
-  icon: typeof Home;
-  label: string;
-  color: string;
-  activeBg: string;
-  hoverBg: string;
-  match?: (loc: string) => boolean;
-  requires?: "write";
-};
-
-const desktopNavItems: NavItem[] = [
-  { href: "/", icon: Home, label: "Dnes", color: "text-amber-500", activeBg: "bg-amber-500 text-white", hoverBg: "hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-950/30" },
-  { href: "/calendar", icon: Calendar, label: "Kalendář", color: "text-blue-500", activeBg: "bg-blue-500 text-white", hoverBg: "hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30" },
-  { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "bg-violet-500 text-white", hoverBg: "hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-950/30" },
-  { href: "/activities", icon: Hammer, label: "Dlouhodobé akce", color: "text-orange-500", activeBg: "bg-orange-500 text-white", hoverBg: "hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30", match: (l) => l === "/activities" || l.startsWith("/activities/") },
-  { href: "/customers", icon: Building2, label: "Zákazníci", color: "text-emerald-500", activeBg: "bg-emerald-500 text-white", hoverBg: "hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30" },
-  { href: "/pristupove-udaje", icon: KeyRound, label: "Přístupové údaje", color: "text-rose-500", activeBg: "bg-rose-500 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "write" },
-  { href: "/people", icon: Users, label: "Zaměstnanci", color: "text-teal-500", activeBg: "bg-teal-500 text-white", hoverBg: "hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-950/30" },
-  { href: "/sklad", icon: Package, label: "Sklad", color: "text-cyan-500", activeBg: "bg-cyan-500 text-white", hoverBg: "hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-cyan-950/30" },
-  { href: "/stroje", icon: Wrench, label: "Stroje", color: "text-slate-500", activeBg: "bg-slate-500 text-white", hoverBg: "hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800/40", match: (l) => l === "/stroje" || l.startsWith("/stroje/") },
-  { href: "/me", icon: UserIcon, label: "Můj přehled", color: "text-indigo-500", activeBg: "bg-indigo-500 text-white", hoverBg: "hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/30" },
-];
-
-const mobileNavItems: NavItem[] = [
-  { href: "/", icon: Home, label: "Dnes", color: "text-amber-500", activeBg: "", hoverBg: "" },
-  { href: "/calendar", icon: Calendar, label: "Kalendář", color: "text-blue-500", activeBg: "", hoverBg: "" },
-  { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "", hoverBg: "" },
-  { href: "/sklad", icon: Package, label: "Sklad", color: "text-cyan-500", activeBg: "", hoverBg: "" },
-  { href: "/stroje", icon: Wrench, label: "Stroje", color: "text-slate-500", activeBg: "", hoverBg: "", match: (l) => l === "/stroje" || l.startsWith("/stroje/") },
-  { href: "/me", icon: UserIcon, label: "Já", color: "text-indigo-500", activeBg: "", hoverBg: "" },
-];
+import { MobileNav } from "@/components/mobile-nav";
+import { mainNavItems, adminNavItems, type NavItem } from "@/components/nav-items";
 
 const ROLE_BADGE: Record<string, string> = {
   admin: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
@@ -86,7 +55,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           )}
         </div>
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {desktopNavItems
+          {mainNavItems
             .filter((item) => !item.requires || can(item.requires))
             .map((item) => {
             const active = isActive(item);
@@ -105,69 +74,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="p-4 border-t space-y-1">
-          {can("write") && (
-            <Link
-              href="/admin"
-              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                location === "/admin"
-                  ? "bg-rose-600 text-white"
-                  : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
-              }`}
-            >
-              <ShieldAlert className={`h-5 w-5 ${location === "/admin" ? "text-white" : "text-rose-600"}`} />
-              Správa zakázek
-            </Link>
-          )}
-          {can("manageUsers") && (
-            <Link
-              href="/admin/users"
-              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                location === "/admin/users"
-                  ? "bg-rose-600 text-white"
-                  : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
-              }`}
-            >
-              <UserCog className={`h-5 w-5 ${location === "/admin/users" ? "text-white" : "text-rose-600"}`} />
-              Uživatelé
-            </Link>
-          )}
-          {can("manageUsers") && (
-            <Link
-              href="/admin/audit"
-              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                location === "/admin/audit"
-                  ? "bg-rose-600 text-white"
-                  : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
-              }`}
-            >
-              <ScrollText className={`h-5 w-5 ${location === "/admin/audit" ? "text-white" : "text-rose-600"}`} />
-              Záznam změn
-            </Link>
-          )}
-          {can("manageUsers") && (
-            <Link
-              href="/admin/gdpr"
-              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                location === "/admin/gdpr"
-                  ? "bg-rose-600 text-white"
-                  : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
-              }`}
-            >
-              <ShieldCheck className={`h-5 w-5 ${location === "/admin/gdpr" ? "text-white" : "text-rose-600"}`} />
-              GDPR
-            </Link>
-          )}
-          <Link
-            href="/settings"
-            className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-              location === "/settings"
-                ? "bg-gray-500 text-white"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            <Settings className="h-5 w-5" />
-            Nastavení
-          </Link>
+          {adminNavItems
+            .filter((item) => !item.requires || can(item.requires))
+            .map((item) => {
+              const active = isActive(item);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                    active ? item.activeBg : `text-muted-foreground ${item.hoverBg}`
+                  }`}
+                >
+                  <item.icon className={`h-5 w-5 ${active ? "text-white" : item.color}`} />
+                  {item.label}
+                </Link>
+              );
+            })}
         </div>
       </aside>
 
@@ -215,23 +138,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card flex items-center justify-around h-16 px-1 z-40 safe-area-bottom">
-        {mobileNavItems.map((item) => {
-          const active = isActive(item);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-0.5 transition-colors ${
-                active ? item.color : "text-muted-foreground"
-              }`}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="text-[9px] font-medium leading-tight">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+      <MobileNav location={location} isActive={isActive} can={can} />
     </div>
   );
 }
