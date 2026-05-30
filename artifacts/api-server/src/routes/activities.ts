@@ -4,6 +4,8 @@ import {
   db,
   activitiesTable,
   activityMaterialsTable,
+  activityAttachmentsTable,
+  activityExtraWorksTable,
   customersTable,
   usersTable,
 } from "@workspace/db";
@@ -21,6 +23,16 @@ import {
   UpdateActivityMaterialParams,
   UpdateActivityMaterialBody,
   DeleteActivityMaterialParams,
+  ListActivityAttachmentsParams,
+  CreateActivityAttachmentParams,
+  CreateActivityAttachmentBody,
+  DeleteActivityAttachmentParams,
+  ListActivityExtraWorksParams,
+  CreateActivityExtraWorkParams,
+  CreateActivityExtraWorkBody,
+  UpdateActivityExtraWorkParams,
+  UpdateActivityExtraWorkBody,
+  DeleteActivityExtraWorkParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 
@@ -76,6 +88,22 @@ function serializeMaterial(m: typeof activityMaterialsTable.$inferSelect) {
     quantity: m.quantity != null ? Number(m.quantity) : null,
     pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
     createdAt: m.createdAt.toISOString(),
+  };
+}
+
+function serializeAttachment(a: typeof activityAttachmentsTable.$inferSelect) {
+  return {
+    ...a,
+    createdAt: a.createdAt.toISOString(),
+  };
+}
+
+function serializeExtraWork(w: typeof activityExtraWorksTable.$inferSelect) {
+  return {
+    ...w,
+    hours: w.hours != null ? Number(w.hours) : null,
+    amount: w.amount != null ? Number(w.amount) : null,
+    createdAt: w.createdAt.toISOString(),
   };
 }
 
@@ -320,6 +348,165 @@ router.delete("/activities/:activityId/materials/:materialId", requireAuth, asyn
     .returning();
   if (!m) {
     res.status(404).json({ error: "Material not found" });
+    return;
+  }
+  res.sendStatus(204);
+});
+
+// Attachments (photos)
+router.get("/activities/:activityId/attachments", requireAuth, async (req, res): Promise<void> => {
+  const params = ListActivityAttachmentsParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(activityAttachmentsTable)
+    .where(eq(activityAttachmentsTable.activityId, params.data.activityId))
+    .orderBy(desc(activityAttachmentsTable.createdAt));
+  res.json(rows.map(serializeAttachment));
+});
+
+router.post("/activities/:activityId/attachments", requireAuth, async (req, res): Promise<void> => {
+  const params = CreateActivityAttachmentParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = CreateActivityAttachmentBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [a] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.activityId));
+  if (!a) {
+    res.status(404).json({ error: "Activity not found" });
+    return;
+  }
+  const [att] = await db
+    .insert(activityAttachmentsTable)
+    .values({ activityId: params.data.activityId, ...parsed.data })
+    .returning();
+  res.status(201).json(serializeAttachment(att));
+});
+
+router.delete("/activities/:activityId/attachments/:attachmentId", requireAuth, async (req, res): Promise<void> => {
+  const params = DeleteActivityAttachmentParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [att] = await db
+    .delete(activityAttachmentsTable)
+    .where(
+      and(
+        eq(activityAttachmentsTable.id, params.data.attachmentId),
+        eq(activityAttachmentsTable.activityId, params.data.activityId),
+      ),
+    )
+    .returning();
+  if (!att) {
+    res.status(404).json({ error: "Attachment not found" });
+    return;
+  }
+  res.sendStatus(204);
+});
+
+// Extra works (vícepráce)
+router.get("/activities/:activityId/extra-works", requireAuth, async (req, res): Promise<void> => {
+  const params = ListActivityExtraWorksParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(activityExtraWorksTable)
+    .where(eq(activityExtraWorksTable.activityId, params.data.activityId))
+    .orderBy(activityExtraWorksTable.sortOrder, activityExtraWorksTable.createdAt);
+  res.json(rows.map(serializeExtraWork));
+});
+
+router.post("/activities/:activityId/extra-works", requireAuth, async (req, res): Promise<void> => {
+  const params = CreateActivityExtraWorkParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = CreateActivityExtraWorkBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [a] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.activityId));
+  if (!a) {
+    res.status(404).json({ error: "Activity not found" });
+    return;
+  }
+  const { hours, amount, ...rest } = parsed.data;
+  const [w] = await db
+    .insert(activityExtraWorksTable)
+    .values({
+      activityId: params.data.activityId,
+      ...rest,
+      hours: toStr(hours),
+      amount: toStr(amount),
+    })
+    .returning();
+  res.status(201).json(serializeExtraWork(w));
+});
+
+router.patch("/activities/:activityId/extra-works/:extraWorkId", requireAuth, async (req, res): Promise<void> => {
+  const params = UpdateActivityExtraWorkParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = UpdateActivityExtraWorkBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { hours, amount, ...rest } = parsed.data;
+  const updateData: Record<string, unknown> = { ...rest };
+  if (hours !== undefined) updateData.hours = toStr(hours);
+  if (amount !== undefined) updateData.amount = toStr(amount);
+
+  const [w] = await db
+    .update(activityExtraWorksTable)
+    .set(updateData)
+    .where(
+      and(
+        eq(activityExtraWorksTable.id, params.data.extraWorkId),
+        eq(activityExtraWorksTable.activityId, params.data.activityId),
+      ),
+    )
+    .returning();
+  if (!w) {
+    res.status(404).json({ error: "Extra work not found" });
+    return;
+  }
+  res.json(serializeExtraWork(w));
+});
+
+router.delete("/activities/:activityId/extra-works/:extraWorkId", requireAuth, async (req, res): Promise<void> => {
+  const params = DeleteActivityExtraWorkParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [w] = await db
+    .delete(activityExtraWorksTable)
+    .where(
+      and(
+        eq(activityExtraWorksTable.id, params.data.extraWorkId),
+        eq(activityExtraWorksTable.activityId, params.data.activityId),
+      ),
+    )
+    .returning();
+  if (!w) {
+    res.status(404).json({ error: "Extra work not found" });
     return;
   }
   res.sendStatus(204);

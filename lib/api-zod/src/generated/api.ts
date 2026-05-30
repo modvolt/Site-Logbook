@@ -1047,6 +1047,132 @@ export const DeleteActivityMaterialParams = zod.object({
 
 
 /**
+ * @summary List attachments (photos) for an activity
+ */
+export const ListActivityAttachmentsParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const ListActivityAttachmentsResponseItem = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "type": zod.string().describe('photo'),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListActivityAttachmentsResponse = zod.array(ListActivityAttachmentsResponseItem)
+
+
+/**
+ * @summary Add an attachment (photo) to an activity
+ */
+export const CreateActivityAttachmentParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const CreateActivityAttachmentBody = zod.object({
+  "type": zod.string(),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "description": zod.string().nullish()
+})
+
+
+/**
+ * @summary Delete an activity attachment
+ */
+export const DeleteActivityAttachmentParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "attachmentId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List extra works (vícepráce) for an activity
+ */
+export const ListActivityExtraWorksParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const ListActivityExtraWorksResponseItem = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "description": zod.string(),
+  "note": zod.string().nullish(),
+  "hours": zod.number().nullish(),
+  "amount": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.string()
+})
+export const ListActivityExtraWorksResponse = zod.array(ListActivityExtraWorksResponseItem)
+
+
+/**
+ * @summary Add an extra work to an activity
+ */
+export const CreateActivityExtraWorkParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+
+
+
+export const CreateActivityExtraWorkBody = zod.object({
+  "description": zod.string().min(1),
+  "note": zod.string().nullish(),
+  "hours": zod.number().nullish(),
+  "amount": zod.number().nullish(),
+  "done": zod.boolean().optional(),
+  "sortOrder": zod.number().optional()
+})
+
+
+/**
+ * @summary Update an activity extra work
+ */
+export const UpdateActivityExtraWorkParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "extraWorkId": zod.coerce.number()
+})
+
+
+
+
+export const UpdateActivityExtraWorkBody = zod.object({
+  "description": zod.string().min(1).optional(),
+  "note": zod.string().nullish(),
+  "hours": zod.number().nullish(),
+  "amount": zod.number().nullish(),
+  "done": zod.boolean().optional(),
+  "sortOrder": zod.number().optional()
+})
+
+export const UpdateActivityExtraWorkResponse = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "description": zod.string(),
+  "note": zod.string().nullish(),
+  "hours": zod.number().nullish(),
+  "amount": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete an activity extra work
+ */
+export const DeleteActivityExtraWorkParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "extraWorkId": zod.coerce.number()
+})
+
+
+/**
  * @summary Get current user's hours/activities stats
  */
 export const GetMyStatsResponse = zod.object({

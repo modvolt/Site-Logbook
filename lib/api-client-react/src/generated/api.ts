@@ -21,6 +21,11 @@ import type {
 
 import type {
   Activity,
+  ActivityAttachment,
+  ActivityAttachmentInput,
+  ActivityExtraWork,
+  ActivityExtraWorkInput,
+  ActivityExtraWorkUpdate,
   ActivityInput,
   ActivityMaterial,
   ActivityMaterialInput,
@@ -3904,6 +3909,522 @@ export const useDeleteActivityMaterial = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteActivityMaterialMutationOptions(options));
+    }
+
+export const getListActivityAttachmentsUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/attachments`
+}
+
+/**
+ * @summary List attachments (photos) for an activity
+ */
+export const listActivityAttachments = async (activityId: number, options?: RequestInit): Promise<ActivityAttachment[]> => {
+
+  return customFetch<ActivityAttachment[]>(getListActivityAttachmentsUrl(activityId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListActivityAttachmentsQueryKey = (activityId: number,) => {
+    return [
+    `/api/activities/${activityId}/attachments`
+    ] as const;
+    }
+
+
+export const getListActivityAttachmentsQueryOptions = <TData = Awaited<ReturnType<typeof listActivityAttachments>>, TError = ErrorType<unknown>>(activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityAttachments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListActivityAttachmentsQueryKey(activityId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listActivityAttachments>>> = ({ signal }) => listActivityAttachments(activityId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(activityId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActivityAttachments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListActivityAttachmentsQueryResult = NonNullable<Awaited<ReturnType<typeof listActivityAttachments>>>
+export type ListActivityAttachmentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List attachments (photos) for an activity
+ */
+
+export function useListActivityAttachments<TData = Awaited<ReturnType<typeof listActivityAttachments>>, TError = ErrorType<unknown>>(
+ activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityAttachments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListActivityAttachmentsQueryOptions(activityId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateActivityAttachmentUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/attachments`
+}
+
+/**
+ * @summary Add an attachment (photo) to an activity
+ */
+export const createActivityAttachment = async (activityId: number,
+    activityAttachmentInput: ActivityAttachmentInput, options?: RequestInit): Promise<ActivityAttachment> => {
+
+  return customFetch<ActivityAttachment>(getCreateActivityAttachmentUrl(activityId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      activityAttachmentInput,)
+  }
+);}
+
+
+
+
+export const getCreateActivityAttachmentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityAttachment>>, TError,{activityId: number;data: BodyType<ActivityAttachmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createActivityAttachment>>, TError,{activityId: number;data: BodyType<ActivityAttachmentInput>}, TContext> => {
+
+const mutationKey = ['createActivityAttachment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createActivityAttachment>>, {activityId: number;data: BodyType<ActivityAttachmentInput>}> = (props) => {
+          const {activityId,data} = props ?? {};
+
+          return  createActivityAttachment(activityId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateActivityAttachmentMutationResult = NonNullable<Awaited<ReturnType<typeof createActivityAttachment>>>
+    export type CreateActivityAttachmentMutationBody = BodyType<ActivityAttachmentInput>
+    export type CreateActivityAttachmentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add an attachment (photo) to an activity
+ */
+export const useCreateActivityAttachment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityAttachment>>, TError,{activityId: number;data: BodyType<ActivityAttachmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createActivityAttachment>>,
+        TError,
+        {activityId: number;data: BodyType<ActivityAttachmentInput>},
+        TContext
+      > => {
+      return useMutation(getCreateActivityAttachmentMutationOptions(options));
+    }
+
+export const getDeleteActivityAttachmentUrl = (activityId: number,
+    attachmentId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/attachments/${attachmentId}`
+}
+
+/**
+ * @summary Delete an activity attachment
+ */
+export const deleteActivityAttachment = async (activityId: number,
+    attachmentId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteActivityAttachmentUrl(activityId,attachmentId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteActivityAttachmentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteActivityAttachment>>, TError,{activityId: number;attachmentId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteActivityAttachment>>, TError,{activityId: number;attachmentId: number}, TContext> => {
+
+const mutationKey = ['deleteActivityAttachment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteActivityAttachment>>, {activityId: number;attachmentId: number}> = (props) => {
+          const {activityId,attachmentId} = props ?? {};
+
+          return  deleteActivityAttachment(activityId,attachmentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteActivityAttachmentMutationResult = NonNullable<Awaited<ReturnType<typeof deleteActivityAttachment>>>
+
+    export type DeleteActivityAttachmentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete an activity attachment
+ */
+export const useDeleteActivityAttachment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteActivityAttachment>>, TError,{activityId: number;attachmentId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteActivityAttachment>>,
+        TError,
+        {activityId: number;attachmentId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteActivityAttachmentMutationOptions(options));
+    }
+
+export const getListActivityExtraWorksUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/extra-works`
+}
+
+/**
+ * @summary List extra works (vícepráce) for an activity
+ */
+export const listActivityExtraWorks = async (activityId: number, options?: RequestInit): Promise<ActivityExtraWork[]> => {
+
+  return customFetch<ActivityExtraWork[]>(getListActivityExtraWorksUrl(activityId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListActivityExtraWorksQueryKey = (activityId: number,) => {
+    return [
+    `/api/activities/${activityId}/extra-works`
+    ] as const;
+    }
+
+
+export const getListActivityExtraWorksQueryOptions = <TData = Awaited<ReturnType<typeof listActivityExtraWorks>>, TError = ErrorType<unknown>>(activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityExtraWorks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListActivityExtraWorksQueryKey(activityId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listActivityExtraWorks>>> = ({ signal }) => listActivityExtraWorks(activityId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(activityId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActivityExtraWorks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListActivityExtraWorksQueryResult = NonNullable<Awaited<ReturnType<typeof listActivityExtraWorks>>>
+export type ListActivityExtraWorksQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List extra works (vícepráce) for an activity
+ */
+
+export function useListActivityExtraWorks<TData = Awaited<ReturnType<typeof listActivityExtraWorks>>, TError = ErrorType<unknown>>(
+ activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityExtraWorks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListActivityExtraWorksQueryOptions(activityId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateActivityExtraWorkUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/extra-works`
+}
+
+/**
+ * @summary Add an extra work to an activity
+ */
+export const createActivityExtraWork = async (activityId: number,
+    activityExtraWorkInput: ActivityExtraWorkInput, options?: RequestInit): Promise<ActivityExtraWork> => {
+
+  return customFetch<ActivityExtraWork>(getCreateActivityExtraWorkUrl(activityId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      activityExtraWorkInput,)
+  }
+);}
+
+
+
+
+export const getCreateActivityExtraWorkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityExtraWork>>, TError,{activityId: number;data: BodyType<ActivityExtraWorkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createActivityExtraWork>>, TError,{activityId: number;data: BodyType<ActivityExtraWorkInput>}, TContext> => {
+
+const mutationKey = ['createActivityExtraWork'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createActivityExtraWork>>, {activityId: number;data: BodyType<ActivityExtraWorkInput>}> = (props) => {
+          const {activityId,data} = props ?? {};
+
+          return  createActivityExtraWork(activityId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateActivityExtraWorkMutationResult = NonNullable<Awaited<ReturnType<typeof createActivityExtraWork>>>
+    export type CreateActivityExtraWorkMutationBody = BodyType<ActivityExtraWorkInput>
+    export type CreateActivityExtraWorkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add an extra work to an activity
+ */
+export const useCreateActivityExtraWork = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityExtraWork>>, TError,{activityId: number;data: BodyType<ActivityExtraWorkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createActivityExtraWork>>,
+        TError,
+        {activityId: number;data: BodyType<ActivityExtraWorkInput>},
+        TContext
+      > => {
+      return useMutation(getCreateActivityExtraWorkMutationOptions(options));
+    }
+
+export const getUpdateActivityExtraWorkUrl = (activityId: number,
+    extraWorkId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/extra-works/${extraWorkId}`
+}
+
+/**
+ * @summary Update an activity extra work
+ */
+export const updateActivityExtraWork = async (activityId: number,
+    extraWorkId: number,
+    activityExtraWorkUpdate: ActivityExtraWorkUpdate, options?: RequestInit): Promise<ActivityExtraWork> => {
+
+  return customFetch<ActivityExtraWork>(getUpdateActivityExtraWorkUrl(activityId,extraWorkId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      activityExtraWorkUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateActivityExtraWorkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateActivityExtraWork>>, TError,{activityId: number;extraWorkId: number;data: BodyType<ActivityExtraWorkUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateActivityExtraWork>>, TError,{activityId: number;extraWorkId: number;data: BodyType<ActivityExtraWorkUpdate>}, TContext> => {
+
+const mutationKey = ['updateActivityExtraWork'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateActivityExtraWork>>, {activityId: number;extraWorkId: number;data: BodyType<ActivityExtraWorkUpdate>}> = (props) => {
+          const {activityId,extraWorkId,data} = props ?? {};
+
+          return  updateActivityExtraWork(activityId,extraWorkId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateActivityExtraWorkMutationResult = NonNullable<Awaited<ReturnType<typeof updateActivityExtraWork>>>
+    export type UpdateActivityExtraWorkMutationBody = BodyType<ActivityExtraWorkUpdate>
+    export type UpdateActivityExtraWorkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update an activity extra work
+ */
+export const useUpdateActivityExtraWork = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateActivityExtraWork>>, TError,{activityId: number;extraWorkId: number;data: BodyType<ActivityExtraWorkUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateActivityExtraWork>>,
+        TError,
+        {activityId: number;extraWorkId: number;data: BodyType<ActivityExtraWorkUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateActivityExtraWorkMutationOptions(options));
+    }
+
+export const getDeleteActivityExtraWorkUrl = (activityId: number,
+    extraWorkId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/extra-works/${extraWorkId}`
+}
+
+/**
+ * @summary Delete an activity extra work
+ */
+export const deleteActivityExtraWork = async (activityId: number,
+    extraWorkId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteActivityExtraWorkUrl(activityId,extraWorkId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteActivityExtraWorkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteActivityExtraWork>>, TError,{activityId: number;extraWorkId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteActivityExtraWork>>, TError,{activityId: number;extraWorkId: number}, TContext> => {
+
+const mutationKey = ['deleteActivityExtraWork'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteActivityExtraWork>>, {activityId: number;extraWorkId: number}> = (props) => {
+          const {activityId,extraWorkId} = props ?? {};
+
+          return  deleteActivityExtraWork(activityId,extraWorkId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteActivityExtraWorkMutationResult = NonNullable<Awaited<ReturnType<typeof deleteActivityExtraWork>>>
+
+    export type DeleteActivityExtraWorkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete an activity extra work
+ */
+export const useDeleteActivityExtraWork = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteActivityExtraWork>>, TError,{activityId: number;extraWorkId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteActivityExtraWork>>,
+        TError,
+        {activityId: number;extraWorkId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteActivityExtraWorkMutationOptions(options));
     }
 
 export const getGetMyStatsUrl = () => {

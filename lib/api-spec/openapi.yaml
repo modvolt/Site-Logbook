@@ -1111,6 +1111,162 @@ paths:
         "204":
           description: Deleted
 
+  /activities/{activityId}/attachments:
+    get:
+      operationId: listActivityAttachments
+      tags: [activities]
+      summary: List attachments (photos) for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityAttachment"
+    post:
+      operationId: createActivityAttachment
+      tags: [activities]
+      summary: Add an attachment (photo) to an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityAttachmentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityAttachment"
+
+  /activities/{activityId}/attachments/{attachmentId}:
+    delete:
+      operationId: deleteActivityAttachment
+      tags: [activities]
+      summary: Delete an activity attachment
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /activities/{activityId}/extra-works:
+    get:
+      operationId: listActivityExtraWorks
+      tags: [activities]
+      summary: List extra works (vícepráce) for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Extra works
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityExtraWork"
+    post:
+      operationId: createActivityExtraWork
+      tags: [activities]
+      summary: Add an extra work to an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityExtraWorkInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityExtraWork"
+
+  /activities/{activityId}/extra-works/{extraWorkId}:
+    patch:
+      operationId: updateActivityExtraWork
+      tags: [activities]
+      summary: Update an activity extra work
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: extraWorkId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityExtraWorkUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityExtraWork"
+    delete:
+      operationId: deleteActivityExtraWork
+      tags: [activities]
+      summary: Delete an activity extra work
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: extraWorkId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
   /me/stats:
     get:
       operationId: getMyStats
@@ -1775,6 +1931,97 @@ components:
         unit:
           type: ["string", "null"]
         pricePerUnit:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+
+    ActivityAttachment:
+      type: object
+      required: [id, activityId, type, createdAt]
+      properties:
+        id:
+          type: integer
+        activityId:
+          type: integer
+        type:
+          type: string
+          description: "photo"
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ActivityAttachmentInput:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+
+    ActivityExtraWork:
+      type: object
+      required: [id, activityId, description, done, sortOrder, createdAt]
+      properties:
+        id:
+          type: integer
+        activityId:
+          type: integer
+        description:
+          type: string
+        note:
+          type: ["string", "null"]
+        hours:
+          type: ["number", "null"]
+        amount:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+
+    ActivityExtraWorkInput:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 1
+        note:
+          type: ["string", "null"]
+        hours:
+          type: ["number", "null"]
+        amount:
+          type: ["number", "null"]
+        done:
+          type: boolean
+        sortOrder:
+          type: integer
+
+    ActivityExtraWorkUpdate:
+      type: object
+      properties:
+        description:
+          type: string
+          minLength: 1
+        note:
+          type: ["string", "null"]
+        hours:
+          type: ["number", "null"]
+        amount:
           type: ["number", "null"]
         done:
           type: boolean

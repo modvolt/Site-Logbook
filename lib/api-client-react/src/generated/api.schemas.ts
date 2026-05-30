@@ -484,6 +484,71 @@ export interface ActivityMaterialUpdate {
   sortOrder?: number;
 }
 
+export interface ActivityAttachment {
+  id: number;
+  activityId: number;
+  /** photo */
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+  createdAt: string;
+}
+
+export interface ActivityAttachmentInput {
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+}
+
+export interface ActivityExtraWork {
+  id: number;
+  activityId: number;
+  description: string;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  hours?: number | null;
+  /** @nullable */
+  amount?: number | null;
+  done: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface ActivityExtraWorkInput {
+  /** @minLength 1 */
+  description: string;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  hours?: number | null;
+  /** @nullable */
+  amount?: number | null;
+  done?: boolean;
+  sortOrder?: number;
+}
+
+export interface ActivityExtraWorkUpdate {
+  /** @minLength 1 */
+  description?: string;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  hours?: number | null;
+  /** @nullable */
+  amount?: number | null;
+  done?: boolean;
+  sortOrder?: number;
+}
+
 export interface MyStats {
   activityHoursWeek: number;
   activityHoursMonth: number;

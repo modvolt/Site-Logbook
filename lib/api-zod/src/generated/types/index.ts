@@ -7,6 +7,11 @@
  */
 
 export * from './activity';
+export * from './activityAttachment';
+export * from './activityAttachmentInput';
+export * from './activityExtraWork';
+export * from './activityExtraWorkInput';
+export * from './activityExtraWorkUpdate';
 export * from './activityInput';
 export * from './activityMaterial';
 export * from './activityMaterialInput';

@@ -6,8 +6,13 @@ import {
   useStartActivityTimer, useStopActivityTimer,
   useListActivityMaterials, getListActivityMaterialsQueryKey,
   useCreateActivityMaterial, useUpdateActivityMaterial, useDeleteActivityMaterial,
+  useListActivityAttachments, getListActivityAttachmentsQueryKey,
+  useCreateActivityAttachment, useDeleteActivityAttachment,
+  useListActivityExtraWorks, getListActivityExtraWorksQueryKey,
+  useCreateActivityExtraWork, useUpdateActivityExtraWork, useDeleteActivityExtraWork,
   useListCustomers, getGetMyStatsQueryKey,
 } from "@workspace/api-client-react";
+import { useUpload } from "@workspace/object-storage-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +22,51 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
-  ShoppingCart, Archive, ArchiveRestore,
+  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+
+async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
+  let processedFile = file;
+  if (
+    file.type === "image/heic" || file.type === "image/heif" ||
+    file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif")
+  ) {
+    const heic2any = (await import("heic2any")).default;
+    const blob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }) as Blob;
+    processedFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
+  }
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(processedFile);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("No canvas context")); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        if (!blob) { reject(new Error("Canvas toBlob failed")); return; }
+        const outName = processedFile.name.replace(/\.(heic|heif)$/i, ".jpg");
+        resolve(new File([blob], outName, { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
+
+function getAttachmentUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:")) return url;
+  return `/api/storage${url}`;
+}
 
 function useTimer(startedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState(0);
@@ -276,6 +322,12 @@ export default function ActivityDetail() {
         deleteMaterial={deleteMaterial}
         onChange={invalidate}
       />
+
+      {/* Extra works (vícepráce) */}
+      <ExtraWorksSection activityId={id} canWrite={can("write")} />
+
+      {/* Photos */}
+      <PhotosSection activityId={id} canWrite={can("write")} />
     </div>
   );
 }
@@ -403,6 +455,243 @@ function MaterialsSection({
               );
             })}
           </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const listKey = getListActivityExtraWorksQueryKey(activityId);
+  const { data: works } = useListActivityExtraWorks(activityId, {
+    query: { queryKey: listKey, enabled: Number.isFinite(activityId) },
+  });
+  const createWork = useCreateActivityExtraWork();
+  const updateWork = useUpdateActivityExtraWork();
+  const deleteWork = useDeleteActivityExtraWork();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ description: "", note: "", hours: "", amount: "" });
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
+  const items = works ?? [];
+  const totalAmount = items.reduce((sum, w) => sum + (w.amount ?? 0), 0);
+  const totalHours = items.reduce((sum, w) => sum + (w.hours ?? 0), 0);
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.description.trim()) return;
+    createWork.mutate({
+      activityId,
+      data: {
+        description: form.description.trim(),
+        note: form.note.trim() || null,
+        hours: form.hours ? Number(form.hours) : null,
+        amount: form.amount ? Number(form.amount) : null,
+      },
+    }, {
+      onSuccess: () => {
+        setForm({ description: "", note: "", hours: "", amount: "" });
+        setShowAdd(false);
+        invalidate();
+        toast({ title: "Vícepráce přidána" });
+      },
+    });
+  };
+
+  const toggleDone = (w: ExtraWork) => {
+    updateWork.mutate({ activityId, extraWorkId: w.id, data: { done: !w.done } }, { onSuccess: invalidate });
+  };
+
+  const handleDelete = (id: number) => {
+    if (!confirm("Smazat vícepráci?")) return;
+    deleteWork.mutate({ activityId, extraWorkId: id }, { onSuccess: invalidate });
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold flex items-center gap-2">
+            <PlusCircle className="h-4 w-4 text-sky-500" /> Vícepráce
+            {(totalAmount > 0 || totalHours > 0) && (
+              <span className="text-sm font-normal text-muted-foreground">
+                · {totalHours > 0 && `${Math.round(totalHours * 100) / 100} h`}
+                {totalHours > 0 && totalAmount > 0 && " · "}
+                {totalAmount > 0 && `${Math.round(totalAmount).toLocaleString("cs-CZ")} Kč`}
+              </span>
+            )}
+          </h2>
+          {canWrite && !showAdd && (
+            <Button size="sm" variant="outline" onClick={() => setShowAdd(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Přidat
+            </Button>
+          )}
+        </div>
+
+        {showAdd && canWrite && (
+          <form onSubmit={handleAdd} className="space-y-2 p-3 border rounded-md bg-muted/30">
+            <Input placeholder="Co se dělalo navíc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} autoFocus required />
+            <Textarea placeholder="Poznámka (volitelné)" rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            <div className="grid grid-cols-2 gap-2">
+              <Input placeholder="Hodiny" type="number" step="0.01" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} />
+              <Input placeholder="Cena Kč" type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" size="sm">Přidat</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowAdd(false)}><X className="h-4 w-4" /></Button>
+            </div>
+          </form>
+        )}
+
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-3">Zatím žádné vícepráce.</p>
+        ) : (
+          <ul className="space-y-1">
+            {items.map((w) => (
+              <li key={w.id} className="flex items-start gap-2 py-2 border-b last:border-0">
+                <Checkbox className="mt-0.5" checked={w.done} onCheckedChange={() => canWrite && toggleDone(w)} disabled={!canWrite} />
+                <div className="flex-1 min-w-0">
+                  <div className={`font-medium text-sm ${w.done ? "line-through text-muted-foreground" : ""}`}>
+                    {w.description}
+                  </div>
+                  {w.note && <div className="text-xs text-muted-foreground whitespace-pre-wrap">{w.note}</div>}
+                  {(w.hours != null || w.amount != null) && (
+                    <div className="text-xs text-muted-foreground">
+                      {w.hours != null && `${w.hours} h`}
+                      {w.hours != null && w.amount != null && " · "}
+                      {w.amount != null && `${Math.round(w.amount).toLocaleString("cs-CZ")} Kč`}
+                    </div>
+                  )}
+                </div>
+                {canWrite && (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-rose-500" onClick={() => handleDelete(w.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type ExtraWork = {
+  id: number;
+  activityId: number;
+  description: string;
+  note?: string | null;
+  hours?: number | null;
+  amount?: number | null;
+  done: boolean;
+  sortOrder: number;
+  createdAt: string;
+};
+
+function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const listKey = getListActivityAttachmentsQueryKey(activityId);
+  const { data: attachments } = useListActivityAttachments(activityId, {
+    query: { queryKey: listKey, enabled: Number.isFinite(activityId) },
+  });
+  const createAttachment = useCreateActivityAttachment();
+  const deleteAttachment = useDeleteActivityAttachment();
+  const { uploadFile: uploadPhoto, isUploading } = useUpload();
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
+  const photos = attachments ?? [];
+
+  const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const prepared = await prepareImageFile(file);
+      const result = await uploadPhoto(prepared);
+      if (!result) {
+        toast({ title: "Nahrání selhalo", variant: "destructive" });
+        return;
+      }
+      createAttachment.mutate({
+        activityId,
+        data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: "Foto ze stavby" },
+      }, {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Fotografie uložena" });
+        },
+      });
+    } catch {
+      toast({ title: "Zpracování fotky selhalo", variant: "destructive" });
+    }
+  };
+
+  const handleDelete = (attachmentId: number) => {
+    if (!confirm("Smazat tuto fotografii?")) return;
+    deleteAttachment.mutate({ activityId, attachmentId }, { onSuccess: invalidate });
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Camera className="h-4 w-4 text-violet-500" /> Fotky ze stavby
+            {photos.length > 0 && (
+              <span className="text-sm font-normal text-muted-foreground">· {photos.length}</span>
+            )}
+          </h2>
+        </div>
+
+        {canWrite && (
+          <>
+            <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleCapture} className="hidden" />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={createAttachment.isPending || isUploading}
+              className="w-full"
+            >
+              <Camera className="h-4 w-4 mr-2" /> {isUploading ? "Nahrávám..." : "Vyfotit / nahrát"}
+            </Button>
+          </>
+        )}
+
+        {photos.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+            <Camera className="w-8 h-8 mx-auto mb-2 opacity-20" />
+            <p className="text-sm">Foťte průběh prací, stav stavby apod.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {photos.map((photo) => {
+              const src = getAttachmentUrl(photo.url);
+              return (
+                <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden border group bg-muted">
+                  {src ? (
+                    <img src={src} alt={photo.fileName || "Fotografie"} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                      <Camera className="w-8 h-8 opacity-20" />
+                    </div>
+                  )}
+                  {canWrite && (
+                    <button
+                      onClick={() => handleDelete(photo.id)}
+                      className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-rose-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </CardContent>
     </Card>
