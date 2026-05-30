@@ -19,6 +19,7 @@ import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
 import PristupoveUdaje from "@/pages/pristupove-udaje";
+import PristupoveUdajeExport from "@/pages/pristupove-udaje-export";
 import Settings from "@/pages/settings";
 import Admin from "@/pages/admin";
 import Login from "@/pages/login";
@@ -81,6 +82,7 @@ function AuthenticatedApp() {
         <Route path="/jobs/:id" component={JobDetail} />
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
+        <Route path="/pristupove-udaje/export/:id">{() => <WriteOnly component={PristupoveUdajeExport} />}</Route>
         <Route path="/pristupove-udaje">{() => <WriteOnly component={PristupoveUdaje} />}</Route>
         <Route path="/people" component={People} />
         <Route path="/sklad" component={Sklad} />

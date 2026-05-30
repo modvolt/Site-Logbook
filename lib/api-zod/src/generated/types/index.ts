@@ -40,6 +40,7 @@ export * from './gdprExport';
 export * from './gdprExportData';
 export * from './getMyDoneJobsParams';
 export * from './healthStatus';
+export * from './jablotronUser';
 export * from './job';
 export * from './jobInput';
 export * from './jobReorderInput';

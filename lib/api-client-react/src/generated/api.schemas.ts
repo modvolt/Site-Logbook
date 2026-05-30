@@ -115,6 +115,14 @@ export interface CustomerSiteInput {
   note?: string | null;
 }
 
+export interface JablotronUser {
+  id: string;
+  name: string;
+  /** @nullable */
+  pin: string | null;
+  cards: string[];
+}
+
 export interface DeviceCredential {
   id: number;
   customerId: number;
@@ -125,6 +133,10 @@ export interface DeviceCredential {
   /** @nullable */
   serialNumber?: string | null;
   /** @nullable */
+  ipAddress?: string | null;
+  /** @nullable */
+  pin?: string | null;
+  /** @nullable */
   username?: string | null;
   /** @nullable */
   password?: string | null;
@@ -132,6 +144,7 @@ export interface DeviceCredential {
   email?: string | null;
   /** @nullable */
   note?: string | null;
+  users: JablotronUser[];
   createdAt: string;
 }
 
@@ -142,6 +155,10 @@ export interface DeviceCredentialInput {
   type?: string | null;
   /** @nullable */
   serialNumber?: string | null;
+  /** @minLength 1 */
+  ipAddress: string;
+  /** @nullable */
+  pin?: string | null;
   /** @nullable */
   username?: string | null;
   /** @nullable */
@@ -150,6 +167,7 @@ export interface DeviceCredentialInput {
   email?: string | null;
   /** @nullable */
   note?: string | null;
+  users?: JablotronUser[];
 }
 
 export interface DeviceCredentialUpdate {
@@ -160,6 +178,10 @@ export interface DeviceCredentialUpdate {
   /** @nullable */
   serialNumber?: string | null;
   /** @nullable */
+  ipAddress?: string | null;
+  /** @nullable */
+  pin?: string | null;
+  /** @nullable */
   username?: string | null;
   /** @nullable */
   password?: string | null;
@@ -167,6 +189,7 @@ export interface DeviceCredentialUpdate {
   email?: string | null;
   /** @nullable */
   note?: string | null;
+  users?: JablotronUser[];
 }
 
 export interface Job {

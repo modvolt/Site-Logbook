@@ -789,10 +789,18 @@ export const ListDeviceCredentialsResponseItem = zod.object({
   "siteId": zod.number().nullish(),
   "type": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
+  "ipAddress": zod.string().nullish(),
+  "pin": zod.string().nullish(),
   "username": zod.string().nullish(),
   "password": zod.string().nullish(),
   "email": zod.string().nullish(),
   "note": zod.string().nullish(),
+  "users": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "pin": zod.string().nullable(),
+  "cards": zod.array(zod.string())
+})),
   "createdAt": zod.string()
 })
 export const ListDeviceCredentialsResponse = zod.array(ListDeviceCredentialsResponseItem)
@@ -805,14 +813,25 @@ export const CreateDeviceCredentialParams = zod.object({
   "customerId": zod.coerce.number()
 })
 
+
+
+
 export const CreateDeviceCredentialBody = zod.object({
   "siteId": zod.number().nullish(),
   "type": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
+  "ipAddress": zod.string().min(1),
+  "pin": zod.string().nullish(),
   "username": zod.string().nullish(),
   "password": zod.string().nullish(),
   "email": zod.string().nullish(),
-  "note": zod.string().nullish()
+  "note": zod.string().nullish(),
+  "users": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "pin": zod.string().nullable(),
+  "cards": zod.array(zod.string())
+})).optional()
 })
 
 
@@ -827,10 +846,18 @@ export const UpdateDeviceCredentialBody = zod.object({
   "siteId": zod.number().nullish(),
   "type": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
+  "ipAddress": zod.string().nullish(),
+  "pin": zod.string().nullish(),
   "username": zod.string().nullish(),
   "password": zod.string().nullish(),
   "email": zod.string().nullish(),
-  "note": zod.string().nullish()
+  "note": zod.string().nullish(),
+  "users": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "pin": zod.string().nullable(),
+  "cards": zod.array(zod.string())
+})).optional()
 })
 
 export const UpdateDeviceCredentialResponse = zod.object({
@@ -839,10 +866,18 @@ export const UpdateDeviceCredentialResponse = zod.object({
   "siteId": zod.number().nullish(),
   "type": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
+  "ipAddress": zod.string().nullish(),
+  "pin": zod.string().nullish(),
   "username": zod.string().nullish(),
   "password": zod.string().nullish(),
   "email": zod.string().nullish(),
   "note": zod.string().nullish(),
+  "users": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "pin": zod.string().nullable(),
+  "cards": zod.array(zod.string())
+})),
   "createdAt": zod.string()
 })
 

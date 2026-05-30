@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { JablotronUser } from './jablotronUser';
 
 export interface DeviceCredential {
   id: number;
@@ -16,6 +17,10 @@ export interface DeviceCredential {
   /** @nullable */
   serialNumber?: string | null;
   /** @nullable */
+  ipAddress?: string | null;
+  /** @nullable */
+  pin?: string | null;
+  /** @nullable */
   username?: string | null;
   /** @nullable */
   password?: string | null;
@@ -23,5 +28,6 @@ export interface DeviceCredential {
   email?: string | null;
   /** @nullable */
   note?: string | null;
+  users: JablotronUser[];
   createdAt: string;
 }

@@ -27,3 +27,21 @@ one.
 - On POST/PATCH, validate that any provided `siteId` belongs to the same
   customer as the credential, or reject (cross-customer linkage otherwise
   silently allowed by the FK alone).
+
+## Required-field enforcement (ipAddress)
+
+`ipAddress` is required when creating a credential. Enforce it at the **API
+contract** (OpenAPI `DeviceCredentialInput.required: [ipAddress]` +
+`minLength: 1`), not just in the frontend form — a client-only check is not a
+real requirement.
+
+**Why:** the DB column stays nullable on purpose (legacy rows pre-date the
+field; a NOT NULL migration would need a backfill). The Create Zod schema is
+the source of truth that makes IP mandatory for new entries without breaking
+existing data or the partial Update path.
+
+**How to apply:** keep IP required only on `DeviceCredentialInput` (Create).
+`DeviceCredentialUpdate` and the DB column remain nullable. `JablotronUser.pin`
+must be in the schema's `required` list (nullable) so the generated zod type
+matches the DB jsonb `$type` (required key, `string | null`) — otherwise the
+route insert fails typecheck with optional-vs-required key mismatch.
