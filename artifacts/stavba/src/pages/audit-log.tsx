@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { useListAuditLogs, getListAuditLogsQueryKey } from "@workspace/api-client-react";
+import { useListAuditLogs, getListAuditLogsQueryKey, useListUsers, getListUsersQueryKey } from "@workspace/api-client-react";
 import type { ListAuditLogsParams } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,12 +36,16 @@ const ENTITY_LABELS: Record<string, string> = {
 };
 
 export default function AuditLog() {
+  const [userId, setUserId] = useState<string>("all");
   const [entityType, setEntityType] = useState<string>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(0);
 
+  const { data: users } = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
+
   const params: ListAuditLogsParams = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
+  if (userId !== "all") params.userId = Number(userId);
   if (entityType !== "all") params.entityType = entityType;
   if (fromDate) params.from = fromDate;
   if (toDate) params.to = `${toDate}T23:59:59`;
@@ -55,13 +59,14 @@ export default function AuditLog() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const resetFilters = () => {
+    setUserId("all");
     setEntityType("all");
     setFromDate("");
     setToDate("");
     setPage(0);
   };
 
-  const hasFilters = entityType !== "all" || fromDate || toDate;
+  const hasFilters = userId !== "all" || entityType !== "all" || fromDate || toDate;
 
   return (
     <div className="p-4 md:p-6 w-full">
@@ -76,6 +81,18 @@ export default function AuditLog() {
 
         {/* Filters */}
         <div className="bg-card border rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
+          <div className="w-[200px]">
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Uživatel</label>
+            <Select value={userId} onValueChange={(v) => { setUserId(v); setPage(0); }}>
+              <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Všichni</SelectItem>
+                {users?.map((u) => (
+                  <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="w-[200px]">
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Oblast</label>
             <Select value={entityType} onValueChange={(v) => { setEntityType(v); setPage(0); }}>
