@@ -40,6 +40,10 @@ const DEVICE_TYPES = [
 
 const CUSTOM_TYPE = "__custom__";
 
+const USER_DEVICE_TYPES = ["Jablotron", "Access system", "Loxon"];
+const supportsUsers = (type: string) =>
+  USER_DEVICE_TYPES.includes(type.trim());
+
 const IP_PREFIXES: { label: string; prefix: string }[] = [
   { label: "10.0.0.x", prefix: "10.0.0." },
   { label: "192.168.1.X", prefix: "192.168.1." },
@@ -82,7 +86,7 @@ function newId(): string {
 }
 
 function toPayload(f: CredForm) {
-  const isJablotron = f.type.trim() === "Jablotron";
+  const hasUsers = supportsUsers(f.type);
   return {
     siteId: f.siteId ? parseInt(f.siteId, 10) : null,
     type: f.type.trim() || null,
@@ -93,7 +97,7 @@ function toPayload(f: CredForm) {
     password: f.password.trim() || null,
     email: f.email.trim() || null,
     note: f.note.trim() || null,
-    users: isJablotron
+    users: hasUsers
       ? f.users
           .map((u) => ({
             id: u.id,
@@ -259,7 +263,7 @@ export default function PristupoveUdaje() {
   ) => {
     const isPresetType = (DEVICE_TYPES as readonly string[]).includes(form.type);
     const typeSelectValue = form.type === "" ? "" : isPresetType ? form.type : CUSTOM_TYPE;
-    const isJablotron = form.type === "Jablotron";
+    const hasUsers = supportsUsers(form.type);
 
     const setUsers = (updater: (users: JablotronUser[]) => JablotronUser[]) =>
       setForm((p) => ({ ...p, users: updater(p.users) }));
@@ -291,7 +295,7 @@ export default function PristupoveUdaje() {
                 setForm((p) => ({
                   ...p,
                   type: v === "" ? "" : v === CUSTOM_TYPE ? "" : v,
-                  users: v === "Jablotron" ? p.users : [],
+                  users: supportsUsers(v) ? p.users : [],
                 }));
               }}
               className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -422,11 +426,11 @@ export default function PristupoveUdaje() {
           </div>
         </div>
 
-        {isJablotron && (
+        {hasUsers && (
           <div className="rounded-md border border-input bg-background/50 p-3 space-y-3">
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-2 m-0">
-                <Users className="h-4 w-4 text-primary" /> Uživatelé (Jablotron)
+                <Users className="h-4 w-4 text-primary" /> Uživatelé ({form.type})
               </Label>
               <Button
                 type="button"
