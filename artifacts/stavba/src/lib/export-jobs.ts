@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
+import { registerPdfFonts, PDF_FONT } from "@/lib/pdf-fonts";
 
 type Job = {
   id: number;
@@ -391,63 +392,43 @@ export function exportJobsToXlsx(
   XLSX.writeFile(wb, outFile);
 }
 
-export function exportJobsToPdf(
+export async function exportJobsToPdf(
   jobs: Job[],
   options?: {
     from?: string;
     to?: string;
     filename?: string;
     columnKeys?: ExportColumnKey[];
+    groupByCustomer?: boolean;
     companyName?: string;
     companyLogoDataUrl?: string;
   }
 ) {
   const cols = selectColumns(options?.columnKeys);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  // Embed Roboto for Czech diacritics; degrade to built-in helvetica if the
+  // font assets cannot be loaded so the export still completes.
+  let font = PDF_FONT;
+  try {
+    await registerPdfFonts(doc);
+  } catch {
+    font = "helvetica";
+  }
+
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const MARGIN = 14;
+  const HEADER_H = 26;
+
+  const NAVY: [number, number, number] = [30, 58, 95];
+  const ACCENT: [number, number, number] = [37, 99, 235];
+  const ZEBRA: [number, number, number] = [241, 245, 249];
+  const SUBTOTAL_BG: [number, number, number] = [219, 234, 254];
+  const VICEPRACE_BG: [number, number, number] = [254, 243, 199];
 
   const companyName = options?.companyName?.trim() ?? "";
   const companyLogo = options?.companyLogoDataUrl ?? "";
-
-  let headerBottomY = 10;
-  const LOGO_MAX_W = 28;
-  const LOGO_MAX_H = 16;
-  let logoBottomY = 10;
-  if (companyLogo) {
-    try {
-      const fmt = companyLogo.startsWith("data:image/jpeg") ? "JPEG" : "PNG";
-      const props = doc.getImageProperties(companyLogo);
-      const ratio = props.width / props.height;
-      let w = LOGO_MAX_W;
-      let h = w / ratio;
-      if (h > LOGO_MAX_H) {
-        h = LOGO_MAX_H;
-        w = h * ratio;
-      }
-      const x = pageWidth - 14 - w;
-      const y = 10;
-      doc.addImage(companyLogo, fmt, x, y, w, h);
-      logoBottomY = y + h;
-    } catch {
-      // ignore unreadable logo
-    }
-  }
-
-  if (companyName) {
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(30, 58, 95);
-    doc.text(companyName, 14, 9);
-    doc.setTextColor(0);
-    headerBottomY = Math.max(headerBottomY, 11);
-  }
-  headerBottomY = Math.max(headerBottomY, logoBottomY);
-
-  const standardJobs = jobs.filter((j) => j.type !== "change");
-  const vicepraceJobs = jobs.filter((j) => j.type === "change");
-  const totAll = calcTotals(jobs);
-  const totStd = calcTotals(standardJobs);
-  const totVic = calcTotals(vicepraceJobs);
+  const groupByCustomer = options?.groupByCustomer ?? true;
 
   const today = new Date().toLocaleDateString("cs-CZ");
   const rangeLabel =
@@ -455,129 +436,245 @@ export function exportJobsToPdf(
       ? `${options?.from ?? "začátek"} – ${options?.to ?? "konec"}`
       : "všechna období";
 
-  const titleY = Math.max(14, headerBottomY + 4);
-  const metaY = titleY + 7;
+  const num = (n: number): string => n.toLocaleString("cs-CZ");
 
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text("Přehled zakázek", 14, titleY);
+  // Running header + footer drawn on every page.
+  const drawPageChrome = () => {
+    doc.setFillColor(...NAVY);
+    doc.rect(0, 0, pageWidth, HEADER_H, "F");
+    doc.setFillColor(...ACCENT);
+    doc.rect(0, HEADER_H, pageWidth, 1.2, "F");
 
+    doc.setTextColor(255);
+    doc.setFont(font, "bold");
+    doc.setFontSize(15);
+    doc.text(companyName || "Přehled zakázek", MARGIN, 12);
+    doc.setFont(font, "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(203, 213, 225);
+    doc.text("Přehled zakázek", MARGIN, 19);
+
+    if (companyLogo) {
+      try {
+        const fmt = companyLogo.startsWith("data:image/jpeg") ? "JPEG" : "PNG";
+        const props = doc.getImageProperties(companyLogo);
+        const ratio = props.width / props.height;
+        const maxH = 13;
+        const maxW = 40;
+        let h = maxH;
+        let w = h * ratio;
+        if (w > maxW) {
+          w = maxW;
+          h = w / ratio;
+        }
+        doc.addImage(
+          companyLogo,
+          fmt,
+          pageWidth - MARGIN - w,
+          (HEADER_H - h) / 2,
+          w,
+          h
+        );
+      } catch {
+        // ignore unreadable logo
+      }
+    }
+
+    const pageNum = doc.getCurrentPageInfo().pageNumber;
+    doc.setFont(font, "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(150);
+    doc.text(`Vygenerováno ${today}`, MARGIN, pageHeight - 6);
+    doc.text(
+      `Strana ${pageNum} / {totalPages}`,
+      pageWidth - MARGIN,
+      pageHeight - 6,
+      { align: "right" }
+    );
+    doc.setTextColor(0);
+  };
+
+  // Meta strip + summary table (first page only).
   doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(100);
+  doc.setFont(font, "normal");
+  doc.setTextColor(90);
   doc.text(
-    `Datum exportu: ${today}   |   Rozsah: ${rangeLabel}   |   Zakázek celkem: ${jobs.length}`,
-    14,
-    metaY
+    `Rozsah: ${rangeLabel}    •    Zakázek celkem: ${jobs.length}`,
+    MARGIN,
+    HEADER_H + 9
   );
   doc.setTextColor(0);
 
+  const standardJobs = jobs.filter((j) => j.type !== "change");
+  const vicepraceJobs = jobs.filter((j) => j.type === "change");
+  const totAll = calcTotals(jobs);
+  const totStd = calcTotals(standardJobs);
+  const totVic = calcTotals(vicepraceJobs);
+
+  const dash = (n: number) => (n > 0 ? num(n) : "–");
   const summaryTableData = [
-    [
-      "Počet zakázek",
-      String(totAll.count),
-      String(totStd.count),
-      String(totVic.count),
-    ],
-    [
-      "Hodiny – Vašek",
-      totAll.hoursVasek > 0 ? String(totAll.hoursVasek) : "–",
-      totStd.hoursVasek > 0 ? String(totStd.hoursVasek) : "–",
-      totVic.hoursVasek > 0 ? String(totVic.hoursVasek) : "–",
-    ],
-    [
-      "Hodiny – Jonáš",
-      totAll.hoursJonas > 0 ? String(totAll.hoursJonas) : "–",
-      totStd.hoursJonas > 0 ? String(totStd.hoursJonas) : "–",
-      totVic.hoursJonas > 0 ? String(totVic.hoursJonas) : "–",
-    ],
-    [
-      "Cena (Kč)",
-      totAll.price > 0 ? String(totAll.price) : "–",
-      totStd.price > 0 ? String(totStd.price) : "–",
-      totVic.price > 0 ? String(totVic.price) : "–",
-    ],
-    [
-      "Doprava (km)",
-      totAll.transportKm > 0 ? String(totAll.transportKm) : "–",
-      totStd.transportKm > 0 ? String(totStd.transportKm) : "–",
-      totVic.transportKm > 0 ? String(totVic.transportKm) : "–",
-    ],
-    [
-      "Doprava (Kč)",
-      totAll.transportCost > 0 ? String(totAll.transportCost) : "–",
-      totStd.transportCost > 0 ? String(totStd.transportCost) : "–",
-      totVic.transportCost > 0 ? String(totVic.transportCost) : "–",
-    ],
+    ["Počet zakázek", String(totAll.count), String(totStd.count), String(totVic.count)],
+    ["Hodiny – Vašek", dash(totAll.hoursVasek), dash(totStd.hoursVasek), dash(totVic.hoursVasek)],
+    ["Hodiny – Jonáš", dash(totAll.hoursJonas), dash(totStd.hoursJonas), dash(totVic.hoursJonas)],
+    ["Cena (Kč)", dash(totAll.price), dash(totStd.price), dash(totVic.price)],
+    ["Doprava (km)", dash(totAll.transportKm), dash(totStd.transportKm), dash(totVic.transportKm)],
+    ["Doprava (Kč)", dash(totAll.transportCost), dash(totStd.transportCost), dash(totVic.transportCost)],
   ];
 
   autoTable(doc, {
-    startY: metaY + 5,
-    head: [["Ukazatel", "Celkem", "Standardní zakázky", "Vícepráce"]],
+    startY: HEADER_H + 13,
+    head: [["Ukazatel", "Celkem", "Standardní", "Vícepráce"]],
     body: summaryTableData,
-    styles: { fontSize: 7.5, cellPadding: 1.5 },
-    headStyles: { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold" },
+    styles: { font, fontSize: 8, cellPadding: 1.8 },
+    headStyles: { fillColor: NAVY, textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: ZEBRA },
     columnStyles: {
-      0: { cellWidth: 36 },
-      1: { cellWidth: 22, halign: "right", fontStyle: "bold" },
-      2: { cellWidth: 30, halign: "right" },
-      3: { cellWidth: 22, halign: "right" },
+      0: { cellWidth: 38 },
+      1: { cellWidth: 26, halign: "right", fontStyle: "bold" },
+      2: { cellWidth: 28, halign: "right" },
+      3: { cellWidth: 28, halign: "right" },
     },
-    tableWidth: 110,
-    margin: { left: 14 },
+    tableWidth: 120,
+    margin: { left: MARGIN, top: HEADER_H + 4, bottom: 12 },
+    didDrawPage: drawPageChrome,
   });
 
-  const summaryEndY =
+  let cursorY =
     (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable
-      .finalY + 6;
+      .finalY + 8;
 
-  const dataHeader = cols.map((c) => c.label);
-
-  const dataRows = jobs.map((job) =>
-    cols.map((c) => {
-      const v = c.value(job);
-      return v === "" || v == null ? "" : String(v);
-    })
-  );
-
-  const totalsRow = cols.map((c, i) => {
-    if (i === 0) return `Celkem: ${jobs.length}`;
-    if (c.totalKey) {
-      const v = totAll[c.totalKey];
-      return typeof v === "number" && v > 0 ? String(v) : "";
-    }
-    return "";
-  });
-
+  // Build the data columns. When grouping, drop the redundant customer column.
+  const dataCols = groupByCustomer
+    ? cols.filter((c) => c.key !== "customer")
+    : cols;
+  const dataHeader = dataCols.map((c) => c.label);
   const columnStyles: Record<number, Record<string, unknown>> = {};
-  cols.forEach((c, i) => {
+  dataCols.forEach((c, i) => {
     const style: Record<string, unknown> = { cellWidth: c.pdfWidth };
     if (c.pdfAlign) style.halign = c.pdfAlign;
     columnStyles[i] = style;
   });
 
-  autoTable(doc, {
-    startY: summaryEndY,
-    head: [dataHeader],
-    body: [...dataRows, totalsRow],
-    styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
-    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
-    columnStyles,
-    didParseCell: (data: any) => {
-      if (data.row.index === dataRows.length) {
-        data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor = [240, 240, 240];
+  const buildRows = (groupJobs: Job[]) =>
+    groupJobs.map((job) =>
+      dataCols.map((c) => {
+        const v = c.value(job);
+        return v === "" || v == null ? "" : String(v);
+      })
+    );
+
+  const buildFoot = (groupJobs: Job[], label: string) => {
+    const t = calcTotals(groupJobs);
+    return dataCols.map((c, i) => {
+      if (i === 0) return label;
+      if (c.totalKey) {
+        const v = t[c.totalKey];
+        return typeof v === "number" && v > 0 ? num(v) : "";
       }
-    },
-    willDrawCell: (data: any) => {
-      if (data.row.section === "body" && data.row.index < dataRows.length) {
-        const job = jobs[data.row.index];
-        if (job?.type === "change") {
-          data.cell.styles.fillColor = [254, 243, 199];
+      return "";
+    });
+  };
+
+  const renderJobsTable = (
+    groupJobs: Job[],
+    footLabel: string,
+    startY: number,
+    title?: string
+  ) => {
+    const rows = buildRows(groupJobs);
+    // When a title is supplied (customer grouping), put it in a full-width head
+    // row so autoTable repeats it after every page break — it can never be
+    // orphaned at the bottom of a page the way a manually drawn band could.
+    const head = title
+      ? [
+          [
+            {
+              content: title,
+              colSpan: dataCols.length,
+              styles: {
+                fillColor: NAVY,
+                textColor: 255,
+                halign: "left" as const,
+                fontStyle: "bold" as const,
+                fontSize: 9,
+              },
+            },
+          ],
+          dataHeader,
+        ]
+      : [dataHeader];
+    const titleRows = title ? 1 : 0;
+    autoTable(doc, {
+      startY,
+      head: head as any,
+      body: rows,
+      foot: [buildFoot(groupJobs, footLabel)],
+      styles: { font, fontSize: 7.5, cellPadding: 1.6, overflow: "linebreak" },
+      headStyles: { fillColor: ACCENT, textColor: 255, fontStyle: "bold" },
+      footStyles: { fillColor: SUBTOTAL_BG, textColor: NAVY, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: ZEBRA },
+      columnStyles,
+      margin: { left: MARGIN, right: MARGIN, top: HEADER_H + 4, bottom: 12 },
+      didDrawPage: drawPageChrome,
+      didParseCell: (data: any) => {
+        // Keep the column-label head row using the accent colour even though
+        // the title head row overrides its own fill.
+        if (
+          data.section === "head" &&
+          titleRows > 0 &&
+          data.row.index === 0
+        ) {
+          data.cell.styles.fillColor = NAVY;
         }
-      }
-    },
-  });
+      },
+      willDrawCell: (data: any) => {
+        if (data.row.section === "body") {
+          const job = groupJobs[data.row.index];
+          if (job?.type === "change") {
+            data.cell.styles.fillColor = VICEPRACE_BG;
+          }
+        }
+      },
+    });
+    return (
+      (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable
+        .finalY
+    );
+  };
+
+  if (groupByCustomer) {
+    const groups = new Map<string, Job[]>();
+    for (const job of jobs) {
+      const key =
+        job.customerCompanyName?.trim() ||
+        job.clientSite?.trim() ||
+        "Bez zákazníka";
+      const arr = groups.get(key);
+      if (arr) arr.push(job);
+      else groups.set(key, [job]);
+    }
+    const sortedKeys = [...groups.keys()].sort((a, b) =>
+      a.localeCompare(b, "cs")
+    );
+
+    for (const key of sortedKeys) {
+      const groupJobs = groups.get(key)!;
+      const t = calcTotals(groupJobs);
+      const title = `${key}   •   ${groupJobs.length} zak.${
+        t.price > 0 ? `   •   ${num(t.price)} Kč` : ""
+      }`;
+      cursorY = renderJobsTable(groupJobs, "Mezisoučet", cursorY, title) + 8;
+    }
+  } else {
+    renderJobsTable(jobs, `Celkem: ${jobs.length} zakázek`, cursorY);
+  }
+
+  const docWithTotal = doc as unknown as {
+    putTotalPages?: (s: string) => void;
+  };
+  if (typeof docWithTotal.putTotalPages === "function") {
+    docWithTotal.putTotalPages("{totalPages}");
+  }
 
   const outFile =
     options?.filename ??

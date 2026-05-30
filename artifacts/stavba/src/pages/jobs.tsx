@@ -64,6 +64,7 @@ export default function Jobs() {
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [groupByCustomer, setGroupByCustomer] = useState(true);
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [selectedColumns, setSelectedColumns] = useState<ExportColumnKey[]>(
@@ -266,11 +267,12 @@ export default function Jobs() {
           logoDataUrl = "";
         }
       }
-      exportJobsToPdf(data, {
+      await exportJobsToPdf(data, {
         from: exportFrom || undefined,
         to: exportTo || undefined,
         filename: `zakázky-${fromLabel}–${toLabel}.pdf`,
         columnKeys: orderedSelected,
+        groupByCustomer,
         companyName: company.name || BRAND_NAME,
         companyLogoDataUrl: logoDataUrl,
       });
@@ -358,6 +360,21 @@ export default function Jobs() {
                 />
               </div>
             </div>
+
+            <label className="flex items-center gap-2.5 rounded-md border p-3 cursor-pointer">
+              <Checkbox
+                checked={groupByCustomer}
+                onCheckedChange={(v) => setGroupByCustomer(v === true)}
+              />
+              <div className="space-y-0.5">
+                <span className="text-sm font-medium leading-none">
+                  Rozdělit podle zákazníků
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  V PDF seskupí zakázky podle zákazníka s mezisoučty.
+                </p>
+              </div>
+            </label>
 
             <div className="space-y-1.5">
               <Label className="text-sm font-medium">Předvolby</Label>

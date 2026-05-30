@@ -1,2 +1,3 @@
 - [Object storage setup](object-storage.md) — attachments now stored in GCS; url column holds /objects/... paths; legacy base64 still displays via getAttachmentUrl() fallback.
 - [Drizzle push interactive conflict](drizzle-push-conflict.md) — push can prompt rename & fail in non-TTY; add single columns via direct SQL ALTER, never blind push --force (can drop user_sessions).
+- [jsPDF Czech diacritics](pdf-czech-diacritics.md) — built-in fonts can't render ř/š/ě; must embed Roboto TTF on every autoTable style; group headers go in table head to avoid orphaning.
