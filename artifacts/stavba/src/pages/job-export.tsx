@@ -14,6 +14,7 @@ import { JOB_STATUSES, JOB_TYPES } from "@/components/badges";
 import { SignaturePad } from "@/components/signature-pad";
 import { useToast } from "@/hooks/use-toast";
 import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 import contractorSignature from "@assets/podpis_firma_1780171718219.jpeg";
 
 const PRINT_CSS = `
@@ -174,8 +175,13 @@ export default function JobExport() {
               <h2 className="text-2xl font-bold tracking-tight">Zakázkový list</h2>
               <p className="text-sm text-neutral-600 mt-1">č. {job.id}</p>
             </div>
-            <div className="text-right">
-              <p className="text-xl font-bold text-amber-600">Stavba</p>
+            <div className="flex flex-col items-end text-right">
+              <img
+                src={BRAND_LOGO_URL}
+                alt={BRAND_NAME}
+                crossOrigin="anonymous"
+                className="h-16 w-auto object-contain"
+              />
               <p className="text-xs text-neutral-500 mt-1">
                 Vystaveno: {format(new Date(), "d. M. yyyy")}
               </p>
@@ -186,7 +192,7 @@ export default function JobExport() {
           <div className="grid grid-cols-2 gap-6 mb-6 text-sm">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Zhotovitel</p>
-              <p className="font-semibold">Stavba</p>
+              <p className="font-semibold">{BRAND_NAME}</p>
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Objednatel</p>

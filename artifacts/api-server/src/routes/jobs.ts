@@ -301,6 +301,12 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
     return;
   }
 
+  const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+  if (!emailPattern.test(to)) {
+    res.status(400).json({ error: "Neplatná e-mailová adresa příjemce." });
+    return;
+  }
+
   const jobLabel = job.title ?? `Zakázka #${job.id}`;
   const subject = parsed.data.subject?.trim() || `Zakázkový list – ${jobLabel}`;
   const message =

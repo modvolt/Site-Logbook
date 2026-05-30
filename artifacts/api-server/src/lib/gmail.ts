@@ -42,10 +42,17 @@ async function getAccessToken(): Promise<string> {
   return accessToken;
 }
 
+function stripHeaderControlChars(value: string): string {
+  // Defense-in-depth against MIME header injection: drop CR/LF and other
+  // control characters that could inject extra headers or alter structure.
+  return value.replace(/[\r\n\u0000-\u001F\u007F]/g, " ").trim();
+}
+
 function encodeHeaderWord(value: string): string {
+  const clean = stripHeaderControlChars(value);
   // RFC 2047 encoded-word so non-ASCII (Czech) subjects/filenames survive.
-  if (/^[\x20-\x7E]*$/.test(value)) return value;
-  return `=?UTF-8?B?${Buffer.from(value, "utf-8").toString("base64")}?=`;
+  if (/^[\x20-\x7E]*$/.test(clean)) return clean;
+  return `=?UTF-8?B?${Buffer.from(clean, "utf-8").toString("base64")}?=`;
 }
 
 function toBase64Url(input: Buffer): string {
@@ -68,7 +75,7 @@ export async function sendGmailWithPdf(params: SendGmailParams): Promise<void> {
   const safeFilename = encodeHeaderWord(filename);
 
   const mime = [
-    `To: ${to}`,
+    `To: ${encodeHeaderWord(to)}`,
     `Subject: ${encodeHeaderWord(subject)}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,

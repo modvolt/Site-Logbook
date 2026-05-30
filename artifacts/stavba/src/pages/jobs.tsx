@@ -27,6 +27,7 @@ import {
   type ExportColumnKey,
 } from "@/lib/export-jobs";
 import { loadCompanySettings } from "@/lib/company-settings";
+import { BRAND_NAME, getBrandLogoDataUrl } from "@/lib/brand";
 import {
   loadPresets,
   savePresets,
@@ -250,20 +251,28 @@ export default function Jobs() {
     }
   }
 
-  function handleExportPdf() {
+  async function handleExportPdf() {
     setExporting(true);
     try {
       const data = exportJobs ?? [];
       const fromLabel = exportFrom || "začátek";
       const toLabel = exportTo || "konec";
       const company = loadCompanySettings();
+      let logoDataUrl = company.logoDataUrl;
+      if (!logoDataUrl) {
+        try {
+          logoDataUrl = await getBrandLogoDataUrl();
+        } catch {
+          logoDataUrl = "";
+        }
+      }
       exportJobsToPdf(data, {
         from: exportFrom || undefined,
         to: exportTo || undefined,
         filename: `zakázky-${fromLabel}–${toLabel}.pdf`,
         columnKeys: orderedSelected,
-        companyName: company.name,
-        companyLogoDataUrl: company.logoDataUrl,
+        companyName: company.name || BRAND_NAME,
+        companyLogoDataUrl: logoDataUrl,
       });
       setExportOpen(false);
     } finally {
