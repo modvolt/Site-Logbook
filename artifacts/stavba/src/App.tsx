@@ -11,6 +11,7 @@ import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
 import Jobs from "@/pages/jobs";
 import JobDetail from "@/pages/job-detail";
+import JobExport from "@/pages/job-export";
 import JobForm from "@/pages/job-form";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
@@ -53,6 +54,7 @@ function AuthenticatedApp() {
         <Route path="/calendar" component={Calendar} />
         <Route path="/jobs" component={Jobs} />
         <Route path="/jobs/new" component={JobForm} />
+        <Route path="/jobs/:id/list" component={JobExport} />
         <Route path="/jobs/:id" component={JobDetail} />
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
