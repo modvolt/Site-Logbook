@@ -15,6 +15,7 @@ import { SignaturePad } from "@/components/signature-pad";
 import { useToast } from "@/hooks/use-toast";
 import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
+import { loadCompanySettings } from "@/lib/company-settings";
 import contractorSignature from "@assets/podpis_firma_1780171718219.jpeg";
 
 const PRINT_CSS = `
@@ -46,8 +47,13 @@ export default function JobExport() {
   const [showPrice, setShowPrice] = useState(true);
   const [customerSig, setCustomerSig] = useState<string | null>(null);
   const [padOpen, setPadOpen] = useState(false);
+  const [company] = useState(() => loadCompanySettings());
   const { toast } = useToast();
   const sendEmail = useSendJobEmail();
+
+  const contractorName = company.name || BRAND_NAME;
+  const contractorLogo = company.logoDataUrl || BRAND_LOGO_URL;
+  const contractorSig = company.signatureDataUrl || contractorSignature;
 
   const { data: job, isLoading } = useGetJob(id, {
     query: { enabled: !!id, queryKey: getGetJobQueryKey(id) },
@@ -177,8 +183,8 @@ export default function JobExport() {
             </div>
             <div className="flex flex-col items-end text-right">
               <img
-                src={BRAND_LOGO_URL}
-                alt={BRAND_NAME}
+                src={contractorLogo}
+                alt={contractorName}
                 crossOrigin="anonymous"
                 className="h-16 w-auto object-contain"
               />
@@ -192,7 +198,10 @@ export default function JobExport() {
           <div className="grid grid-cols-2 gap-6 mb-6 text-sm">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Zhotovitel</p>
-              <p className="font-semibold">{BRAND_NAME}</p>
+              <p className="font-semibold">{contractorName}</p>
+              {company.info && (
+                <p className="text-neutral-600 whitespace-pre-line">{company.info}</p>
+              )}
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">Objednatel</p>
@@ -343,7 +352,7 @@ export default function JobExport() {
               předáno a převzato bez vad a nedodělků.
             </p>
             <div className="grid grid-cols-2 gap-10 text-sm">
-              <SignatureBlock label="Zhotovitel" imageSrc={contractorSignature} />
+              <SignatureBlock label="Zhotovitel" imageSrc={contractorSig} />
               <div>
                 <div className="h-16 flex items-end justify-center">
                   {customerSig ? (

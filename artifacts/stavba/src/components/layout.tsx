@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye, Hammer, User as UserIcon, Package, Wrench, ScrollText, ShieldCheck } from "lucide-react";
+import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye, Hammer, User as UserIcon, Package, Wrench, ScrollText, ShieldCheck, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
@@ -14,6 +14,7 @@ type NavItem = {
   activeBg: string;
   hoverBg: string;
   match?: (loc: string) => boolean;
+  requires?: "write";
 };
 
 const desktopNavItems: NavItem[] = [
@@ -22,6 +23,7 @@ const desktopNavItems: NavItem[] = [
   { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "bg-violet-500 text-white", hoverBg: "hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-950/30" },
   { href: "/activities", icon: Hammer, label: "Dlouhodobé akce", color: "text-orange-500", activeBg: "bg-orange-500 text-white", hoverBg: "hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30", match: (l) => l === "/activities" || l.startsWith("/activities/") },
   { href: "/customers", icon: Building2, label: "Zákazníci", color: "text-emerald-500", activeBg: "bg-emerald-500 text-white", hoverBg: "hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30" },
+  { href: "/pristupove-udaje", icon: KeyRound, label: "Přístupové údaje", color: "text-rose-500", activeBg: "bg-rose-500 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "write" },
   { href: "/people", icon: Users, label: "Zaměstnanci", color: "text-teal-500", activeBg: "bg-teal-500 text-white", hoverBg: "hover:bg-teal-50 hover:text-teal-600 dark:hover:bg-teal-950/30" },
   { href: "/sklad", icon: Package, label: "Sklad", color: "text-cyan-500", activeBg: "bg-cyan-500 text-white", hoverBg: "hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-cyan-950/30" },
   { href: "/stroje", icon: Wrench, label: "Stroje", color: "text-slate-500", activeBg: "bg-slate-500 text-white", hoverBg: "hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800/40", match: (l) => l === "/stroje" || l.startsWith("/stroje/") },
@@ -84,7 +86,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           )}
         </div>
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {desktopNavItems.map((item) => {
+          {desktopNavItems
+            .filter((item) => !item.requires || can(item.requires))
+            .map((item) => {
             const active = isActive(item);
             return (
               <Link

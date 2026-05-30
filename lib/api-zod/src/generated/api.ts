@@ -777,6 +777,85 @@ export const DeleteCustomerSiteParams = zod.object({
 
 
 /**
+ * @summary List device access credentials for a customer
+ */
+export const ListDeviceCredentialsParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const ListDeviceCredentialsResponseItem = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "siteId": zod.number().nullish(),
+  "type": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "username": zod.string().nullish(),
+  "password": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListDeviceCredentialsResponse = zod.array(ListDeviceCredentialsResponseItem)
+
+
+/**
+ * @summary Add a device access credential to a customer
+ */
+export const CreateDeviceCredentialParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const CreateDeviceCredentialBody = zod.object({
+  "siteId": zod.number().nullish(),
+  "type": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "username": zod.string().nullish(),
+  "password": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a device access credential
+ */
+export const UpdateDeviceCredentialParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateDeviceCredentialBody = zod.object({
+  "siteId": zod.number().nullish(),
+  "type": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "username": zod.string().nullish(),
+  "password": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "note": zod.string().nullish()
+})
+
+export const UpdateDeviceCredentialResponse = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "siteId": zod.number().nullish(),
+  "type": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "username": zod.string().nullish(),
+  "password": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a device access credential
+ */
+export const DeleteDeviceCredentialParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary List all machines
  */
 export const ListMachinesResponseItem = zod.object({

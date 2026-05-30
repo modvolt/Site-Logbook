@@ -801,6 +801,92 @@ paths:
         "404":
           description: Not found
 
+  /customers/{customerId}/device-credentials:
+    get:
+      operationId: listDeviceCredentials
+      tags: [customers]
+      summary: List device access credentials for a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Device credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeviceCredential"
+    post:
+      operationId: createDeviceCredential
+      tags: [customers]
+      summary: Add a device access credential to a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceCredentialInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceCredential"
+
+  /device-credentials/{id}:
+    patch:
+      operationId: updateDeviceCredential
+      tags: [customers]
+      summary: Update a device access credential
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceCredentialUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceCredential"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteDeviceCredential
+      tags: [customers]
+      summary: Delete a device access credential
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
   /machines:
     get:
       operationId: listMachines
@@ -1933,6 +2019,67 @@ components:
         contactPerson:
           type: ["string", "null"]
         phone:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+
+    DeviceCredential:
+      type: object
+      required: [id, customerId, createdAt]
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        siteId:
+          type: ["integer", "null"]
+        type:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        password:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    DeviceCredentialInput:
+      type: object
+      properties:
+        siteId:
+          type: ["integer", "null"]
+        type:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        password:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+
+    DeviceCredentialUpdate:
+      type: object
+      properties:
+        siteId:
+          type: ["integer", "null"]
+        type:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        username:
+          type: ["string", "null"]
+        password:
+          type: ["string", "null"]
+        email:
           type: ["string", "null"]
         note:
           type: ["string", "null"]

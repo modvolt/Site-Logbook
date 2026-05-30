@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
+import { loadCompanySettings, applyTextColor } from "@/lib/company-settings";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
@@ -16,6 +18,7 @@ import JobForm from "@/pages/job-form";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
+import PristupoveUdaje from "@/pages/pristupove-udaje";
 import Settings from "@/pages/settings";
 import Admin from "@/pages/admin";
 import Login from "@/pages/login";
@@ -52,6 +55,19 @@ function AdminOnly({ component: Component }: { component: React.ComponentType })
   return <Component />;
 }
 
+function WriteOnly({ component: Component }: { component: React.ComponentType }) {
+  const { can } = useAuth();
+  if (!can("write")) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-lg font-semibold mb-2">Přístup odepřen</p>
+        <p className="text-sm text-muted-foreground">Tato stránka není dostupná pro hosty.</p>
+      </div>
+    );
+  }
+  return <Component />;
+}
+
 function AuthenticatedApp() {
   return (
     <Layout>
@@ -64,6 +80,7 @@ function AuthenticatedApp() {
         <Route path="/jobs/:id" component={JobDetail} />
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
+        <Route path="/pristupove-udaje">{() => <WriteOnly component={PristupoveUdaje} />}</Route>
         <Route path="/people" component={People} />
         <Route path="/sklad" component={Sklad} />
         <Route path="/stroje" component={Stroje} />
@@ -96,6 +113,9 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    applyTextColor(loadCompanySettings().textColor);
+  }, []);
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <QueryClientProvider client={queryClient}>

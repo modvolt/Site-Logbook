@@ -115,6 +115,60 @@ export interface CustomerSiteInput {
   note?: string | null;
 }
 
+export interface DeviceCredential {
+  id: number;
+  customerId: number;
+  /** @nullable */
+  siteId?: number | null;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  username?: string | null;
+  /** @nullable */
+  password?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface DeviceCredentialInput {
+  /** @nullable */
+  siteId?: number | null;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  username?: string | null;
+  /** @nullable */
+  password?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface DeviceCredentialUpdate {
+  /** @nullable */
+  siteId?: number | null;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  username?: string | null;
+  /** @nullable */
+  password?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  note?: string | null;
+}
+
 export interface Job {
   id: number;
   title: string;

@@ -42,6 +42,9 @@ import type {
   CustomerSite,
   CustomerSiteInput,
   DashboardSummary,
+  DeviceCredential,
+  DeviceCredentialInput,
+  DeviceCredentialUpdate,
   ErrorEnvelope,
   ExportSubjectDataParams,
   GdprEraseInput,
@@ -2734,6 +2737,297 @@ export const useDeleteCustomerSite = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteCustomerSiteMutationOptions(options));
+    }
+
+export const getListDeviceCredentialsUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/customers/${customerId}/device-credentials`
+}
+
+/**
+ * @summary List device access credentials for a customer
+ */
+export const listDeviceCredentials = async (customerId: number, options?: RequestInit): Promise<DeviceCredential[]> => {
+
+  return customFetch<DeviceCredential[]>(getListDeviceCredentialsUrl(customerId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDeviceCredentialsQueryKey = (customerId: number,) => {
+    return [
+    `/api/customers/${customerId}/device-credentials`
+    ] as const;
+    }
+
+
+export const getListDeviceCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof listDeviceCredentials>>, TError = ErrorType<unknown>>(customerId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDeviceCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDeviceCredentialsQueryKey(customerId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDeviceCredentials>>> = ({ signal }) => listDeviceCredentials(customerId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(customerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDeviceCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDeviceCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof listDeviceCredentials>>>
+export type ListDeviceCredentialsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List device access credentials for a customer
+ */
+
+export function useListDeviceCredentials<TData = Awaited<ReturnType<typeof listDeviceCredentials>>, TError = ErrorType<unknown>>(
+ customerId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDeviceCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDeviceCredentialsQueryOptions(customerId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateDeviceCredentialUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/customers/${customerId}/device-credentials`
+}
+
+/**
+ * @summary Add a device access credential to a customer
+ */
+export const createDeviceCredential = async (customerId: number,
+    deviceCredentialInput: DeviceCredentialInput, options?: RequestInit): Promise<DeviceCredential> => {
+
+  return customFetch<DeviceCredential>(getCreateDeviceCredentialUrl(customerId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      deviceCredentialInput,)
+  }
+);}
+
+
+
+
+export const getCreateDeviceCredentialMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createDeviceCredential>>, TError,{customerId: number;data: BodyType<DeviceCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createDeviceCredential>>, TError,{customerId: number;data: BodyType<DeviceCredentialInput>}, TContext> => {
+
+const mutationKey = ['createDeviceCredential'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createDeviceCredential>>, {customerId: number;data: BodyType<DeviceCredentialInput>}> = (props) => {
+          const {customerId,data} = props ?? {};
+
+          return  createDeviceCredential(customerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateDeviceCredentialMutationResult = NonNullable<Awaited<ReturnType<typeof createDeviceCredential>>>
+    export type CreateDeviceCredentialMutationBody = BodyType<DeviceCredentialInput>
+    export type CreateDeviceCredentialMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add a device access credential to a customer
+ */
+export const useCreateDeviceCredential = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createDeviceCredential>>, TError,{customerId: number;data: BodyType<DeviceCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createDeviceCredential>>,
+        TError,
+        {customerId: number;data: BodyType<DeviceCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getCreateDeviceCredentialMutationOptions(options));
+    }
+
+export const getUpdateDeviceCredentialUrl = (id: number,) => {
+
+
+
+
+  return `/api/device-credentials/${id}`
+}
+
+/**
+ * @summary Update a device access credential
+ */
+export const updateDeviceCredential = async (id: number,
+    deviceCredentialUpdate: DeviceCredentialUpdate, options?: RequestInit): Promise<DeviceCredential> => {
+
+  return customFetch<DeviceCredential>(getUpdateDeviceCredentialUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      deviceCredentialUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateDeviceCredentialMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDeviceCredential>>, TError,{id: number;data: BodyType<DeviceCredentialUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateDeviceCredential>>, TError,{id: number;data: BodyType<DeviceCredentialUpdate>}, TContext> => {
+
+const mutationKey = ['updateDeviceCredential'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateDeviceCredential>>, {id: number;data: BodyType<DeviceCredentialUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateDeviceCredential(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateDeviceCredentialMutationResult = NonNullable<Awaited<ReturnType<typeof updateDeviceCredential>>>
+    export type UpdateDeviceCredentialMutationBody = BodyType<DeviceCredentialUpdate>
+    export type UpdateDeviceCredentialMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a device access credential
+ */
+export const useUpdateDeviceCredential = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDeviceCredential>>, TError,{id: number;data: BodyType<DeviceCredentialUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateDeviceCredential>>,
+        TError,
+        {id: number;data: BodyType<DeviceCredentialUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateDeviceCredentialMutationOptions(options));
+    }
+
+export const getDeleteDeviceCredentialUrl = (id: number,) => {
+
+
+
+
+  return `/api/device-credentials/${id}`
+}
+
+/**
+ * @summary Delete a device access credential
+ */
+export const deleteDeviceCredential = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteDeviceCredentialUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteDeviceCredentialMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteDeviceCredential>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteDeviceCredential>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteDeviceCredential'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteDeviceCredential>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteDeviceCredential(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteDeviceCredentialMutationResult = NonNullable<Awaited<ReturnType<typeof deleteDeviceCredential>>>
+
+    export type DeleteDeviceCredentialMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a device access credential
+ */
+export const useDeleteDeviceCredential = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteDeviceCredential>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteDeviceCredential>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteDeviceCredentialMutationOptions(options));
     }
 
 export const getListMachinesUrl = () => {
