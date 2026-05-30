@@ -28,6 +28,7 @@ export * from './getMyDoneJobsParams';
 export * from './healthStatus';
 export * from './job';
 export * from './jobInput';
+export * from './jobReorderInput';
 export * from './jobStatusUpdate';
 export * from './jobUpdate';
 export * from './listActivitiesParams';

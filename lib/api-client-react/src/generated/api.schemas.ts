@@ -87,11 +87,18 @@ export interface Job {
      * @nullable
      */
   timerStartedAt?: string | null;
+  /** Manual ordering within a day (lower shows first) */
+  sortOrder: number;
   taskCount?: number;
   taskDoneCount?: number;
   attachmentCount?: number;
   materialCount?: number;
   createdAt: string;
+}
+
+export interface JobReorderInput {
+  /** Job IDs in the desired display order */
+  ids: number[];
 }
 
 export interface JobInput {

@@ -51,6 +51,7 @@ export const ListJobsResponseItem = zod.object({
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
@@ -90,6 +91,14 @@ export const CreateJobBody = zod.object({
 
 
 /**
+ * @summary Reorder jobs by setting sortOrder from the given id order
+ */
+export const ReorderJobsBody = zod.object({
+  "ids": zod.array(zod.number()).describe('Job IDs in the desired display order')
+})
+
+
+/**
  * @summary Get a job by ID
  */
 export const GetJobParams = zod.object({
@@ -121,6 +130,7 @@ export const GetJobResponse = zod.object({
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
@@ -187,6 +197,7 @@ export const UpdateJobResponse = zod.object({
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
@@ -239,6 +250,7 @@ export const UpdateJobStatusResponse = zod.object({
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
@@ -598,6 +610,7 @@ export const GetTodayJobsResponseItem = zod.object({
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),

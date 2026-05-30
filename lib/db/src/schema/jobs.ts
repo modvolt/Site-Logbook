@@ -26,6 +26,7 @@ export const jobsTable = pgTable("jobs", {
   parking: numeric("parking", { precision: 10, scale: 2 }),
   address: text("address"),
   timerStartedAt: timestamp("timer_started_at"),
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

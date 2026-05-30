@@ -122,7 +122,7 @@ router.get("/dashboard/today", async (_req, res): Promise<void> => {
     .select()
     .from(jobsTable)
     .where(eq(jobsTable.date, t))
-    .orderBy(jobsTable.startTime);
+    .orderBy(jobsTable.sortOrder, jobsTable.startTime);
 
   const enriched = await Promise.all(jobs.map(enrichJob));
   res.json(enriched);

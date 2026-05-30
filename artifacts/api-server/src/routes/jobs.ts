@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gte, lte, sql, count } from "drizzle-orm";
+import { eq, and, gte, lte, sql, count, inArray, max } from "drizzle-orm";
 import { db, jobsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
@@ -10,6 +10,7 @@ import {
   DeleteJobParams,
   UpdateJobStatusParams,
   UpdateJobStatusBody,
+  ReorderJobsBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -123,8 +124,52 @@ router.post("/jobs", async (req, res): Promise<void> => {
     return;
   }
 
-  const [job] = await db.insert(jobsTable).values(numericJobFields(parsed.data) as any).returning();
+  const values = numericJobFields(parsed.data) as Record<string, unknown>;
+  if (values.date) {
+    const [agg] = await db
+      .select({ maxSort: max(jobsTable.sortOrder) })
+      .from(jobsTable)
+      .where(eq(jobsTable.date, values.date as string));
+    values.sortOrder = (agg?.maxSort ?? -1) + 1;
+  }
+
+  const [job] = await db.insert(jobsTable).values(values as any).returning();
   res.status(201).json(await enrichJob(job));
+});
+
+router.patch("/jobs/reorder", async (req, res): Promise<void> => {
+  const parsed = ReorderJobsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { ids } = parsed.data;
+  if (ids.length === 0) {
+    res.status(400).json({ error: "ids must not be empty" });
+    return;
+  }
+  if (new Set(ids).size !== ids.length) {
+    res.status(400).json({ error: "ids must be unique" });
+    return;
+  }
+
+  const existing = await db
+    .select({ id: jobsTable.id })
+    .from(jobsTable)
+    .where(inArray(jobsTable.id, ids));
+  if (existing.length !== ids.length) {
+    res.status(400).json({ error: "one or more ids do not exist" });
+    return;
+  }
+
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < ids.length; i++) {
+      await tx.update(jobsTable).set({ sortOrder: i }).where(eq(jobsTable.id, ids[i]));
+    }
+  });
+
+  res.sendStatus(204);
 });
 
 router.get("/jobs/:id", async (req, res): Promise<void> => {

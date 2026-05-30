@@ -65,6 +65,8 @@ export interface Job {
      * @nullable
      */
   timerStartedAt?: string | null;
+  /** Manual ordering within a day (lower shows first) */
+  sortOrder: number;
   taskCount?: number;
   taskDoneCount?: number;
   attachmentCount?: number;

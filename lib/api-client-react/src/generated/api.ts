@@ -42,6 +42,7 @@ import type {
   HealthStatus,
   Job,
   JobInput,
+  JobReorderInput,
   JobStatusUpdate,
   JobUpdate,
   ListActivitiesParams,
@@ -309,6 +310,77 @@ export const useCreateJob = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateJobMutationOptions(options));
+    }
+
+export const getReorderJobsUrl = () => {
+
+
+
+
+  return `/api/jobs/reorder`
+}
+
+/**
+ * @summary Reorder jobs by setting sortOrder from the given id order
+ */
+export const reorderJobs = async (jobReorderInput: JobReorderInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getReorderJobsUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      jobReorderInput,)
+  }
+);}
+
+
+
+
+export const getReorderJobsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderJobs>>, TError,{data: BodyType<JobReorderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reorderJobs>>, TError,{data: BodyType<JobReorderInput>}, TContext> => {
+
+const mutationKey = ['reorderJobs'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderJobs>>, {data: BodyType<JobReorderInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  reorderJobs(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderJobsMutationResult = NonNullable<Awaited<ReturnType<typeof reorderJobs>>>
+    export type ReorderJobsMutationBody = BodyType<JobReorderInput>
+    export type ReorderJobsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Reorder jobs by setting sortOrder from the given id order
+ */
+export const useReorderJobs = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderJobs>>, TError,{data: BodyType<JobReorderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reorderJobs>>,
+        TError,
+        {data: BodyType<JobReorderInput>},
+        TContext
+      > => {
+      return useMutation(getReorderJobsMutationOptions(options));
     }
 
 export const getGetJobUrl = (id: number,) => {

@@ -6,15 +6,22 @@ import {
   useGetDashboardSummary, useGetTodayJobs, useUpdateJob, useUpdateJobStatus,
   getGetDashboardSummaryQueryKey, getGetTodayJobsQueryKey, getGetJobQueryKey,
   useListPeople, getListPeopleQueryKey, useListJobs, getListJobsQueryKey,
+  useReorderJobs,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, verticalListSortingStrategy, arrayMove, useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { sortJobsDoneLast } from "@/lib/job-sort";
 
 function useTimer(timerStartedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState(0);
@@ -196,6 +203,32 @@ function DashboardJobRow({ job }: { job: any }) {
   );
 }
 
+function SortableJobRow({ job }: { job: any }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: job.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative select-none ${isDragging ? "z-10 opacity-90 shadow-2xl scale-[1.02]" : ""}`}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 -m-2 cursor-grab active:cursor-grabbing touch-none text-muted-foreground/40 hover:text-muted-foreground"
+        aria-label="Přetáhnout pro změnu pořadí"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="w-5 h-5" />
+      </div>
+      <DashboardJobRow job={job} />
+    </div>
+  );
+}
+
 function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
   const runningJob = jobs.find(j => !!j.timerStartedAt);
   const updateJob = useUpdateJob();
@@ -290,6 +323,41 @@ export default function Dashboard() {
 
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const reorder = useReorderJobs();
+  const [orderedJobs, setOrderedJobs] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (jobs) setOrderedJobs(jobs);
+  }, [jobs]);
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setOrderedJobs(prev => {
+      const oldIndex = prev.findIndex(j => j.id === active.id);
+      const newIndex = prev.findIndex(j => j.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      const next = arrayMove(prev, oldIndex, newIndex);
+      reorder.mutate(
+        { data: { ids: next.map(j => j.id) } },
+        {
+          onError: () => {
+            toast({ title: "Nepodařilo se uložit pořadí", variant: "destructive" });
+            queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
+          },
+        }
+      );
+      return next;
+    });
+  };
+
   const today = new Date();
   const dayOfWeek = today.getDay();
   const monday = new Date(today);
@@ -343,19 +411,25 @@ export default function Dashboard() {
         <h2 className="text-xl font-bold text-foreground">Dnešní program</h2>
       </div>
 
-      <div className="space-y-4">
-        {loadingJobs ? (
-          [1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full" />)
-        ) : jobs && jobs.length > 0 ? (
-          sortJobsDoneLast(jobs).map(job => <DashboardJobRow key={job.id} job={job} />)
-        ) : (
-          <div className="text-center py-12 px-4 border-2 border-dashed rounded-xl border-muted">
-            <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-bold mb-1">Dnes žádné zakázky</h3>
-            <p className="text-muted-foreground mb-4">Odpočiňte si, nebo přidejte novou zakázku.</p>
-          </div>
-        )}
-      </div>
+      {loadingJobs ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full" />)}
+        </div>
+      ) : orderedJobs.length > 0 ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={orderedJobs.map(j => j.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-4">
+              {orderedJobs.map(job => <SortableJobRow key={job.id} job={job} />)}
+            </div>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <div className="text-center py-12 px-4 border-2 border-dashed rounded-xl border-muted">
+          <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-bold mb-1">Dnes žádné zakázky</h3>
+          <p className="text-muted-foreground mb-4">Odpočiňte si, nebo přidejte novou zakázku.</p>
+        </div>
+      )}
 
       {summary && (
         <div className="mt-8 pt-8 border-t space-y-4">

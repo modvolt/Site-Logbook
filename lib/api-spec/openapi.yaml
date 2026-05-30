@@ -103,6 +103,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
+  /jobs/reorder:
+    patch:
+      operationId: reorderJobs
+      tags: [jobs]
+      summary: Reorder jobs by setting sortOrder from the given id order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobReorderInput"
+      responses:
+        "204":
+          description: Reordered
+
   /jobs/{id}:
     get:
       operationId: getJob
@@ -1340,7 +1355,7 @@ components:
 
     Job:
       type: object
-      required: [id, title, type, date, status, createdAt]
+      required: [id, title, type, date, status, sortOrder, createdAt]
       properties:
         id:
           type: integer
@@ -1397,6 +1412,9 @@ components:
         timerStartedAt:
           type: ["string", "null"]
           description: ISO timestamp when timer was started
+        sortOrder:
+          type: integer
+          description: Manual ordering within a day (lower shows first)
         taskCount:
           type: integer
         taskDoneCount:
@@ -1407,6 +1425,16 @@ components:
           type: integer
         createdAt:
           type: string
+
+    JobReorderInput:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+          description: Job IDs in the desired display order
 
     JobInput:
       type: object
