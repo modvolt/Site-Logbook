@@ -33,6 +33,7 @@ import type {
   ActivityUpdate,
   Attachment,
   AttachmentInput,
+  AuditLogPage,
   AuthUser,
   Customer,
   CustomerContact,
@@ -42,6 +43,10 @@ import type {
   CustomerSiteInput,
   DashboardSummary,
   ErrorEnvelope,
+  ExportSubjectDataParams,
+  GdprEraseInput,
+  GdprEraseResult,
+  GdprExport,
   GetMyDoneJobsParams,
   HealthStatus,
   Job,
@@ -50,6 +55,7 @@ import type {
   JobStatusUpdate,
   JobUpdate,
   ListActivitiesParams,
+  ListAuditLogsParams,
   ListJobsParams,
   LoginInput,
   Machine,
@@ -4265,6 +4271,245 @@ export const useDeleteUser = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteUserMutationOptions(options));
+    }
+
+export const getListAuditLogsUrl = (params?: ListAuditLogsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/audit-logs?${stringifiedParams}` : `/api/audit-logs`
+}
+
+/**
+ * @summary List audit log entries (admin only)
+ */
+export const listAuditLogs = async (params?: ListAuditLogsParams, options?: RequestInit): Promise<AuditLogPage> => {
+
+  return customFetch<AuditLogPage>(getListAuditLogsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAuditLogsQueryKey = (params?: ListAuditLogsParams,) => {
+    return [
+    `/api/audit-logs`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAuditLogsQueryOptions = <TData = Awaited<ReturnType<typeof listAuditLogs>>, TError = ErrorType<unknown>>(params?: ListAuditLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAuditLogsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAuditLogs>>> = ({ signal }) => listAuditLogs(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAuditLogs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAuditLogsQueryResult = NonNullable<Awaited<ReturnType<typeof listAuditLogs>>>
+export type ListAuditLogsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List audit log entries (admin only)
+ */
+
+export function useListAuditLogs<TData = Awaited<ReturnType<typeof listAuditLogs>>, TError = ErrorType<unknown>>(
+ params?: ListAuditLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAuditLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAuditLogsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getExportSubjectDataUrl = (params: ExportSubjectDataParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/gdpr/export?${stringifiedParams}` : `/api/gdpr/export`
+}
+
+/**
+ * @summary Export all personal data held about a data subject (admin only)
+ */
+export const exportSubjectData = async (params: ExportSubjectDataParams, options?: RequestInit): Promise<GdprExport> => {
+
+  return customFetch<GdprExport>(getExportSubjectDataUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportSubjectDataQueryKey = (params?: ExportSubjectDataParams,) => {
+    return [
+    `/api/gdpr/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportSubjectDataQueryOptions = <TData = Awaited<ReturnType<typeof exportSubjectData>>, TError = ErrorType<ErrorEnvelope>>(params: ExportSubjectDataParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportSubjectData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportSubjectDataQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportSubjectData>>> = ({ signal }) => exportSubjectData(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportSubjectData>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportSubjectDataQueryResult = NonNullable<Awaited<ReturnType<typeof exportSubjectData>>>
+export type ExportSubjectDataQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Export all personal data held about a data subject (admin only)
+ */
+
+export function useExportSubjectData<TData = Awaited<ReturnType<typeof exportSubjectData>>, TError = ErrorType<ErrorEnvelope>>(
+ params: ExportSubjectDataParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportSubjectData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportSubjectDataQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getEraseSubjectDataUrl = () => {
+
+
+
+
+  return `/api/gdpr/erase`
+}
+
+/**
+ * @summary Permanently erase a data subject's personal data (admin only)
+ */
+export const eraseSubjectData = async (gdprEraseInput: GdprEraseInput, options?: RequestInit): Promise<GdprEraseResult> => {
+
+  return customFetch<GdprEraseResult>(getEraseSubjectDataUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      gdprEraseInput,)
+  }
+);}
+
+
+
+
+export const getEraseSubjectDataMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof eraseSubjectData>>, TError,{data: BodyType<GdprEraseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof eraseSubjectData>>, TError,{data: BodyType<GdprEraseInput>}, TContext> => {
+
+const mutationKey = ['eraseSubjectData'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof eraseSubjectData>>, {data: BodyType<GdprEraseInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  eraseSubjectData(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EraseSubjectDataMutationResult = NonNullable<Awaited<ReturnType<typeof eraseSubjectData>>>
+    export type EraseSubjectDataMutationBody = BodyType<GdprEraseInput>
+    export type EraseSubjectDataMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Permanently erase a data subject's personal data (admin only)
+ */
+export const useEraseSubjectData = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof eraseSubjectData>>, TError,{data: BodyType<GdprEraseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof eraseSubjectData>>,
+        TError,
+        {data: BodyType<GdprEraseInput>},
+        TContext
+      > => {
+      return useMutation(getEraseSubjectDataMutationOptions(options));
     }
 
 export const getRequestUploadUrlUrl = () => {

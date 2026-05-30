@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { attachAuth, requireAuth, requireWriteAccess } from "./middlewares/auth";
+import { auditMutations } from "./middlewares/audit";
 
 const app: Express = express();
 
@@ -81,6 +82,9 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
   return requireWriteAccess(req, res, next);
 });
+
+// Record successful data mutations to the audit log (after auth so the actor is known)
+app.use("/api", auditMutations);
 
 app.use("/api", router);
 

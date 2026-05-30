@@ -3,6 +3,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
@@ -176,6 +177,26 @@ export class ObjectStorageService {
   async servePrivateObject(objectPath: string, res: ExpressResponse): Promise<void> {
     const key = await this.resolvePrivateKey(objectPath);
     await streamToResponse(key, res, { isPublic: false });
+  }
+
+  /**
+   * Permanently delete a private object referenced by a "/objects/<entityId>"
+   * path. Used for GDPR erasure. Safe to call for missing objects — S3 delete
+   * is idempotent and returns success even when the key does not exist. Returns
+   * false (instead of throwing) when the path is not a valid private object
+   * reference, so callers can skip non-storage values.
+   */
+  async deletePrivateObject(objectPath: string): Promise<boolean> {
+    if (!objectPath || !objectPath.startsWith("/objects/")) {
+      return false;
+    }
+    const entityId = trimSlashes(objectPath.slice("/objects/".length));
+    if (!entityId) return false;
+    const key = joinKey(getPrivatePrefix(), entityId);
+    await getClient().send(
+      new DeleteObjectCommand({ Bucket: getBucket(), Key: key }),
+    );
+    return true;
   }
 
   /**

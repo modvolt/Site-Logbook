@@ -37,6 +37,10 @@ tags:
     description: Machine/equipment registry with QR identification
   - name: warehouse
     description: Warehouse / inventory items
+  - name: audit
+    description: Audit log of data changes (admin)
+  - name: gdpr
+    description: GDPR data subject export and erasure (admin)
 
 paths:
   /healthz:
@@ -1175,6 +1179,108 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /audit-logs:
+    get:
+      operationId: listAuditLogs
+      tags: [audit]
+      summary: List audit log entries (admin only)
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: entityType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          description: ISO date/datetime — only entries on or after this time
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          description: ISO date/datetime — only entries on or before this time
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Page of audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogPage"
+
+  /gdpr/export:
+    get:
+      operationId: exportSubjectData
+      tags: [gdpr]
+      summary: Export all personal data held about a data subject (admin only)
+      parameters:
+        - name: subjectType
+          in: query
+          required: true
+          description: "customer | contact | person"
+          schema:
+            type: string
+        - name: subjectId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Exported personal data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GdprExport"
+        "404":
+          description: Subject not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /gdpr/erase:
+    post:
+      operationId: eraseSubjectData
+      tags: [gdpr]
+      summary: Permanently erase a data subject's personal data (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GdprEraseInput"
+      responses:
+        "200":
+          description: Erasure result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GdprEraseResult"
+        "404":
+          description: Subject not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /storage/uploads/request-url:
     post:
@@ -2679,6 +2785,89 @@ components:
           type: ["number", "null"]
         minQuantity:
           type: ["number", "null"]
+
+    AuditLogEntry:
+      type: object
+      required: [id, action, entityType, createdAt]
+      properties:
+        id:
+          type: integer
+        actorUserId:
+          type: ["integer", "null"]
+        actorName:
+          type: ["string", "null"]
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: ["integer", "null"]
+        summary:
+          type: ["string", "null"]
+        method:
+          type: ["string", "null"]
+        path:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AuditLogPage:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
+        total:
+          type: integer
+
+    GdprExport:
+      type: object
+      required: [subjectType, subjectId, generatedAt, data, files]
+      properties:
+        subjectType:
+          type: string
+        subjectId:
+          type: integer
+        generatedAt:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+          description: All personal-data records held about the subject
+        files:
+          type: array
+          description: Object-storage paths of files associated with the subject
+          items:
+            type: string
+
+    GdprEraseInput:
+      type: object
+      required: [subjectType, subjectId]
+      properties:
+        subjectType:
+          type: string
+          description: "customer | contact | person"
+        subjectId:
+          type: integer
+
+    GdprEraseResult:
+      type: object
+      required: [subjectType, subjectId, deletedFiles, failedFiles, allFilesRemoved, message]
+      properties:
+        subjectType:
+          type: string
+        subjectId:
+          type: integer
+        deletedFiles:
+          type: integer
+        failedFiles:
+          type: integer
+        allFilesRemoved:
+          type: boolean
+        message:
+          type: string
 
     ErrorEnvelope:
       type: object

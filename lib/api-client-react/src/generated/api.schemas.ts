@@ -755,6 +755,60 @@ export interface WarehouseItemInput {
   minQuantity?: number | null;
 }
 
+export interface AuditLogEntry {
+  id: number;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorName?: string | null;
+  action: string;
+  entityType: string;
+  /** @nullable */
+  entityId?: number | null;
+  /** @nullable */
+  summary?: string | null;
+  /** @nullable */
+  method?: string | null;
+  /** @nullable */
+  path?: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+}
+
+/**
+ * All personal-data records held about the subject
+ */
+export type GdprExportData = { [key: string]: unknown };
+
+export interface GdprExport {
+  subjectType: string;
+  subjectId: number;
+  generatedAt: string;
+  /** All personal-data records held about the subject */
+  data: GdprExportData;
+  /** Object-storage paths of files associated with the subject */
+  files: string[];
+}
+
+export interface GdprEraseInput {
+  /** customer | contact | person */
+  subjectType: string;
+  subjectId: number;
+}
+
+export interface GdprEraseResult {
+  subjectType: string;
+  subjectId: number;
+  deletedFiles: number;
+  failedFiles: number;
+  allFilesRemoved: boolean;
+  message: string;
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
@@ -773,6 +827,29 @@ status?: string;
  * @nullable
  */
 assignedPersonId?: number | null;
+};
+
+export type ListAuditLogsParams = {
+userId?: number;
+entityType?: string;
+/**
+ * ISO date/datetime — only entries on or after this time
+ */
+from?: string;
+/**
+ * ISO date/datetime — only entries on or before this time
+ */
+to?: string;
+limit?: number;
+offset?: number;
+};
+
+export type ExportSubjectDataParams = {
+/**
+ * customer | contact | person
+ */
+subjectType: string;
+subjectId: number;
 };
 
 export type ListActivitiesParams = {

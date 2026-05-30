@@ -14,3 +14,4 @@ export * from "./machines";
 export * from "./warehouse-items";
 export * from "./customer-contacts";
 export * from "./customer-sites";
+export * from "./audit-log";

@@ -26,6 +26,8 @@ import MyOverview from "@/pages/my-overview";
 import Sklad from "@/pages/sklad";
 import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
+import AuditLog from "@/pages/audit-log";
+import Gdpr from "@/pages/gdpr";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -71,6 +73,8 @@ function AuthenticatedApp() {
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />
         <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
+        <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
+        <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
         <Route component={NotFound} />
       </Switch>
     </Layout>

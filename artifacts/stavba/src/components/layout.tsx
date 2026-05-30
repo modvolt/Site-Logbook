@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye, Hammer, User as UserIcon, Package, Wrench } from "lucide-react";
+import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAlert, LogOut, UserCog, Eye, Hammer, User as UserIcon, Package, Wrench, ScrollText, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
@@ -123,6 +123,32 @@ export function Layout({ children }: { children: React.ReactNode }) {
             >
               <UserCog className={`h-5 w-5 ${location === "/admin/users" ? "text-white" : "text-rose-600"}`} />
               Uživatelé
+            </Link>
+          )}
+          {can("manageUsers") && (
+            <Link
+              href="/admin/audit"
+              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                location === "/admin/audit"
+                  ? "bg-rose-600 text-white"
+                  : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+              }`}
+            >
+              <ScrollText className={`h-5 w-5 ${location === "/admin/audit" ? "text-white" : "text-rose-600"}`} />
+              Záznam změn
+            </Link>
+          )}
+          {can("manageUsers") && (
+            <Link
+              href="/admin/gdpr"
+              className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                location === "/admin/gdpr"
+                  ? "bg-rose-600 text-white"
+                  : "text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+              }`}
+            >
+              <ShieldCheck className={`h-5 w-5 ${location === "/admin/gdpr" ? "text-white" : "text-rose-600"}`} />
+              GDPR
             </Link>
           )}
           <Link

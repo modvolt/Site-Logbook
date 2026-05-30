@@ -1156,6 +1156,70 @@ export const DeleteUserParams = zod.object({
 
 
 /**
+ * @summary List audit log entries (admin only)
+ */
+export const ListAuditLogsQueryParams = zod.object({
+  "userId": zod.coerce.number().optional(),
+  "entityType": zod.coerce.string().optional(),
+  "from": zod.coerce.string().optional().describe('ISO date\/datetime — only entries on or after this time'),
+  "to": zod.coerce.string().optional().describe('ISO date\/datetime — only entries on or before this time'),
+  "limit": zod.coerce.number().optional(),
+  "offset": zod.coerce.number().optional()
+})
+
+export const ListAuditLogsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "actorUserId": zod.number().nullish(),
+  "actorName": zod.string().nullish(),
+  "action": zod.string(),
+  "entityType": zod.string(),
+  "entityId": zod.number().nullish(),
+  "summary": zod.string().nullish(),
+  "method": zod.string().nullish(),
+  "path": zod.string().nullish(),
+  "createdAt": zod.string()
+})),
+  "total": zod.number()
+})
+
+
+/**
+ * @summary Export all personal data held about a data subject (admin only)
+ */
+export const ExportSubjectDataQueryParams = zod.object({
+  "subjectType": zod.coerce.string().describe('customer | contact | person'),
+  "subjectId": zod.coerce.number()
+})
+
+export const ExportSubjectDataResponse = zod.object({
+  "subjectType": zod.string(),
+  "subjectId": zod.number(),
+  "generatedAt": zod.string(),
+  "data": zod.record(zod.string(), zod.unknown()).describe('All personal-data records held about the subject'),
+  "files": zod.array(zod.string()).describe('Object-storage paths of files associated with the subject')
+})
+
+
+/**
+ * @summary Permanently erase a data subject's personal data (admin only)
+ */
+export const EraseSubjectDataBody = zod.object({
+  "subjectType": zod.string().describe('customer | contact | person'),
+  "subjectId": zod.number()
+})
+
+export const EraseSubjectDataResponse = zod.object({
+  "subjectType": zod.string(),
+  "subjectId": zod.number(),
+  "deletedFiles": zod.number(),
+  "failedFiles": zod.number(),
+  "allFilesRemoved": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
  * Returns a presigned S3 URL for direct upload. The client sends JSON
 metadata here, then uploads the file directly to the returned URL.
 
