@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, numeric, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, numeric, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { peopleTable } from "./people";
@@ -17,6 +17,8 @@ export const jobsTable = pgTable("jobs", {
   customerId: integer("customer_id").references(() => customersTable.id, { onDelete: "set null" }),
   notes: text("notes"),
   hoursSpent: numeric("hours_spent", { precision: 5, scale: 2 }),
+  hoursFromPlan: boolean("hours_from_plan").notNull().default(false),
+  hoursBeforePlan: numeric("hours_before_plan", { precision: 5, scale: 2 }),
   hoursVasek: numeric("hours_vasek", { precision: 5, scale: 2 }),
   hoursJonas: numeric("hours_jonas", { precision: 5, scale: 2 }),
   price: numeric("price", { precision: 10, scale: 2 }),

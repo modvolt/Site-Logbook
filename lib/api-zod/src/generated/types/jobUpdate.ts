@@ -28,6 +28,9 @@ export interface JobUpdate {
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  hoursFromPlan?: boolean;
+  /** @nullable */
+  hoursBeforePlan?: number | null;
   /** @nullable */
   hoursVasek?: number | null;
   /** @nullable */

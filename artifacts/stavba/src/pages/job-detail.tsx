@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
-  AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus
+  AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -156,7 +156,11 @@ export default function JobDetail() {
 
   const handleTimerStop = () => {
     const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, job?.hoursSpent);
-    updateJob.mutate({ id, data: { timerStartedAt: null, hoursSpent: newTotal || null } }, {
+    // Only count as a new actual measurement (and drop the plan revert option) when time was actually added
+    const data = belowThreshold
+      ? { timerStartedAt: null }
+      : { timerStartedAt: null, hoursSpent: newTotal || null, hoursFromPlan: false, hoursBeforePlan: null };
+    updateJob.mutate({ id, data }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
         toast({
@@ -185,10 +189,25 @@ export default function JobDetail() {
   const handleUsePresetTime = () => {
     const hours = hoursFromPresetTimes(job?.startTime, job?.endTime);
     if (!hours) return;
-    updateJob.mutate({ id, data: { hoursSpent: hours } }, {
+    const previousActual = job?.hoursSpent != null ? Number(job.hoursSpent) : null;
+    updateJob.mutate({ id, data: { hoursSpent: hours, hoursFromPlan: true, hoursBeforePlan: previousActual } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
         toast({ title: `Uloženo ${hours.toFixed(2)} h podle plánu (${job.startTime}–${job.endTime})` });
+      }
+    });
+  };
+
+  const handleRevertToActual = () => {
+    const restored = job?.hoursBeforePlan != null ? Number(job.hoursBeforePlan) : null;
+    updateJob.mutate({ id, data: { hoursSpent: restored, hoursFromPlan: false, hoursBeforePlan: null } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(id), data);
+        toast({
+          title: restored != null
+            ? `Vráceno na skutečný čas (${restored.toFixed(2)} h)`
+            : "Vráceno na skutečný čas",
+        });
       }
     });
   };
@@ -257,7 +276,17 @@ export default function JobDetail() {
                 <Button onClick={handleTimerStart} disabled={updateJob.isPending} className="flex-1 h-10 text-sm bg-green-600 hover:bg-green-700 text-white min-w-[120px]">
                   <Play className="w-4 h-4 mr-2 fill-current" /> Spustit čas
                 </Button>
-                {(() => {
+                {job.hoursFromPlan ? (
+                  <Button
+                    onClick={handleRevertToActual}
+                    disabled={updateJob.isPending}
+                    variant="outline"
+                    className="flex-1 h-10 text-sm border-amber-300 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 min-w-[160px]"
+                    title="Vrátit zpět na dříve naměřený skutečný čas"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" /> Zpět na skutečný čas
+                  </Button>
+                ) : (() => {
                   const planHours = hoursFromPresetTimes(job.startTime, job.endTime);
                   if (!planHours) return null;
                   return (
@@ -279,9 +308,14 @@ export default function JobDetail() {
             </Button>
           </div>
           {!isTimerRunning && job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
-            <div className="px-1 text-sm text-muted-foreground flex items-center gap-1.5">
+            <div className="px-1 text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
               <Clock className="w-3.5 h-3.5" />
               Strávený čas: <span className="font-bold text-foreground">{Number(job.hoursSpent).toFixed(2)} h</span>
+              {job.hoursFromPlan && (
+                <span className="text-xs font-medium text-blue-600 bg-blue-50 dark:bg-blue-950/20 px-1.5 py-0.5 rounded-full">
+                  dle plánu
+                </span>
+              )}
               <span className="text-xs">(editovatelné v Souhrnu práce)</span>
             </div>
           )}
@@ -1245,6 +1279,8 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
         hoursVasek: hoursVasek ? parseFloat(hoursVasek) : null,
         hoursJonas: hoursJonas ? parseFloat(hoursJonas) : null,
         hoursSpent: totalHours || null,
+        hoursFromPlan: false,
+        hoursBeforePlan: null,
         price: price ? parseFloat(price) : null
       } 
     }, {

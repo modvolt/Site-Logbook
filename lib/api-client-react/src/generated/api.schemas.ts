@@ -132,6 +132,13 @@ export interface Job {
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** True when hoursSpent was set from the planned start/end time */
+  hoursFromPlan?: boolean;
+  /**
+     * Previous actual hoursSpent, kept so plan time can be reverted
+     * @nullable
+     */
+  hoursBeforePlan?: number | null;
   /** @nullable */
   hoursVasek?: number | null;
   /** @nullable */
@@ -187,6 +194,9 @@ export interface JobInput {
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  hoursFromPlan?: boolean;
+  /** @nullable */
+  hoursBeforePlan?: number | null;
   /** @nullable */
   hoursVasek?: number | null;
   /** @nullable */
@@ -225,6 +235,9 @@ export interface JobUpdate {
   notes?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  hoursFromPlan?: boolean;
+  /** @nullable */
+  hoursBeforePlan?: number | null;
   /** @nullable */
   hoursVasek?: number | null;
   /** @nullable */

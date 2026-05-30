@@ -1820,6 +1820,12 @@ components:
           type: ["string", "null"]
         hoursSpent:
           type: ["number", "null"]
+        hoursFromPlan:
+          type: boolean
+          description: True when hoursSpent was set from the planned start/end time
+        hoursBeforePlan:
+          type: ["number", "null"]
+          description: Previous actual hoursSpent, kept so plan time can be reverted
         hoursVasek:
           type: ["number", "null"]
         hoursJonas:
@@ -1890,6 +1896,10 @@ components:
           type: ["string", "null"]
         hoursSpent:
           type: ["number", "null"]
+        hoursFromPlan:
+          type: boolean
+        hoursBeforePlan:
+          type: ["number", "null"]
         hoursVasek:
           type: ["number", "null"]
         hoursJonas:
@@ -1932,6 +1942,10 @@ components:
         notes:
           type: ["string", "null"]
         hoursSpent:
+          type: ["number", "null"]
+        hoursFromPlan:
+          type: boolean
+        hoursBeforePlan:
           type: ["number", "null"]
         hoursVasek:
           type: ["number", "null"]

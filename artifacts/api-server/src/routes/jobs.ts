@@ -19,7 +19,7 @@ const toStr = (v: number | null | undefined): string | null | undefined =>
   v != null ? String(v) : v as null | undefined;
 
 function numericJobFields(data: Record<string, unknown>) {
-  const fields = ["hoursSpent", "hoursVasek", "hoursJonas", "price", "transportKm", "transportCost", "fines", "parking"] as const;
+  const fields = ["hoursSpent", "hoursBeforePlan", "hoursVasek", "hoursJonas", "price", "transportKm", "transportCost", "fines", "parking"] as const;
   const out: Record<string, unknown> = { ...data };
   for (const f of fields) {
     if (f in data) out[f] = toStr(data[f] as number | null | undefined);
@@ -73,6 +73,7 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
   return {
     ...job,
     hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
+    hoursBeforePlan: job.hoursBeforePlan != null ? Number(job.hoursBeforePlan) : null,
     hoursVasek: job.hoursVasek != null ? Number(job.hoursVasek) : null,
     hoursJonas: job.hoursJonas != null ? Number(job.hoursJonas) : null,
     price: job.price != null ? Number(job.price) : null,
