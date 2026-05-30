@@ -13,6 +13,8 @@ import usersRouter from "./users";
 import preferencesRouter from "./preferences";
 import activitiesRouter from "./activities";
 import meRouter from "./me";
+import machinesRouter from "./machines";
+import warehouseItemsRouter from "./warehouse-items";
 
 const router: IRouter = Router();
 
@@ -30,5 +32,7 @@ router.use(usersRouter);
 router.use(preferencesRouter);
 router.use(activitiesRouter);
 router.use(meRouter);
+router.use(machinesRouter);
+router.use(warehouseItemsRouter);
 
 export default router;

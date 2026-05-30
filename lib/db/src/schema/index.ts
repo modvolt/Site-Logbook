@@ -10,3 +10,5 @@ export * from "./activities";
 export * from "./activity-materials";
 export * from "./activity-attachments";
 export * from "./activity-extra-works";
+export * from "./machines";
+export * from "./warehouse-items";

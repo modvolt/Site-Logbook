@@ -33,6 +33,10 @@ tags:
     description: Long-term activities with timers and materials
   - name: me
     description: Current user's overview and statistics
+  - name: machines
+    description: Machine/equipment registry with QR identification
+  - name: warehouse
+    description: Warehouse / inventory items
 
 paths:
   /healthz:
@@ -584,6 +588,173 @@ paths:
       operationId: deleteCustomer
       tags: [customers]
       summary: Delete a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /machines:
+    get:
+      operationId: listMachines
+      tags: [machines]
+      summary: List all machines
+      responses:
+        "200":
+          description: Machines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Machine"
+    post:
+      operationId: createMachine
+      tags: [machines]
+      summary: Create a machine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MachineInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Machine"
+
+  /machines/{id}:
+    get:
+      operationId: getMachine
+      tags: [machines]
+      summary: Get a machine by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Machine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Machine"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateMachine
+      tags: [machines]
+      summary: Update a machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MachineInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Machine"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteMachine
+      tags: [machines]
+      summary: Delete a machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /warehouse-items:
+    get:
+      operationId: listWarehouseItems
+      tags: [warehouse]
+      summary: List all warehouse items
+      responses:
+        "200":
+          description: Warehouse items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WarehouseItem"
+    post:
+      operationId: createWarehouseItem
+      tags: [warehouse]
+      summary: Create a warehouse item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarehouseItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseItem"
+
+  /warehouse-items/{id}:
+    patch:
+      operationId: updateWarehouseItem
+      tags: [warehouse]
+      summary: Update a warehouse item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarehouseItemInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseItem"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteWarehouseItem
+      tags: [warehouse]
+      summary: Delete a warehouse item
       parameters:
         - name: id
           in: path
@@ -2093,6 +2264,92 @@ components:
           type: ["number", "null"]
         status:
           type: string
+
+    Machine:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: ["string", "null"]
+        manufacturer:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        purchaseDate:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    MachineInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        type:
+          type: ["string", "null"]
+        manufacturer:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        purchaseDate:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    WarehouseItem:
+      type: object
+      required: [id, name, quantity, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        code:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        purchasePrice:
+          type: ["number", "null"]
+        salePrice:
+          type: ["number", "null"]
+        minQuantity:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+
+    WarehouseItemInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        code:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        purchasePrice:
+          type: ["number", "null"]
+        salePrice:
+          type: ["number", "null"]
+        minQuantity:
+          type: ["number", "null"]
 
     ErrorEnvelope:
       type: object

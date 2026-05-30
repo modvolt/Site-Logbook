@@ -23,6 +23,9 @@ import UsersAdmin from "@/pages/users-admin";
 import Activities from "@/pages/activities";
 import ActivityDetail from "@/pages/activity-detail";
 import MyOverview from "@/pages/my-overview";
+import Sklad from "@/pages/sklad";
+import Stroje from "@/pages/stroje";
+import StrojDetail from "@/pages/stroj-detail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +62,9 @@ function AuthenticatedApp() {
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/people" component={People} />
+        <Route path="/sklad" component={Sklad} />
+        <Route path="/stroje" component={Stroje} />
+        <Route path="/stroje/:id" component={StrojDetail} />
         <Route path="/activities" component={Activities} />
         <Route path="/activities/:id" component={ActivityDetail} />
         <Route path="/me" component={MyOverview} />

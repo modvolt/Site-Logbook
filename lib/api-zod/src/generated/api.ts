@@ -569,6 +569,175 @@ export const DeleteCustomerParams = zod.object({
 
 
 /**
+ * @summary List all machines
+ */
+export const ListMachinesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "type": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "purchaseDate": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListMachinesResponse = zod.array(ListMachinesResponseItem)
+
+
+/**
+ * @summary Create a machine
+ */
+
+
+
+export const CreateMachineBody = zod.object({
+  "name": zod.string().min(1),
+  "type": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "purchaseDate": zod.string().nullish(),
+  "notes": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get a machine by ID
+ */
+export const GetMachineParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetMachineResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "type": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "purchaseDate": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Update a machine
+ */
+export const UpdateMachineParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateMachineBody = zod.object({
+  "name": zod.string().min(1),
+  "type": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "purchaseDate": zod.string().nullish(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdateMachineResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "type": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "purchaseDate": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a machine
+ */
+export const DeleteMachineParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary List all warehouse items
+ */
+export const ListWarehouseItemsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "code": zod.string().nullish(),
+  "category": zod.string().nullish(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "purchasePrice": zod.number().nullish(),
+  "salePrice": zod.number().nullish(),
+  "minQuantity": zod.number().nullish(),
+  "createdAt": zod.string()
+})
+export const ListWarehouseItemsResponse = zod.array(ListWarehouseItemsResponseItem)
+
+
+/**
+ * @summary Create a warehouse item
+ */
+
+
+
+export const CreateWarehouseItemBody = zod.object({
+  "name": zod.string().min(1),
+  "code": zod.string().nullish(),
+  "category": zod.string().nullish(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "purchasePrice": zod.number().nullish(),
+  "salePrice": zod.number().nullish(),
+  "minQuantity": zod.number().nullish()
+})
+
+
+/**
+ * @summary Update a warehouse item
+ */
+export const UpdateWarehouseItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateWarehouseItemBody = zod.object({
+  "name": zod.string().min(1),
+  "code": zod.string().nullish(),
+  "category": zod.string().nullish(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "purchasePrice": zod.number().nullish(),
+  "salePrice": zod.number().nullish(),
+  "minQuantity": zod.number().nullish()
+})
+
+export const UpdateWarehouseItemResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "code": zod.string().nullish(),
+  "category": zod.string().nullish(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "purchasePrice": zod.number().nullish(),
+  "salePrice": zod.number().nullish(),
+  "minQuantity": zod.number().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a warehouse item
+ */
+export const DeleteWarehouseItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary Get dashboard summary stats
  */
 export const GetDashboardSummaryResponse = zod.object({

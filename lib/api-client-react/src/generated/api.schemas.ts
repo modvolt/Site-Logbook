@@ -578,6 +578,75 @@ export interface MyJobSummary {
   status?: string;
 }
 
+export interface Machine {
+  id: number;
+  name: string;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  purchaseDate?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface MachineInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  purchaseDate?: string | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface WarehouseItem {
+  id: number;
+  name: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  category?: string | null;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  purchasePrice?: number | null;
+  /** @nullable */
+  salePrice?: number | null;
+  /** @nullable */
+  minQuantity?: number | null;
+  createdAt: string;
+}
+
+export interface WarehouseItemInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  category?: string | null;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  purchasePrice?: number | null;
+  /** @nullable */
+  salePrice?: number | null;
+  /** @nullable */
+  minQuantity?: number | null;
+}
+
 export interface ErrorEnvelope {
   error: string;
 }
