@@ -118,14 +118,15 @@ export default function PristupoveUdaje() {
   const [editForm, setEditForm] = useState<CredForm>(emptyForm);
   const [revealed, setRevealed] = useState<Record<number, boolean>>({});
   const [scannerOpen, setScannerOpen] = useState(false);
-  const scanSetFormRef = useRef<React.Dispatch<
-    React.SetStateAction<CredForm>
-  > | null>(null);
+  const scanOnResultRef = useRef<((text: string) => void) | null>(null);
+  const scanToastRef = useRef<string>("Kód naskenován");
 
   const openScanner = (
-    setForm: React.Dispatch<React.SetStateAction<CredForm>>,
+    onResult: (text: string) => void,
+    toastTitle = "Kód naskenován",
   ) => {
-    scanSetFormRef.current = setForm;
+    scanOnResultRef.current = onResult;
+    scanToastRef.current = toastTitle;
     setScannerOpen(true);
   };
 
@@ -373,7 +374,12 @@ export default function PristupoveUdaje() {
                 variant="outline"
                 size="icon"
                 className="h-11 w-11 shrink-0"
-                onClick={() => openScanner(setForm)}
+                onClick={() =>
+                  openScanner(
+                    (text) => setForm((p) => ({ ...p, serialNumber: text })),
+                    "Sériové číslo naskenováno",
+                  )
+                }
                 aria-label="Naskenovat SN fotoaparátem"
                 title="Naskenovat SN fotoaparátem"
               >
@@ -506,6 +512,34 @@ export default function PristupoveUdaje() {
                           placeholder="Číslo karty"
                           className="h-9"
                         />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 shrink-0"
+                          onClick={() =>
+                            openScanner(
+                              (text) =>
+                                setUsers((us) =>
+                                  us.map((x) =>
+                                    x.id === u.id
+                                      ? {
+                                          ...x,
+                                          cards: x.cards.map((c, i) =>
+                                            i === ci ? text : c,
+                                          ),
+                                        }
+                                      : x,
+                                  ),
+                                ),
+                              "Číslo karty naskenováno",
+                            )
+                          }
+                          aria-label="Naskenovat číslo karty fotoaparátem"
+                          title="Naskenovat číslo karty fotoaparátem"
+                        >
+                          <ScanLine className="h-4 w-4" />
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
@@ -894,9 +928,9 @@ export default function PristupoveUdaje() {
         open={scannerOpen}
         onOpenChange={setScannerOpen}
         onResult={(text) => {
-          scanSetFormRef.current?.((p) => ({ ...p, serialNumber: text }));
+          scanOnResultRef.current?.(text);
           setScannerOpen(false);
-          toast({ title: "Sériové číslo naskenováno" });
+          toast({ title: scanToastRef.current });
         }}
       />
     </div>
