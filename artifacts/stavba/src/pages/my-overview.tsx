@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLogout } from "@workspace/api-client-react";
+import { clearApiCache } from "@/lib/pwa";
 import { useQueryClient } from "@tanstack/react-query";
 
 function fmtH(n: number | null | undefined) {
@@ -47,7 +48,7 @@ export default function MyOverview() {
   const logout = useLogout();
   const handleLogout = () => {
     logout.mutate(undefined, {
-      onSuccess: () => { queryClient.clear(); refresh(); },
+      onSuccess: () => { queryClient.clear(); void clearApiCache(); refresh(); },
     });
   };
 

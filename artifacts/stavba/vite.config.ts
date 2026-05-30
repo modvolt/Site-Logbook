@@ -61,18 +61,33 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Precache only the static app shell (HTML/JS/CSS/fonts/bundled
-        // images). We deliberately do NOT runtime-cache API responses or
-        // runtime images: this app is cookie-authenticated and devices are
-        // shared between crew members, so caching authenticated GET /api/*
-        // (or private attachment images) in the SW cache would risk replaying
-        // one user's data to the next. Offline data/sync is out of scope —
-        // only the installable shell is cached; data calls go to the network.
+        // Precache the static app shell (HTML/JS/CSS/fonts/bundled images).
         globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
         navigateFallback: `${basePath}index.html`,
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
+        runtimeCaching: [
+          {
+            // Read-only API data. NetworkFirst means online users always get
+            // fresh data (the network is tried first, with a 5s timeout); the
+            // cache only serves as a fallback on a flaky/offline
+            // construction-site connection. The app is cookie-authenticated
+            // and phones are shared between crew members, so this "stavba-api"
+            // cache is explicitly purged on logout (see src/lib/pwa.ts) to
+            // avoid serving one user's data to the next. Writes
+            // (POST/PATCH/DELETE) are never cached.
+            urlPattern: ({ url, request }) =>
+              url.pathname.startsWith("/api/") && request.method === "GET",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "stavba-api",
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
       devOptions: {
         enabled: false,

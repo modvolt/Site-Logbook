@@ -3,6 +3,7 @@ import { Home, Calendar, Briefcase, Users, Settings, Plus, Building2, ShieldAler
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLogout, getGetMeQueryKey } from "@workspace/api-client-react";
+import { clearApiCache } from "@/lib/pwa";
 import { useQueryClient } from "@tanstack/react-query";
 
 type NavItem = {
@@ -52,6 +53,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     logout.mutate(undefined, {
       onSuccess: () => {
         queryClient.clear();
+        void clearApiCache();
         refresh();
       },
     });
