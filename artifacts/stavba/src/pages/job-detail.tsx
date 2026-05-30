@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { format } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey, 
@@ -605,7 +605,16 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                 {job.customerCompanyName && (
                   <div className="flex items-center gap-2 mt-1">
                     <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-muted-foreground">{job.customerCompanyName}</span>
+                    {job.customerId ? (
+                      <Link
+                        href={`/customers/${job.customerId}`}
+                        className="text-primary font-medium hover:underline"
+                      >
+                        {job.customerCompanyName}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">{job.customerCompanyName}</span>
+                    )}
                     {job.customerPhone && (
                       <a href={`tel:${job.customerPhone}`} className="flex items-center gap-1 text-primary font-medium hover:underline ml-1">
                         <Phone className="w-3.5 h-3.5" />
