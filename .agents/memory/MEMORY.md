@@ -2,3 +2,4 @@
 - [Drizzle push interactive conflict](drizzle-push-conflict.md) — push can prompt rename & fail in non-TTY; add single columns via direct SQL ALTER, never blind push --force (can drop user_sessions).
 - [jsPDF Czech diacritics](pdf-czech-diacritics.md) — built-in fonts can't render ř/š/ě; must embed Roboto TTF on every autoTable style; group headers go in table head to avoid orphaning.
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
+- [Vite peer-variants](vite-peer-variants.md) — adding a vite plugin (e.g. vite-plugin-pwa pulls terser) to one artifact can break another artifact's typecheck; unify the peer set.

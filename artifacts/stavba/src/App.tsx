@@ -28,6 +28,7 @@ import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
 import AuditLog from "@/pages/audit-log";
 import Gdpr from "@/pages/gdpr";
+import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +106,7 @@ function App() {
             </AuthProvider>
           </WouterRouter>
           <Toaster />
+          <PwaUpdatePrompt />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

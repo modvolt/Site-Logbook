@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import { VitePWA } from "vite-plugin-pwa";
 
 const rawPort = process.env.PORT;
 
@@ -32,6 +33,51 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
+    VitePWA({
+      registerType: "prompt",
+      includeAssets: ["favicon.svg", "apple-touch-icon.png", "robots.txt"],
+      manifest: {
+        name: "Stavba – Evidence zakázek",
+        short_name: "Stavba",
+        description:
+          "Evidence stavebních zakázek, úkolů a docházky pro Modvolt s.r.o.",
+        lang: "cs",
+        dir: "ltr",
+        start_url: basePath,
+        scope: basePath,
+        display: "standalone",
+        orientation: "portrait",
+        theme_color: "#f59e0b",
+        background_color: "#f8fafc",
+        icons: [
+          { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
+          { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },
+          {
+            src: "maskable-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "maskable",
+          },
+        ],
+      },
+      workbox: {
+        // Precache only the static app shell (HTML/JS/CSS/fonts/bundled
+        // images). We deliberately do NOT runtime-cache API responses or
+        // runtime images: this app is cookie-authenticated and devices are
+        // shared between crew members, so caching authenticated GET /api/*
+        // (or private attachment images) in the SW cache would risk replaying
+        // one user's data to the next. Offline data/sync is out of scope —
+        // only the installable shell is cached; data calls go to the network.
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
+        navigateFallback: `${basePath}index.html`,
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+      },
+      devOptions: {
+        enabled: false,
+      },
+    }),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
