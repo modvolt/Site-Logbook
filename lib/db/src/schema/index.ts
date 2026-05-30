@@ -12,3 +12,5 @@ export * from "./activity-attachments";
 export * from "./activity-extra-works";
 export * from "./machines";
 export * from "./warehouse-items";
+export * from "./customer-contacts";
+export * from "./customer-sites";

@@ -600,6 +600,178 @@ paths:
         "404":
           description: Not found
 
+  /customers/{customerId}/contacts:
+    get:
+      operationId: listCustomerContacts
+      tags: [customers]
+      summary: List contacts for a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomerContact"
+    post:
+      operationId: createCustomerContact
+      tags: [customers]
+      summary: Add a contact to a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerContactInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContact"
+
+  /customer-contacts/{id}:
+    patch:
+      operationId: updateCustomerContact
+      tags: [customers]
+      summary: Update a customer contact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerContactInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContact"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCustomerContact
+      tags: [customers]
+      summary: Delete a customer contact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /customers/{customerId}/sites:
+    get:
+      operationId: listCustomerSites
+      tags: [customers]
+      summary: List sites (stavby) for a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer sites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomerSite"
+    post:
+      operationId: createCustomerSite
+      tags: [customers]
+      summary: Add a site (stavba) to a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerSiteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSite"
+
+  /customer-sites/{id}:
+    patch:
+      operationId: updateCustomerSite
+      tags: [customers]
+      summary: Update a customer site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerSiteInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSite"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCustomerSite
+      tags: [customers]
+      summary: Delete a customer site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
   /machines:
     get:
       operationId: listMachines
@@ -1509,6 +1681,12 @@ components:
           type: ["string", "null"]
         phone:
           type: ["string", "null"]
+        ic:
+          type: ["string", "null"]
+        dic:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
         createdAt:
           type: string
 
@@ -1522,6 +1700,82 @@ components:
         contactPerson:
           type: ["string", "null"]
         phone:
+          type: ["string", "null"]
+        ic:
+          type: ["string", "null"]
+        dic:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+
+    CustomerContact:
+      type: object
+      required: [id, customerId, name, createdAt]
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        name:
+          type: string
+        role:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CustomerContactInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        role:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+
+    CustomerSite:
+      type: object
+      required: [id, customerId, name, createdAt]
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        name:
+          type: string
+        address:
+          type: ["string", "null"]
+        contactPerson:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CustomerSiteInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        address:
+          type: ["string", "null"]
+        contactPerson:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        note:
           type: ["string", "null"]
 
     Job:

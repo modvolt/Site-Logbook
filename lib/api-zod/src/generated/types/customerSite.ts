@@ -6,17 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface CustomerInput {
-  /** @minLength 1 */
-  companyName: string;
+export interface CustomerSite {
+  id: number;
+  customerId: number;
+  name: string;
+  /** @nullable */
+  address?: string | null;
   /** @nullable */
   contactPerson?: string | null;
   /** @nullable */
   phone?: string | null;
   /** @nullable */
-  ic?: string | null;
-  /** @nullable */
-  dic?: string | null;
-  /** @nullable */
-  address?: string | null;
+  note?: string | null;
+  createdAt: string;
 }

@@ -517,6 +517,9 @@ export const ListCustomersResponseItem = zod.object({
   "companyName": zod.string(),
   "contactPerson": zod.string().nullish(),
   "phone": zod.string().nullish(),
+  "ic": zod.string().nullish(),
+  "dic": zod.string().nullish(),
+  "address": zod.string().nullish(),
   "createdAt": zod.string()
 })
 export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
@@ -531,7 +534,10 @@ export const ListCustomersResponse = zod.array(ListCustomersResponseItem)
 export const CreateCustomerBody = zod.object({
   "companyName": zod.string().min(1),
   "contactPerson": zod.string().nullish(),
-  "phone": zod.string().nullish()
+  "phone": zod.string().nullish(),
+  "ic": zod.string().nullish(),
+  "dic": zod.string().nullish(),
+  "address": zod.string().nullish()
 })
 
 
@@ -548,7 +554,10 @@ export const UpdateCustomerParams = zod.object({
 export const UpdateCustomerBody = zod.object({
   "companyName": zod.string().min(1),
   "contactPerson": zod.string().nullish(),
-  "phone": zod.string().nullish()
+  "phone": zod.string().nullish(),
+  "ic": zod.string().nullish(),
+  "dic": zod.string().nullish(),
+  "address": zod.string().nullish()
 })
 
 export const UpdateCustomerResponse = zod.object({
@@ -556,6 +565,9 @@ export const UpdateCustomerResponse = zod.object({
   "companyName": zod.string(),
   "contactPerson": zod.string().nullish(),
   "phone": zod.string().nullish(),
+  "ic": zod.string().nullish(),
+  "dic": zod.string().nullish(),
+  "address": zod.string().nullish(),
   "createdAt": zod.string()
 })
 
@@ -564,6 +576,156 @@ export const UpdateCustomerResponse = zod.object({
  * @summary Delete a customer
  */
 export const DeleteCustomerParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary List contacts for a customer
+ */
+export const ListCustomerContactsParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const ListCustomerContactsResponseItem = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "name": zod.string(),
+  "role": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListCustomerContactsResponse = zod.array(ListCustomerContactsResponseItem)
+
+
+/**
+ * @summary Add a contact to a customer
+ */
+export const CreateCustomerContactParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+
+
+
+export const CreateCustomerContactBody = zod.object({
+  "name": zod.string().min(1),
+  "role": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a customer contact
+ */
+export const UpdateCustomerContactParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateCustomerContactBody = zod.object({
+  "name": zod.string().min(1),
+  "role": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish()
+})
+
+export const UpdateCustomerContactResponse = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "name": zod.string(),
+  "role": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a customer contact
+ */
+export const DeleteCustomerContactParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary List sites (stavby) for a customer
+ */
+export const ListCustomerSitesParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const ListCustomerSitesResponseItem = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "name": zod.string(),
+  "address": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListCustomerSitesResponse = zod.array(ListCustomerSitesResponseItem)
+
+
+/**
+ * @summary Add a site (stavba) to a customer
+ */
+export const CreateCustomerSiteParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+
+
+
+export const CreateCustomerSiteBody = zod.object({
+  "name": zod.string().min(1),
+  "address": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a customer site
+ */
+export const UpdateCustomerSiteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateCustomerSiteBody = zod.object({
+  "name": zod.string().min(1),
+  "address": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "note": zod.string().nullish()
+})
+
+export const UpdateCustomerSiteResponse = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "name": zod.string(),
+  "address": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a customer site
+ */
+export const DeleteCustomerSiteParams = zod.object({
   "id": zod.coerce.number()
 })
 

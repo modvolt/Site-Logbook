@@ -6,18 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface Customer {
+export interface CustomerContact {
   id: number;
-  companyName: string;
+  customerId: number;
+  name: string;
   /** @nullable */
-  contactPerson?: string | null;
+  role?: string | null;
   /** @nullable */
   phone?: string | null;
   /** @nullable */
-  ic?: string | null;
-  /** @nullable */
-  dic?: string | null;
-  /** @nullable */
-  address?: string | null;
+  email?: string | null;
   createdAt: string;
 }

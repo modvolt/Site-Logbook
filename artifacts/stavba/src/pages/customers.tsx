@@ -12,9 +12,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-type CustomerForm = { companyName: string; contactPerson: string; phone: string };
+type CustomerForm = {
+  companyName: string;
+  contactPerson: string;
+  phone: string;
+  ic: string;
+  dic: string;
+  address: string;
+};
 
-const emptyForm: CustomerForm = { companyName: "", contactPerson: "", phone: "" };
+const emptyForm: CustomerForm = {
+  companyName: "",
+  contactPerson: "",
+  phone: "",
+  ic: "",
+  dic: "",
+  address: "",
+};
 
 export default function Customers() {
   const queryClient = useQueryClient();
@@ -42,6 +56,9 @@ export default function Customers() {
         companyName: newForm.companyName.trim(),
         contactPerson: newForm.contactPerson.trim() || null,
         phone: newForm.phone.trim() || null,
+        ic: newForm.ic.trim() || null,
+        dic: newForm.dic.trim() || null,
+        address: newForm.address.trim() || null,
       }
     }, {
       onSuccess: () => {
@@ -60,6 +77,9 @@ export default function Customers() {
       companyName: c.companyName,
       contactPerson: c.contactPerson || "",
       phone: c.phone || "",
+      ic: c.ic || "",
+      dic: c.dic || "",
+      address: c.address || "",
     });
   };
 
@@ -70,6 +90,9 @@ export default function Customers() {
         companyName: editForm.companyName.trim(),
         contactPerson: editForm.contactPerson.trim() || null,
         phone: editForm.phone.trim() || null,
+        ic: editForm.ic.trim() || null,
+        dic: editForm.dic.trim() || null,
+        address: editForm.address.trim() || null,
       }
     }, {
       onSuccess: () => {
@@ -137,6 +160,35 @@ export default function Customers() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-1 block">IČ</label>
+                  <Input
+                    value={newForm.ic}
+                    onChange={e => setNewForm(p => ({ ...p, ic: e.target.value }))}
+                    placeholder="IČ"
+                    className="h-12 text-base"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-1 block">DIČ</label>
+                  <Input
+                    value={newForm.dic}
+                    onChange={e => setNewForm(p => ({ ...p, dic: e.target.value }))}
+                    placeholder="CZ..."
+                    className="h-12 text-base"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1 block">Adresa</label>
+                <Input
+                  value={newForm.address}
+                  onChange={e => setNewForm(p => ({ ...p, address: e.target.value }))}
+                  placeholder="Ulice, město, PSČ"
+                  className="h-12 text-base"
+                />
+              </div>
               <div className="flex gap-2 pt-1">
                 <Button type="submit" disabled={!newForm.companyName.trim() || createCustomer.isPending} className="h-11 px-6">
                   <Save className="h-4 w-4 mr-2" /> Uložit
@@ -180,6 +232,26 @@ export default function Customers() {
                         className="h-11"
                       />
                     </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Input
+                        value={editForm.ic}
+                        onChange={e => setEditForm(p => ({ ...p, ic: e.target.value }))}
+                        placeholder="IČ"
+                        className="h-11"
+                      />
+                      <Input
+                        value={editForm.dic}
+                        onChange={e => setEditForm(p => ({ ...p, dic: e.target.value }))}
+                        placeholder="DIČ"
+                        className="h-11"
+                      />
+                    </div>
+                    <Input
+                      value={editForm.address}
+                      onChange={e => setEditForm(p => ({ ...p, address: e.target.value }))}
+                      placeholder="Adresa"
+                      className="h-11"
+                    />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => handleUpdate(customer.id)} disabled={!editForm.companyName.trim() || updateCustomer.isPending} className="h-9">
                         <Save className="h-4 w-4 mr-1" /> Uložit

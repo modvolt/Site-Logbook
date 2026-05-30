@@ -16,6 +16,12 @@ export interface Customer {
   contactPerson?: string | null;
   /** @nullable */
   phone?: string | null;
+  /** @nullable */
+  ic?: string | null;
+  /** @nullable */
+  dic?: string | null;
+  /** @nullable */
+  address?: string | null;
   createdAt: string;
 }
 
@@ -26,6 +32,64 @@ export interface CustomerInput {
   contactPerson?: string | null;
   /** @nullable */
   phone?: string | null;
+  /** @nullable */
+  ic?: string | null;
+  /** @nullable */
+  dic?: string | null;
+  /** @nullable */
+  address?: string | null;
+}
+
+export interface CustomerContact {
+  id: number;
+  customerId: number;
+  name: string;
+  /** @nullable */
+  role?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  createdAt: string;
+}
+
+export interface CustomerContactInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  role?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+}
+
+export interface CustomerSite {
+  id: number;
+  customerId: number;
+  name: string;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  contactPerson?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface CustomerSiteInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  contactPerson?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  note?: string | null;
 }
 
 export interface Job {
