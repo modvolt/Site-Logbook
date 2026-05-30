@@ -4,3 +4,4 @@
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
 - [Vite peer-variants](vite-peer-variants.md) — adding a vite plugin (e.g. vite-plugin-pwa pulls terser) to one artifact can break another artifact's typecheck; unify the peer set.
 - [PWA shared-device caching](pwa-shared-device-caching.md) — cache authenticated GET /api with NetworkFirst but purge the SW cache on logout so shared devices never leak one user's data to the next.
+- [Recurring occurrence dedupe](recurring-occurrence-dedupe.md) — auto-creating next recurring job on done-transition must dedupe by (type,date,title,customer); gating on status alone duplicates on reopen→re-done.

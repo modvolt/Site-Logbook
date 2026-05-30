@@ -179,6 +179,11 @@ export interface Job {
   /** @nullable */
   parking?: number | null;
   /**
+     * For service_call jobs — auto-create next occurrence this many days after completion
+     * @nullable
+     */
+  recurrenceIntervalDays?: number | null;
+  /**
      * ISO timestamp when timer was started
      * @nullable
      */
@@ -236,6 +241,8 @@ export interface JobInput {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /** @nullable */
+  recurrenceIntervalDays?: number | null;
 }
 
 export interface JobUpdate {
@@ -277,6 +284,8 @@ export interface JobUpdate {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /** @nullable */
+  recurrenceIntervalDays?: number | null;
   /** @nullable */
   timerStartedAt?: string | null;
 }
@@ -526,6 +535,11 @@ export interface Activity {
   /** @nullable */
   hoursSpent?: number | null;
   materialsTotalCost?: number;
+  /**
+     * ISO timestamp when the activity was marked done
+     * @nullable
+     */
+  completedAt?: string | null;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -549,6 +563,8 @@ export interface ActivityUpdate {
   customerId?: number | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  completedAt?: string | null;
   isArchived?: boolean;
 }
 
@@ -683,6 +699,8 @@ export interface MyJobSummary {
 export interface Machine {
   id: number;
   name: string;
+  /** stroj | naradi | auto */
+  kind: string;
   /** @nullable */
   type?: string | null;
   /** @nullable */
@@ -691,6 +709,23 @@ export interface Machine {
   serialNumber?: string | null;
   /** @nullable */
   purchaseDate?: string | null;
+  /**
+     * SPZ (for kind=auto)
+     * @nullable
+     */
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
+  /**
+     * Stav tachometru (for kind=auto)
+     * @nullable
+     */
+  mileageKm?: number | null;
+  /**
+     * STK / revize (ISO date)
+     * @nullable
+     */
+  inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
@@ -703,6 +738,8 @@ export interface Machine {
 export interface MachineInput {
   /** @minLength 1 */
   name: string;
+  /** stroj | naradi | auto */
+  kind?: string;
   /** @nullable */
   type?: string | null;
   /** @nullable */
@@ -711,6 +748,40 @@ export interface MachineInput {
   serialNumber?: string | null;
   /** @nullable */
   purchaseDate?: string | null;
+  /** @nullable */
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
+  /** @nullable */
+  mileageKm?: number | null;
+  /** @nullable */
+  inspectionDate?: string | null;
+  /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface MachineUpdate {
+  /** @minLength 1 */
+  name?: string;
+  kind?: string;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  purchaseDate?: string | null;
+  /** @nullable */
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
+  /** @nullable */
+  mileageKm?: number | null;
+  /** @nullable */
+  inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */

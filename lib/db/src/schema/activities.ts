@@ -12,6 +12,7 @@ export const activitiesTable = pgTable("activities", {
   createdByUserId: integer("created_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   timerStartedAt: timestamp("timer_started_at"),
   hoursSpent: numeric("hours_spent", { precision: 7, scale: 2 }),
+  completedAt: timestamp("completed_at"),
   isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

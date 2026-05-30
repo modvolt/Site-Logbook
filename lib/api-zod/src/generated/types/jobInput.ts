@@ -45,4 +45,6 @@ export interface JobInput {
   fines?: number | null;
   /** @nullable */
   parking?: number | null;
+  /** @nullable */
+  recurrenceIntervalDays?: number | null;
 }

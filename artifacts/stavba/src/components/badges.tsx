@@ -1,4 +1,4 @@
-import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal } from "lucide-react";
+import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export const JOB_STATUSES = {
@@ -14,6 +14,7 @@ export const JOB_TYPES = {
   planned_work: { label: "Plánovaná práce", color: "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-900/30 dark:text-teal-300 dark:border-teal-800", icon: Wrench },
   service_call: { label: "Servisní výjezd", color: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800", icon: AlertCircle },
   change: { label: "Vícepráce", color: "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800", icon: RefreshCw },
+  revize: { label: "Revize", color: "bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300 dark:border-cyan-800", icon: ShieldCheck },
   other: { label: "Ostatní", color: "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700", icon: MoreHorizontal },
 };
 

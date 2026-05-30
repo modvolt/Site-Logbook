@@ -13,17 +13,28 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wrench, Plus, ChevronRight, QrCode, User } from "lucide-react";
+import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { QrScannerDialog } from "@/components/qr-scanner-dialog";
 
+export const MACHINE_KINDS: Record<string, { label: string; icon: typeof Wrench }> = {
+  stroj: { label: "Stroj", icon: Wrench },
+  naradi: { label: "Nářadí", icon: Hammer },
+  auto: { label: "Auto", icon: Car },
+};
+
 export default function Stroje() {
   const [name, setName] = useState("");
+  const [kind, setKind] = useState("stroj");
   const [type, setType] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
+  const [licensePlate, setLicensePlate] = useState("");
+  const [vin, setVin] = useState("");
+  const [mileageKm, setMileageKm] = useState("");
+  const [inspectionDate, setInspectionDate] = useState("");
   const [assignedPersonId, setAssignedPersonId] = useState("none");
   const [showForm, setShowForm] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
@@ -42,10 +53,15 @@ export default function Stroje() {
 
   const resetForm = () => {
     setName("");
+    setKind("stroj");
     setType("");
     setManufacturer("");
     setSerialNumber("");
     setPurchaseDate("");
+    setLicensePlate("");
+    setVin("");
+    setMileageKm("");
+    setInspectionDate("");
     setAssignedPersonId("none");
     setShowForm(false);
   };
@@ -54,14 +70,20 @@ export default function Stroje() {
     e.preventDefault();
     if (!name.trim()) return;
 
+    const isAuto = kind === "auto";
     createMachine.mutate(
       {
         data: {
           name: name.trim(),
-          type: type.trim() || null,
-          manufacturer: manufacturer.trim() || null,
-          serialNumber: serialNumber.trim() || null,
-          purchaseDate: purchaseDate || null,
+          kind,
+          type: !isAuto ? type.trim() || null : null,
+          manufacturer: !isAuto ? manufacturer.trim() || null : null,
+          serialNumber: !isAuto ? serialNumber.trim() || null : null,
+          purchaseDate: !isAuto ? purchaseDate || null : null,
+          licensePlate: isAuto ? licensePlate.trim() || null : null,
+          vin: isAuto ? vin.trim() || null : null,
+          mileageKm: isAuto && mileageKm ? parseInt(mileageKm) : null,
+          inspectionDate: inspectionDate || null,
           assignedPersonId: assignedPersonId !== "none" ? parseInt(assignedPersonId) : null,
         },
       },
@@ -111,19 +133,52 @@ export default function Stroje() {
         <Card className="mb-8 border-primary/20 bg-primary/5">
           <CardContent className="p-4">
             <form onSubmit={handleAdd} className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {Object.entries(MACHINE_KINDS).map(([key, cfg]) => {
+                  const Icon = cfg.icon;
+                  const selected = kind === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setKind(key)}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-lg border p-3 transition-colors ${selected ? "border-primary bg-primary/10 text-primary" : "border-input bg-background text-muted-foreground hover:bg-muted"}`}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-sm font-medium">{cfg.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Název stroje *"
+                placeholder={kind === "auto" ? "Název vozidla *" : "Název *"}
                 className="h-12 bg-background"
                 autoFocus
               />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input value={type} onChange={(e) => setType(e.target.value)} placeholder="Typ" className="h-12 bg-background" />
-                <Input value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} placeholder="Výrobce" className="h-12 bg-background" />
-                <Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} placeholder="Sériové číslo" className="h-12 bg-background" />
-                <Input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} placeholder="Datum nákupu" className="h-12 bg-background" />
-              </div>
+              {kind === "auto" ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} placeholder="SPZ" className="h-12 bg-background" />
+                  <Input value={vin} onChange={(e) => setVin(e.target.value)} placeholder="VIN" className="h-12 bg-background" />
+                  <Input type="number" value={mileageKm} onChange={(e) => setMileageKm(e.target.value)} placeholder="Stav tachometru (km)" className="h-12 bg-background" />
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground ml-1">STK do</label>
+                    <Input type="date" value={inspectionDate} onChange={(e) => setInspectionDate(e.target.value)} className="h-12 bg-background" />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <Input value={type} onChange={(e) => setType(e.target.value)} placeholder="Typ" className="h-12 bg-background" />
+                  <Input value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} placeholder="Výrobce" className="h-12 bg-background" />
+                  <Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} placeholder="Sériové číslo" className="h-12 bg-background" />
+                  <Input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} placeholder="Datum nákupu" className="h-12 bg-background" />
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs text-muted-foreground ml-1">Revize do</label>
+                    <Input type="date" value={inspectionDate} onChange={(e) => setInspectionDate(e.target.value)} className="h-12 bg-background" />
+                  </div>
+                </div>
+              )}
               <Select value={assignedPersonId} onValueChange={setAssignedPersonId}>
                 <SelectTrigger className="h-12 bg-background">
                   <SelectValue placeholder="Přiřadit zaměstnanci" />
@@ -148,18 +203,24 @@ export default function Stroje() {
         {isLoading ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)
         ) : machines && machines.length > 0 ? (
-          machines.map((m) => (
+          machines.map((m) => {
+            const kindCfg = MACHINE_KINDS[m.kind] ?? MACHINE_KINDS.stroj;
+            const KindIcon = kindCfg.icon;
+            const subtitle = m.kind === "auto"
+              ? [m.licensePlate, m.mileageKm != null ? `${m.mileageKm.toLocaleString("cs-CZ")} km` : null].filter(Boolean).join(" · ")
+              : [m.manufacturer, m.type].filter(Boolean).join(" · ");
+            return (
             <Link key={m.id} href={`/stroje/${m.id}`}>
               <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
                 <CardContent className="p-4 flex justify-between items-center">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="bg-primary/10 p-2 rounded-full text-primary shrink-0">
-                      <Wrench className="h-5 w-5" />
+                      <KindIcon className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
                       <p className="font-medium text-lg truncate">{m.name}</p>
                       <p className="text-sm text-muted-foreground truncate">
-                        {[m.manufacturer, m.type].filter(Boolean).join(" · ") || "Bez bližšího určení"}
+                        {subtitle || kindCfg.label}
                       </p>
                       {m.assignedPersonName && (
                         <p className="text-sm text-primary truncate flex items-center gap-1 mt-0.5">
@@ -172,7 +233,8 @@ export default function Stroje() {
                 </CardContent>
               </Card>
             </Link>
-          ))
+            );
+          })
         ) : (
           <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <Wrench className="h-12 w-12 mx-auto mb-4 opacity-20" />

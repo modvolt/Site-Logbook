@@ -868,7 +868,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/MachineInput"
+              $ref: "#/components/schemas/MachineUpdate"
       responses:
         "200":
           description: Updated
@@ -2001,6 +2001,9 @@ components:
           type: ["number", "null"]
         parking:
           type: ["number", "null"]
+        recurrenceIntervalDays:
+          type: ["integer", "null"]
+          description: For service_call jobs — auto-create next occurrence this many days after completion
         timerStartedAt:
           type: ["string", "null"]
           description: ISO timestamp when timer was started
@@ -2075,6 +2078,8 @@ components:
           type: ["number", "null"]
         parking:
           type: ["number", "null"]
+        recurrenceIntervalDays:
+          type: ["integer", "null"]
 
     JobUpdate:
       type: object
@@ -2122,6 +2127,8 @@ components:
           type: ["number", "null"]
         parking:
           type: ["number", "null"]
+        recurrenceIntervalDays:
+          type: ["integer", "null"]
         timerStartedAt:
           type: ["string", "null"]
 
@@ -2473,6 +2480,9 @@ components:
           type: ["number", "null"]
         materialsTotalCost:
           type: number
+        completedAt:
+          type: ["string", "null"]
+          description: ISO timestamp when the activity was marked done
         isArchived:
           type: boolean
         createdAt:
@@ -2504,6 +2514,8 @@ components:
           type: ["integer", "null"]
         hoursSpent:
           type: ["number", "null"]
+        completedAt:
+          type: ["string", "null"]
         isArchived:
           type: boolean
 
@@ -2696,12 +2708,15 @@ components:
 
     Machine:
       type: object
-      required: [id, name, createdAt]
+      required: [id, name, kind, createdAt]
       properties:
         id:
           type: integer
         name:
           type: string
+        kind:
+          type: string
+          description: "stroj | naradi | auto"
         type:
           type: ["string", "null"]
         manufacturer:
@@ -2710,6 +2725,17 @@ components:
           type: ["string", "null"]
         purchaseDate:
           type: ["string", "null"]
+        licensePlate:
+          type: ["string", "null"]
+          description: SPZ (for kind=auto)
+        vin:
+          type: ["string", "null"]
+        mileageKm:
+          type: ["integer", "null"]
+          description: Stav tachometru (for kind=auto)
+        inspectionDate:
+          type: ["string", "null"]
+          description: STK / revize (ISO date)
         assignedPersonId:
           type: ["integer", "null"]
         assignedPersonName:
@@ -2726,6 +2752,10 @@ components:
         name:
           type: string
           minLength: 1
+        kind:
+          type: string
+          default: stroj
+          description: "stroj | naradi | auto"
         type:
           type: ["string", "null"]
         manufacturer:
@@ -2733,6 +2763,43 @@ components:
         serialNumber:
           type: ["string", "null"]
         purchaseDate:
+          type: ["string", "null"]
+        licensePlate:
+          type: ["string", "null"]
+        vin:
+          type: ["string", "null"]
+        mileageKm:
+          type: ["integer", "null"]
+        inspectionDate:
+          type: ["string", "null"]
+        assignedPersonId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+
+    MachineUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+        type:
+          type: ["string", "null"]
+        manufacturer:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        purchaseDate:
+          type: ["string", "null"]
+        licensePlate:
+          type: ["string", "null"]
+        vin:
+          type: ["string", "null"]
+        mileageKm:
+          type: ["integer", "null"]
+        inspectionDate:
           type: ["string", "null"]
         assignedPersonId:
           type: ["integer", "null"]

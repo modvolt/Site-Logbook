@@ -15,5 +15,7 @@ export interface ActivityUpdate {
   customerId?: number | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /** @nullable */
+  completedAt?: string | null;
   isArchived?: boolean;
 }

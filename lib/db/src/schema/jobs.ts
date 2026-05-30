@@ -27,6 +27,7 @@ export const jobsTable = pgTable("jobs", {
   fines: numeric("fines", { precision: 10, scale: 2 }),
   parking: numeric("parking", { precision: 10, scale: 2 }),
   address: text("address"),
+  recurrenceIntervalDays: integer("recurrence_interval_days"),
   timerStartedAt: timestamp("timer_started_at"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -374,34 +374,31 @@ export default function Dashboard() {
       {jobs && <ActiveTimerBanner jobs={jobs} />}
 
       {loadingSummary ? (
-        <Skeleton className="h-32 w-full mb-8" />
+        <Skeleton className="h-16 w-full mb-6" />
       ) : summary ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        <div className="grid grid-cols-4 gap-2 mb-6">
           <Card className="bg-primary text-primary-foreground border-none">
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <div className="text-3xl font-bold">{summary.todayCount}</div>
-              <div className="text-xs font-medium uppercase tracking-wider opacity-80 mt-1">Dnes</div>
+            <CardContent className="p-2.5 flex flex-col items-center justify-center">
+              <div className="text-xl font-bold leading-none">{summary.todayCount}</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider opacity-80 mt-1">Dnes</div>
             </CardContent>
           </Card>
           <Card className="bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800">
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <PlayCircle className="w-6 h-6 mb-1 opacity-70" />
-              <div className="text-xl font-bold">{summary.inProgressCount}</div>
-              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80">Probíhá</div>
+            <CardContent className="p-2.5 flex flex-col items-center justify-center">
+              <div className="text-xl font-bold leading-none">{summary.inProgressCount}</div>
+              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Probíhá</div>
             </CardContent>
           </Card>
           <Card className="bg-blue-100 text-blue-900 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800">
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <Clock className="w-6 h-6 mb-1 opacity-70" />
-              <div className="text-xl font-bold">{summary.plannedCount}</div>
-              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80">Naplánováno</div>
+            <CardContent className="p-2.5 flex flex-col items-center justify-center">
+              <div className="text-xl font-bold leading-none">{summary.plannedCount}</div>
+              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Naplánováno</div>
             </CardContent>
           </Card>
           <Card className="bg-green-100 text-green-900 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800">
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <CheckCircle2 className="w-6 h-6 mb-1 opacity-70" />
-              <div className="text-xl font-bold">{summary.doneCount}</div>
-              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80">Hotovo</div>
+            <CardContent className="p-2.5 flex flex-col items-center justify-center">
+              <div className="text-xl font-bold leading-none">{summary.doneCount}</div>
+              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Hotovo</div>
             </CardContent>
           </Card>
         </div>

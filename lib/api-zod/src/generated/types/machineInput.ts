@@ -9,6 +9,8 @@
 export interface MachineInput {
   /** @minLength 1 */
   name: string;
+  /** stroj | naradi | auto */
+  kind?: string;
   /** @nullable */
   type?: string | null;
   /** @nullable */
@@ -17,6 +19,14 @@ export interface MachineInput {
   serialNumber?: string | null;
   /** @nullable */
   purchaseDate?: string | null;
+  /** @nullable */
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
+  /** @nullable */
+  mileageKm?: number | null;
+  /** @nullable */
+  inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */

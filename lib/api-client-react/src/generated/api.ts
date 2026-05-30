@@ -60,6 +60,7 @@ import type {
   LoginInput,
   Machine,
   MachineInput,
+  MachineUpdate,
   Material,
   MaterialInput,
   MaterialUpdate,
@@ -2972,7 +2973,7 @@ export const getUpdateMachineUrl = (id: number,) => {
  * @summary Update a machine
  */
 export const updateMachine = async (id: number,
-    machineInput: MachineInput, options?: RequestInit): Promise<Machine> => {
+    machineUpdate: MachineUpdate, options?: RequestInit): Promise<Machine> => {
 
   return customFetch<Machine>(getUpdateMachineUrl(id),
   {
@@ -2980,7 +2981,7 @@ export const updateMachine = async (id: number,
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      machineInput,)
+      machineUpdate,)
   }
 );}
 
@@ -2988,8 +2989,8 @@ export const updateMachine = async (id: number,
 
 
 export const getUpdateMachineMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMachine>>, TError,{id: number;data: BodyType<MachineInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateMachine>>, TError,{id: number;data: BodyType<MachineInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMachine>>, TError,{id: number;data: BodyType<MachineUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMachine>>, TError,{id: number;data: BodyType<MachineUpdate>}, TContext> => {
 
 const mutationKey = ['updateMachine'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -3001,7 +3002,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMachine>>, {id: number;data: BodyType<MachineInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMachine>>, {id: number;data: BodyType<MachineUpdate>}> = (props) => {
           const {id,data} = props ?? {};
 
           return  updateMachine(id,data,requestOptions)
@@ -3015,18 +3016,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateMachineMutationResult = NonNullable<Awaited<ReturnType<typeof updateMachine>>>
-    export type UpdateMachineMutationBody = BodyType<MachineInput>
+    export type UpdateMachineMutationBody = BodyType<MachineUpdate>
     export type UpdateMachineMutationError = ErrorType<void>
 
     /**
  * @summary Update a machine
  */
 export const useUpdateMachine = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMachine>>, TError,{id: number;data: BodyType<MachineInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMachine>>, TError,{id: number;data: BodyType<MachineUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateMachine>>,
         TError,
-        {id: number;data: BodyType<MachineInput>},
+        {id: number;data: BodyType<MachineUpdate>},
         TContext
       > => {
       return useMutation(getUpdateMachineMutationOptions(options));

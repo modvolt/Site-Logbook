@@ -53,6 +53,7 @@ export const ListJobsResponseItem = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
@@ -91,7 +92,8 @@ export const CreateJobBody = zod.object({
   "transportKm": zod.number().nullish(),
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
-  "parking": zod.number().nullish()
+  "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish()
 })
 
 
@@ -137,6 +139,7 @@ export const GetJobResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
@@ -179,6 +182,7 @@ export const UpdateJobBody = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish(),
   "timerStartedAt": zod.string().nullish()
 })
 
@@ -209,6 +213,7 @@ export const UpdateJobResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
@@ -265,6 +270,7 @@ export const UpdateJobStatusResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
@@ -776,10 +782,15 @@ export const DeleteCustomerSiteParams = zod.object({
 export const ListMachinesResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "kind": zod.string().describe('stroj | naradi | auto'),
   "type": zod.string().nullish(),
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "licensePlate": zod.string().nullish().describe('SPZ (for kind=auto)'),
+  "vin": zod.string().nullish(),
+  "mileageKm": zod.number().nullish().describe('Stav tachometru (for kind=auto)'),
+  "inspectionDate": zod.string().nullish().describe('STK \/ revize (ISO date)'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
   "notes": zod.string().nullish(),
@@ -792,14 +803,19 @@ export const ListMachinesResponse = zod.array(ListMachinesResponseItem)
  * @summary Create a machine
  */
 
-
+export const createMachineBodyKindDefault = `stroj`;
 
 export const CreateMachineBody = zod.object({
   "name": zod.string().min(1),
+  "kind": zod.string().default(createMachineBodyKindDefault).describe('stroj | naradi | auto'),
   "type": zod.string().nullish(),
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "licensePlate": zod.string().nullish(),
+  "vin": zod.string().nullish(),
+  "mileageKm": zod.number().nullish(),
+  "inspectionDate": zod.string().nullish(),
   "assignedPersonId": zod.number().nullish(),
   "notes": zod.string().nullish()
 })
@@ -815,10 +831,15 @@ export const GetMachineParams = zod.object({
 export const GetMachineResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "kind": zod.string().describe('stroj | naradi | auto'),
   "type": zod.string().nullish(),
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "licensePlate": zod.string().nullish().describe('SPZ (for kind=auto)'),
+  "vin": zod.string().nullish(),
+  "mileageKm": zod.number().nullish().describe('Stav tachometru (for kind=auto)'),
+  "inspectionDate": zod.string().nullish().describe('STK \/ revize (ISO date)'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
   "notes": zod.string().nullish(),
@@ -837,11 +858,16 @@ export const UpdateMachineParams = zod.object({
 
 
 export const UpdateMachineBody = zod.object({
-  "name": zod.string().min(1),
+  "name": zod.string().min(1).optional(),
+  "kind": zod.string().optional(),
   "type": zod.string().nullish(),
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "licensePlate": zod.string().nullish(),
+  "vin": zod.string().nullish(),
+  "mileageKm": zod.number().nullish(),
+  "inspectionDate": zod.string().nullish(),
   "assignedPersonId": zod.number().nullish(),
   "notes": zod.string().nullish()
 })
@@ -849,10 +875,15 @@ export const UpdateMachineBody = zod.object({
 export const UpdateMachineResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "kind": zod.string().describe('stroj | naradi | auto'),
   "type": zod.string().nullish(),
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "licensePlate": zod.string().nullish().describe('SPZ (for kind=auto)'),
+  "vin": zod.string().nullish(),
+  "mileageKm": zod.number().nullish().describe('Stav tachometru (for kind=auto)'),
+  "inspectionDate": zod.string().nullish().describe('STK \/ revize (ISO date)'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
   "notes": zod.string().nullish(),
@@ -991,6 +1022,7 @@ export const GetTodayJobsResponseItem = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
   "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
   "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
   "taskCount": zod.number().optional(),
@@ -1287,6 +1319,7 @@ export const ListActivitiesResponseItem = zod.object({
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "materialsTotalCost": zod.number().optional(),
+  "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -1325,6 +1358,7 @@ export const GetActivityResponse = zod.object({
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "materialsTotalCost": zod.number().optional(),
+  "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -1346,6 +1380,7 @@ export const UpdateActivityBody = zod.object({
   "description": zod.string().nullish(),
   "customerId": zod.number().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "completedAt": zod.string().nullish(),
   "isArchived": zod.boolean().optional()
 })
 
@@ -1360,6 +1395,7 @@ export const UpdateActivityResponse = zod.object({
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "materialsTotalCost": zod.number().optional(),
+  "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -1392,6 +1428,7 @@ export const StartActivityTimerResponse = zod.object({
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "materialsTotalCost": zod.number().optional(),
+  "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -1416,6 +1453,7 @@ export const StopActivityTimerResponse = zod.object({
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "materialsTotalCost": zod.number().optional(),
+  "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()

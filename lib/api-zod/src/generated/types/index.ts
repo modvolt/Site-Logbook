@@ -48,6 +48,7 @@ export * from './listJobsParams';
 export * from './loginInput';
 export * from './machine';
 export * from './machineInput';
+export * from './machineUpdate';
 export * from './material';
 export * from './materialInput';
 export * from './materialUpdate';

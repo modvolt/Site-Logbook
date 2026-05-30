@@ -70,6 +70,11 @@ export interface Job {
   /** @nullable */
   parking?: number | null;
   /**
+     * For service_call jobs — auto-create next occurrence this many days after completion
+     * @nullable
+     */
+  recurrenceIntervalDays?: number | null;
+  /**
      * ISO timestamp when timer was started
      * @nullable
      */

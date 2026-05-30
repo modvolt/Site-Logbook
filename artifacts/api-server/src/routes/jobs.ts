@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gte, lte, sql, count, inArray, max } from "drizzle-orm";
+import { eq, and, gte, lte, sql, count, inArray, max, isNull } from "drizzle-orm";
 import { db, jobsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
@@ -20,6 +20,12 @@ const router: IRouter = Router();
 
 const toStr = (v: number | null | undefined): string | null | undefined =>
   v != null ? String(v) : v as null | undefined;
+
+function addDaysIso(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function numericJobFields(data: Record<string, unknown>) {
   const fields = ["hoursSpent", "hoursBeforePlan", "hoursVasek", "hoursJonas", "price", "transportKm", "transportCost", "fines", "parking"] as const;
@@ -251,6 +257,12 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     return;
   }
 
+  const [existing] = await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
+  if (!existing) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
   const [job] = await db
     .update(jobsTable)
     .set({ status: parsed.data.status })
@@ -260,6 +272,57 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
   if (!job) {
     res.status(404).json({ error: "Job not found" });
     return;
+  }
+
+  // For recurring service calls, auto-create the next occurrence when this one
+  // transitions to "done" (only on the actual transition, to avoid duplicates).
+  if (
+    parsed.data.status === "done" &&
+    existing.status !== "done" &&
+    job.type === "service_call" &&
+    job.recurrenceIntervalDays != null &&
+    job.recurrenceIntervalDays > 0
+  ) {
+    const nextDate = addDaysIso(job.date, job.recurrenceIntervalDays);
+    // Guard against creating duplicate occurrences (e.g. when a job is reopened
+    // and marked done again): skip if a matching next occurrence already exists.
+    const [duplicate] = await db
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(
+        and(
+          eq(jobsTable.type, "service_call"),
+          eq(jobsTable.date, nextDate),
+          eq(jobsTable.title, job.title),
+          job.customerId == null
+            ? isNull(jobsTable.customerId)
+            : eq(jobsTable.customerId, job.customerId),
+        ),
+      )
+      .limit(1);
+    if (duplicate) {
+      res.json(await enrichJob(job));
+      return;
+    }
+    const [agg] = await db
+      .select({ maxSort: max(jobsTable.sortOrder) })
+      .from(jobsTable)
+      .where(eq(jobsTable.date, nextDate));
+    await db.insert(jobsTable).values({
+      title: job.title,
+      type: job.type,
+      clientSite: job.clientSite,
+      date: nextDate,
+      startTime: job.startTime,
+      endTime: job.endTime,
+      status: "planned",
+      assignedPersonId: job.assignedPersonId,
+      customerId: job.customerId,
+      notes: job.notes,
+      address: job.address,
+      recurrenceIntervalDays: job.recurrenceIntervalDays,
+      sortOrder: (agg?.maxSort ?? -1) + 1,
+    });
   }
 
   res.json(await enrichJob(job));

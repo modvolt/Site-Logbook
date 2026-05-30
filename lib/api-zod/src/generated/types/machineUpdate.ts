@@ -6,11 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface Machine {
-  id: number;
-  name: string;
-  /** stroj | naradi | auto */
-  kind: string;
+export interface MachineUpdate {
+  /** @minLength 1 */
+  name?: string;
+  kind?: string;
   /** @nullable */
   type?: string | null;
   /** @nullable */
@@ -19,28 +18,16 @@ export interface Machine {
   serialNumber?: string | null;
   /** @nullable */
   purchaseDate?: string | null;
-  /**
-     * SPZ (for kind=auto)
-     * @nullable
-     */
+  /** @nullable */
   licensePlate?: string | null;
   /** @nullable */
   vin?: string | null;
-  /**
-     * Stav tachometru (for kind=auto)
-     * @nullable
-     */
+  /** @nullable */
   mileageKm?: number | null;
-  /**
-     * STK / revize (ISO date)
-     * @nullable
-     */
+  /** @nullable */
   inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
-  assignedPersonName?: string | null;
-  /** @nullable */
   notes?: string | null;
-  createdAt: string;
 }

@@ -46,5 +46,7 @@ export interface JobUpdate {
   /** @nullable */
   parking?: number | null;
   /** @nullable */
+  recurrenceIntervalDays?: number | null;
+  /** @nullable */
   timerStartedAt?: string | null;
 }

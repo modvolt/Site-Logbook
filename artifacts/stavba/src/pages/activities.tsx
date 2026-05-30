@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Hammer, Plus, Trash2, ChevronRight, Archive, ArchiveRestore, Clock, Play, X } from "lucide-react";
+import { Hammer, Plus, Trash2, ChevronRight, Archive, ArchiveRestore, Clock, Play, X, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -186,7 +186,12 @@ export default function Activities() {
                     <Link href={`/activities/${a.id}`} className="flex-1 min-w-0">
                       <div className="font-semibold truncate flex items-center gap-2">
                         {running && <Play className="h-4 w-4 text-emerald-500 animate-pulse fill-emerald-500" />}
-                        {a.name}
+                        <span className={a.completedAt ? "line-through text-muted-foreground" : ""}>{a.name}</span>
+                        {a.completedAt && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 shrink-0">
+                            <CheckCircle2 className="h-3 w-3" /> Dokončeno
+                          </span>
+                        )}
                       </div>
                       {a.customerName && (
                         <div className="text-xs text-muted-foreground mt-0.5">{a.customerName}</div>

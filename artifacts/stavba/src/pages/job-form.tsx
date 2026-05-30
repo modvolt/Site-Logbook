@@ -14,7 +14,7 @@ import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -46,6 +46,7 @@ export default function JobForm() {
     status: "planned",
     notes: "",
     customerId: initialCustomerId,
+    recurrenceIntervalDays: "",
   });
 
   const [customerSearch, setCustomerSearch] = useState("");
@@ -129,6 +130,10 @@ export default function JobForm() {
       assignedPersonId: formData.assignedPersonId !== "none" ? parseInt(formData.assignedPersonId) : null,
       customerId: formData.customerId,
       notes: formData.notes || null,
+      recurrenceIntervalDays:
+        formData.type === "service_call" && formData.recurrenceIntervalDays
+          ? parseInt(formData.recurrenceIntervalDays)
+          : null,
     };
 
     createJob.mutate({ data: jobData }, {
@@ -203,6 +208,31 @@ export default function JobForm() {
               })}
             </div>
           </div>
+
+          {formData.type === "service_call" && (
+            <div className="space-y-2">
+              <Label htmlFor="recurrenceIntervalDays" className="text-base flex items-center gap-1.5">
+                <RefreshCw className="h-4 w-4 text-red-500" /> Opakovat servis
+              </Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">každých</span>
+                <Input
+                  id="recurrenceIntervalDays"
+                  name="recurrenceIntervalDays"
+                  type="number"
+                  min="1"
+                  value={formData.recurrenceIntervalDays}
+                  onChange={handleChange}
+                  placeholder="např. 30"
+                  className="h-12 w-28 text-base"
+                />
+                <span className="text-sm text-muted-foreground">dní</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Po dokončení se automaticky vytvoří další výjezd o tolik dní později. Nechte prázdné pro jednorázový výjezd.
+              </p>
+            </div>
+          )}
 
           {/* Customer autocomplete */}
           <div className="space-y-2" ref={customerRef}>

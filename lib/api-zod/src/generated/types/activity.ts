@@ -24,6 +24,11 @@ export interface Activity {
   /** @nullable */
   hoursSpent?: number | null;
   materialsTotalCost?: number;
+  /**
+     * ISO timestamp when the activity was marked done
+     * @nullable
+     */
+  completedAt?: string | null;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;

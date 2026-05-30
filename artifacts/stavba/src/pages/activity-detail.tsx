@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
-  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle,
+  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -214,6 +214,40 @@ export default function ActivityDetail() {
     );
   };
 
+  const completed = !!activity.completedAt;
+
+  const finishComplete = () => {
+    updateActivity.mutate(
+      { id, data: { completedAt: new Date().toISOString() } },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Akce dokončena" });
+        },
+      },
+    );
+  };
+
+  const handleToggleComplete = () => {
+    if (completed) {
+      updateActivity.mutate(
+        { id, data: { completedAt: null } },
+        {
+          onSuccess: () => {
+            invalidate();
+            toast({ title: "Akce znovu otevřena" });
+          },
+        },
+      );
+      return;
+    }
+    if (running) {
+      stopTimer.mutate({ id }, { onSuccess: () => { invalidate(); finishComplete(); } });
+    } else {
+      finishComplete();
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto w-full space-y-4">
       <div className="flex items-center gap-2">
@@ -223,6 +257,15 @@ export default function ActivityDetail() {
         <div className="ml-auto flex items-center gap-1">
           {can("write") && (
             <>
+              <Button
+                variant={completed ? "outline" : "default"}
+                size="sm"
+                onClick={handleToggleComplete}
+                className={completed ? "" : "bg-emerald-500 hover:bg-emerald-600"}
+                disabled={updateActivity.isPending || stopTimer.isPending}
+              >
+                {completed ? <><RotateCcw className="h-4 w-4 mr-1.5" /> Znovu otevřít</> : <><CheckCircle2 className="h-4 w-4 mr-1.5" /> Dokončit</>}
+              </Button>
               <Button variant="ghost" size="icon" onClick={handleToggleArchive} title={activity.isArchived ? "Obnovit" : "Archivovat"}>
                 {activity.isArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
               </Button>
@@ -233,6 +276,13 @@ export default function ActivityDetail() {
           )}
         </div>
       </div>
+
+      {completed && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+          <CheckCircle2 className="h-4 w-4" />
+          Dokončeno {new Date(activity.completedAt!).toLocaleDateString("cs-CZ")}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-4 space-y-3">

@@ -76,6 +76,7 @@ async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
     timerStartedAt: a.timerStartedAt ? a.timerStartedAt.toISOString() : null,
     hoursSpent: a.hoursSpent != null ? Number(a.hoursSpent) : null,
     materialsTotalCost: mat?.total ?? 0,
+    completedAt: a.completedAt ? a.completedAt.toISOString() : null,
     isArchived: a.isArchived,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
@@ -178,6 +179,7 @@ router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => 
   if (d.customerId !== undefined) update.customerId = d.customerId;
   if (d.isArchived !== undefined) update.isArchived = d.isArchived;
   if (d.hoursSpent !== undefined) update.hoursSpent = toStr(d.hoursSpent);
+  if (d.completedAt !== undefined) update.completedAt = d.completedAt ? new Date(d.completedAt) : null;
 
   const [a] = await db
     .update(activitiesTable)
