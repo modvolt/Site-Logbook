@@ -1182,7 +1182,7 @@ paths:
       operationId: requestUploadUrl
       summary: Request a presigned URL for file upload
       description: |
-        Returns a presigned GCS URL for direct upload. The client sends JSON
+        Returns a presigned S3 URL for direct upload. The client sends JSON
         metadata here, then uploads the file directly to the returned URL.
       requestBody:
         required: true
@@ -2223,7 +2223,7 @@ components:
         uploadURL:
           type: string
           format: uri
-          description: Presigned GCS URL for PUT upload.
+          description: Presigned S3 URL for PUT upload.
         objectPath:
           type: string
           description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.

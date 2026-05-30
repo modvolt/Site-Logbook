@@ -14,7 +14,7 @@ import {
   SendJobEmailParams,
   SendJobEmailBody,
 } from "@workspace/api-zod";
-import { sendGmailWithPdf } from "../lib/gmail";
+import { sendEmailWithPdf } from "../lib/email";
 
 const router: IRouter = Router();
 
@@ -318,7 +318,7 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   const filename = `zakazkovy-list-${job.id}.pdf`;
 
   try {
-    await sendGmailWithPdf({
+    await sendEmailWithPdf({
       to,
       subject,
       text: message,
