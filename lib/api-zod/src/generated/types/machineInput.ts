@@ -18,5 +18,7 @@ export interface MachineInput {
   /** @nullable */
   purchaseDate?: string | null;
   /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
   notes?: string | null;
 }

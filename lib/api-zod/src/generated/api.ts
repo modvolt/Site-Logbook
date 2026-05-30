@@ -780,6 +780,8 @@ export const ListMachinesResponseItem = zod.object({
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "assignedPersonId": zod.number().nullish(),
+  "assignedPersonName": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string()
 })
@@ -798,6 +800,7 @@ export const CreateMachineBody = zod.object({
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "assignedPersonId": zod.number().nullish(),
   "notes": zod.string().nullish()
 })
 
@@ -816,6 +819,8 @@ export const GetMachineResponse = zod.object({
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "assignedPersonId": zod.number().nullish(),
+  "assignedPersonName": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string()
 })
@@ -837,6 +842,7 @@ export const UpdateMachineBody = zod.object({
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "assignedPersonId": zod.number().nullish(),
   "notes": zod.string().nullish()
 })
 
@@ -847,6 +853,8 @@ export const UpdateMachineResponse = zod.object({
   "manufacturer": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
   "purchaseDate": zod.string().nullish(),
+  "assignedPersonId": zod.number().nullish(),
+  "assignedPersonName": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "createdAt": zod.string()
 })

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, machinesTable } from "@workspace/db";
+import { db, machinesTable, peopleTable } from "@workspace/db";
 import {
   CreateMachineBody,
   GetMachineParams,
@@ -11,16 +11,25 @@ import {
 
 const router: IRouter = Router();
 
-function serializeMachine(m: typeof machinesTable.$inferSelect) {
+async function serializeMachine(m: typeof machinesTable.$inferSelect) {
+  let assignedPersonName: string | null = null;
+  if (m.assignedPersonId) {
+    const [person] = await db
+      .select({ name: peopleTable.name })
+      .from(peopleTable)
+      .where(eq(peopleTable.id, m.assignedPersonId));
+    assignedPersonName = person?.name ?? null;
+  }
   return {
     ...m,
+    assignedPersonName,
     createdAt: m.createdAt.toISOString(),
   };
 }
 
 router.get("/machines", async (_req, res): Promise<void> => {
   const machines = await db.select().from(machinesTable).orderBy(machinesTable.name);
-  res.json(machines.map(serializeMachine));
+  res.json(await Promise.all(machines.map(serializeMachine)));
 });
 
 router.get("/machines/:id", async (req, res): Promise<void> => {
@@ -36,7 +45,7 @@ router.get("/machines/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(serializeMachine(machine));
+  res.json(await serializeMachine(machine));
 });
 
 router.post("/machines", async (req, res): Promise<void> => {
@@ -47,7 +56,7 @@ router.post("/machines", async (req, res): Promise<void> => {
   }
 
   const [machine] = await db.insert(machinesTable).values(parsed.data).returning();
-  res.status(201).json(serializeMachine(machine));
+  res.status(201).json(await serializeMachine(machine));
 });
 
 router.patch("/machines/:id", async (req, res): Promise<void> => {
@@ -74,7 +83,7 @@ router.patch("/machines/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(serializeMachine(machine));
+  res.json(await serializeMachine(machine));
 });
 
 router.delete("/machines/:id", async (req, res): Promise<void> => {

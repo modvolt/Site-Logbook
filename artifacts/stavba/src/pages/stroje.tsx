@@ -3,14 +3,17 @@ import { Link, useLocation } from "wouter";
 import {
   useListMachines,
   useCreateMachine,
+  useListPeople,
   getListMachinesQueryKey,
+  getListPeopleQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wrench, Plus, ChevronRight, QrCode } from "lucide-react";
+import { Wrench, Plus, ChevronRight, QrCode, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { QrScannerDialog } from "@/components/qr-scanner-dialog";
@@ -21,6 +24,7 @@ export default function Stroje() {
   const [manufacturer, setManufacturer] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
+  const [assignedPersonId, setAssignedPersonId] = useState("none");
   const [showForm, setShowForm] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
 
@@ -32,6 +36,7 @@ export default function Stroje() {
   const { data: machines, isLoading } = useListMachines({
     query: { queryKey: getListMachinesQueryKey() },
   });
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
   const createMachine = useCreateMachine();
 
@@ -41,6 +46,7 @@ export default function Stroje() {
     setManufacturer("");
     setSerialNumber("");
     setPurchaseDate("");
+    setAssignedPersonId("none");
     setShowForm(false);
   };
 
@@ -56,6 +62,7 @@ export default function Stroje() {
           manufacturer: manufacturer.trim() || null,
           serialNumber: serialNumber.trim() || null,
           purchaseDate: purchaseDate || null,
+          assignedPersonId: assignedPersonId !== "none" ? parseInt(assignedPersonId) : null,
         },
       },
       {
@@ -117,6 +124,17 @@ export default function Stroje() {
                 <Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} placeholder="Sériové číslo" className="h-12 bg-background" />
                 <Input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} placeholder="Datum nákupu" className="h-12 bg-background" />
               </div>
+              <Select value={assignedPersonId} onValueChange={setAssignedPersonId}>
+                <SelectTrigger className="h-12 bg-background">
+                  <SelectValue placeholder="Přiřadit zaměstnanci" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nepřiřazeno</SelectItem>
+                  {people?.map((p) => (
+                    <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="flex gap-2 justify-end">
                 <Button type="button" variant="ghost" onClick={resetForm}>Zrušit</Button>
                 <Button type="submit" disabled={!name.trim() || createMachine.isPending}>Uložit</Button>
@@ -143,6 +161,11 @@ export default function Stroje() {
                       <p className="text-sm text-muted-foreground truncate">
                         {[m.manufacturer, m.type].filter(Boolean).join(" · ") || "Bez bližšího určení"}
                       </p>
+                      {m.assignedPersonName && (
+                        <p className="text-sm text-primary truncate flex items-center gap-1 mt-0.5">
+                          <User className="h-3.5 w-3.5 shrink-0" /> {m.assignedPersonName}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />

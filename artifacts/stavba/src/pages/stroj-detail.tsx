@@ -5,12 +5,15 @@ import {
   useGetMachine,
   useUpdateMachine,
   useDeleteMachine,
+  useListPeople,
   getGetMachineQueryKey,
   getListMachinesQueryKey,
+  getListPeopleQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Wrench, Trash2, Pencil, Download, Save, X } from "lucide-react";
@@ -36,11 +39,12 @@ export default function StrojDetail() {
 
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", type: "", manufacturer: "", serialNumber: "", purchaseDate: "", notes: "" });
+  const [form, setForm] = useState({ name: "", type: "", manufacturer: "", serialNumber: "", purchaseDate: "", assignedPersonId: "none", notes: "" });
 
   const { data: machine, isLoading } = useGetMachine(id, {
     query: { queryKey: getGetMachineQueryKey(id), enabled: Number.isFinite(id) },
   });
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
   const updateMachine = useUpdateMachine();
   const deleteMachine = useDeleteMachine();
@@ -61,6 +65,7 @@ export default function StrojDetail() {
         manufacturer: machine.manufacturer ?? "",
         serialNumber: machine.serialNumber ?? "",
         purchaseDate: machine.purchaseDate ?? "",
+        assignedPersonId: machine.assignedPersonId != null ? machine.assignedPersonId.toString() : "none",
         notes: machine.notes ?? "",
       });
     }
@@ -78,6 +83,7 @@ export default function StrojDetail() {
           manufacturer: form.manufacturer.trim() || null,
           serialNumber: form.serialNumber.trim() || null,
           purchaseDate: form.purchaseDate || null,
+          assignedPersonId: form.assignedPersonId !== "none" ? parseInt(form.assignedPersonId) : null,
           notes: form.notes.trim() || null,
         },
       },
@@ -170,6 +176,17 @@ export default function StrojDetail() {
                 <Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="Výrobce" className="h-11" />
                 <Input value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} placeholder="Sériové číslo" className="h-11" />
                 <Input type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} className="h-11" />
+                <Select value={form.assignedPersonId} onValueChange={(v) => setForm({ ...form, assignedPersonId: v })}>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Přiřadit zaměstnanci" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nepřiřazeno</SelectItem>
+                    {people?.map((p) => (
+                      <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Poznámka" className="h-11" />
                 <div className="flex gap-2 justify-end">
                   <Button type="button" variant="ghost" onClick={() => setEditing(false)}><X className="h-4 w-4 mr-1" /> Zrušit</Button>
@@ -182,6 +199,7 @@ export default function StrojDetail() {
                 <DetailRow label="Výrobce" value={machine.manufacturer} />
                 <DetailRow label="Sériové číslo" value={machine.serialNumber} />
                 <DetailRow label="Datum nákupu" value={machine.purchaseDate} />
+                <DetailRow label="Přiřazený zaměstnanec" value={machine.assignedPersonName} />
                 <DetailRow label="Poznámka" value={machine.notes} />
               </div>
             )}

@@ -18,6 +18,10 @@ export interface Machine {
   /** @nullable */
   purchaseDate?: string | null;
   /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  assignedPersonName?: string | null;
+  /** @nullable */
   notes?: string | null;
   createdAt: string;
 }

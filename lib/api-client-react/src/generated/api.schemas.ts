@@ -692,6 +692,10 @@ export interface Machine {
   /** @nullable */
   purchaseDate?: string | null;
   /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  assignedPersonName?: string | null;
+  /** @nullable */
   notes?: string | null;
   createdAt: string;
 }
@@ -707,6 +711,8 @@ export interface MachineInput {
   serialNumber?: string | null;
   /** @nullable */
   purchaseDate?: string | null;
+  /** @nullable */
+  assignedPersonId?: number | null;
   /** @nullable */
   notes?: string | null;
 }

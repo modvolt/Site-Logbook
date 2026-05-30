@@ -2604,6 +2604,10 @@ components:
           type: ["string", "null"]
         purchaseDate:
           type: ["string", "null"]
+        assignedPersonId:
+          type: ["integer", "null"]
+        assignedPersonName:
+          type: ["string", "null"]
         notes:
           type: ["string", "null"]
         createdAt:
@@ -2624,6 +2628,8 @@ components:
           type: ["string", "null"]
         purchaseDate:
           type: ["string", "null"]
+        assignedPersonId:
+          type: ["integer", "null"]
         notes:
           type: ["string", "null"]
 
