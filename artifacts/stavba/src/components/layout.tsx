@@ -29,6 +29,7 @@ const mobileNavItems: NavItem[] = [
   { href: "/", icon: Home, label: "Dnes", color: "text-amber-500", activeBg: "", hoverBg: "" },
   { href: "/calendar", icon: Calendar, label: "Kalendář", color: "text-blue-500", activeBg: "", hoverBg: "" },
   { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "", hoverBg: "" },
+  { href: "/customers", icon: Building2, label: "Zákazníci", color: "text-emerald-500", activeBg: "", hoverBg: "" },
   { href: "/activities", icon: Hammer, label: "Akce", color: "text-orange-500", activeBg: "", hoverBg: "", match: (l) => l === "/activities" || l.startsWith("/activities/") },
   { href: "/me", icon: UserIcon, label: "Já", color: "text-indigo-500", activeBg: "", hoverBg: "" },
 ];
