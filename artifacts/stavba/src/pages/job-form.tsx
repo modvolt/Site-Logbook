@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
@@ -282,11 +283,11 @@ export default function JobForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="startTime" className="text-base">Začátek</Label>
-              <Input id="startTime" name="startTime" type="time" value={formData.startTime} onChange={handleChange} className="h-14 text-base block w-full" />
+              <TimePicker id="startTime" value={formData.startTime} onChange={(v) => setFormData(prev => ({ ...prev, startTime: v }))} className="h-14 text-base w-full" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="endTime" className="text-base">Konec</Label>
-              <Input id="endTime" name="endTime" type="time" value={formData.endTime} onChange={handleChange} className="h-14 text-base block w-full" />
+              <TimePicker id="endTime" value={formData.endTime} onChange={(v) => setFormData(prev => ({ ...prev, endTime: v }))} className="h-14 text-base w-full" />
             </div>
           </div>
 

@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -288,6 +289,13 @@ export default function JobDetail() {
       </div>
 
       <div className="p-4 max-w-3xl mx-auto w-full space-y-4">
+        <Button
+          variant="outline"
+          onClick={() => setLocation(`/jobs/${id}/list`)}
+          className="w-full h-11 border-primary/40 text-primary hover:bg-primary/5"
+        >
+          <FileText className="w-4 h-4 mr-2" /> Zakázkový list (PDF / e-mail)
+        </Button>
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
         <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} />
@@ -481,8 +489,8 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
             {editingDate ? (
               <div className="grid grid-cols-3 gap-2">
                 <Input type="date" value={dateDraft} onChange={e => setDateDraft(e.target.value)} className="h-10 text-sm" />
-                <Input type="time" value={startTimeDraft} onChange={e => setStartTimeDraft(e.target.value)} className="h-10 text-sm" placeholder="Začátek" />
-                <Input type="time" value={endTimeDraft} onChange={e => setEndTimeDraft(e.target.value)} className="h-10 text-sm" placeholder="Konec" />
+                <TimePicker value={startTimeDraft} onChange={setStartTimeDraft} className="h-10 text-sm w-full" placeholder="Začátek" />
+                <TimePicker value={endTimeDraft} onChange={setEndTimeDraft} className="h-10 text-sm w-full" placeholder="Konec" />
               </div>
             ) : (
               <>

@@ -10,6 +10,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TimePicker } from "@/components/time-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES, JOB_TYPES } from "@/components/badges";
@@ -280,8 +281,8 @@ export default function Admin() {
                         </td>
                         <td className="px-2 py-2">
                           <div className="flex gap-1">
-                            <Input type="time" value={draft.startTime} onChange={e => updateDraft("startTime", e.target.value)} className="h-9 text-xs w-24" />
-                            <Input type="time" value={draft.endTime} onChange={e => updateDraft("endTime", e.target.value)} className="h-9 text-xs w-24" />
+                            <TimePicker value={draft.startTime} onChange={v => updateDraft("startTime", v)} className="h-9 text-xs w-24" />
+                            <TimePicker value={draft.endTime} onChange={v => updateDraft("endTime", v)} className="h-9 text-xs w-24" />
                           </div>
                         </td>
                         <td className="px-2 py-2">
