@@ -103,7 +103,7 @@ export default function Stroje() {
 
   const handleScanResult = (text: string) => {
     setScanOpen(false);
-    const match = text.match(/stroje\/(\d+)/);
+    const match = text.match(/ID stroje:\s*(\d+)/i) ?? text.match(/stroje\/(\d+)/);
     if (match) {
       setLocation(`/stroje/${match[1]}`);
     } else {

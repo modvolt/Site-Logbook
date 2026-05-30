@@ -53,13 +53,34 @@ export default function StrojDetail() {
   const updateMachine = useUpdateMachine();
   const deleteMachine = useDeleteMachine();
 
-  const detailLink = `${window.location.origin}${import.meta.env.BASE_URL}stroje/${id}`;
+  const qrText = machine
+    ? [
+        "STAVBA STROJ",
+        `Název: ${machine.name}`,
+        `Druh: ${MACHINE_KINDS[machine.kind]?.label ?? machine.kind}`,
+        machine.type ? `Typ: ${machine.type}` : null,
+        machine.manufacturer ? `Výrobce: ${machine.manufacturer}` : null,
+        machine.serialNumber ? `Sériové číslo: ${machine.serialNumber}` : null,
+        machine.licensePlate ? `SPZ: ${machine.licensePlate}` : null,
+        machine.vin ? `VIN: ${machine.vin}` : null,
+        machine.mileageKm != null ? `Stav km: ${machine.mileageKm}` : null,
+        machine.inspectionDate ? `STK / revize: ${machine.inspectionDate}` : null,
+        machine.assignedPersonName ? `Přiřazeno: ${machine.assignedPersonName}` : null,
+        `ID stroje: ${id}`,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : null;
 
   useEffect(() => {
-    QRCode.toDataURL(detailLink, { width: 320, margin: 2 })
+    if (!qrText) {
+      setQrUrl(null);
+      return;
+    }
+    QRCode.toDataURL(qrText, { width: 320, margin: 2 })
       .then(setQrUrl)
       .catch(() => setQrUrl(null));
-  }, [detailLink]);
+  }, [qrText]);
 
   useEffect(() => {
     if (machine) {
@@ -317,7 +338,8 @@ export default function StrojDetail() {
               <Skeleton className="w-56 h-56" />
             )}
             <p className="text-xs text-muted-foreground text-center">
-              Vytiskněte a nalepte na stroj. Naskenováním v aplikaci otevřete tento detail.
+              Vytiskněte a nalepte na stroj. Kód obsahuje údaje o stroji jako text –
+              libovolná čtečka je zobrazí. Naskenováním v aplikaci otevřete tento detail.
             </p>
             <Button variant="outline" onClick={handleDownloadQr} disabled={!qrUrl} className="w-full">
               <Download className="h-4 w-4 mr-2" /> Stáhnout QR kód
