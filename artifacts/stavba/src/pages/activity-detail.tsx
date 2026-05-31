@@ -29,7 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
-  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Receipt,
+  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -627,7 +627,7 @@ function MaterialReceipt({
         disabled={isUploading || updateMaterial.isPending}
         title="Přidat foto dokladu"
       >
-        <Receipt className="h-3.5 w-3.5" />
+        <Camera className="h-3.5 w-3.5" />
       </Button>
     </>
   );
