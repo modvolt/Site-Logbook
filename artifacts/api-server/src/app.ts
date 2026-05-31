@@ -11,8 +11,6 @@ import { auditMutations } from "./middlewares/audit";
 
 const app: Express = express();
 
-const isProduction = process.env.NODE_ENV === "production";
-
 // In production the app sits behind a TLS-terminating reverse proxy (Coolify /
 // Traefik, nginx). Trust the first proxy hop so secure cookies are set and the
 // client IP (for rate limiting) is read from X-Forwarded-For.
@@ -75,9 +73,13 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      // HTTPS-only in production (behind the TLS-terminating proxy). Left off in
-      // local/dev so the cookie works over plain HTTP.
-      secure: isProduction,
+      // "auto" marks the cookie Secure only when the request is actually HTTPS
+      // (determined via "trust proxy" + X-Forwarded-Proto). Behind the Coolify
+      // TLS-terminating proxy the cookie is Secure; over plain HTTP (local
+      // docker compose) it is sent without the Secure flag so login still works.
+      // A hard `secure: true` silently drops the cookie whenever the forwarded
+      // proto is misread as http, leaving the user stuck on the login screen.
+      secure: "auto",
       maxAge: 1000 * 60 * 60 * 24 * 30,
     },
   }),
