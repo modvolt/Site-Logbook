@@ -3172,6 +3172,8 @@ components:
           type: ["string", "null"]
         pricePerUnit:
           type: ["number", "null"]
+        receiptUrl:
+          type: ["string", "null"]
         done:
           type: boolean
         sortOrder:
@@ -3192,6 +3194,8 @@ components:
           type: ["string", "null"]
         pricePerUnit:
           type: ["number", "null"]
+        receiptUrl:
+          type: ["string", "null"]
         done:
           type: boolean
         sortOrder:
@@ -3209,6 +3213,8 @@ components:
           type: ["string", "null"]
         pricePerUnit:
           type: ["number", "null"]
+        receiptUrl:
+          type: ["string", "null"]
         done:
           type: boolean
         sortOrder:

@@ -1661,6 +1661,7 @@ export const ListActivityMaterialsResponseItem = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
+  "receiptUrl": zod.string().nullish(),
   "done": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.string()
@@ -1683,6 +1684,7 @@ export const CreateActivityMaterialBody = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
+  "receiptUrl": zod.string().nullish(),
   "done": zod.boolean().optional(),
   "sortOrder": zod.number().optional()
 })
@@ -1704,6 +1706,7 @@ export const UpdateActivityMaterialBody = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
+  "receiptUrl": zod.string().nullish(),
   "done": zod.boolean().optional(),
   "sortOrder": zod.number().optional()
 })
@@ -1715,6 +1718,7 @@ export const UpdateActivityMaterialResponse = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
+  "receiptUrl": zod.string().nullish(),
   "done": zod.boolean(),
   "sortOrder": zod.number(),
   "createdAt": zod.string()

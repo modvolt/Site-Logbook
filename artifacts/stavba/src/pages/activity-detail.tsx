@@ -29,7 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
-  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText,
+  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Receipt,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -407,6 +407,7 @@ type Material = {
   quantity?: number | null;
   unit?: string | null;
   pricePerUnit?: number | null;
+  receiptUrl?: string | null;
   done: boolean;
   sortOrder: number;
   createdAt: string;
@@ -516,6 +517,13 @@ function MaterialsSection({
                       </div>
                     )}
                   </div>
+                  <MaterialReceipt
+                    activityId={activityId}
+                    material={m}
+                    canWrite={canWrite}
+                    updateMaterial={updateMaterial}
+                    onChange={onChange}
+                  />
                   {canWrite && (
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-rose-500" onClick={() => handleDelete(m.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
@@ -528,6 +536,100 @@ function MaterialsSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function MaterialReceipt({
+  activityId, material, canWrite, updateMaterial, onChange,
+}: {
+  activityId: number;
+  material: Material;
+  canWrite: boolean;
+  updateMaterial: ReturnType<typeof useUpdateActivityMaterial>;
+  onChange: () => void;
+}) {
+  const { toast } = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { uploadFile, isUploading } = useUpload();
+  const src = getAttachmentUrl(material.receiptUrl);
+
+  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const prepared = await prepareImageFile(file);
+      const result = await uploadFile(prepared);
+      if (!result) {
+        toast({ title: "Nahrání selhalo", variant: "destructive" });
+        return;
+      }
+      updateMaterial.mutate(
+        { activityId, materialId: material.id, data: { receiptUrl: result.objectPath } },
+        { onSuccess: () => { onChange(); toast({ title: "Doklad uložen" }); } },
+      );
+    } catch {
+      toast({ title: "Zpracování fotky selhalo", variant: "destructive" });
+    }
+  };
+
+  const handleRemove = () => {
+    if (!confirm("Odebrat foto dokladu?")) return;
+    updateMaterial.mutate(
+      { activityId, materialId: material.id, data: { receiptUrl: null } },
+      { onSuccess: onChange },
+    );
+  };
+
+  if (src) {
+    return (
+      <div className="flex items-center gap-0.5 shrink-0">
+        <a
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          className="block h-9 w-9 rounded-md overflow-hidden border bg-muted"
+          title="Zobrazit doklad"
+        >
+          <img src={src} alt="Doklad" className="h-full w-full object-cover" />
+        </a>
+        {canWrite && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground"
+            onClick={handleRemove}
+            title="Odebrat doklad"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  if (!canWrite) return null;
+
+  return (
+    <>
+      <input
+        type="file"
+        accept="image/*"
+        ref={inputRef}
+        onChange={handlePick}
+        className="hidden"
+      />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-muted-foreground shrink-0"
+        onClick={() => inputRef.current?.click()}
+        disabled={isUploading || updateMaterial.isPending}
+        title="Přidat foto dokladu"
+      >
+        <Receipt className="h-3.5 w-3.5" />
+      </Button>
+    </>
   );
 }
 

@@ -727,6 +727,8 @@ export interface ActivityMaterial {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /** @nullable */
+  receiptUrl?: string | null;
   done: boolean;
   sortOrder: number;
   createdAt: string;
@@ -741,6 +743,8 @@ export interface ActivityMaterialInput {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /** @nullable */
+  receiptUrl?: string | null;
   done?: boolean;
   sortOrder?: number;
 }
@@ -754,6 +758,8 @@ export interface ActivityMaterialUpdate {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /** @nullable */
+  receiptUrl?: string | null;
   done?: boolean;
   sortOrder?: number;
 }
