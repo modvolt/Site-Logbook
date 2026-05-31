@@ -762,31 +762,45 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
   });
   const createAttachment = useCreateActivityAttachment();
   const deleteAttachment = useDeleteActivityAttachment();
-  const { uploadFile: uploadDoklad, isUploading, progress } = useUpload();
+  const {
+    uploadFile: uploadDoklad,
+    uploadFiles: uploadDoklady,
+    isBusy: isUploading,
+    displayProgress: progress,
+    statusLabel,
+  } = useUpload();
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
   const doklady = (attachments ?? []).filter((a) => DOKLAD_TYPES.includes(a.type ?? ""));
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = "";
-    const isPhoto =
-      file.type.startsWith("image/") ||
-      file.name.toLowerCase().endsWith(".heic") ||
-      file.name.toLowerCase().endsWith(".heif");
-    const type = isPhoto ? "receipt" : "invoice";
-    try {
+
+    const { succeeded, failed, errors } = await uploadDoklady(files, async (file) => {
+      const isPhoto =
+        file.type.startsWith("image/") ||
+        file.name.toLowerCase().endsWith(".heic") ||
+        file.name.toLowerCase().endsWith(".heif");
+      const type = isPhoto ? "receipt" : "invoice";
       const toUpload = isPhoto ? await prepareImageFile(file) : file;
       const result = await uploadDoklad(toUpload);
-      createAttachment.mutate(
+      await createAttachment.mutateAsync(
         { activityId, data: { type, fileName: toUpload.name, url: result.objectPath, description: "Doklad" } },
-        { onSuccess: () => { invalidate(); toast({ title: "Doklad uložen" }); } },
       );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Neznámá chyba";
-      debugLog("upload", "doklad upload failed", err);
-      toast({ title: "Nahrání selhalo", description: msg, variant: "destructive" });
+    });
+
+    invalidate();
+    if (succeeded > 0) {
+      toast({ title: succeeded === 1 ? "Doklad uložen" : `Nahráno ${succeeded} dokladů` });
+    }
+    if (failed > 0) {
+      debugLog("upload", "doklad upload failed", errors);
+      const description = files.length === 1
+        ? (errors[0]?.message ?? "Neznámá chyba")
+        : `${failed} z ${files.length} se nepodařilo nahrát`;
+      toast({ title: "Nahrání selhalo", description, variant: "destructive" });
     }
   };
 
@@ -810,7 +824,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
             <input
               type="file"
               accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
-              capture="environment"
+              multiple
               ref={fileInputRef}
               onChange={handleUpload}
               className="hidden"
@@ -821,7 +835,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
               variant="secondary"
               className="w-full h-11"
             >
-              <Camera className="h-4 w-4 mr-2" /> {isUploading ? `Nahrávám… ${progress}%` : "Vyfotit / nahrát doklad"}
+              <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit / nahrát doklad"}
             </Button>
             <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
@@ -897,31 +911,41 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
   });
   const createAttachment = useCreateActivityAttachment();
   const deleteAttachment = useDeleteActivityAttachment();
-  const { uploadFile: uploadPhoto, isUploading, progress } = useUpload();
+  const {
+    uploadFile: uploadPhoto,
+    uploadFiles: uploadPhotos,
+    isBusy: isUploading,
+    displayProgress: progress,
+    statusLabel,
+  } = useUpload();
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
   const photos = (attachments ?? []).filter((a) => (a.type ?? "photo") === "photo");
 
   const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = "";
-    try {
+
+    const { succeeded, failed, errors } = await uploadPhotos(files, async (file) => {
       const prepared = await prepareImageFile(file);
       const result = await uploadPhoto(prepared);
-      createAttachment.mutate({
+      await createAttachment.mutateAsync({
         activityId,
         data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: "Foto ze stavby" },
-      }, {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Fotografie uložena" });
-        },
       });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Neznámá chyba";
-      debugLog("upload", "photo upload failed", err);
-      toast({ title: "Nahrání fotky selhalo", description: msg, variant: "destructive" });
+    });
+
+    invalidate();
+    if (succeeded > 0) {
+      toast({ title: succeeded === 1 ? "Fotografie uložena" : `Nahráno ${succeeded} fotek` });
+    }
+    if (failed > 0) {
+      debugLog("upload", "photo upload failed", errors);
+      const description = files.length === 1
+        ? (errors[0]?.message ?? "Neznámá chyba")
+        : `${failed} z ${files.length} se nepodařilo nahrát`;
+      toast({ title: "Nahrání fotky selhalo", description, variant: "destructive" });
     }
   };
 
@@ -944,13 +968,13 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
 
         {canWrite && (
           <>
-            <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleCapture} className="hidden" />
+            <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleCapture} className="hidden" />
             <Button
               onClick={() => fileInputRef.current?.click()}
               disabled={createAttachment.isPending || isUploading}
               className="w-full"
             >
-              <Camera className="h-4 w-4 mr-2" /> {isUploading ? `Nahrávám… ${progress}%` : "Vyfotit / nahrát"}
+              <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit / nahrát"}
             </Button>
             <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>

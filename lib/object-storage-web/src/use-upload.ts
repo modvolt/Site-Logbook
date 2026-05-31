@@ -57,11 +57,28 @@ interface UseUploadOptions {
  * }
  * ```
  */
+/** Aggregate progress while a batch of files is uploading sequentially. */
+interface BatchState {
+  /** Total number of files in the current batch. */
+  total: number;
+  /** How many files have finished (succeeded or failed). */
+  completed: number;
+}
+
+/** Outcome of a multi-file upload; one failure never aborts the rest. */
+export interface BatchResult {
+  succeeded: number;
+  failed: number;
+  /** Errors for the files that failed, in order of failure. */
+  errors: Error[];
+}
+
 export function useUpload(options: UseUploadOptions = {}) {
   const basePath = options.basePath ?? "/api/storage";
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [progress, setProgress] = useState(0);
+  const [batch, setBatch] = useState<BatchState | null>(null);
 
   const uploadFile = useCallback(
     async (file: File): Promise<UploadResponse> => {
@@ -160,10 +177,80 @@ export function useUpload(options: UseUploadOptions = {}) {
     [basePath, options]
   );
 
+  /**
+   * Upload several files one after another, reporting aggregate batch progress.
+   *
+   * Each file is handed to `processFile`, which is responsible for any
+   * per-file preparation (resize/transcode), the actual `uploadFile` call, and
+   * persisting the result (e.g. creating an attachment record). A failure on
+   * one file is recorded and the batch continues with the remaining files, so a
+   * single bad photo never aborts the whole upload.
+   */
+  const uploadFiles = useCallback(
+    async (
+      files: File[],
+      processFile: (file: File, index: number) => Promise<void>,
+    ): Promise<BatchResult> => {
+      let succeeded = 0;
+      let failed = 0;
+      const errors: Error[] = [];
+      setBatch({ total: files.length, completed: 0 });
+      setProgress(0);
+      try {
+        for (let i = 0; i < files.length; i++) {
+          try {
+            await processFile(files[i], i);
+            succeeded++;
+          } catch (err) {
+            failed++;
+            errors.push(err instanceof Error ? err : new Error("Upload failed"));
+          } finally {
+            setBatch((b) =>
+              b ? { total: b.total, completed: b.completed + 1 } : b,
+            );
+          }
+        }
+      } finally {
+        setBatch(null);
+        setProgress(0);
+      }
+      return { succeeded, failed, errors };
+    },
+    [],
+  );
+
+  // While a batch runs, the per-file `isUploading` flag flips between files;
+  // `isBusy` stays true for the whole batch so the UI doesn't flicker. The
+  // `displayProgress` blends finished files with the in-flight file's bytes.
+  const isBusy = isUploading || batch !== null;
+  const displayProgress = batch
+    ? Math.min(
+        100,
+        Math.round(((batch.completed + progress / 100) / batch.total) * 100),
+      )
+    : progress;
+  // Human-readable status: "Nahrávám 2/5" for multi-file batches, otherwise the
+  // single-file byte percentage.
+  const statusLabel =
+    batch && batch.total > 1
+      ? `Nahrávám ${Math.min(batch.completed + 1, batch.total)}/${batch.total}`
+      : isBusy
+        ? `Nahrávám… ${displayProgress}%`
+        : null;
+
   return {
     uploadFile,
+    uploadFiles,
     isUploading,
     error,
     progress,
+    /** Aggregate batch state, or null when no batch is running. */
+    batch,
+    /** True for the whole duration of a single or multi-file upload. */
+    isBusy,
+    /** Combined 0–100 progress across the current batch (or single file). */
+    displayProgress,
+    /** Ready-to-render Czech status string, or null when idle. */
+    statusLabel,
   };
 }

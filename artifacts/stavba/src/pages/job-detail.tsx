@@ -1145,30 +1145,38 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
 
   const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
 
-  const { uploadFile: uploadDoklad, isUploading: isUploadingDoklad, progress: dokladProgress } = useUpload();
+  const {
+    uploadFile: uploadDoklad,
+    uploadFiles: uploadDoklady,
+    isBusy: isUploadingDoklad,
+    displayProgress: dokladProgress,
+    statusLabel: dokladStatus,
+  } = useUpload();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = "";
 
-    const isPhoto = file.type.startsWith("image/") ||
-      file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
-    const type = isPhoto ? "receipt" : "invoice";
-
-    try {
+    const { succeeded, failed, errors } = await uploadDoklady(files, async (file) => {
+      const isPhoto = file.type.startsWith("image/") ||
+        file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
+      const type = isPhoto ? "receipt" : "invoice";
       const toUpload = isPhoto ? await prepareImageFile(file) : file;
       const result = await uploadDoklad(toUpload);
-      createAttachment.mutate({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-          toast({ title: "Doklad uložen" });
-        }
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Neznámá chyba";
-      debugLog("upload", "doklad upload failed", err);
-      toast({ title: "Nahrání selhalo", description: msg, variant: "destructive" });
+      await createAttachment.mutateAsync({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } });
+    });
+
+    queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+    if (succeeded > 0) {
+      toast({ title: succeeded === 1 ? "Doklad uložen" : `Nahráno ${succeeded} dokladů` });
+    }
+    if (failed > 0) {
+      debugLog("upload", "doklad upload failed", errors);
+      const description = files.length === 1
+        ? (errors[0]?.message ?? "Neznámá chyba")
+        : `${failed} z ${files.length} se nepodařilo nahrát`;
+      toast({ title: "Nahrání selhalo", description, variant: "destructive" });
     }
   };
 
@@ -1191,7 +1199,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
         <input 
           type="file" 
           accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
-          capture="environment"
+          multiple
           ref={fileInputRef} 
           onChange={handleFileUpload} 
           className="hidden" 
@@ -1203,7 +1211,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
             variant="secondary"
             className="flex-1 h-12 text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? `Nahrávám… ${dokladProgress}%` : "Vyfotit / nahrát doklad"}
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? dokladStatus : "Vyfotit / nahrát doklad"}
           </Button>
         </div>
         <UploadProgressBar isUploading={isUploadingDoklad} progress={dokladProgress} />
@@ -1321,29 +1329,38 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { uploadFile: uploadPhoto, isUploading: isUploadingPhoto, progress: photoProgress } = useUpload();
+  const {
+    uploadFile: uploadPhoto,
+    uploadFiles: uploadPhotos,
+    isBusy: isUploadingPhoto,
+    displayProgress: photoProgress,
+    statusLabel: photoStatus,
+  } = useUpload();
 
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = "";
 
-    try {
+    const { succeeded, failed, errors } = await uploadPhotos(files, async (file) => {
       const prepared = await prepareImageFile(file);
       const result = await uploadPhoto(prepared);
-      createAttachment.mutate({
+      await createAttachment.mutateAsync({
         jobId,
         data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: "Foto ze stavby" }
-      }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-          toast({ title: "Fotografie uložena" });
-        }
       });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Neznámá chyba";
-      debugLog("upload", "photo upload failed", err);
-      toast({ title: "Nahrání fotky selhalo", description: msg, variant: "destructive" });
+    });
+
+    queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+    if (succeeded > 0) {
+      toast({ title: succeeded === 1 ? "Fotografie uložena" : `Nahráno ${succeeded} fotek` });
+    }
+    if (failed > 0) {
+      debugLog("upload", "photo upload failed", errors);
+      const description = files.length === 1
+        ? (errors[0]?.message ?? "Neznámá chyba")
+        : `${failed} z ${files.length} se nepodařilo nahrát`;
+      toast({ title: "Nahrání fotky selhalo", description, variant: "destructive" });
     }
   };
 
@@ -1367,7 +1384,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
       <div className="p-4 space-y-6">
         <div className="flex gap-3">
           <input 
-            type="file" accept="image/*" capture="environment" 
+            type="file" accept="image/*" multiple
             ref={fileInputRef} onChange={handlePhotoCapture} className="hidden" 
           />
           <Button 
@@ -1375,7 +1392,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             disabled={createAttachment.isPending || isUploadingPhoto}
             className="flex-1 h-14 bg-primary text-primary-foreground text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? `Nahrávám… ${photoProgress}%` : "Vyfotit stavbu"}
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? photoStatus : "Vyfotit stavbu"}
           </Button>
         </div>
         <UploadProgressBar isUploading={isUploadingPhoto} progress={photoProgress} />
