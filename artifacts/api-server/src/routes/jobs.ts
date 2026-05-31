@@ -13,10 +13,54 @@ import {
   ReorderJobsBody,
   SendJobEmailParams,
   SendJobEmailBody,
+  SaveJobSheetParams,
+  SaveJobSheetBody,
 } from "@workspace/api-zod";
 import { sendEmailWithPdf } from "../lib/email";
+import { ObjectStorageService } from "../lib/objectStorage";
+import { randomUUID } from "node:crypto";
 
 const router: IRouter = Router();
+
+const objectStorageService = new ObjectStorageService();
+
+/**
+ * Persist a (signed) job-sheet PDF to object storage and record it as an
+ * attachment of the job (type "job_sheet"). Shared by the explicit save
+ * endpoint and the email-send flow so the sheet is archived even when the
+ * email cannot be delivered.
+ */
+async function saveJobSheetPdf(
+  jobId: number,
+  pdfBase64: string,
+  signed?: boolean | null,
+) {
+  const buffer = Buffer.from(pdfBase64, "base64");
+  if (buffer.length === 0 || buffer.subarray(0, 4).toString("latin1") !== "%PDF") {
+    throw new Error("Neplatná data PDF zakázkového listu.");
+  }
+  const objectPath = `/objects/job-sheets/${randomUUID()}`;
+  await objectStorageService.putPrivateObject(objectPath, buffer, "application/pdf");
+  const [att] = await db
+    .insert(attachmentsTable)
+    .values({
+      jobId,
+      type: "job_sheet",
+      fileName: `zakazkovy-list-${jobId}.pdf`,
+      url: objectPath,
+      description: signed ? "Podepsaný zakázkový list" : "Zakázkový list",
+    })
+    .returning();
+  return att;
+}
+
+function serializeAttachment(att: typeof attachmentsTable.$inferSelect) {
+  return {
+    ...att,
+    amount: att.amount != null ? Number(att.amount) : null,
+    createdAt: att.createdAt.toISOString(),
+  };
+}
 
 const toStr = (v: number | null | undefined): string | null | undefined =>
   v != null ? String(v) : v as null | undefined;
@@ -375,6 +419,14 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
 
   const filename = `zakazkovy-list-${job.id}.pdf`;
 
+  // Archive the signed sheet to the job first, so it is stored even if the
+  // email delivery fails. A storage failure must not block sending the email.
+  try {
+    await saveJobSheetPdf(job.id, parsed.data.pdfBase64, true);
+  } catch (err) {
+    req.log.error({ err }, "Failed to archive job sheet during email send");
+  }
+
   try {
     await sendEmailWithPdf({
       to,
@@ -390,6 +442,34 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   }
 
   res.json({ sent: true, to });
+});
+
+router.post("/jobs/:id/job-sheet", async (req, res): Promise<void> => {
+  const params = SaveJobSheetParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const parsed = SaveJobSheetBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  try {
+    const att = await saveJobSheetPdf(job.id, parsed.data.pdfBase64, parsed.data.signed);
+    res.status(201).json(serializeAttachment(att));
+  } catch (err) {
+    req.log.error({ err }, "Failed to save job sheet");
+    res.status(500).json({ error: err instanceof Error ? err.message : "Uložení zakázkového listu selhalo." });
+  }
 });
 
 export default router;

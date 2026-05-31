@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "wouter";
 import { format } from "date-fns";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetJob, getGetJobQueryKey,
   useListTasks, getListTasksQueryKey,
   useListMaterials, getListMaterialsQueryKey,
-  useSendJobEmail,
+  useSendJobEmail, useSaveJobSheet, getListAttachmentsQueryKey,
 } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, PenLine, RotateCcw, Mail, Loader2 } from "lucide-react";
+import { ArrowLeft, Printer, PenLine, RotateCcw, Mail, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JOB_STATUSES, JOB_TYPES } from "@/components/badges";
@@ -48,8 +49,46 @@ export default function JobExport() {
   const [customerSig, setCustomerSig] = useState<string | null>(null);
   const [padOpen, setPadOpen] = useState(false);
   const [company] = useState(() => loadCompanySettings());
+  const [pendingSave, setPendingSave] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const sendEmail = useSendJobEmail();
+  const saveJobSheet = useSaveJobSheet();
+
+  const handleSaveToJob = async () => {
+    const element = document.getElementById("zakazkovy-list");
+    if (!element) return;
+    try {
+      const pdfBase64 = await jobSheetPdfBase64(element);
+      await saveJobSheet.mutateAsync({ id, data: { pdfBase64, signed: !!customerSig } });
+      queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(id) });
+      toast({
+        title: "Uloženo do zakázky",
+        description: "Zakázkový list byl uložen mezi přílohy zakázky.",
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Uložení selhalo",
+        description: "Zakázkový list se nepodařilo uložit. Zkuste to prosím znovu.",
+      });
+    }
+  };
+
+  const handleSignatureSave = (sig: string) => {
+    setCustomerSig(sig);
+    setPendingSave(true);
+  };
+
+  // After a signature is captured, wait for the DOM to render it, then archive
+  // the signed sheet to the job automatically.
+  useEffect(() => {
+    if (!pendingSave || !customerSig) return;
+    setPendingSave(false);
+    const t = setTimeout(() => { void handleSaveToJob(); }, 200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSave, customerSig]);
 
   const contractorName = company.name || BRAND_NAME;
   const contractorLogo = company.logoDataUrl || BRAND_LOGO_URL;
@@ -161,6 +200,19 @@ export default function JobExport() {
               <Mail className="h-4 w-4 mr-2" />
             )}
             Odeslat e-mailem
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSaveToJob}
+            disabled={saveJobSheet.isPending}
+            className="shrink-0"
+          >
+            {saveJobSheet.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Uložit do zakázky
           </Button>
           <Button onClick={() => window.print()} className="shrink-0">
             <Printer className="h-4 w-4 mr-2" /> Tisk / Uložit PDF
@@ -393,7 +445,7 @@ export default function JobExport() {
       <SignaturePad
         open={padOpen}
         onOpenChange={setPadOpen}
-        onSave={setCustomerSig}
+        onSave={handleSignatureSave}
         title="Podpis objednatele"
       />
     </div>

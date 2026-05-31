@@ -41,6 +41,16 @@ export interface SendJobEmailInput {
   message?: string | null;
 }
 
+export interface SaveJobSheetInput {
+  /** Base64-encoded PDF of the job sheet */
+  pdfBase64: string;
+  /**
+     * Whether the customer signature is included in the PDF
+     * @nullable
+     */
+  signed?: boolean | null;
+}
+
 export interface SendCredentialsEmailInput {
   /** Base64-encoded PDF of the access-credentials sheet */
   pdfBase64: string;

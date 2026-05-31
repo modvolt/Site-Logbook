@@ -79,6 +79,7 @@ import type {
   MyStats,
   Person,
   PersonInput,
+  SaveJobSheetInput,
   SendCredentialsEmailInput,
   SendJobEmailInput,
   SendJobEmailResult,
@@ -776,6 +777,78 @@ export const useSendJobEmail = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSendJobEmailMutationOptions(options));
+    }
+
+export const getSaveJobSheetUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/job-sheet`
+}
+
+/**
+ * @summary Save the (signed) job sheet PDF as an attachment of the job
+ */
+export const saveJobSheet = async (id: number,
+    saveJobSheetInput: SaveJobSheetInput, options?: RequestInit): Promise<Attachment> => {
+
+  return customFetch<Attachment>(getSaveJobSheetUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      saveJobSheetInput,)
+  }
+);}
+
+
+
+
+export const getSaveJobSheetMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveJobSheet>>, TError,{id: number;data: BodyType<SaveJobSheetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveJobSheet>>, TError,{id: number;data: BodyType<SaveJobSheetInput>}, TContext> => {
+
+const mutationKey = ['saveJobSheet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveJobSheet>>, {id: number;data: BodyType<SaveJobSheetInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  saveJobSheet(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveJobSheetMutationResult = NonNullable<Awaited<ReturnType<typeof saveJobSheet>>>
+    export type SaveJobSheetMutationBody = BodyType<SaveJobSheetInput>
+    export type SaveJobSheetMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Save the (signed) job sheet PDF as an attachment of the job
+ */
+export const useSaveJobSheet = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveJobSheet>>, TError,{id: number;data: BodyType<SaveJobSheetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveJobSheet>>,
+        TError,
+        {id: number;data: BodyType<SaveJobSheetInput>},
+        TContext
+      > => {
+      return useMutation(getSaveJobSheetMutationOptions(options));
     }
 
 export const getListTasksUrl = (jobId: number,) => {

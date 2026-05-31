@@ -237,6 +237,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendJobEmailResult"
 
+  /jobs/{id}/job-sheet:
+    post:
+      operationId: saveJobSheet
+      tags: [jobs]
+      summary: Save the (signed) job sheet PDF as an attachment of the job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveJobSheetInput"
+      responses:
+        "201":
+          description: Saved job sheet attachment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+
   /jobs/{jobId}/tasks:
     get:
       operationId: listTasks
@@ -2395,6 +2420,17 @@ components:
           type: ["string", "null"]
         message:
           type: ["string", "null"]
+
+    SaveJobSheetInput:
+      type: object
+      required: [pdfBase64]
+      properties:
+        pdfBase64:
+          type: string
+          description: Base64-encoded PDF of the job sheet
+        signed:
+          type: ["boolean", "null"]
+          description: Whether the customer signature is included in the PDF
 
     SendCredentialsEmailInput:
       type: object

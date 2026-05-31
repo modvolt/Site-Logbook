@@ -366,6 +366,7 @@ export default function JobDetail() {
         <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} />
         <JobTimeEntries jobId={id} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
+        <JobSheetsSection jobId={id} isExpanded={expandedSection === "jobsheets"} onToggle={() => toggleSection("jobsheets")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} />
         <CostsSection job={job} isExpanded={expandedSection === "costs"} onToggle={() => toggleSection("costs")} />
@@ -1240,6 +1241,68 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
             <p className="text-sm">Přidejte faktury, účtenky nebo dodací listy.</p>
           </div>
         )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
+  const { data: attachments } = useListAttachments(jobId, {
+    query: { enabled: isExpanded, queryKey: getListAttachmentsQueryKey(jobId) }
+  });
+  const deleteAttachment = useDeleteAttachment();
+  const queryClient = useQueryClient();
+
+  const sheets = (attachments?.filter(a => a.type === "job_sheet") || [])
+    .slice()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const handleDelete = (id: number) => {
+    if (!confirm("Smazat tento zakázkový list?")) return;
+    deleteAttachment.mutate({ jobId, attachmentId: id }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
+    });
+  };
+
+  return (
+    <SectionCard
+      title="Zakázkové listy"
+      icon={FileText}
+      isExpanded={isExpanded}
+      onToggle={onToggle}
+      summary={sheets.length > 0 ? `${sheets.length} uložených` : "Žádné uložené"}
+    >
+      <div className="p-4 space-y-2">
+        {sheets.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+            <FileText className="w-10 h-10 mx-auto mb-2 opacity-20" />
+            <p className="text-sm">Podepsané zakázkové listy se uloží sem.</p>
+          </div>
+        )}
+        {sheets.map(sheet => {
+          const displayUrl = getAttachmentUrl(sheet.url);
+          return (
+            <div key={sheet.id} className="flex items-center gap-3 p-3 bg-muted/40 border rounded-lg group">
+              <div className="p-1.5 bg-primary/10 rounded text-primary shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{sheet.description || "Zakázkový list"}</p>
+                <p className="text-xs text-muted-foreground">{format(new Date(sheet.createdAt), "d.M.yyyy H:mm")}</p>
+              </div>
+              {displayUrl && (
+                <a href={displayUrl} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">Otevřít</a>
+              )}
+              <Button
+                variant="ghost" size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                onClick={() => handleDelete(sheet.id)}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          );
+        })}
       </div>
     </SectionCard>
   );

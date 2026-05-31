@@ -302,6 +302,19 @@ export const SendJobEmailResponse = zod.object({
 
 
 /**
+ * @summary Save the (signed) job sheet PDF as an attachment of the job
+ */
+export const SaveJobSheetParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SaveJobSheetBody = zod.object({
+  "pdfBase64": zod.string().describe('Base64-encoded PDF of the job sheet'),
+  "signed": zod.boolean().nullish().describe('Whether the customer signature is included in the PDF')
+})
+
+
+/**
  * @summary List tasks for a job
  */
 export const ListTasksParams = zod.object({
