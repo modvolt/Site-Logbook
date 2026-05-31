@@ -1,0 +1,5 @@
+waiting for minio...
+Added `local` successfully.
+Bucket created successfully `local/modvoltapp`.
+bucket ready
+mc: <ERROR> Unable to initialize new alias from the provided credentials. Get "http://minio:9000/probe-bsign-kntvt9lig3351i1mn1ynwy5cgb0t3y/?location=": dial tcp 10.0.2.3:9000: connect: connection refused.

@@ -32,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { debugLog } from "@/lib/pwa";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
 
@@ -46,27 +47,49 @@ async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promi
     const blob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }) as Blob;
     processedFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
   }
+  // Client-side resize is a best-effort optimisation. On memory-constrained
+  // iOS standalone (PWA) webviews the canvas pipeline can fail for large camera
+  // photos; in that case fall back to uploading the (already allowed-type)
+  // source file rather than failing the whole upload.
+  // Types the backend accepts as-is (HEIC/HEIF are already transcoded to JPEG
+  // above). If the resize pipeline fails for one of these we can safely upload
+  // the source; anything else must be rejected with a clear message rather than
+  // sent on to be refused by the server with a 415.
+  const FALLBACK_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(processedFile);
-    img.onload = () => {
+    const fallback = (reason: string) => {
       URL.revokeObjectURL(objectUrl);
-      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { reject(new Error("No canvas context")); return; }
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob((blob) => {
-        if (!blob) { reject(new Error("Canvas toBlob failed")); return; }
-        const outName = processedFile.name.replace(/\.(heic|heif)$/i, ".jpg");
-        resolve(new File([blob], outName, { type: "image/jpeg" }));
-      }, "image/jpeg", quality);
+      debugLog("upload", `image resize skipped: ${reason}`);
+      if (FALLBACK_ALLOWED.has(processedFile.type)) {
+        resolve(processedFile);
+      } else {
+        reject(new Error(`Formát obrázku není podporován (${processedFile.type || "neznámý"}). Použijte JPEG nebo PNG.`));
+      }
     };
-    img.onerror = reject;
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { fallback("no canvas context"); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob) => {
+          if (!blob) { fallback("toBlob returned null"); return; }
+          URL.revokeObjectURL(objectUrl);
+          const outName = processedFile.name.replace(/\.(heic|heif)$/i, ".jpg");
+          resolve(new File([blob], outName, { type: "image/jpeg" }));
+        }, "image/jpeg", quality);
+      } catch (e) {
+        fallback(e instanceof Error ? e.message : "draw failed");
+      }
+    };
+    img.onerror = () => fallback("image decode failed");
     img.src = objectUrl;
   });
 }
@@ -764,18 +787,20 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   const { uploadFile: uploadPhotoForTask } = useUpload();
 
   const handleTaskPhoto = async (taskId: number, file: File) => {
-    const prepared = await prepareImageFile(file);
-    const result = await uploadPhotoForTask(prepared);
-    if (!result) {
-      toast({ title: "Nahrání selhalo", variant: "destructive" });
-      return;
+    try {
+      const prepared = await prepareImageFile(file);
+      const result = await uploadPhotoForTask(prepared);
+      createAttachment.mutate({ jobId, data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: `Foto k úkolu` } }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) });
+          toast({ title: "Fotografie uložena" });
+        }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      debugLog("upload", "task photo upload failed", err);
+      toast({ title: "Nahrání fotky selhalo", description: msg, variant: "destructive" });
     }
-    createAttachment.mutate({ jobId, data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: `Foto k úkolu` } }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) });
-        toast({ title: "Fotografie uložena" });
-      }
-    });
   };
 
   const regularTasks = tasks?.filter(t => !t.isChangeRequest) || [];
@@ -1129,19 +1154,20 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
       file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
     const type = isPhoto ? "receipt" : "invoice";
 
-    const toUpload = isPhoto ? await prepareImageFile(file) : file;
-    const result = await uploadDoklad(toUpload);
-    if (!result) {
-      toast({ title: "Nahrání selhalo", variant: "destructive" });
-      return;
+    try {
+      const toUpload = isPhoto ? await prepareImageFile(file) : file;
+      const result = await uploadDoklad(toUpload);
+      createAttachment.mutate({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+          toast({ title: "Doklad uložen" });
+        }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      debugLog("upload", "doklad upload failed", err);
+      toast({ title: "Nahrání selhalo", description: msg, variant: "destructive" });
     }
-
-    createAttachment.mutate({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-        toast({ title: "Doklad uložen" });
-      }
-    });
   };
 
   const handleDelete = (id: number) => {
@@ -1237,22 +1263,23 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
     if (!file) return;
     e.target.value = "";
 
-    const prepared = await prepareImageFile(file);
-    const result = await uploadPhoto(prepared);
-    if (!result) {
-      toast({ title: "Nahrání selhalo", variant: "destructive" });
-      return;
+    try {
+      const prepared = await prepareImageFile(file);
+      const result = await uploadPhoto(prepared);
+      createAttachment.mutate({
+        jobId,
+        data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: "Foto ze stavby" }
+      }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
+          toast({ title: "Fotografie uložena" });
+        }
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      debugLog("upload", "photo upload failed", err);
+      toast({ title: "Nahrání fotky selhalo", description: msg, variant: "destructive" });
     }
-
-    createAttachment.mutate({ 
-      jobId, 
-      data: { type: "photo", fileName: prepared.name, url: result.objectPath, description: "Foto ze stavby" } 
-    }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-        toast({ title: "Fotografie uložena" });
-      }
-    });
   };
 
   const handleDelete = (attachmentId: number) => {

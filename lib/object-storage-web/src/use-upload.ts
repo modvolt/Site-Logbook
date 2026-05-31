@@ -75,7 +75,9 @@ export function useUpload(options: UseUploadOptions = {}) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to get upload URL");
+        throw new Error(
+          errorData.error || `Nepodařilo se získat adresu pro nahrání (HTTP ${response.status}).`,
+        );
       }
 
       return response.json();
@@ -85,23 +87,38 @@ export function useUpload(options: UseUploadOptions = {}) {
 
   const uploadToPresignedUrl = useCallback(
     async (file: File, uploadURL: string): Promise<void> => {
-      const response = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: {
-          "Content-Type": file.type || "application/octet-stream",
-        },
-      });
+      let response: Response;
+      try {
+        response = await fetch(uploadURL, {
+          method: "PUT",
+          body: file,
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+        });
+      } catch (err) {
+        // A rejected fetch here is a network-level failure: the browser could
+        // not reach the storage endpoint at all. The usual causes in a deployed
+        // app are (a) the presigned URL points at a host the browser cannot
+        // reach (misconfigured S3_PUBLIC_ENDPOINT), or (b) the storage bucket
+        // does not allow cross-origin PUT (missing CORS rule). Surface this
+        // explicitly instead of a generic "upload failed".
+        throw new Error(
+          `Úložiště je nedostupné z prohlížeče (${
+            err instanceof Error ? err.message : "network error"
+          }). Zkontrolujte nastavení úložiště (S3_PUBLIC_ENDPOINT a CORS).`,
+        );
+      }
 
       if (!response.ok) {
-        throw new Error("Failed to upload file to storage");
+        throw new Error(`Úložiště odmítlo soubor (HTTP ${response.status}).`);
       }
     },
     []
   );
 
   const uploadFile = useCallback(
-    async (file: File): Promise<UploadResponse | null> => {
+    async (file: File): Promise<UploadResponse> => {
       setIsUploading(true);
       setError(null);
       setProgress(0);
@@ -120,7 +137,10 @@ export function useUpload(options: UseUploadOptions = {}) {
         const error = err instanceof Error ? err : new Error("Upload failed");
         setError(error);
         options.onError?.(error);
-        return null;
+        // Re-throw so callers can surface the specific reason to the user
+        // (and log it). Previously this returned null, which collapsed every
+        // distinct failure into one generic "upload failed" message.
+        throw error;
       } finally {
         setIsUploading(false);
       }
