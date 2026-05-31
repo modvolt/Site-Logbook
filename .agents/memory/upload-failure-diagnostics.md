@@ -11,12 +11,19 @@ the actual bytes go browser→storage and are **never seen by the API**, so a
 failing upload leaves **no server log**. "request-url 200 but upload fails" is
 the signature of a client/storage-reachability problem, not an API bug.
 
-**Most common deployed-only cause (Coolify/Hetzner + S3/MinIO):**
+**Confirmed real cause (Stavba prod, Hetzner Object Storage):** the S3 endpoint
+env var was a bare host `fsn1.your-objectstorage.com` **without a scheme**. The
+AWS SDK runs `new URL(endpoint)` and throws `ERR_INVALID_URL "Invalid URL"`, so
+`request-url` returned **500** — upload died at step 1, before any browser PUT.
+Code now normalizes a scheme-less endpoint to `https://` (objectStorage.ts
+`normalizeEndpoint`); to force plain HTTP write `http://...` explicitly.
+
+**Other deployed-only causes (once request-url succeeds):**
 - `S3_PUBLIC_ENDPOINT` wrong/unset → presigned URL points at an internal host
   (e.g. `http://minio:9000`) the browser can't reach → PUT rejected at network
   level.
-- Bucket missing a CORS rule allowing cross-origin `PUT` from the app origin →
-  browser blocks the PUT.
+- Bucket missing a CORS rule allowing cross-origin `PUT`/`GET` from the app
+  origin → browser blocks the PUT.
 Both surface in-browser as a *rejected fetch* (TypeError), not an HTTP status.
 
 **Client contract:** `useUpload().uploadFile` re-throws (does not return null);

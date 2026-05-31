@@ -49,6 +49,18 @@ must equal the host the browser uses:
 If you only have a single endpoint reachable by both (e.g. AWS S3 or a MinIO
 subdomain), leave `S3_PUBLIC_ENDPOINT` equal to that endpoint.
 
+**Endpoint scheme:** endpoint values may omit the scheme — `fsn1.your-objectstorage.com`
+is normalized to `https://fsn1.your-objectstorage.com`. To force plain HTTP
+(e.g. an internal MinIO at `minio:9000`), write the scheme explicitly:
+`http://minio:9000`.
+
+**CORS is mandatory for browser uploads.** Because the browser `PUT`s directly to
+the storage host, the bucket must allow cross-origin `PUT`/`GET` from your app's
+origin (e.g. `https://modvoltapp.cz`). Without a CORS rule the presigned request
+succeeds server-side but the browser blocks the upload. On Hetzner/AWS/MinIO set a
+bucket CORS policy allowing `PUT, GET, HEAD` from your domain with the
+`Content-Type` header.
+
 ---
 
 ## 2. Deploy on Coolify

@@ -62,6 +62,18 @@ function requireEnv(name: string): string {
 let cachedClient: S3Client | null = null;
 let cachedPublicClient: S3Client | null = null;
 
+// The AWS SDK requires a fully-qualified endpoint URL (with scheme); it calls
+// `new URL(endpoint)` internally and throws "Invalid URL" for a bare host like
+// "fsn1.your-objectstorage.com". Operators commonly omit the scheme, so be
+// lenient and default to https:// (the safe choice for managed S3 providers).
+function normalizeEndpoint(endpoint: string | undefined): string | undefined {
+  if (!endpoint) return undefined;
+  const trimmed = endpoint.trim();
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 function buildClient(endpoint: string | undefined): S3Client {
   const region = process.env.S3_REGION || "us-east-1";
   const accessKeyId = requireEnv("S3_ACCESS_KEY_ID");
@@ -71,7 +83,7 @@ function buildClient(endpoint: string | undefined): S3Client {
 
   return new S3Client({
     region,
-    endpoint: endpoint || undefined,
+    endpoint: normalizeEndpoint(endpoint),
     forcePathStyle,
     credentials: { accessKeyId, secretAccessKey },
   });

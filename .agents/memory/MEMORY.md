@@ -1,5 +1,5 @@
 - [Object storage setup](object-storage.md) — attachments now stored in GCS; url column holds /objects/... paths; legacy base64 still displays via getAttachmentUrl() fallback.
-- [Upload failure diagnostics](upload-failure-diagnostics.md) — presigned PUT is browser→storage (no server log); deployed-only fails usually = S3_PUBLIC_ENDPOINT/CORS; client now re-throws + surfaces real reason.
+- [Upload failure diagnostics](upload-failure-diagnostics.md) — request-url 500 = scheme-less S3 endpoint (now https-normalized); else browser→storage PUT fails on S3_PUBLIC_ENDPOINT/CORS.
 - [Drizzle push interactive conflict](drizzle-push-conflict.md) — push can prompt rename & fail in non-TTY; add single columns via direct SQL ALTER, never blind push --force (can drop user_sessions).
 - [jsPDF Czech diacritics](pdf-czech-diacritics.md) — built-in fonts can't render ř/š/ě; must embed Roboto TTF on every autoTable style; group headers go in table head to avoid orphaning.
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
