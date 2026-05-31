@@ -41,6 +41,20 @@ export interface SendJobEmailInput {
   message?: string | null;
 }
 
+export interface SendCredentialsEmailInput {
+  /** Base64-encoded PDF of the access-credentials sheet */
+  pdfBase64: string;
+  /**
+     * Optional override recipient; defaults to the customer's stored email
+     * @nullable
+     */
+  to?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  message?: string | null;
+}
+
 export interface SendJobEmailResult {
   sent: boolean;
   to: string;

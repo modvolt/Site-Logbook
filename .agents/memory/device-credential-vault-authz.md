@@ -19,6 +19,14 @@ role gate, a guest could read every stored password. Because the secrets are
 plaintext, generic authenticated read access is a real leak, not a theoretical
 one.
 
+**Rule (extends to distribution):** any endpoint that *emits* vault data —
+not just reads it — carries the same gate. The "email the přístupové údaje
+PDF to the customer" route (`POST /customers/:id/send-credentials-email`,
+in `customers.ts`, not the credentials router) must also
+`requireRole("master","admin")`; it ships the same plaintext secrets and
+takes a client-supplied `pdfBase64`/`to`, so generic write access would turn
+it into a credential-exfil + SMTP-relay channel.
+
 **How to apply:**
 - Backend: `router.use(requireRole("master", "admin"))` at the top of the
   device-credentials router.

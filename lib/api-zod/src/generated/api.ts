@@ -627,6 +627,26 @@ export const DeleteCustomerParams = zod.object({
 
 
 /**
+ * @summary Email the access-credentials PDF to the customer
+ */
+export const SendCredentialsEmailParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SendCredentialsEmailBody = zod.object({
+  "pdfBase64": zod.string().describe('Base64-encoded PDF of the access-credentials sheet'),
+  "to": zod.string().nullish().describe('Optional override recipient; defaults to the customer\'s stored email'),
+  "subject": zod.string().nullish(),
+  "message": zod.string().nullish()
+})
+
+export const SendCredentialsEmailResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string()
+})
+
+
+/**
  * @summary List contacts for a customer
  */
 export const ListCustomerContactsParams = zod.object({

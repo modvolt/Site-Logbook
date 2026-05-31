@@ -72,6 +72,7 @@ import type {
   MyStats,
   Person,
   PersonInput,
+  SendCredentialsEmailInput,
   SendJobEmailInput,
   SendJobEmailResult,
   SetupInput,
@@ -2158,6 +2159,78 @@ export const useDeleteCustomer = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteCustomerMutationOptions(options));
+    }
+
+export const getSendCredentialsEmailUrl = (id: number,) => {
+
+
+
+
+  return `/api/customers/${id}/send-credentials-email`
+}
+
+/**
+ * @summary Email the access-credentials PDF to the customer
+ */
+export const sendCredentialsEmail = async (id: number,
+    sendCredentialsEmailInput: SendCredentialsEmailInput, options?: RequestInit): Promise<SendJobEmailResult> => {
+
+  return customFetch<SendJobEmailResult>(getSendCredentialsEmailUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendCredentialsEmailInput,)
+  }
+);}
+
+
+
+
+export const getSendCredentialsEmailMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendCredentialsEmail>>, TError,{id: number;data: BodyType<SendCredentialsEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendCredentialsEmail>>, TError,{id: number;data: BodyType<SendCredentialsEmailInput>}, TContext> => {
+
+const mutationKey = ['sendCredentialsEmail'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendCredentialsEmail>>, {id: number;data: BodyType<SendCredentialsEmailInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  sendCredentialsEmail(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendCredentialsEmailMutationResult = NonNullable<Awaited<ReturnType<typeof sendCredentialsEmail>>>
+    export type SendCredentialsEmailMutationBody = BodyType<SendCredentialsEmailInput>
+    export type SendCredentialsEmailMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Email the access-credentials PDF to the customer
+ */
+export const useSendCredentialsEmail = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendCredentialsEmail>>, TError,{id: number;data: BodyType<SendCredentialsEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendCredentialsEmail>>,
+        TError,
+        {id: number;data: BodyType<SendCredentialsEmailInput>},
+        TContext
+      > => {
+      return useMutation(getSendCredentialsEmailMutationOptions(options));
     }
 
 export const getListCustomerContactsUrl = (customerId: number,) => {

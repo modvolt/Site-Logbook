@@ -5,11 +5,14 @@ import {
   useListCustomers,
   useListCustomerSites, getListCustomerSitesQueryKey,
   useListDeviceCredentials, getListDeviceCredentialsQueryKey,
+  useSendCredentialsEmail,
   type DeviceCredential,
 } from "@workspace/api-client-react";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Printer, Mail, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 import { loadCompanySettings } from "@/lib/company-settings";
 
@@ -30,6 +33,8 @@ export default function PristupoveUdajeExport() {
   const params = useParams();
   const customerId = parseInt(params.id || "0", 10);
   const [company] = useState(() => loadCompanySettings());
+  const { toast } = useToast();
+  const sendEmail = useSendCredentialsEmail();
 
   const contractorName = company.name || BRAND_NAME;
   const contractorLogo = company.logoDataUrl || BRAND_LOGO_URL;
@@ -80,6 +85,34 @@ export default function PristupoveUdajeExport() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grouped, sites]);
 
+  const handleSendEmail = async () => {
+    const recipient = customer?.email?.trim();
+    if (!recipient) {
+      toast({
+        variant: "destructive",
+        title: "Chybí e-mail zákazníka",
+        description: "Přidejte e-mail u zákazníka a zkuste to znovu.",
+      });
+      return;
+    }
+    const element = document.getElementById("pristupy-list");
+    if (!element) return;
+    try {
+      const pdfBase64 = await jobSheetPdfBase64(element);
+      const result = await sendEmail.mutateAsync({ id: customerId, data: { pdfBase64 } });
+      toast({
+        title: "E-mail odeslán",
+        description: `Přístupové údaje byly odeslány na ${result.to}.`,
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Odeslání selhalo",
+        description: "E-mail se nepodařilo odeslat. Zkuste to prosím znovu.",
+      });
+    }
+  };
+
   if (loadingCustomers || loadingCreds) {
     return (
       <div className="p-4 md:p-8 max-w-3xl mx-auto w-full space-y-4">
@@ -111,6 +144,19 @@ export default function PristupoveUdajeExport() {
           <h1 className="text-lg font-bold flex-1 min-w-0 truncate">
             Přístupové údaje – export
           </h1>
+          <Button
+            variant="outline"
+            onClick={handleSendEmail}
+            disabled={sendEmail.isPending}
+            className="shrink-0"
+          >
+            {sendEmail.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Mail className="h-4 w-4 mr-2" />
+            )}
+            Odeslat e-mailem
+          </Button>
           <Button onClick={() => window.print()} className="shrink-0">
             <Printer className="h-4 w-4 mr-2" /> Tisk / Uložit PDF
           </Button>

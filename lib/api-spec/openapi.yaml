@@ -629,6 +629,31 @@ paths:
         "404":
           description: Not found
 
+  /customers/{id}/send-credentials-email:
+    post:
+      operationId: sendCredentialsEmail
+      tags: [customers]
+      summary: Email the access-credentials PDF to the customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendCredentialsEmailInput"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendJobEmailResult"
+
   /customers/{customerId}/contacts:
     get:
       operationId: listCustomerContacts
@@ -2196,6 +2221,21 @@ components:
         pdfBase64:
           type: string
           description: Base64-encoded PDF of the job sheet
+        to:
+          type: ["string", "null"]
+          description: Optional override recipient; defaults to the customer's stored email
+        subject:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+
+    SendCredentialsEmailInput:
+      type: object
+      required: [pdfBase64]
+      properties:
+        pdfBase64:
+          type: string
+          description: Base64-encoded PDF of the access-credentials sheet
         to:
           type: ["string", "null"]
           description: Optional override recipient; defaults to the customer's stored email
