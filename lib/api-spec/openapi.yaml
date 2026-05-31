@@ -25,6 +25,13 @@ tags:
     description: Dashboard summaries
   - name: Storage
     description: Object storage upload and serving endpoints.
+  - name: StorageUpload
+    description: |
+      Binary file upload through the API server. Excluded from the generated
+      React Query client (Orval cannot emit a raw-binary request body — it
+      JSON.stringifies anything that isn't form-data/text), so the typed client
+      would corrupt uploads. The hand-written `useUpload` hook posts raw bytes
+      to this endpoint instead. The zod response schema is still generated.
   - name: auth
     description: Authentication and session management
   - name: users
@@ -1577,6 +1584,69 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '500':
           description: Failed to generate upload URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /storage/uploads:
+    post:
+      tags: [StorageUpload]
+      operationId: uploadObject
+      summary: Upload a file's bytes through the API server
+      description: |
+        Receives the raw file bytes in the request body and streams them into
+        object storage from the server. This avoids direct browser→bucket
+        uploads, so no bucket CORS rule or public endpoint is required. The file
+        name and content type are passed as query parameters.
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Original file name.
+        - name: contentType
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: MIME type of the file (e.g. `image/jpeg`).
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: File stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadedObject'
+        '400':
+          description: Missing file content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          description: File too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '415':
+          description: File type not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Failed to store file.
           content:
             application/json:
               schema:
@@ -3170,6 +3240,15 @@ components:
           type: string
           format: uri
           description: Presigned S3 URL for PUT upload.
+        objectPath:
+          type: string
+          description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.
+        metadata:
+          $ref: '#/components/schemas/UploadUrlRequest'
+    UploadedObject:
+      type: object
+      required: [objectPath, metadata]
+      properties:
         objectPath:
           type: string
           description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.

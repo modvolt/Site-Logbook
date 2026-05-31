@@ -1,7 +1,15 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import express, {
+  Router,
+  type IRouter,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
+import { randomUUID } from "node:crypto";
 import {
   RequestUploadUrlBody,
   RequestUploadUrlResponse,
+  UploadObjectResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 
@@ -74,6 +82,74 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     res.status(500).json({ error: "Failed to generate upload URL" });
   }
 });
+
+/**
+ * POST /storage/uploads
+ *
+ * Server-proxied file upload. The browser POSTs the raw file bytes to our own
+ * API (same origin — no bucket CORS or public endpoint needed), and the server
+ * streams them into private object storage. Filename and content type are passed
+ * as query params (?name=...&contentType=...). Replaces the old direct
+ * browser→bucket presigned-PUT flow, which failed on deployments where the
+ * bucket lacked a CORS rule / browser-reachable endpoint.
+ */
+router.post(
+  "/storage/uploads",
+  (req: Request, res: Response, next: NextFunction) => {
+    // Parse the raw body capped at the 30 MB limit. A too-large payload is
+    // rejected here with a clean JSON 413 instead of bubbling up as HTML.
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(req, res, (err) => {
+      if (err) {
+        const e = err as { type?: string; status?: number };
+        if (e.type === "entity.too.large" || e.status === 413) {
+          res.status(413).json({
+            error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+          });
+          return;
+        }
+        next(err);
+        return;
+      }
+      next();
+    });
+  },
+  async (req: Request, res: Response) => {
+    const name = typeof req.query.name === "string" ? req.query.name : "";
+    const contentType =
+      typeof req.query.contentType === "string" ? req.query.contentType : "";
+
+    if (!contentType || !ALLOWED_UPLOAD_TYPES.has(contentType)) {
+      res.status(415).json({ error: "Tento typ souboru není povolen." });
+      return;
+    }
+
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ error: "Chybí obsah souboru." });
+      return;
+    }
+    if (body.length > MAX_UPLOAD_BYTES) {
+      res.status(413).json({
+        error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+      });
+      return;
+    }
+
+    const objectPath = `/objects/uploads/${randomUUID()}`;
+    try {
+      await objectStorageService.putPrivateObject(objectPath, body, contentType);
+      res.json(
+        UploadObjectResponse.parse({
+          objectPath,
+          metadata: { name: name || "soubor", size: body.length, contentType },
+        }),
+      );
+    } catch (error) {
+      req.log.error({ err: error }, "Error uploading object");
+      res.status(500).json({ error: "Nepodařilo se uložit soubor." });
+    }
+  },
+);
 
 /**
  * GET /storage/public-objects/*

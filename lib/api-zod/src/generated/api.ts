@@ -1563,6 +1563,38 @@ export const RequestUploadUrlResponse = zod.object({
 
 
 /**
+ * Receives the raw file bytes in the request body and streams them into
+object storage from the server. This avoids direct browser→bucket
+uploads, so no bucket CORS rule or public endpoint is required. The file
+name and content type are passed as query parameters.
+
+ * @summary Upload a file's bytes through the API server
+ */
+
+
+
+
+export const UploadObjectQueryParams = zod.object({
+  "name": zod.coerce.string().min(1).describe('Original file name.'),
+  "contentType": zod.coerce.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).')
+})
+
+
+
+
+
+
+export const UploadObjectResponse = zod.object({
+  "objectPath": zod.string().describe('Normalized object path (e.g. `\/objects\/uploads\/uuid`). Store this in your database.'),
+  "metadata": zod.object({
+  "name": zod.string().min(1).describe('Original file name.'),
+  "size": zod.number().min(1).describe('File size in bytes.'),
+  "contentType": zod.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).')
+})
+})
+
+
+/**
  * @summary Serve a public asset from PUBLIC_OBJECT_SEARCH_PATHS
  */
 export const GetPublicObjectParams = zod.object({

@@ -17,6 +17,15 @@ export default defineConfig({
   "api-client-react": {
     input: {
       target: "./openapi.yaml",
+      // Exclude the binary upload endpoint from the React Query client: Orval's
+      // fetch client JSON.stringifies any request body that isn't
+      // form-data/url-encoded/text-plain, which corrupts a raw octet-stream
+      // upload. The hand-written `useUpload` hook posts the raw bytes instead.
+      // The zod target (below) still generates the response schema.
+      filters: {
+        mode: "exclude",
+        tags: ["StorageUpload"],
+      },
       override: {
         transformer: titleTransformer,
       },

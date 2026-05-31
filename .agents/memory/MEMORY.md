@@ -7,6 +7,7 @@
 - [PWA shared-device caching](pwa-shared-device-caching.md) — cache authenticated GET /api with NetworkFirst but purge the SW cache on logout so shared devices never leak one user's data to the next.
 - [Recurring occurrence dedupe](recurring-occurrence-dedupe.md) — auto-creating next recurring job on done-transition must dedupe by (type,date,title,customer); gating on status alone duplicates on reopen→re-done.
 - [Device credential vault authz](device-credential-vault-authz.md) — credential-vault routes gate to master+admin (not requireAuth); guests have read access by default & secrets are plaintext.
+- [Orval binary request bodies](orval-binary-body.md) — Orval JSON.stringifies any non-formdata/text body; binary uploads need a hand-rolled fetch hook + exclude the op (dedicated tag) from the react-query client, keep zod schema.
 - [Bulk import / upsert endpoints](bulk-import-upsert.md) — lenient import-item schema (skip+count, don't 400 batch); PARTIAL updates only (never null missing fields); case-insensitive code match in one transaction.
 - [Vite build env requirements](vite-build-env-requirements.md) — stavba vite.config must only require PORT when command===serve (not build), else Docker/Coolify build fails; also raise PWA workbox precache cap above the 2.3MB main bundle.
 - [Coolify one-shot init container](coolify-oneshot-init-container.md) — init/one-shot compose services (e.g. createbuckets) must set restart:"no" + idempotent cmd + exit 0, else Coolify deploy fails with "No such container".

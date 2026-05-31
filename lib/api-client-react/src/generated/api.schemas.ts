@@ -9,6 +9,326 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface Job {
+  id: number;
+  title: string;
+  /** site_visit | consultation | planned_work | service_call | change | other */
+  type: string;
+  /** @nullable */
+  clientSite?: string | null;
+  /**
+     * Physical address for navigation (Waze/Maps)
+     * @nullable
+     */
+  address?: string | null;
+  /** ISO date (YYYY-MM-DD) */
+  date: string;
+  /**
+     * HH:MM
+     * @nullable
+     */
+  startTime?: string | null;
+  /**
+     * HH:MM
+     * @nullable
+     */
+  endTime?: string | null;
+  /** planned | in_progress | done | cancelled */
+  status: string;
+  /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  assignedPersonName?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  hoursSpent?: number | null;
+  /** True when hoursSpent was set from the planned start/end time */
+  hoursFromPlan?: boolean;
+  /**
+     * Previous actual hoursSpent, kept so plan time can be reverted
+     * @nullable
+     */
+  hoursBeforePlan?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  transportKm?: number | null;
+  /** @nullable */
+  transportCost?: number | null;
+  /** @nullable */
+  fines?: number | null;
+  /** @nullable */
+  parking?: number | null;
+  /**
+     * For service_call jobs — auto-create next occurrence this many days after completion
+     * @nullable
+     */
+  recurrenceIntervalDays?: number | null;
+  /**
+     * ISO timestamp when timer was started
+     * @nullable
+     */
+  timerStartedAt?: string | null;
+  /** Manual ordering within a day (lower shows first) */
+  sortOrder: number;
+  taskCount?: number;
+  taskDoneCount?: number;
+  attachmentCount?: number;
+  materialCount?: number;
+  createdAt: string;
+}
+
+export interface JobInput {
+  /** @minLength 1 */
+  title: string;
+  type: string;
+  /** @nullable */
+  clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
+  date: string;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endTime?: string | null;
+  status: string;
+  /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  hoursSpent?: number | null;
+  hoursFromPlan?: boolean;
+  /** @nullable */
+  hoursBeforePlan?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  transportKm?: number | null;
+  /** @nullable */
+  transportCost?: number | null;
+  /** @nullable */
+  fines?: number | null;
+  /** @nullable */
+  parking?: number | null;
+  /** @nullable */
+  recurrenceIntervalDays?: number | null;
+}
+
+export interface JobReorderInput {
+  /** Job IDs in the desired display order */
+  ids: number[];
+}
+
+export interface JobUpdate {
+  /** @minLength 1 */
+  title?: string;
+  type?: string;
+  /** @nullable */
+  clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
+  date?: string;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endTime?: string | null;
+  status?: string;
+  /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  hoursSpent?: number | null;
+  hoursFromPlan?: boolean;
+  /** @nullable */
+  hoursBeforePlan?: number | null;
+  /** @nullable */
+  hoursVasek?: number | null;
+  /** @nullable */
+  hoursJonas?: number | null;
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  transportKm?: number | null;
+  /** @nullable */
+  transportCost?: number | null;
+  /** @nullable */
+  fines?: number | null;
+  /** @nullable */
+  parking?: number | null;
+  /** @nullable */
+  recurrenceIntervalDays?: number | null;
+  /** @nullable */
+  timerStartedAt?: string | null;
+}
+
+export interface JobStatusUpdate {
+  status: string;
+}
+
+export interface SendJobEmailInput {
+  /** Base64-encoded PDF of the job sheet */
+  pdfBase64: string;
+  /**
+     * Optional override recipient; defaults to the customer's stored email
+     * @nullable
+     */
+  to?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  message?: string | null;
+}
+
+export interface SendJobEmailResult {
+  sent: boolean;
+  to: string;
+}
+
+export interface SaveJobSheetInput {
+  /** Base64-encoded PDF of the job sheet */
+  pdfBase64: string;
+  /**
+     * Whether the customer signature is included in the PDF
+     * @nullable
+     */
+  signed?: boolean | null;
+}
+
+export interface Attachment {
+  id: number;
+  jobId: number;
+  /** photo | delivery_note | receipt | invoice | manual_item */
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /**
+     * base64 data URL or file path
+     * @nullable
+     */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /**
+     * For manual items and invoices
+     * @nullable
+     */
+  amount?: number | null;
+  createdAt: string;
+}
+
+export interface Task {
+  id: number;
+  jobId: number;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  done: boolean;
+  /** Marks this task as a change request / extra work */
+  isChangeRequest: boolean;
+  createdAt: string;
+}
+
+export interface TaskInput {
+  /** @minLength 1 */
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  isChangeRequest?: boolean;
+}
+
+export interface TaskUpdate {
+  /** @minLength 1 */
+  title?: string;
+  /** @nullable */
+  description?: string | null;
+  done?: boolean;
+  isChangeRequest?: boolean;
+}
+
+export interface Material {
+  id: number;
+  jobId: number;
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface MaterialInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+}
+
+export interface MaterialUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  done?: boolean;
+}
+
+export interface AttachmentInput {
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  amount?: number | null;
+}
+
+export interface Person {
+  id: number;
+  name: string;
+  createdAt: string;
+}
+
+export interface PersonInput {
+  /** @minLength 1 */
+  name: string;
+}
+
 export interface Customer {
   id: number;
   companyName: string;
@@ -27,28 +347,21 @@ export interface Customer {
   createdAt: string;
 }
 
-export interface SendJobEmailInput {
-  /** Base64-encoded PDF of the job sheet */
-  pdfBase64: string;
-  /**
-     * Optional override recipient; defaults to the customer's stored email
-     * @nullable
-     */
-  to?: string | null;
+export interface CustomerInput {
+  /** @minLength 1 */
+  companyName: string;
   /** @nullable */
-  subject?: string | null;
+  contactPerson?: string | null;
   /** @nullable */
-  message?: string | null;
-}
-
-export interface SaveJobSheetInput {
-  /** Base64-encoded PDF of the job sheet */
-  pdfBase64: string;
-  /**
-     * Whether the customer signature is included in the PDF
-     * @nullable
-     */
-  signed?: boolean | null;
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  ic?: string | null;
+  /** @nullable */
+  dic?: string | null;
+  /** @nullable */
+  address?: string | null;
 }
 
 export interface SendCredentialsEmailInput {
@@ -65,27 +378,9 @@ export interface SendCredentialsEmailInput {
   message?: string | null;
 }
 
-export interface SendJobEmailResult {
-  sent: boolean;
-  to: string;
-}
-
 export interface StatsJobTypeCount {
   type: string;
   count: number;
-}
-
-export interface StatsEmployee {
-  personId: number;
-  name: string;
-  jobs: number;
-  hours: number;
-}
-
-export interface StatsMaterialRow {
-  name: string;
-  cost: number;
-  quantity: number;
 }
 
 export type StatsOverviewJobs = {
@@ -107,6 +402,12 @@ export type StatsOverviewRevenue = {
   transport: number;
 };
 
+export interface StatsMaterialRow {
+  name: string;
+  cost: number;
+  quantity: number;
+}
+
 export type StatsOverviewMaterials = {
   totalCost: number;
   top: StatsMaterialRow[];
@@ -118,6 +419,13 @@ export type StatsOverviewWarehouse = {
   lowStockCount: number;
 };
 
+export interface StatsEmployee {
+  personId: number;
+  name: string;
+  jobs: number;
+  hours: number;
+}
+
 export interface StatsOverview {
   from: string;
   to: string;
@@ -126,23 +434,6 @@ export interface StatsOverview {
   employees: StatsEmployee[];
   materials: StatsOverviewMaterials;
   warehouse: StatsOverviewWarehouse;
-}
-
-export interface CustomerInput {
-  /** @minLength 1 */
-  companyName: string;
-  /** @nullable */
-  contactPerson?: string | null;
-  /** @nullable */
-  phone?: string | null;
-  /** @nullable */
-  email?: string | null;
-  /** @nullable */
-  ic?: string | null;
-  /** @nullable */
-  dic?: string | null;
-  /** @nullable */
-  address?: string | null;
 }
 
 export interface CustomerContact {
@@ -274,295 +565,160 @@ export interface DeviceCredentialUpdate {
   users?: JablotronUser[];
 }
 
-export interface Job {
+export interface Machine {
   id: number;
-  title: string;
-  /** site_visit | consultation | planned_work | service_call | change | other */
-  type: string;
+  name: string;
+  /** stroj | naradi | auto */
+  kind: string;
   /** @nullable */
-  clientSite?: string | null;
+  type?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  purchaseDate?: string | null;
   /**
-     * Physical address for navigation (Waze/Maps)
+     * SPZ (for kind=auto)
      * @nullable
      */
-  address?: string | null;
-  /** ISO date (YYYY-MM-DD) */
-  date: string;
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
   /**
-     * HH:MM
+     * Stav tachometru (for kind=auto)
      * @nullable
      */
-  startTime?: string | null;
+  mileageKm?: number | null;
   /**
-     * HH:MM
+     * STK / revize (ISO date)
      * @nullable
      */
-  endTime?: string | null;
-  /** planned | in_progress | done | cancelled */
-  status: string;
+  inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
   assignedPersonName?: string | null;
   /** @nullable */
-  customerId?: number | null;
-  /** @nullable */
-  customerCompanyName?: string | null;
-  /** @nullable */
-  customerPhone?: string | null;
-  /** @nullable */
-  customerEmail?: string | null;
-  /** @nullable */
   notes?: string | null;
-  /** @nullable */
-  hoursSpent?: number | null;
-  /** True when hoursSpent was set from the planned start/end time */
-  hoursFromPlan?: boolean;
-  /**
-     * Previous actual hoursSpent, kept so plan time can be reverted
-     * @nullable
-     */
-  hoursBeforePlan?: number | null;
-  /** @nullable */
-  hoursVasek?: number | null;
-  /** @nullable */
-  hoursJonas?: number | null;
-  /** @nullable */
-  price?: number | null;
-  /** @nullable */
-  transportKm?: number | null;
-  /** @nullable */
-  transportCost?: number | null;
-  /** @nullable */
-  fines?: number | null;
-  /** @nullable */
-  parking?: number | null;
-  /**
-     * For service_call jobs — auto-create next occurrence this many days after completion
-     * @nullable
-     */
-  recurrenceIntervalDays?: number | null;
-  /**
-     * ISO timestamp when timer was started
-     * @nullable
-     */
-  timerStartedAt?: string | null;
-  /** Manual ordering within a day (lower shows first) */
-  sortOrder: number;
-  taskCount?: number;
-  taskDoneCount?: number;
-  attachmentCount?: number;
-  materialCount?: number;
   createdAt: string;
 }
 
-export interface JobReorderInput {
-  /** Job IDs in the desired display order */
-  ids: number[];
-}
-
-export interface JobInput {
+export interface MachineInput {
   /** @minLength 1 */
-  title: string;
-  type: string;
+  name: string;
+  /** stroj | naradi | auto */
+  kind?: string;
   /** @nullable */
-  clientSite?: string | null;
+  type?: string | null;
   /** @nullable */
-  address?: string | null;
-  date: string;
+  manufacturer?: string | null;
   /** @nullable */
-  startTime?: string | null;
+  serialNumber?: string | null;
   /** @nullable */
-  endTime?: string | null;
-  status: string;
+  purchaseDate?: string | null;
+  /** @nullable */
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
+  /** @nullable */
+  mileageKm?: number | null;
+  /** @nullable */
+  inspectionDate?: string | null;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
-  customerId?: number | null;
-  /** @nullable */
   notes?: string | null;
-  /** @nullable */
-  hoursSpent?: number | null;
-  hoursFromPlan?: boolean;
-  /** @nullable */
-  hoursBeforePlan?: number | null;
-  /** @nullable */
-  hoursVasek?: number | null;
-  /** @nullable */
-  hoursJonas?: number | null;
-  /** @nullable */
-  price?: number | null;
-  /** @nullable */
-  transportKm?: number | null;
-  /** @nullable */
-  transportCost?: number | null;
-  /** @nullable */
-  fines?: number | null;
-  /** @nullable */
-  parking?: number | null;
-  /** @nullable */
-  recurrenceIntervalDays?: number | null;
 }
 
-export interface JobUpdate {
-  /** @minLength 1 */
-  title?: string;
-  type?: string;
-  /** @nullable */
-  clientSite?: string | null;
-  /** @nullable */
-  address?: string | null;
-  date?: string;
-  /** @nullable */
-  startTime?: string | null;
-  /** @nullable */
-  endTime?: string | null;
-  status?: string;
-  /** @nullable */
-  assignedPersonId?: number | null;
-  /** @nullable */
-  customerId?: number | null;
-  /** @nullable */
-  notes?: string | null;
-  /** @nullable */
-  hoursSpent?: number | null;
-  hoursFromPlan?: boolean;
-  /** @nullable */
-  hoursBeforePlan?: number | null;
-  /** @nullable */
-  hoursVasek?: number | null;
-  /** @nullable */
-  hoursJonas?: number | null;
-  /** @nullable */
-  price?: number | null;
-  /** @nullable */
-  transportKm?: number | null;
-  /** @nullable */
-  transportCost?: number | null;
-  /** @nullable */
-  fines?: number | null;
-  /** @nullable */
-  parking?: number | null;
-  /** @nullable */
-  recurrenceIntervalDays?: number | null;
-  /** @nullable */
-  timerStartedAt?: string | null;
-}
-
-export interface Material {
-  id: number;
-  jobId: number;
-  name: string;
-  /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  pricePerUnit?: number | null;
-  done: boolean;
-  sortOrder: number;
-  createdAt: string;
-}
-
-export interface MaterialInput {
-  /** @minLength 1 */
-  name: string;
-  /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  pricePerUnit?: number | null;
-}
-
-export interface MaterialUpdate {
+export interface MachineUpdate {
   /** @minLength 1 */
   name?: string;
+  kind?: string;
+  /** @nullable */
+  type?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  purchaseDate?: string | null;
+  /** @nullable */
+  licensePlate?: string | null;
+  /** @nullable */
+  vin?: string | null;
+  /** @nullable */
+  mileageKm?: number | null;
+  /** @nullable */
+  inspectionDate?: string | null;
+  /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface WarehouseItem {
+  id: number;
+  name: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  category?: string | null;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  purchasePrice?: number | null;
+  /** @nullable */
+  salePrice?: number | null;
+  /** @nullable */
+  minQuantity?: number | null;
+  createdAt: string;
+}
+
+export interface WarehouseItemInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  category?: string | null;
   /** @nullable */
   quantity?: number | null;
   /** @nullable */
   unit?: string | null;
   /** @nullable */
-  pricePerUnit?: number | null;
-  done?: boolean;
+  purchasePrice?: number | null;
+  /** @nullable */
+  salePrice?: number | null;
+  /** @nullable */
+  minQuantity?: number | null;
 }
 
-export interface JobStatusUpdate {
-  status: string;
-}
-
-export interface Task {
-  id: number;
-  jobId: number;
-  title: string;
-  /** @nullable */
-  description?: string | null;
-  done: boolean;
-  /** Marks this task as a change request / extra work */
-  isChangeRequest: boolean;
-  createdAt: string;
-}
-
-export interface TaskInput {
-  /** @minLength 1 */
-  title: string;
-  /** @nullable */
-  description?: string | null;
-  isChangeRequest?: boolean;
-}
-
-export interface TaskUpdate {
-  /** @minLength 1 */
-  title?: string;
-  /** @nullable */
-  description?: string | null;
-  done?: boolean;
-  isChangeRequest?: boolean;
-}
-
-export interface Attachment {
-  id: number;
-  jobId: number;
-  /** photo | delivery_note | receipt | invoice | manual_item */
-  type: string;
-  /** @nullable */
-  fileName?: string | null;
-  /**
-     * base64 data URL or file path
-     * @nullable
-     */
-  url?: string | null;
-  /** @nullable */
-  description?: string | null;
-  /**
-     * For manual items and invoices
-     * @nullable
-     */
-  amount?: number | null;
-  createdAt: string;
-}
-
-export interface AttachmentInput {
-  type: string;
-  /** @nullable */
-  fileName?: string | null;
-  /** @nullable */
-  url?: string | null;
-  /** @nullable */
-  description?: string | null;
-  /** @nullable */
-  amount?: number | null;
-}
-
-export interface Person {
-  id: number;
+export interface WarehouseImportItem {
   name: string;
-  createdAt: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  category?: string | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  purchasePrice?: number | null;
+  /** @nullable */
+  salePrice?: number | null;
+  /** @nullable */
+  minQuantity?: number | null;
 }
 
-export interface PersonInput {
-  /** @minLength 1 */
-  name: string;
+export interface WarehouseImportInput {
+  items: WarehouseImportItem[];
+}
+
+export interface WarehouseImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
 }
 
 export interface DashboardSummary {
@@ -575,30 +731,11 @@ export interface DashboardSummary {
   totalRevenueThisWeek: number;
 }
 
-export interface UploadUrlRequest {
-  /**
-     * Original file name.
-     * @minLength 1
-     */
-  name: string;
-  /**
-     * File size in bytes.
-     * @minimum 1
-     */
-  size: number;
-  /**
-     * MIME type of the file (e.g. `image/jpeg`).
-     * @minLength 1
-     */
-  contentType: string;
-}
-
-export interface UploadUrlResponse {
-  /** Presigned S3 URL for PUT upload. */
-  uploadURL: string;
-  /** Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database. */
-  objectPath: string;
-  metadata?: UploadUrlRequest;
+export interface LoginInput {
+  /** @minLength 1 */
+  username: string;
+  /** @minLength 1 */
+  password: string;
 }
 
 export interface AuthUser {
@@ -613,11 +750,8 @@ export interface AuthUser {
   createdAt: string;
 }
 
-export interface LoginInput {
-  /** @minLength 1 */
-  username: string;
-  /** @minLength 1 */
-  password: string;
+export interface ErrorEnvelope {
+  error: string;
 }
 
 export interface MeResponse {
@@ -636,34 +770,6 @@ export interface SetupInput {
   name: string;
   /** @nullable */
   email?: string | null;
-}
-
-export interface UserInput {
-  /** @minLength 3 */
-  username: string;
-  /** @minLength 6 */
-  password: string;
-  /** @minLength 1 */
-  name: string;
-  /** @nullable */
-  email?: string | null;
-  /** guest | master | admin */
-  role: string;
-  isActive?: boolean;
-}
-
-export interface UserUpdate {
-  /** @minLength 1 */
-  name?: string;
-  /** @nullable */
-  email?: string | null;
-  role?: string;
-  isActive?: boolean;
-  /**
-     * Only set when changing the password
-     * @minLength 6
-     */
-  password?: string;
 }
 
 export interface UserPreferences {
@@ -732,6 +838,114 @@ export interface EmailTestInput {
 export interface EmailTestResult {
   sent: boolean;
   to: string;
+}
+
+export interface UserInput {
+  /** @minLength 3 */
+  username: string;
+  /** @minLength 6 */
+  password: string;
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  email?: string | null;
+  /** guest | master | admin */
+  role: string;
+  isActive?: boolean;
+}
+
+export interface UserUpdate {
+  /** @minLength 1 */
+  name?: string;
+  /** @nullable */
+  email?: string | null;
+  role?: string;
+  isActive?: boolean;
+  /**
+     * Only set when changing the password
+     * @minLength 6
+     */
+  password?: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorName?: string | null;
+  action: string;
+  entityType: string;
+  /** @nullable */
+  entityId?: number | null;
+  /** @nullable */
+  summary?: string | null;
+  /** @nullable */
+  method?: string | null;
+  /** @nullable */
+  path?: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+}
+
+/**
+ * All personal-data records held about the subject
+ */
+export type GdprExportData = { [key: string]: unknown };
+
+export interface GdprExport {
+  subjectType: string;
+  subjectId: number;
+  generatedAt: string;
+  /** All personal-data records held about the subject */
+  data: GdprExportData;
+  /** Object-storage paths of files associated with the subject */
+  files: string[];
+}
+
+export interface GdprEraseInput {
+  /** customer | contact | person */
+  subjectType: string;
+  subjectId: number;
+}
+
+export interface GdprEraseResult {
+  subjectType: string;
+  subjectId: number;
+  deletedFiles: number;
+  failedFiles: number;
+  allFilesRemoved: boolean;
+  message: string;
+}
+
+export interface UploadUrlRequest {
+  /**
+     * Original file name.
+     * @minLength 1
+     */
+  name: string;
+  /**
+     * File size in bytes.
+     * @minimum 1
+     */
+  size: number;
+  /**
+     * MIME type of the file (e.g. `image/jpeg`).
+     * @minLength 1
+     */
+  contentType: string;
+}
+
+export interface UploadUrlResponse {
+  /** Presigned S3 URL for PUT upload. */
+  uploadURL: string;
+  /** Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database. */
+  objectPath: string;
+  metadata?: UploadUrlRequest;
 }
 
 export interface Activity {
@@ -937,181 +1151,6 @@ export interface MyJobSummary {
   status?: string;
 }
 
-export interface Machine {
-  id: number;
-  name: string;
-  /** stroj | naradi | auto */
-  kind: string;
-  /** @nullable */
-  type?: string | null;
-  /** @nullable */
-  manufacturer?: string | null;
-  /** @nullable */
-  serialNumber?: string | null;
-  /** @nullable */
-  purchaseDate?: string | null;
-  /**
-     * SPZ (for kind=auto)
-     * @nullable
-     */
-  licensePlate?: string | null;
-  /** @nullable */
-  vin?: string | null;
-  /**
-     * Stav tachometru (for kind=auto)
-     * @nullable
-     */
-  mileageKm?: number | null;
-  /**
-     * STK / revize (ISO date)
-     * @nullable
-     */
-  inspectionDate?: string | null;
-  /** @nullable */
-  assignedPersonId?: number | null;
-  /** @nullable */
-  assignedPersonName?: string | null;
-  /** @nullable */
-  notes?: string | null;
-  createdAt: string;
-}
-
-export interface MachineInput {
-  /** @minLength 1 */
-  name: string;
-  /** stroj | naradi | auto */
-  kind?: string;
-  /** @nullable */
-  type?: string | null;
-  /** @nullable */
-  manufacturer?: string | null;
-  /** @nullable */
-  serialNumber?: string | null;
-  /** @nullable */
-  purchaseDate?: string | null;
-  /** @nullable */
-  licensePlate?: string | null;
-  /** @nullable */
-  vin?: string | null;
-  /** @nullable */
-  mileageKm?: number | null;
-  /** @nullable */
-  inspectionDate?: string | null;
-  /** @nullable */
-  assignedPersonId?: number | null;
-  /** @nullable */
-  notes?: string | null;
-}
-
-export interface MachineUpdate {
-  /** @minLength 1 */
-  name?: string;
-  kind?: string;
-  /** @nullable */
-  type?: string | null;
-  /** @nullable */
-  manufacturer?: string | null;
-  /** @nullable */
-  serialNumber?: string | null;
-  /** @nullable */
-  purchaseDate?: string | null;
-  /** @nullable */
-  licensePlate?: string | null;
-  /** @nullable */
-  vin?: string | null;
-  /** @nullable */
-  mileageKm?: number | null;
-  /** @nullable */
-  inspectionDate?: string | null;
-  /** @nullable */
-  assignedPersonId?: number | null;
-  /** @nullable */
-  notes?: string | null;
-}
-
-export interface WarehouseItem {
-  id: number;
-  name: string;
-  /** @nullable */
-  code?: string | null;
-  /** @nullable */
-  category?: string | null;
-  quantity: number;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  purchasePrice?: number | null;
-  /** @nullable */
-  salePrice?: number | null;
-  /** @nullable */
-  minQuantity?: number | null;
-  createdAt: string;
-}
-
-export interface WarehouseItemInput {
-  /** @minLength 1 */
-  name: string;
-  /** @nullable */
-  code?: string | null;
-  /** @nullable */
-  category?: string | null;
-  /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  purchasePrice?: number | null;
-  /** @nullable */
-  salePrice?: number | null;
-  /** @nullable */
-  minQuantity?: number | null;
-}
-
-export interface WarehouseImportItem {
-  name: string;
-  /** @nullable */
-  code?: string | null;
-  /** @nullable */
-  category?: string | null;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  purchasePrice?: number | null;
-  /** @nullable */
-  salePrice?: number | null;
-  /** @nullable */
-  minQuantity?: number | null;
-}
-
-export interface WarehouseImportInput {
-  items: WarehouseImportItem[];
-}
-
-export interface WarehouseImportResult {
-  created: number;
-  updated: number;
-  skipped: number;
-}
-
-export interface AuditLogEntry {
-  id: number;
-  /** @nullable */
-  actorUserId?: number | null;
-  /** @nullable */
-  actorName?: string | null;
-  action: string;
-  entityType: string;
-  /** @nullable */
-  entityId?: number | null;
-  /** @nullable */
-  summary?: string | null;
-  /** @nullable */
-  method?: string | null;
-  /** @nullable */
-  path?: string | null;
-  createdAt: string;
-}
-
 export type BackupStatus = typeof BackupStatus[keyof typeof BackupStatus];
 
 
@@ -1147,45 +1186,6 @@ export interface BackupListResponse {
   items: Backup[];
   /** @nullable */
   lastSuccessAt: string | null;
-}
-
-export interface AuditLogPage {
-  items: AuditLogEntry[];
-  total: number;
-}
-
-/**
- * All personal-data records held about the subject
- */
-export type GdprExportData = { [key: string]: unknown };
-
-export interface GdprExport {
-  subjectType: string;
-  subjectId: number;
-  generatedAt: string;
-  /** All personal-data records held about the subject */
-  data: GdprExportData;
-  /** Object-storage paths of files associated with the subject */
-  files: string[];
-}
-
-export interface GdprEraseInput {
-  /** customer | contact | person */
-  subjectType: string;
-  subjectId: number;
-}
-
-export interface GdprEraseResult {
-  subjectType: string;
-  subjectId: number;
-  deletedFiles: number;
-  failedFiles: number;
-  allFilesRemoved: boolean;
-  message: string;
-}
-
-export interface ErrorEnvelope {
-  error: string;
 }
 
 export type ListJobsParams = {
