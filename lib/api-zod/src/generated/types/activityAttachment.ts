@@ -9,7 +9,7 @@
 export interface ActivityAttachment {
   id: number;
   activityId: number;
-  /** photo */
+  /** photo | delivery_note | receipt | invoice */
   type: string;
   /** @nullable */
   fileName?: string | null;

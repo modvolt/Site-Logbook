@@ -30,6 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
   ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Download,
+  Receipt, FileImage,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -414,6 +415,9 @@ export default function ActivityDetail() {
       {/* Extra works (vícepráce) */}
       <ExtraWorksSection activityId={id} canWrite={can("write")} />
 
+      {/* Doklady (faktury, účtenky, dodací listy) */}
+      <ActivityDokladySection activityId={id} canWrite={can("write")} />
+
       {/* Photos */}
       <PhotosSection activityId={id} canWrite={can("write")} />
     </div>
@@ -427,7 +431,6 @@ type Material = {
   quantity?: number | null;
   unit?: string | null;
   pricePerUnit?: number | null;
-  receiptUrl?: string | null;
   done: boolean;
   sortOrder: number;
   createdAt: string;
@@ -537,13 +540,6 @@ function MaterialsSection({
                       </div>
                     )}
                   </div>
-                  <MaterialReceipt
-                    activityId={activityId}
-                    material={m}
-                    canWrite={canWrite}
-                    updateMaterial={updateMaterial}
-                    onChange={onChange}
-                  />
                   {canWrite && (
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-rose-500" onClick={() => handleDelete(m.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
@@ -556,110 +552,6 @@ function MaterialsSection({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function MaterialReceipt({
-  activityId, material, canWrite, updateMaterial, onChange,
-}: {
-  activityId: number;
-  material: Material;
-  canWrite: boolean;
-  updateMaterial: ReturnType<typeof useUpdateActivityMaterial>;
-  onChange: () => void;
-}) {
-  const { toast } = useToast();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const { uploadFile, isUploading } = useUpload();
-  const src = getAttachmentUrl(material.receiptUrl);
-
-  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-    try {
-      const prepared = await prepareImageFile(file);
-      const result = await uploadFile(prepared);
-      if (!result) {
-        toast({ title: "Nahrání selhalo", variant: "destructive" });
-        return;
-      }
-      updateMaterial.mutate(
-        { activityId, materialId: material.id, data: { receiptUrl: result.objectPath } },
-        { onSuccess: () => { onChange(); toast({ title: "Doklad uložen" }); } },
-      );
-    } catch {
-      toast({ title: "Zpracování fotky selhalo", variant: "destructive" });
-    }
-  };
-
-  const handleRemove = () => {
-    if (!confirm("Odebrat foto dokladu?")) return;
-    updateMaterial.mutate(
-      { activityId, materialId: material.id, data: { receiptUrl: null } },
-      { onSuccess: onChange },
-    );
-  };
-
-  if (src) {
-    return (
-      <div className="flex items-center gap-0.5 shrink-0">
-        <a
-          href={src}
-          target="_blank"
-          rel="noreferrer"
-          className="block h-9 w-9 rounded-md overflow-hidden border bg-muted"
-          title="Zobrazit doklad"
-        >
-          <img src={src} alt="Doklad" className="h-full w-full object-cover" />
-        </a>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground"
-          onClick={() => downloadAttachment(src, `doklad-${material.name || material.id}.jpg`)}
-          title="Stáhnout doklad"
-          aria-label="Stáhnout doklad"
-        >
-          <Download className="h-3.5 w-3.5" />
-        </Button>
-        {canWrite && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground"
-            onClick={handleRemove}
-            title="Odebrat doklad"
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  if (!canWrite) return null;
-
-  return (
-    <>
-      <input
-        type="file"
-        accept="image/*"
-        ref={inputRef}
-        onChange={handlePick}
-        className="hidden"
-      />
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 text-muted-foreground shrink-0"
-        onClick={() => inputRef.current?.click()}
-        disabled={isUploading || updateMaterial.isPending}
-        title="Přidat foto dokladu"
-      >
-        <Camera className="h-3.5 w-3.5" />
-      </Button>
-    </>
   );
 }
 
@@ -830,6 +722,148 @@ function ActivityTimeEntries({ activityId, canWrite, onChange }: { activityId: n
   );
 }
 
+const DOKLAD_TYPES = ["invoice", "receipt", "delivery_note"];
+
+function dokladTypeLabel(t: string | null | undefined): string {
+  return t === "invoice" ? "Faktura" : t === "receipt" ? "Účtenka" : "Dodací list";
+}
+
+function ActivityDokladySection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const listKey = getListActivityAttachmentsQueryKey(activityId);
+  const { data: attachments } = useListActivityAttachments(activityId, {
+    query: { queryKey: listKey, enabled: Number.isFinite(activityId) },
+  });
+  const createAttachment = useCreateActivityAttachment();
+  const deleteAttachment = useDeleteActivityAttachment();
+  const { uploadFile: uploadDoklad, isUploading } = useUpload();
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
+  const doklady = (attachments ?? []).filter((a) => DOKLAD_TYPES.includes(a.type ?? ""));
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const isPhoto =
+      file.type.startsWith("image/") ||
+      file.name.toLowerCase().endsWith(".heic") ||
+      file.name.toLowerCase().endsWith(".heif");
+    const type = isPhoto ? "receipt" : "invoice";
+    try {
+      const toUpload = isPhoto ? await prepareImageFile(file) : file;
+      const result = await uploadDoklad(toUpload);
+      if (!result) {
+        toast({ title: "Nahrání selhalo", variant: "destructive" });
+        return;
+      }
+      createAttachment.mutate(
+        { activityId, data: { type, fileName: toUpload.name, url: result.objectPath, description: "Doklad" } },
+        { onSuccess: () => { invalidate(); toast({ title: "Doklad uložen" }); } },
+      );
+    } catch {
+      toast({ title: "Zpracování souboru selhalo", variant: "destructive" });
+    }
+  };
+
+  const handleDelete = (id: number) => {
+    if (!confirm("Smazat tento doklad?")) return;
+    deleteAttachment.mutate({ activityId, attachmentId: id }, { onSuccess: invalidate });
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold flex items-center gap-2">
+          <Receipt className="h-4 w-4 text-emerald-500" /> Doklady
+          {doklady.length > 0 && (
+            <span className="text-sm font-normal text-muted-foreground">· {doklady.length}</span>
+          )}
+        </h2>
+
+        {canWrite && (
+          <>
+            <input
+              type="file"
+              accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
+              capture="environment"
+              ref={fileInputRef}
+              onChange={handleUpload}
+              className="hidden"
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={createAttachment.isPending || isUploading}
+              variant="secondary"
+              className="w-full h-11"
+            >
+              <Camera className="h-4 w-4 mr-2" /> {isUploading ? "Nahrávám..." : "Vyfotit / nahrát doklad"}
+            </Button>
+          </>
+        )}
+
+        {doklady.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+            <Receipt className="w-8 h-8 mx-auto mb-2 opacity-20" />
+            <p className="text-sm">Přidejte faktury, účtenky nebo dodací listy.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {doklady.map((doc) => {
+              const displayUrl = getAttachmentUrl(doc.url);
+              return (
+                <div key={doc.id} className="flex items-center gap-3 p-3 bg-muted/40 border rounded-lg">
+                  <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded text-amber-600 dark:text-amber-400 shrink-0">
+                    <FileImage className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{doc.fileName || "Doklad"}</p>
+                    <p className="text-xs text-muted-foreground">{dokladTypeLabel(doc.type)}</p>
+                  </div>
+                  {displayUrl && (
+                    <>
+                      <a
+                        href={displayUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary hover:underline shrink-0"
+                      >
+                        Zobrazit
+                      </a>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground shrink-0"
+                        onClick={() => downloadAttachment(displayUrl, doc.fileName || `doklad-${doc.id}`)}
+                        title="Stáhnout doklad"
+                        aria-label="Stáhnout doklad"
+                      >
+                        <Download className="w-4 h-4" />
+                      </Button>
+                    </>
+                  )}
+                  {canWrite && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-rose-500 shrink-0"
+                      onClick={() => handleDelete(doc.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -843,7 +877,7 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
   const { uploadFile: uploadPhoto, isUploading } = useUpload();
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
-  const photos = attachments ?? [];
+  const photos = (attachments ?? []).filter((a) => (a.type ?? "photo") === "photo");
 
   const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

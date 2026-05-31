@@ -10,7 +10,6 @@ export const activityMaterialsTable = pgTable("activity_materials", {
   quantity: numeric("quantity", { precision: 10, scale: 2 }),
   unit: text("unit"),
   pricePerUnit: numeric("price_per_unit", { precision: 10, scale: 2 }),
-  receiptUrl: text("receipt_url"),
   done: boolean("done").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),

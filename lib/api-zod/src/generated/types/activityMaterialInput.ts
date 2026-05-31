@@ -15,8 +15,6 @@ export interface ActivityMaterialInput {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
-  /** @nullable */
-  receiptUrl?: string | null;
   done?: boolean;
   sortOrder?: number;
 }
