@@ -1301,6 +1301,62 @@ export const UpdateMyPreferencesResponse = zod.object({
 
 
 /**
+ * @summary Get the outgoing e-mail (SMTP / Gmail) configuration (admin only)
+ */
+export const GetEmailSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "host": zod.string().nullable(),
+  "port": zod.number(),
+  "secure": zod.boolean(),
+  "username": zod.string().nullable(),
+  "fromAddress": zod.string().nullable(),
+  "fromName": zod.string().nullable(),
+  "passwordSet": zod.boolean().describe('Whether a password \/ app password is stored.'),
+  "source": zod.enum(['db', 'env', 'none']).describe('Which configuration is currently active for sending: \"db\" (this saved config), \"env\" (SMTP_\* environment fallback), or \"none\".')
+})
+
+
+/**
+ * @summary Update the outgoing e-mail configuration (admin only)
+ */
+export const UpdateEmailSettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "host": zod.string().nullable(),
+  "port": zod.number(),
+  "secure": zod.boolean(),
+  "username": zod.string().nullable(),
+  "fromAddress": zod.string().nullable(),
+  "fromName": zod.string().nullable(),
+  "password": zod.string().nullish().describe('Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit \/ null to keep the existing password.')
+})
+
+export const UpdateEmailSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "host": zod.string().nullable(),
+  "port": zod.number(),
+  "secure": zod.boolean(),
+  "username": zod.string().nullable(),
+  "fromAddress": zod.string().nullable(),
+  "fromName": zod.string().nullable(),
+  "passwordSet": zod.boolean().describe('Whether a password \/ app password is stored.'),
+  "source": zod.enum(['db', 'env', 'none']).describe('Which configuration is currently active for sending: \"db\" (this saved config), \"env\" (SMTP_\* environment fallback), or \"none\".')
+})
+
+
+/**
+ * @summary Send a test e-mail using the saved configuration (admin only)
+ */
+export const SendTestEmailBody = zod.object({
+  "to": zod.string()
+})
+
+export const SendTestEmailResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string()
+})
+
+
+/**
  * @summary List all users (admin only)
  */
 export const ListUsersResponseItem = zod.object({

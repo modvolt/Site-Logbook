@@ -666,6 +666,64 @@ export interface UserPreferencesInput {
   exportColumns?: string[] | null;
 }
 
+/**
+ * Which configuration is currently active for sending: "db" (this saved config), "env" (SMTP_* environment fallback), or "none".
+ */
+export type EmailSettingsSource = typeof EmailSettingsSource[keyof typeof EmailSettingsSource];
+
+
+export const EmailSettingsSource = {
+  db: 'db',
+  env: 'env',
+  none: 'none',
+} as const;
+
+export interface EmailSettings {
+  enabled: boolean;
+  /** @nullable */
+  host: string | null;
+  port: number;
+  secure: boolean;
+  /** @nullable */
+  username: string | null;
+  /** @nullable */
+  fromAddress: string | null;
+  /** @nullable */
+  fromName: string | null;
+  /** Whether a password / app password is stored. */
+  passwordSet: boolean;
+  /** Which configuration is currently active for sending: "db" (this saved config), "env" (SMTP_* environment fallback), or "none". */
+  source: EmailSettingsSource;
+}
+
+export interface EmailSettingsInput {
+  enabled: boolean;
+  /** @nullable */
+  host: string | null;
+  port: number;
+  secure: boolean;
+  /** @nullable */
+  username: string | null;
+  /** @nullable */
+  fromAddress: string | null;
+  /** @nullable */
+  fromName: string | null;
+  /**
+     * Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit / null to keep the existing password.
+     * @nullable
+     */
+  password?: string | null;
+}
+
+export interface EmailTestInput {
+  to: string;
+}
+
+export interface EmailTestResult {
+  sent: boolean;
+  to: string;
+}
+
 export interface Activity {
   id: number;
   name: string;

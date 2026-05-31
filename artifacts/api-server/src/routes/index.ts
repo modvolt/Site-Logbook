@@ -22,6 +22,7 @@ import auditRouter from "./audit";
 import gdprRouter from "./gdpr";
 import timeEntriesRouter from "./time-entries";
 import statsRouter from "./stats";
+import emailSettingsRouter from "./email-settings";
 
 const router: IRouter = Router();
 
@@ -48,5 +49,6 @@ router.use(auditRouter);
 router.use(gdprRouter);
 router.use(timeEntriesRouter);
 router.use(statsRouter);
+router.use(emailSettingsRouter);
 
 export default router;

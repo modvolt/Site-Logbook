@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  useGetEmailSettings,
+  useUpdateEmailSettings,
+  useSendTestEmail,
+  getGetEmailSettingsQueryKey,
+  type EmailSettingsInput,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import {
   loadCompanySettings,
   saveCompanySettings,
@@ -16,8 +27,292 @@ import {
 const MAX_LOGO_BYTES = 500 * 1024;
 const MAX_SIGNATURE_BYTES = 500 * 1024;
 
+type EmailForm = {
+  enabled: boolean;
+  host: string;
+  port: string;
+  secure: boolean;
+  username: string;
+  password: string;
+  fromAddress: string;
+  fromName: string;
+};
+
+const EMPTY_EMAIL_FORM: EmailForm = {
+  enabled: false,
+  host: "",
+  port: "587",
+  secure: false,
+  username: "",
+  password: "",
+  fromAddress: "",
+  fromName: "",
+};
+
+function EmailSettingsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetEmailSettings({
+    query: { queryKey: getGetEmailSettingsQueryKey() },
+  });
+  const updateMutation = useUpdateEmailSettings();
+  const testMutation = useSendTestEmail();
+
+  const [form, setForm] = useState<EmailForm>(EMPTY_EMAIL_FORM);
+  const [passwordSet, setPasswordSet] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [testTo, setTestTo] = useState("");
+  const [source, setSource] = useState<"db" | "env" | "none">("none");
+
+  useEffect(() => {
+    if (!data) return;
+    setForm({
+      enabled: data.enabled,
+      host: data.host ?? "",
+      port: String(data.port ?? 587),
+      secure: data.secure,
+      username: data.username ?? "",
+      password: "",
+      fromAddress: data.fromAddress ?? "",
+      fromName: data.fromName ?? "",
+    });
+    setPasswordSet(data.passwordSet);
+    setPasswordTouched(false);
+    setSource(data.source);
+  }, [data]);
+
+  function set<K extends keyof EmailForm>(key: K, value: EmailForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function applyGmailPreset() {
+    setForm((f) => ({ ...f, host: "smtp.gmail.com", port: "587", secure: false }));
+  }
+
+  function handleSave() {
+    const port = Number(form.port);
+    if (!Number.isInteger(port) || port <= 0) {
+      toast({ title: "Neplatný port", variant: "destructive" });
+      return;
+    }
+    const body: EmailSettingsInput = {
+      enabled: form.enabled,
+      host: form.host.trim() || null,
+      port,
+      secure: form.secure,
+      username: form.username.trim() || null,
+      fromAddress: form.fromAddress.trim() || null,
+      fromName: form.fromName.trim() || null,
+      // Only send password when the user typed a new one; otherwise keep existing.
+      ...(passwordTouched ? { password: form.password } : {}),
+    };
+    updateMutation.mutate(
+      { data: body },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetEmailSettingsQueryKey() });
+          toast({ title: "Nastavení e-mailu uloženo" });
+        },
+        onError: (err: any) =>
+          toast({ title: "Uložení selhalo", description: err?.message, variant: "destructive" }),
+      },
+    );
+  }
+
+  function handleTest() {
+    const to = testTo.trim();
+    if (!to) {
+      toast({ title: "Zadejte e-mail příjemce testu", variant: "destructive" });
+      return;
+    }
+    testMutation.mutate(
+      { data: { to } },
+      {
+        onSuccess: () =>
+          toast({ title: "Testovací e-mail odeslán", description: `Odesláno na ${to}.` }),
+        onError: (err: any) =>
+          toast({
+            title: "Odeslání testu selhalo",
+            description: err?.message,
+            variant: "destructive",
+          }),
+      },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Mail className="h-5 w-5" /> Odesílání e-mailů (Gmail / SMTP)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-sm text-muted-foreground">
+          Nastavení serveru pro odesílání e-mailů (zakázkový list, přístupové údaje).
+          Změny se projeví ihned i v ostrém provozu, bez nutnosti nasazení.
+        </p>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Načítání…</p>
+        ) : (
+          <>
+            {source === "env" && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-300">
+                E-maily se nyní odesílají podle proměnných prostředí (SMTP_*). Vyplňte
+                a aktivujte nastavení níže, chcete-li je spravovat odtud.
+              </div>
+            )}
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label className="font-medium">Odesílat e-maily z tohoto nastavení</Label>
+                <p className="text-xs text-muted-foreground">
+                  Když je vypnuto, použijí se proměnné prostředí (pokud existují).
+                </p>
+              </div>
+              <Switch
+                checked={form.enabled}
+                onCheckedChange={(v) => set("enabled", v)}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Rychlé předvyplnění:</span>
+              <Button type="button" variant="outline" size="sm" onClick={applyGmailPreset} className="gap-2">
+                <Mail className="h-4 w-4" /> Gmail
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="smtp-host">SMTP server</Label>
+                <Input
+                  id="smtp-host"
+                  value={form.host}
+                  onChange={(e) => set("host", e.target.value)}
+                  placeholder="smtp.gmail.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="smtp-port">Port</Label>
+                <Input
+                  id="smtp-port"
+                  type="number"
+                  value={form.port}
+                  onChange={(e) => set("port", e.target.value)}
+                  placeholder="587"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label className="font-medium">Zabezpečené spojení (SSL/TLS)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Zapněte pro port 465. Pro port 587 (Gmail) nechte vypnuté (STARTTLS).
+                </p>
+              </div>
+              <Switch checked={form.secure} onCheckedChange={(v) => set("secure", v)} />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="smtp-user">Uživatelské jméno (e-mail)</Label>
+              <Input
+                id="smtp-user"
+                value={form.username}
+                onChange={(e) => set("username", e.target.value)}
+                placeholder="vase.adresa@gmail.com"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="smtp-pass">Heslo {form.host.includes("gmail") ? "(heslo aplikace)" : ""}</Label>
+              <Input
+                id="smtp-pass"
+                type="password"
+                value={form.password}
+                onChange={(e) => {
+                  set("password", e.target.value);
+                  setPasswordTouched(true);
+                }}
+                placeholder={passwordSet ? "•••••••• (uloženo – ponechte prázdné pro zachování)" : "Zadejte heslo"}
+                autoComplete="new-password"
+              />
+              <p className="text-xs text-muted-foreground">
+                Pro Gmail s dvoufázovým ověřením vytvořte „Heslo aplikace“ (16 znaků) v
+                nastavení účtu Google a vložte je sem.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="smtp-from">Adresa odesílatele</Label>
+                <Input
+                  id="smtp-from"
+                  value={form.fromAddress}
+                  onChange={(e) => set("fromAddress", e.target.value)}
+                  placeholder="vase.adresa@gmail.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Nevyplníte-li, použije se uživatelské jméno.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="smtp-fromname">Jméno odesílatele</Label>
+                <Input
+                  id="smtp-fromname"
+                  value={form.fromName}
+                  onChange={(e) => set("fromName", e.target.value)}
+                  placeholder="Modvolt s.r.o."
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 border-t pt-4">
+              <Button onClick={handleSave} disabled={updateMutation.isPending} className="gap-2">
+                <Save className="h-4 w-4" />
+                {updateMutation.isPending ? "Ukládání…" : "Uložit nastavení"}
+              </Button>
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="smtp-test">Odeslat testovací e-mail</Label>
+              <p className="text-xs text-muted-foreground">
+                Nejprve uložte nastavení, poté ověřte odesílání na zvolenou adresu.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  id="smtp-test"
+                  type="email"
+                  value={testTo}
+                  onChange={(e) => setTestTo(e.target.value)}
+                  placeholder="prijemce@example.com"
+                  className="sm:max-w-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTest}
+                  disabled={testMutation.isPending}
+                  className="gap-2"
+                >
+                  <Send className="h-4 w-4" />
+                  {testMutation.isPending ? "Odesílání…" : "Odeslat test"}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { theme, setTheme } = useTheme();
+  const { can } = useAuth();
   const [companyName, setCompanyName] = useState("");
   const [logoDataUrl, setLogoDataUrl] = useState("");
   const [info, setInfo] = useState("");
@@ -344,6 +639,8 @@ export default function Settings() {
           {savedAt && <p className="text-xs text-muted-foreground">Uloženo.</p>}
         </CardContent>
       </Card>
+
+      {can("manageUsers") && <EmailSettingsCard />}
     </div>
   );
 }

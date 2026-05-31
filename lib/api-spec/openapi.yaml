@@ -1247,6 +1247,91 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /email-settings:
+    get:
+      operationId: getEmailSettings
+      tags: [email]
+      summary: Get the outgoing e-mail (SMTP / Gmail) configuration (admin only)
+      responses:
+        "200":
+          description: Current e-mail configuration (password is never returned)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateEmailSettings
+      tags: [email]
+      summary: Update the outgoing e-mail configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailSettingsInput"
+      responses:
+        "200":
+          description: Updated e-mail configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /email-settings/test:
+    post:
+      operationId: sendTestEmail
+      tags: [email]
+      summary: Send a test e-mail using the saved configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailTestInput"
+      responses:
+        "200":
+          description: Test e-mail sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTestResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Sending failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users:
     get:
       operationId: listUsers
@@ -3092,6 +3177,75 @@ components:
           type: ["array", "null"]
           items:
             type: string
+
+    EmailSettings:
+      type: object
+      required:
+        [enabled, host, port, secure, username, fromAddress, fromName, passwordSet, source]
+      properties:
+        enabled:
+          type: boolean
+        host:
+          type: ["string", "null"]
+        port:
+          type: integer
+        secure:
+          type: boolean
+        username:
+          type: ["string", "null"]
+        fromAddress:
+          type: ["string", "null"]
+        fromName:
+          type: ["string", "null"]
+        passwordSet:
+          type: boolean
+          description: Whether a password / app password is stored.
+        source:
+          type: string
+          enum: [db, env, none]
+          description: >-
+            Which configuration is currently active for sending: "db" (this
+            saved config), "env" (SMTP_* environment fallback), or "none".
+
+    EmailSettingsInput:
+      type: object
+      required: [enabled, host, port, secure, username, fromAddress, fromName]
+      properties:
+        enabled:
+          type: boolean
+        host:
+          type: ["string", "null"]
+        port:
+          type: integer
+        secure:
+          type: boolean
+        username:
+          type: ["string", "null"]
+        fromAddress:
+          type: ["string", "null"]
+        fromName:
+          type: ["string", "null"]
+        password:
+          type: ["string", "null"]
+          description: >-
+            Write-only. Provide a non-empty string to set the password, an empty
+            string to clear it, or omit / null to keep the existing password.
+
+    EmailTestInput:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+
+    EmailTestResult:
+      type: object
+      required: [sent, to]
+      properties:
+        sent:
+          type: boolean
+        to:
+          type: string
 
     Activity:
       type: object
