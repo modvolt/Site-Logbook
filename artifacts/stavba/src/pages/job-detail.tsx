@@ -7,6 +7,7 @@ import {
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
+  useListWarehouseItems, getListWarehouseItemsQueryKey,
   useListCustomers, getListCustomersQueryKey,
   useListJobTimeEntries, getListJobTimeEntriesQueryKey,
   useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
@@ -25,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Autocomplete } from "@/components/autocomplete";
 import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -892,6 +894,10 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const deleteMaterial = useDeleteMaterial();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { data: warehouseItems } = useListWarehouseItems({
+    query: { enabled: isExpanded, queryKey: getListWarehouseItemsQueryKey() }
+  });
+  const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
 
   const [newName, setNewName] = useState("");
   const [newQty, setNewQty] = useState("");
@@ -939,7 +945,9 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
         {/* Add form */}
         <form onSubmit={handleAdd} className="space-y-2">
           <div className="flex gap-2">
-            <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Název materiálu..." className="h-12 text-base flex-1 bg-background" />
+            <div className="flex-1">
+              <Autocomplete value={newName} onValueChange={setNewName} suggestions={materialSuggestions} placeholder="Název materiálu..." className="h-12 text-base bg-background" />
+            </div>
             <Button type="submit" disabled={!newName.trim() || createMaterial.isPending} className="h-12 px-4">
               <Plus className="w-5 h-5" />
             </Button>

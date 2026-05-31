@@ -3,12 +3,13 @@ import { useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { 
   useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
-  useListCustomers,
-  getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey 
+  useListCustomers, useListJobs, useListWarehouseItems,
+  getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey 
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Autocomplete } from "@/components/autocomplete";
 import { Label } from "@/components/ui/label";
 import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,6 +34,11 @@ export default function JobForm() {
   
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
   const { data: customers } = useListCustomers({ query: { queryKey: getListCustomersQueryKey() } });
+  const { data: existingJobs } = useListJobs(undefined, { query: { queryKey: getListJobsQueryKey() } });
+  const { data: warehouseItems } = useListWarehouseItems({ query: { queryKey: getListWarehouseItemsQueryKey() } });
+
+  const titleSuggestions = (existingJobs ?? []).map(j => j.title);
+  const materialSuggestions = (warehouseItems ?? []).map(w => w.name);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -179,9 +185,14 @@ export default function JobForm() {
 
           <div className="space-y-2">
             <Label htmlFor="title" className="text-base">Název zakázky *</Label>
-            <Input 
-              id="title" name="title" value={formData.title} onChange={handleChange} 
-              placeholder="např. Oprava střechy" className="h-14 text-lg" autoFocus
+            <Autocomplete
+              id="title"
+              value={formData.title}
+              onValueChange={v => setFormData(p => ({ ...p, title: v }))}
+              suggestions={titleSuggestions}
+              placeholder="např. Oprava střechy"
+              className="h-14 text-lg"
+              autoFocus
             />
           </div>
 
@@ -401,9 +412,10 @@ export default function JobForm() {
               </div>
             )}
             <div className="space-y-2">
-              <Input
+              <Autocomplete
                 value={newMaterial.name}
-                onChange={e => setNewMaterial(p => ({ ...p, name: e.target.value }))}
+                onValueChange={v => setNewMaterial(p => ({ ...p, name: v }))}
+                suggestions={materialSuggestions}
                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addMaterial(); } }}
                 placeholder="Název materiálu..."
                 className="h-12 text-base"

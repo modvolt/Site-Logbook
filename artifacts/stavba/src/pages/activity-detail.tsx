@@ -10,6 +10,7 @@ import {
   useCreateActivityAttachment, useDeleteActivityAttachment,
   useListActivityExtraWorks, getListActivityExtraWorksQueryKey,
   useCreateActivityExtraWork, useUpdateActivityExtraWork, useDeleteActivityExtraWork,
+  useListWarehouseItems, getListWarehouseItemsQueryKey,
   useListCustomers, getGetMyStatsQueryKey,
   useListActivityTimeEntries, getListActivityTimeEntriesQueryKey,
   useCreateActivityTimeEntry, useStartActivityTimeEntry, useStopActivityTimeEntry,
@@ -21,6 +22,7 @@ import { useUpload } from "@workspace/object-storage-web";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Autocomplete } from "@/components/autocomplete";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -423,6 +425,8 @@ function MaterialsSection({
   onChange: () => void;
 }) {
   const { toast } = useToast();
+  const { data: warehouseItems } = useListWarehouseItems({ query: { queryKey: getListWarehouseItemsQueryKey() } });
+  const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });
 
@@ -479,7 +483,7 @@ function MaterialsSection({
 
         {showAdd && canWrite && (
           <form onSubmit={handleAdd} className="space-y-2 p-3 border rounded-md bg-muted/30">
-            <Input placeholder="Název" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus required />
+            <Autocomplete placeholder="Název" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} suggestions={materialSuggestions} autoFocus required />
             <div className="grid grid-cols-3 gap-2">
               <Input placeholder="Množ." type="number" step="0.01" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
               <Input placeholder="Jed." value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
