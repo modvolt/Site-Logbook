@@ -49,6 +49,17 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Database dumps / backups (these belong in object storage, never the repo)
+*.pgcustom
+*.dump
+*.sql.gz
+*.sql.zst
+*.bak
+
+# Logs
+*.log
+logs/
+
 # Replit
 .cache/
 .local/
