@@ -25,11 +25,12 @@ interface UseUploadOptions {
 }
 
 /**
- * React hook for handling file uploads with presigned URLs.
+ * React hook for server-proxied file uploads.
  *
- * This hook implements the two-step presigned URL upload flow:
- * 1. Request a presigned URL from your backend (sends JSON metadata, NOT the file)
- * 2. Upload the file directly to the presigned URL
+ * The browser POSTs the raw file bytes to our own API (same origin, no bucket
+ * CORS), which streams them into private object storage. Failures surface a
+ * precise Czech reason (HTTP status + server/proxy detail, or a connectivity
+ * hint) so the person on site can see the exact problem.
  *
  * @example
  * ```tsx
@@ -73,6 +74,43 @@ export interface BatchResult {
   errors: Error[];
 }
 
+/**
+ * Turn a non-2xx upload response into a precise, user-readable Czech message.
+ *
+ * Our own API answers errors as JSON `{ error }`; we surface that verbatim.
+ * When the body is not JSON (e.g. an nginx/proxy HTML error page for a 413/502),
+ * we strip the markup and keep a short snippet. The HTTP status is always
+ * included so the exact problem is visible to the person on site.
+ */
+function describeUploadHttpError(status: number, responseText: string): string {
+  let detail = "";
+  try {
+    const data = JSON.parse(responseText) as { error?: unknown };
+    if (data && typeof data.error === "string") detail = data.error;
+  } catch {
+    // Non-JSON body (proxy error page, gateway HTML, …): keep a clean snippet.
+    detail = (responseText || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
+  }
+
+  // Status-specific hint when the body carried no usable detail.
+  if (!detail) {
+    if (status === 401) detail = "nejste přihlášeni (přihlaste se znovu)";
+    else if (status === 403) detail = "nemáte oprávnění nahrávat soubory";
+    else if (status === 413)
+      detail = "soubor je příliš velký (překročen limit serveru nebo proxy)";
+    else if (status === 415) detail = "tento typ souboru není povolen";
+    else if (status === 502 || status === 503 || status === 504)
+      detail = "server je dočasně nedostupný, zkuste to znovu";
+    else detail = "neočekávaná chyba serveru";
+  }
+
+  return `Nahrávání selhalo (HTTP ${status}): ${detail}`;
+}
+
 export function useUpload(options: UseUploadOptions = {}) {
   const basePath = options.basePath ?? "/api/storage";
   const [isUploading, setIsUploading] = useState(false);
@@ -102,14 +140,18 @@ export function useUpload(options: UseUploadOptions = {}) {
           name: file.name,
           contentType,
         });
+        const endpoint = `${basePath}/uploads`;
 
         const data = await new Promise<{
           objectPath: string;
           metadata: UploadMetadata;
         }>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open("POST", `${basePath}/uploads?${query.toString()}`);
+          xhr.open("POST", `${endpoint}?${query.toString()}`);
           xhr.setRequestHeader("Content-Type", contentType);
+          // Fail a stalled transfer with a clear reason instead of hanging
+          // forever. Matches the nginx proxy_read_timeout (120s) in production.
+          xhr.timeout = 120_000;
 
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
@@ -127,23 +169,34 @@ export function useUpload(options: UseUploadOptions = {}) {
               } catch {
                 reject(new Error("Nahrávání selhalo: neplatná odpověď serveru."));
               }
-            } else {
-              let message = `Nahrávání selhalo (HTTP ${xhr.status}).`;
-              try {
-                const errorData = JSON.parse(xhr.responseText);
-                if (errorData.error) message = errorData.error;
-              } catch {
-                // keep the generic HTTP-status message
-              }
-              reject(new Error(message));
+              return;
             }
+            reject(
+              new Error(describeUploadHttpError(xhr.status, xhr.responseText)),
+            );
           };
 
-          // A network-level failure reaching our own API (server down / no
-          // connectivity), not a storage/CORS problem.
+          // status 0 with onload never carrying a status means the request
+          // never completed: server unreachable, DNS/TLS failure, the request
+          // blocked (e.g. CORS / mixed-content), or the device went offline.
+          // This is NOT a storage-bucket problem — the upload goes to our own
+          // API on the same origin — so we point the user at connectivity.
           xhr.onerror = () => {
             reject(
-              new Error("Nahrávání selhalo: server je nedostupný (network error)."),
+              new Error(
+                `Nahrávání selhalo: server nelze kontaktovat (${endpoint}). ` +
+                  "Zkontrolujte připojení k internetu; pokud potíže trvají, server je nejspíš nedostupný.",
+              ),
+            );
+          };
+
+          // Fired only if a timeout is set; kept so a stalled transfer reports a
+          // clear reason instead of a silent hang.
+          xhr.ontimeout = () => {
+            reject(
+              new Error(
+                "Nahrávání selhalo: vypršel časový limit přenosu (pomalé připojení).",
+              ),
             );
           };
 

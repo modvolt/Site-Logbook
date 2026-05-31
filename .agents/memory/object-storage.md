@@ -26,3 +26,9 @@ description: Replit Object Storage is provisioned and wired for attachment uploa
 - `object-storage-web` tsconfig must be `composite: true` to be referenced by other packages.
 
 **Why:** Photos stored as base64 in the DB balloon row sizes fast (5 MB photo → ~6.7 MB of text). GCS presigned URL flow keeps DB lean and images fast.
+
+## Server-proxied uploads (CORS workaround)
+- Uploads now go browser → `POST /api/storage/uploads` (same origin) → server `putPrivateObject`, NOT direct browser→bucket presigned PUT. This removes the bucket-CORS / browser-reachable-endpoint requirement that broke self-hosted (Hetzner/Coolify) deploys.
+- **Cross-config coupling:** because file bytes now flow through nginx, `client_max_body_size` in `artifacts/stavba/nginx.conf` MUST be ≥ the API's `MAX_UPLOAD_BYTES` (30 MB). If nginx is smaller, large photos get an **HTML** 413 from nginx (not JSON) before reaching the API — the client can't parse it cleanly.
+- Client uses XHR (not fetch) for real upload progress; error messages must stay precise (HTTP code + server `{error}` detail, de-HTML'd proxy bodies, connectivity vs HTTP distinction) so on-site users see the exact cause.
+- Server 500 on upload appends the underlying storage error message (capped) so prod misconfig (Access Denied / missing bucket / ENOTFOUND endpoint) is diagnosable from the UI.

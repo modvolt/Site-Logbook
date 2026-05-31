@@ -98,7 +98,17 @@ router.post(
       );
     } catch (error) {
       req.log.error({ err: error }, "Error uploading object");
-      res.status(500).json({ error: "Nepodařilo se uložit soubor." });
+      // Surface the underlying storage reason (e.g. "Access Denied", "bucket
+      // does not exist", "ENOTFOUND <endpoint>") so a misconfigured deployment
+      // is diagnosable from the UI instead of a blanket "save failed". Storage
+      // SDK error messages don't contain credentials; we still cap the length.
+      const detail =
+        error instanceof Error && error.message ? error.message.slice(0, 200) : "";
+      res.status(500).json({
+        error: detail
+          ? `Nepodařilo se uložit soubor do úložiště: ${detail}`
+          : "Nepodařilo se uložit soubor do úložiště.",
+      });
     }
   },
 );
