@@ -44,6 +44,11 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
+# Env files (use .env.example as the committed template)
+.env
+.env.*
+!.env.example
+
 # Replit
 .cache/
 .local/
