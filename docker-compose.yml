@@ -39,17 +39,32 @@ services:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
 
-  # One-shot: create the bucket, then exit. Gates the API so storage is ready.
+  # One-shot init job: create the bucket, then exit 0. Gates the API so storage
+  # is ready before it starts.
+  #
+  # restart: "no" is REQUIRED on Coolify. A one-shot container with any other
+  # restart policy is treated as a long-running service that "keeps stopping",
+  # and Coolify's post-deploy monitor then inspects a container that has already
+  # exited/been recreated, surfacing the "No such container" deploy failure.
+  # Pinning restart to "no" keeps it in a stable Exited(0) state so the API's
+  # service_completed_successfully gate can read it.
   createbuckets:
     image: minio/mc:latest
+    restart: "no"
     depends_on:
-      - minio
+      minio:
+        condition: service_started
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET: ${S3_BUCKET}
+    # Wait for MinIO to accept connections, create the bucket idempotently
+    # (--ignore-existing => existing bucket is NOT an error), then exit 0.
+    # set -e makes a genuine bucket-creation failure (e.g. bad credentials) exit
+    # non-zero so the API gate is not satisfied, instead of silently passing.
     entrypoint: >
       /bin/sh -c "
+      set -e;
       until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do
         echo 'waiting for minio...'; sleep 2;
       done;
