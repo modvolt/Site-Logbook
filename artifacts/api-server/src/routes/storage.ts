@@ -12,10 +12,13 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
-// Hard limit on a single uploaded file (photos/documents). Enforced here at
-// presign time so the server never hands out an upload URL for an oversized or
-// disallowed file. 30 MB comfortably covers phone photos and PDFs.
-const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+// Hard limit on a single uploaded file (photos/documents). Enforced here as the
+// raw body is parsed, so an oversized payload is rejected with a clean JSON 413.
+// Keep nginx's client_max_body_size (artifacts/stavba/nginx.conf) at/above this,
+// or large files are rejected at the proxy with an HTML 413 before reaching here.
+// Note: the body is buffered in memory, so each concurrent upload uses up to this
+// many bytes of RAM — raise with that in mind.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 // Allowlist of content types the app accepts. Notably excludes text/html and
 // SVG to avoid storing active content that could be served back inline.
