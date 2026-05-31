@@ -70,45 +70,72 @@ export function useUpload(options: UseUploadOptions = {}) {
       setProgress(0);
 
       try {
-        setProgress(10);
-
         // Server-proxied upload: POST the raw file bytes to our own API (same
         // origin), which streams them into object storage. This avoids the old
         // direct browser→bucket PUT, which needed a bucket CORS rule and a
         // browser-reachable storage endpoint and failed at the network level
         // when either was misconfigured on a deployment.
+        //
+        // Uses XMLHttpRequest (not fetch) so we can surface real byte-level
+        // upload progress via `xhr.upload.onprogress` — fetch has no upload
+        // progress events. On slow mobile connections this gives users on site
+        // continuous feedback that a large photo is actually transferring.
         const contentType = file.type || "application/octet-stream";
         const query = new URLSearchParams({
           name: file.name,
           contentType,
         });
 
-        let response: Response;
-        try {
-          response = await fetch(`${basePath}/uploads?${query.toString()}`, {
-            method: "POST",
-            headers: { "Content-Type": contentType },
-            body: file,
-          });
-        } catch (err) {
-          // A rejected fetch here is a network-level failure reaching our own
-          // API (server down / no connectivity), not a storage/CORS problem.
-          throw new Error(
-            `Nahrávání selhalo: server je nedostupný (${
-              err instanceof Error ? err.message : "network error"
-            }).`,
-          );
-        }
+        const data = await new Promise<{
+          objectPath: string;
+          metadata: UploadMetadata;
+        }>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${basePath}/uploads?${query.toString()}`);
+          xhr.setRequestHeader("Content-Type", contentType);
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.error || `Nahrávání selhalo (HTTP ${response.status}).`,
-          );
-        }
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              // Reserve the last 1% for the server's response so the bar only
+              // hits 100% once the upload is actually acknowledged.
+              const percent = Math.round((event.loaded / event.total) * 99);
+              setProgress(percent);
+            }
+          };
 
-        const data: { objectPath: string; metadata: UploadMetadata } =
-          await response.json();
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                resolve(JSON.parse(xhr.responseText));
+              } catch {
+                reject(new Error("Nahrávání selhalo: neplatná odpověď serveru."));
+              }
+            } else {
+              let message = `Nahrávání selhalo (HTTP ${xhr.status}).`;
+              try {
+                const errorData = JSON.parse(xhr.responseText);
+                if (errorData.error) message = errorData.error;
+              } catch {
+                // keep the generic HTTP-status message
+              }
+              reject(new Error(message));
+            }
+          };
+
+          // A network-level failure reaching our own API (server down / no
+          // connectivity), not a storage/CORS problem.
+          xhr.onerror = () => {
+            reject(
+              new Error("Nahrávání selhalo: server je nedostupný (network error)."),
+            );
+          };
+
+          xhr.onabort = () => {
+            reject(new Error("Nahrávání bylo přerušeno."));
+          };
+
+          xhr.send(file);
+        });
 
         setProgress(100);
         const uploadResponse: UploadResponse = {

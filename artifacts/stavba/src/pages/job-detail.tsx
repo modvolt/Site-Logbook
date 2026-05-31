@@ -1144,7 +1144,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
 
   const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
 
-  const { uploadFile: uploadDoklad, isUploading: isUploadingDoklad } = useUpload();
+  const { uploadFile: uploadDoklad, isUploading: isUploadingDoklad, progress: dokladProgress } = useUpload();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1202,7 +1202,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
             variant="secondary"
             className="flex-1 h-12 text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? "Nahrávám..." : "Vyfotit / nahrát doklad"}
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? `Nahrávám… ${dokladProgress}%` : "Vyfotit / nahrát doklad"}
           </Button>
         </div>
 
@@ -1319,7 +1319,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { uploadFile: uploadPhoto, isUploading: isUploadingPhoto } = useUpload();
+  const { uploadFile: uploadPhoto, isUploading: isUploadingPhoto, progress: photoProgress } = useUpload();
 
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1373,7 +1373,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             disabled={createAttachment.isPending || isUploadingPhoto}
             className="flex-1 h-14 bg-primary text-primary-foreground text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? "Nahrávám..." : "Vyfotit stavbu"}
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? `Nahrávám… ${photoProgress}%` : "Vyfotit stavbu"}
           </Button>
         </div>
 

@@ -761,7 +761,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
   });
   const createAttachment = useCreateActivityAttachment();
   const deleteAttachment = useDeleteActivityAttachment();
-  const { uploadFile: uploadDoklad, isUploading } = useUpload();
+  const { uploadFile: uploadDoklad, isUploading, progress } = useUpload();
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
   const doklady = (attachments ?? []).filter((a) => DOKLAD_TYPES.includes(a.type ?? ""));
@@ -820,7 +820,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
               variant="secondary"
               className="w-full h-11"
             >
-              <Camera className="h-4 w-4 mr-2" /> {isUploading ? "Nahrávám..." : "Vyfotit / nahrát doklad"}
+              <Camera className="h-4 w-4 mr-2" /> {isUploading ? `Nahrávám… ${progress}%` : "Vyfotit / nahrát doklad"}
             </Button>
           </>
         )}
@@ -895,7 +895,7 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
   });
   const createAttachment = useCreateActivityAttachment();
   const deleteAttachment = useDeleteActivityAttachment();
-  const { uploadFile: uploadPhoto, isUploading } = useUpload();
+  const { uploadFile: uploadPhoto, isUploading, progress } = useUpload();
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
   const photos = (attachments ?? []).filter((a) => (a.type ?? "photo") === "photo");
@@ -948,7 +948,7 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
               disabled={createAttachment.isPending || isUploading}
               className="w-full"
             >
-              <Camera className="h-4 w-4 mr-2" /> {isUploading ? "Nahrávám..." : "Vyfotit / nahrát"}
+              <Camera className="h-4 w-4 mr-2" /> {isUploading ? `Nahrávám… ${progress}%` : "Vyfotit / nahrát"}
             </Button>
           </>
         )}
