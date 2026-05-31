@@ -141,7 +141,8 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
 /**
  * GET /storage/objects/*
  *
- * Serve private object entities uploaded via the presigned-URL flow.
+ * Serve private object entities uploaded via the server-proxied upload flow
+ * (POST /storage/uploads).
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {

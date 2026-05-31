@@ -5,7 +5,7 @@ const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
 // Paths (relative to /api) whose mutations should NOT be auto-audited here:
 // - auth: login/logout/setup are session events, not domain mutations
-// - storage: presigned-url requests are not domain mutations
+// - storage: file upload/serve requests are not domain mutations
 // - gdpr: the erase route writes its own, richer audit entry
 const SKIP_PREFIXES = ["/auth/", "/storage/", "/gdpr/"];
 

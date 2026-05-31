@@ -12,7 +12,7 @@ description: Replit Object Storage is provisioned and wired for attachment uploa
 ## What's set up
 - Bucket provisioned; env vars `DEFAULT_OBJECT_STORAGE_BUCKET_ID`, `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` are set (GCS dev path).
 - Server files: `artifacts/api-server/src/lib/objectStorage.ts`, `objectAcl.ts`, `routes/storage.ts`.
-- Client lib: `lib/object-storage-web` (composite tsconfig, Uppy v5 + `useUpload` hook).
+- Client lib: `lib/object-storage-web` (composite tsconfig, `useUpload` hook). The old Uppy `ObjectUploader` widget + `@uppy/*` deps and `@aws-sdk/s3-request-presigner` were dead leftovers from the presigned-PUT flow and were removed; don't reintroduce Uppy/presigner.
 - Routes mounted at `/api/storage/...` (no `/api` prefix in the route file itself — Express mounts at `/api` via the outer router).
 
 ## url column convention
@@ -21,14 +21,12 @@ description: Replit Object Storage is provisioned and wired for attachment uploa
 - Helper `getAttachmentUrl(url)` in `job-detail.tsx` handles both cases.
 
 ## Sharp edges
-- The objectStorage.ts template had a TypeScript error: `response.json()` returns `unknown`; fixed with `as { signed_url: string }` cast.
-- Uppy v5 requires `react@>=19` — the catalog already pins React 19, so no pnpm overrides needed. Do NOT add `$react` overrides to root `package.json` (the `$react` syntax requires react as a direct root dependency).
 - `object-storage-web` tsconfig must be `composite: true` to be referenced by other packages.
 
-**Why:** Photos stored as base64 in the DB balloon row sizes fast (5 MB photo → ~6.7 MB of text). GCS presigned URL flow keeps DB lean and images fast.
+**Why:** Photos stored as base64 in the DB balloon row sizes fast (5 MB photo → ~6.7 MB of text). Storing only the object path (server-proxied upload → bucket) keeps DB lean and images fast.
 
 ## Server-proxied uploads (CORS workaround)
 - Uploads now go browser → `POST /api/storage/uploads` (same origin) → server `putPrivateObject`, NOT direct browser→bucket presigned PUT. This removes the bucket-CORS / browser-reachable-endpoint requirement that broke self-hosted (Hetzner/Coolify) deploys.
-- **Cross-config coupling:** because file bytes now flow through nginx, `client_max_body_size` in `artifacts/stavba/nginx.conf` MUST be ≥ the API's `MAX_UPLOAD_BYTES` (30 MB). If nginx is smaller, large photos get an **HTML** 413 from nginx (not JSON) before reaching the API — the client can't parse it cleanly.
+- **Cross-config coupling:** because file bytes now flow through nginx, `client_max_body_size` in `artifacts/stavba/nginx.conf` MUST be ≥ the API's `MAX_UPLOAD_BYTES` (currently 50 MB). If nginx is smaller, large photos get an **HTML** 413 from nginx (not JSON) before reaching the API — the client can't parse it cleanly. Body is buffered in RAM per concurrent upload.
 - Client uses XHR (not fetch) for real upload progress; error messages must stay precise (HTTP code + server `{error}` detail, de-HTML'd proxy bodies, connectivity vs HTTP distinction) so on-site users see the exact cause.
 - Server 500 on upload appends the underlying storage error message (capped) so prod misconfig (Access Denied / missing bucket / ENOTFOUND endpoint) is diagnosable from the UI.
