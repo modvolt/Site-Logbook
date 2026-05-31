@@ -3,8 +3,14 @@ name: Object storage setup
 description: Replit Object Storage is provisioned and wired for attachment uploads; key architectural decisions and sharp edges.
 ---
 
+## Dual backend (S3 + GCS)
+- `objectStorage.ts` picks a backend at runtime: **S3-compatible** when `S3_BUCKET`+`S3_ACCESS_KEY_ID`+`S3_SECRET_ACCESS_KEY` are set (self-hosted/Docker/Hetzner/MinIO prod), else falls back to **Replit App Storage (GCS via sidecar `http://127.0.0.1:1106`)** used in Replit dev.
+- **Why:** the Docker self-host task rewrote storage to S3-only; Replit dev has no S3 vars (only GCS App Storage), so every upload threw 500. Keep BOTH paths — never make storage S3-only again or dev uploads break.
+- Both backends keep the same 4-method interface and backend-agnostic objectPath `/objects/uploads/<uuid>`; missing objects must throw `ObjectNotFoundError` so routes return 404.
+- Requires `@google-cloud/storage` + `google-auth-library` in `api-server/package.json` (a merge once removed these — re-add if uploads 500 in dev).
+
 ## What's set up
-- Bucket provisioned; env vars `DEFAULT_OBJECT_STORAGE_BUCKET_ID`, `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` are set.
+- Bucket provisioned; env vars `DEFAULT_OBJECT_STORAGE_BUCKET_ID`, `PUBLIC_OBJECT_SEARCH_PATHS`, `PRIVATE_OBJECT_DIR` are set (GCS dev path).
 - Server files: `artifacts/api-server/src/lib/objectStorage.ts`, `objectAcl.ts`, `routes/storage.ts`.
 - Client lib: `lib/object-storage-web` (composite tsconfig, Uppy v5 + `useUpload` hook).
 - Routes mounted at `/api/storage/...` (no `/api` prefix in the route file itself — Express mounts at `/api` via the outer router).

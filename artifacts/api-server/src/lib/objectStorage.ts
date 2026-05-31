@@ -6,6 +6,7 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Storage } from "@google-cloud/storage";
 import { randomUUID } from "crypto";
 import { Readable } from "stream";
 import type { Response as ExpressResponse } from "express";
@@ -18,6 +19,34 @@ export class ObjectNotFoundError extends Error {
   }
 }
 
+// Object storage supports two backends:
+//   - S3-compatible (AWS S3, MinIO, Hetzner Object Storage, …) for self-hosted
+//     / production deploys. Selected when the S3_* env vars are configured.
+//   - Replit App Storage (GCS, authenticated via the Replit sidecar) for the
+//     Replit dev environment. Used as the fallback when S3 is not configured.
+// Both expose the same small surface used by routes/storage.ts and GDPR erasure:
+// getObjectEntityUploadURL / servePrivateObject / deletePrivateObject /
+// servePublicObject. Stored object paths are backend-agnostic ("/objects/...").
+function s3Configured(): boolean {
+  return Boolean(
+    process.env.S3_BUCKET &&
+      process.env.S3_ACCESS_KEY_ID &&
+      process.env.S3_SECRET_ACCESS_KEY,
+  );
+}
+
+function trimSlashes(value: string): string {
+  return value.replace(/^\/+|\/+$/g, "");
+}
+
+function joinKey(...parts: Array<string>): string {
+  return parts.map((p) => trimSlashes(p)).filter((p) => p.length > 0).join("/");
+}
+
+// ---------------------------------------------------------------------------
+// S3-compatible backend
+// ---------------------------------------------------------------------------
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -28,10 +57,6 @@ function requireEnv(name: string): string {
     );
   }
   return value;
-}
-
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, "");
 }
 
 let cachedClient: S3Client | null = null;
@@ -95,11 +120,7 @@ function getPublicPrefixes(): Array<string> {
   );
 }
 
-function joinKey(...parts: Array<string>): string {
-  return parts.map((p) => trimSlashes(p)).filter((p) => p.length > 0).join("/");
-}
-
-async function objectExists(key: string): Promise<boolean> {
+async function s3ObjectExists(key: string): Promise<boolean> {
   try {
     await getClient().send(new HeadObjectCommand({ Bucket: getBucket(), Key: key }));
     return true;
@@ -114,7 +135,7 @@ async function objectExists(key: string): Promise<boolean> {
   }
 }
 
-async function streamToResponse(
+async function s3StreamToResponse(
   key: string,
   res: ExpressResponse,
   { isPublic, cacheTtlSec = 3600 }: { isPublic: boolean; cacheTtlSec?: number },
@@ -134,10 +155,7 @@ async function streamToResponse(
     throw err;
   }
 
-  res.setHeader(
-    "Content-Type",
-    result.ContentType || "application/octet-stream",
-  );
+  res.setHeader("Content-Type", result.ContentType || "application/octet-stream");
   res.setHeader(
     "Cache-Control",
     `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
@@ -154,6 +172,141 @@ async function streamToResponse(
   (body as Readable).pipe(res);
 }
 
+// ---------------------------------------------------------------------------
+// Replit App Storage (GCS) backend
+// ---------------------------------------------------------------------------
+
+const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+
+let cachedGcsClient: Storage | null = null;
+
+function getGcsClient(): Storage {
+  if (cachedGcsClient) return cachedGcsClient;
+  cachedGcsClient = new Storage({
+    credentials: {
+      audience: "replit",
+      subject_token_type: "access_token",
+      token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
+      type: "external_account",
+      credential_source: {
+        url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
+        format: {
+          type: "json",
+          subject_token_field_name: "access_token",
+        },
+      },
+      universe_domain: "googleapis.com",
+    },
+    projectId: "",
+  });
+  return cachedGcsClient;
+}
+
+function gcsPrivateDir(): string {
+  const dir = process.env.PRIVATE_OBJECT_DIR;
+  if (!dir) {
+    throw new Error(
+      "PRIVATE_OBJECT_DIR not set. Provision Replit App Storage or configure " +
+        "S3-compatible object storage via the S3_* environment variables.",
+    );
+  }
+  return dir;
+}
+
+function gcsPublicSearchPaths(): Array<string> {
+  const raw = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
+  return Array.from(
+    new Set(raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0)),
+  );
+}
+
+function parseGcsPath(path: string): { bucketName: string; objectName: string } {
+  let p = path;
+  if (!p.startsWith("/")) p = `/${p}`;
+  const parts = p.split("/");
+  if (parts.length < 3) {
+    throw new Error("Invalid object path: must contain a bucket name");
+  }
+  return { bucketName: parts[1], objectName: parts.slice(2).join("/") };
+}
+
+function gcsResolvePrivate(objectPath: string): {
+  bucketName: string;
+  objectName: string;
+} {
+  const entityId = trimSlashes(objectPath.slice("/objects/".length));
+  if (!entityId) throw new ObjectNotFoundError();
+  let dir = gcsPrivateDir();
+  if (!dir.endsWith("/")) dir = `${dir}/`;
+  return parseGcsPath(`${dir}${entityId}`);
+}
+
+async function gcsSignUrl(
+  bucketName: string,
+  objectName: string,
+  method: "GET" | "PUT" | "DELETE" | "HEAD",
+  ttlSec: number,
+): Promise<string> {
+  const response = await fetch(
+    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bucket_name: bucketName,
+        object_name: objectName,
+        method,
+        expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
+      }),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to sign object URL (status ${response.status}); ` +
+        `make sure you're running on Replit`,
+    );
+  }
+  const { signed_url: signedURL } = (await response.json()) as {
+    signed_url: string;
+  };
+  return signedURL;
+}
+
+async function gcsStreamToResponse(
+  bucketName: string,
+  objectName: string,
+  res: ExpressResponse,
+  { isPublic, cacheTtlSec = 3600 }: { isPublic: boolean; cacheTtlSec?: number },
+): Promise<void> {
+  const file = getGcsClient().bucket(bucketName).file(objectName);
+  const [exists] = await file.exists();
+  if (!exists) throw new ObjectNotFoundError();
+  const [metadata] = await file.getMetadata();
+  res.setHeader(
+    "Content-Type",
+    (metadata.contentType as string) || "application/octet-stream",
+  );
+  res.setHeader(
+    "Cache-Control",
+    `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
+  );
+  if (metadata.size) {
+    res.setHeader("Content-Length", String(metadata.size));
+  }
+  await new Promise<void>((resolve, reject) => {
+    file
+      .createReadStream()
+      .on("error", reject)
+      .on("end", resolve)
+      .pipe(res);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public service
+// ---------------------------------------------------------------------------
+
 export class ObjectStorageService {
   /**
    * Generate a presigned PUT URL for a brand-new private object and the stable
@@ -161,46 +314,44 @@ export class ObjectStorageService {
    */
   async getObjectEntityUploadURL(): Promise<{ uploadURL: string; objectPath: string }> {
     const entityId = `uploads/${randomUUID()}`;
-    const key = joinKey(getPrivatePrefix(), entityId);
 
-    const uploadURL = await getSignedUrl(
-      getPublicClient(),
-      new PutObjectCommand({ Bucket: getBucket(), Key: key }),
-      { expiresIn: 900 },
-    );
+    if (s3Configured()) {
+      const key = joinKey(getPrivatePrefix(), entityId);
+      const uploadURL = await getSignedUrl(
+        getPublicClient(),
+        new PutObjectCommand({ Bucket: getBucket(), Key: key }),
+        { expiresIn: 900 },
+      );
+      return { uploadURL, objectPath: `/objects/${entityId}` };
+    }
 
+    const { bucketName, objectName } = gcsResolvePrivate(`/objects/${entityId}`);
+    const uploadURL = await gcsSignUrl(bucketName, objectName, "PUT", 900);
     return { uploadURL, objectPath: `/objects/${entityId}` };
-  }
-
-  /**
-   * Resolve a "/objects/<entityId>" path to its bucket key, verifying the
-   * object exists. Throws ObjectNotFoundError otherwise.
-   */
-  private async resolvePrivateKey(objectPath: string): Promise<string> {
-    if (!objectPath.startsWith("/objects/")) {
-      throw new ObjectNotFoundError();
-    }
-    const entityId = trimSlashes(objectPath.slice("/objects/".length));
-    if (!entityId) {
-      throw new ObjectNotFoundError();
-    }
-    const key = joinKey(getPrivatePrefix(), entityId);
-    if (!(await objectExists(key))) {
-      throw new ObjectNotFoundError();
-    }
-    return key;
   }
 
   /** Stream a private object ("/objects/<entityId>") to the response. */
   async servePrivateObject(objectPath: string, res: ExpressResponse): Promise<void> {
-    const key = await this.resolvePrivateKey(objectPath);
-    await streamToResponse(key, res, { isPublic: false });
+    if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+
+    if (s3Configured()) {
+      const entityId = trimSlashes(objectPath.slice("/objects/".length));
+      if (!entityId) throw new ObjectNotFoundError();
+      const key = joinKey(getPrivatePrefix(), entityId);
+      if (!(await s3ObjectExists(key))) throw new ObjectNotFoundError();
+      await s3StreamToResponse(key, res, { isPublic: false });
+      return;
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    await gcsStreamToResponse(bucketName, objectName, res, { isPublic: false });
   }
 
   /**
    * Permanently delete a private object referenced by a "/objects/<entityId>"
-   * path. Used for GDPR erasure. Safe to call for missing objects — S3 delete
-   * is idempotent and returns success even when the key does not exist. Returns
+   * path. Used for GDPR erasure. Safe to call for missing objects. Returns
    * false (instead of throwing) when the path is not a valid private object
    * reference, so callers can skip non-storage values.
    */
@@ -210,25 +361,48 @@ export class ObjectStorageService {
     }
     const entityId = trimSlashes(objectPath.slice("/objects/".length));
     if (!entityId) return false;
-    const key = joinKey(getPrivatePrefix(), entityId);
-    await getClient().send(
-      new DeleteObjectCommand({ Bucket: getBucket(), Key: key }),
-    );
+
+    if (s3Configured()) {
+      const key = joinKey(getPrivatePrefix(), entityId);
+      await getClient().send(
+        new DeleteObjectCommand({ Bucket: getBucket(), Key: key }),
+      );
+      return true;
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    await getGcsClient()
+      .bucket(bucketName)
+      .file(objectName)
+      .delete({ ignoreNotFound: true });
     return true;
   }
 
   /**
    * Stream a public asset by its relative path, searching configured public
-   * prefixes. Returns false if no matching object is found.
+   * prefixes / search paths. Returns false if no matching object is found.
    */
   async servePublicObject(filePath: string, res: ExpressResponse): Promise<boolean> {
     const relative = trimSlashes(filePath);
     if (!relative) return false;
 
-    for (const prefix of getPublicPrefixes()) {
-      const key = joinKey(prefix, relative);
-      if (await objectExists(key)) {
-        await streamToResponse(key, res, { isPublic: true });
+    if (s3Configured()) {
+      for (const prefix of getPublicPrefixes()) {
+        const key = joinKey(prefix, relative);
+        if (await s3ObjectExists(key)) {
+          await s3StreamToResponse(key, res, { isPublic: true });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    for (const searchPath of gcsPublicSearchPaths()) {
+      const { bucketName, objectName } = parseGcsPath(`${searchPath}/${relative}`);
+      const file = getGcsClient().bucket(bucketName).file(objectName);
+      const [exists] = await file.exists();
+      if (exists) {
+        await gcsStreamToResponse(bucketName, objectName, res, { isPublic: true });
         return true;
       }
     }
