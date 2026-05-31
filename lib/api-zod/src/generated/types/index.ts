@@ -93,7 +93,6 @@ export * from './timeEntryUpdate';
 export * from './uploadedObject';
 export * from './uploadObjectParams';
 export * from './uploadUrlRequest';
-export * from './uploadUrlResponse';
 export * from './userInput';
 export * from './userPreferences';
 export * from './userPreferencesInput';

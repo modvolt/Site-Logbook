@@ -5,7 +5,6 @@ import {
   HeadObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Storage } from "@google-cloud/storage";
 import { randomUUID } from "crypto";
 import { Readable } from "stream";
@@ -25,7 +24,7 @@ export class ObjectNotFoundError extends Error {
 //   - Replit App Storage (GCS, authenticated via the Replit sidecar) for the
 //     Replit dev environment. Used as the fallback when S3 is not configured.
 // Both expose the same small surface used by routes/storage.ts and GDPR erasure:
-// getObjectEntityUploadURL / servePrivateObject / deletePrivateObject /
+// putPrivateObject / servePrivateObject / deletePrivateObject /
 // servePublicObject. Stored object paths are backend-agnostic ("/objects/...").
 function s3Configured(): boolean {
   return Boolean(
@@ -60,7 +59,6 @@ function requireEnv(name: string): string {
 }
 
 let cachedClient: S3Client | null = null;
-let cachedPublicClient: S3Client | null = null;
 
 // The AWS SDK requires a fully-qualified endpoint URL (with scheme); it calls
 // `new URL(endpoint)` internally and throws "Invalid URL" for a bare host like
@@ -95,19 +93,6 @@ function getClient(): S3Client {
   if (cachedClient) return cachedClient;
   cachedClient = buildClient(process.env.S3_ENDPOINT);
   return cachedClient;
-}
-
-// Client used only to presign upload URLs handed back to the browser. The
-// signature is bound to the endpoint host, so when the browser cannot reach the
-// internal endpoint (typical in Docker/Coolify where the API talks to MinIO at
-// http://minio:9000 but the browser must use a public URL), set
-// S3_PUBLIC_ENDPOINT to the browser-reachable endpoint. Falls back to
-// S3_ENDPOINT when both sides share a single endpoint (e.g. AWS S3).
-function getPublicClient(): S3Client {
-  if (cachedPublicClient) return cachedPublicClient;
-  const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT;
-  cachedPublicClient = buildClient(publicEndpoint);
-  return cachedPublicClient;
 }
 
 function getBucket(): string {
@@ -253,38 +238,6 @@ function gcsResolvePrivate(objectPath: string): {
   return parseGcsPath(`${dir}${entityId}`);
 }
 
-async function gcsSignUrl(
-  bucketName: string,
-  objectName: string,
-  method: "GET" | "PUT" | "DELETE" | "HEAD",
-  ttlSec: number,
-): Promise<string> {
-  const response = await fetch(
-    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        bucket_name: bucketName,
-        object_name: objectName,
-        method,
-        expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
-      }),
-      signal: AbortSignal.timeout(30_000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to sign object URL (status ${response.status}); ` +
-        `make sure you're running on Replit`,
-    );
-  }
-  const { signed_url: signedURL } = (await response.json()) as {
-    signed_url: string;
-  };
-  return signedURL;
-}
-
 async function gcsStreamToResponse(
   bucketName: string,
   objectName: string,
@@ -321,32 +274,10 @@ async function gcsStreamToResponse(
 
 export class ObjectStorageService {
   /**
-   * Generate a presigned PUT URL for a brand-new private object and the stable
-   * object path the client should persist (e.g. "/objects/uploads/<uuid>").
-   */
-  async getObjectEntityUploadURL(): Promise<{ uploadURL: string; objectPath: string }> {
-    const entityId = `uploads/${randomUUID()}`;
-
-    if (s3Configured()) {
-      const key = joinKey(getPrivatePrefix(), entityId);
-      const uploadURL = await getSignedUrl(
-        getPublicClient(),
-        new PutObjectCommand({ Bucket: getBucket(), Key: key }),
-        { expiresIn: 900 },
-      );
-      return { uploadURL, objectPath: `/objects/${entityId}` };
-    }
-
-    const { bucketName, objectName } = gcsResolvePrivate(`/objects/${entityId}`);
-    const uploadURL = await gcsSignUrl(bucketName, objectName, "PUT", 900);
-    return { uploadURL, objectPath: `/objects/${entityId}` };
-  }
-
-  /**
    * Upload a server-generated private object (e.g. a database backup) directly
    * from the API process. `objectPath` is the backend-agnostic
-   * "/objects/<entityId>" path the caller persists. Used by the backup system,
-   * not by the client upload flow (which uses presigned PUT URLs).
+   * "/objects/<entityId>" path the caller persists. Used by the backup system
+   * and the server-proxied client upload flow (POST /storage/uploads).
    */
   async putPrivateObject(
     objectPath: string,

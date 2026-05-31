@@ -6,11 +6,7 @@ import express, {
   type NextFunction,
 } from "express";
 import { randomUUID } from "node:crypto";
-import {
-  RequestUploadUrlBody,
-  RequestUploadUrlResponse,
-  UploadObjectResponse,
-} from "@workspace/api-zod";
+import { UploadObjectResponse } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 
 const router: IRouter = Router();
@@ -38,50 +34,6 @@ const ALLOWED_UPLOAD_TYPES = new Set<string>([
   "text/plain",
   "text/csv",
 ]);
-
-/**
- * POST /storage/uploads/request-url
- *
- * Request a presigned URL for file upload.
- * The client sends JSON metadata (name, size, contentType) — NOT the file.
- * Then uploads the file directly to the returned presigned URL.
- */
-router.post("/storage/uploads/request-url", async (req: Request, res: Response) => {
-  const parsed = RequestUploadUrlBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Missing or invalid required fields" });
-    return;
-  }
-
-  const { name, size, contentType } = parsed.data;
-
-  if (typeof size === "number" && size > MAX_UPLOAD_BYTES) {
-    res.status(413).json({
-      error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
-    });
-    return;
-  }
-  if (contentType && !ALLOWED_UPLOAD_TYPES.has(contentType)) {
-    res.status(415).json({ error: "Tento typ souboru není povolen." });
-    return;
-  }
-
-  try {
-    const { uploadURL, objectPath } =
-      await objectStorageService.getObjectEntityUploadURL();
-
-    res.json(
-      RequestUploadUrlResponse.parse({
-        uploadURL,
-        objectPath,
-        metadata: { name, size, contentType },
-      }),
-    );
-  } catch (error) {
-    req.log.error({ err: error }, "Error generating upload URL");
-    res.status(500).json({ error: "Failed to generate upload URL" });
-  }
-});
 
 /**
  * POST /storage/uploads
