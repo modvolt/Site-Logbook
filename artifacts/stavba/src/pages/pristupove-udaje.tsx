@@ -35,12 +35,12 @@ const DEVICE_TYPES = [
   "Switch",
   "Access system",
   "Jablotron",
-  "Loxon",
+  "Loxone",
 ] as const;
 
 const CUSTOM_TYPE = "__custom__";
 
-const USER_DEVICE_TYPES = ["Jablotron", "Access system", "Loxon"];
+const USER_DEVICE_TYPES = ["Jablotron", "Access system", "Loxone"];
 const supportsUsers = (type: string) =>
   USER_DEVICE_TYPES.includes(type.trim());
 
