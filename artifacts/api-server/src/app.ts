@@ -1,5 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
@@ -9,6 +10,13 @@ import { attachAuth, requireAuth, requireWriteAccess } from "./middlewares/auth"
 import { auditMutations } from "./middlewares/audit";
 
 const app: Express = express();
+
+const isProduction = process.env.NODE_ENV === "production";
+
+// In production the app sits behind a TLS-terminating reverse proxy (Coolify /
+// Traefik, nginx). Trust the first proxy hop so secure cookies are set and the
+// client IP (for rate limiting) is read from X-Forwarded-For.
+app.set("trust proxy", 1);
 
 const PgStore = connectPgSimple(session);
 const sessionSecret = process.env.SESSION_SECRET;
@@ -38,6 +46,16 @@ app.use(
     },
   }),
 );
+// Security headers. CSP is left off because this service only serves JSON and
+// proxied object streams (the SPA is served by nginx, which owns its own CSP);
+// CORP is relaxed so the browser can load object/image streams from /api.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginEmbedderPolicy: false,
+  }),
+);
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
@@ -57,7 +75,9 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: false,
+      // HTTPS-only in production (behind the TLS-terminating proxy). Left off in
+      // local/dev so the cookie works over plain HTTP.
+      secure: isProduction,
       maxAge: 1000 * 60 * 60 * 24 * 30,
     },
   }),

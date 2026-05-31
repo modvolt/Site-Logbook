@@ -35,6 +35,8 @@ import type {
   AttachmentInput,
   AuditLogPage,
   AuthUser,
+  Backup,
+  BackupListResponse,
   Customer,
   CustomerContact,
   CustomerContactInput,
@@ -7772,6 +7774,230 @@ export function useGetMyDoneJobs<TData = Awaited<ReturnType<typeof getMyDoneJobs
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetMyDoneJobsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListBackupsUrl = () => {
+
+
+
+
+  return `/api/backups`
+}
+
+/**
+ * @summary List database backups (admin only)
+ */
+export const listBackups = async ( options?: RequestInit): Promise<BackupListResponse> => {
+
+  return customFetch<BackupListResponse>(getListBackupsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBackupsQueryKey = () => {
+    return [
+    `/api/backups`
+    ] as const;
+    }
+
+
+export const getListBackupsQueryOptions = <TData = Awaited<ReturnType<typeof listBackups>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBackups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBackupsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBackups>>> = ({ signal }) => listBackups({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBackups>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBackupsQueryResult = NonNullable<Awaited<ReturnType<typeof listBackups>>>
+export type ListBackupsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List database backups (admin only)
+ */
+
+export function useListBackups<TData = Awaited<ReturnType<typeof listBackups>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBackups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBackupsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateBackupUrl = () => {
+
+
+
+
+  return `/api/backups`
+}
+
+/**
+ * @summary Create a database backup now (admin only)
+ */
+export const createBackup = async ( options?: RequestInit): Promise<Backup> => {
+
+  return customFetch<Backup>(getCreateBackupUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCreateBackupMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBackup>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBackup>>, TError,void, TContext> => {
+
+const mutationKey = ['createBackup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBackup>>, void> = () => {
+
+
+          return  createBackup(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBackupMutationResult = NonNullable<Awaited<ReturnType<typeof createBackup>>>
+
+    export type CreateBackupMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a database backup now (admin only)
+ */
+export const useCreateBackup = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBackup>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBackup>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCreateBackupMutationOptions(options));
+    }
+
+export const getDownloadBackupUrl = (id: number,) => {
+
+
+
+
+  return `/api/backups/${id}/download`
+}
+
+/**
+ * @summary Download a backup file (admin only)
+ */
+export const downloadBackup = async (id: number, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getDownloadBackupUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadBackupQueryKey = (id: number,) => {
+    return [
+    `/api/backups/${id}/download`
+    ] as const;
+    }
+
+
+export const getDownloadBackupQueryOptions = <TData = Awaited<ReturnType<typeof downloadBackup>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadBackup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadBackupQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadBackup>>> = ({ signal }) => downloadBackup(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadBackup>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadBackupQueryResult = NonNullable<Awaited<ReturnType<typeof downloadBackup>>>
+export type DownloadBackupQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Download a backup file (admin only)
+ */
+
+export function useDownloadBackup<TData = Awaited<ReturnType<typeof downloadBackup>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadBackup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadBackupQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

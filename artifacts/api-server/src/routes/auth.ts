@@ -1,10 +1,21 @@
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
 import { db, usersTable, USER_ROLES, type User, type UserRole } from "@workspace/db";
 import { LoginBody, SetupFirstAdminBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+// Brute-force protection: limit credential-guessing on login and first-admin
+// setup. Keyed per client IP (X-Forwarded-For via the app's "trust proxy").
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." },
+});
 
 function serializeUser(u: User) {
   return {
@@ -38,7 +49,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
   res.json({ authenticated: false, needsSetup: totalUsers === 0 });
 });
 
-router.post("/auth/login", async (req, res): Promise<void> => {
+router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -69,7 +80,7 @@ router.post("/auth/logout", (req, res): void => {
   });
 });
 
-router.post("/auth/setup", async (req, res): Promise<void> => {
+router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
   const total = await countUsers();
   if (total > 0) {
     res.status(409).json({ error: "Setup již proběhl" });

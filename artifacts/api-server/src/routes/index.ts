@@ -23,6 +23,7 @@ import gdprRouter from "./gdpr";
 import timeEntriesRouter from "./time-entries";
 import statsRouter from "./stats";
 import emailSettingsRouter from "./email-settings";
+import backupsRouter from "./backups";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(gdprRouter);
 router.use(timeEntriesRouter);
 router.use(statsRouter);
 router.use(emailSettingsRouter);
+router.use(backupsRouter);
 
 export default router;

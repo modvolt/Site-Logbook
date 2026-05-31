@@ -2157,3 +2157,29 @@ export const GetMyDoneJobsResponseItem = zod.object({
 export const GetMyDoneJobsResponse = zod.array(GetMyDoneJobsResponseItem)
 
 
+/**
+ * @summary List database backups (admin only)
+ */
+export const ListBackupsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "filename": zod.string(),
+  "sizeBytes": zod.number().nullable(),
+  "status": zod.enum(['running', 'success', 'failed']),
+  "trigger": zod.enum(['manual', 'auto']),
+  "error": zod.string().nullable(),
+  "createdBy": zod.string().nullable(),
+  "createdAt": zod.string()
+})),
+  "lastSuccessAt": zod.string().nullable()
+})
+
+
+/**
+ * @summary Download a backup file (admin only)
+ */
+export const DownloadBackupParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+

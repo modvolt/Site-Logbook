@@ -330,6 +330,44 @@ export class ObjectStorageService {
     return { uploadURL, objectPath: `/objects/${entityId}` };
   }
 
+  /**
+   * Upload a server-generated private object (e.g. a database backup) directly
+   * from the API process. `objectPath` is the backend-agnostic
+   * "/objects/<entityId>" path the caller persists. Used by the backup system,
+   * not by the client upload flow (which uses presigned PUT URLs).
+   */
+  async putPrivateObject(
+    objectPath: string,
+    body: Buffer,
+    contentType: string,
+  ): Promise<void> {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new Error("putPrivateObject requires an /objects/ path");
+    }
+    const entityId = trimSlashes(objectPath.slice("/objects/".length));
+    if (!entityId) throw new Error("putPrivateObject requires a non-empty path");
+
+    if (s3Configured()) {
+      const key = joinKey(getPrivatePrefix(), entityId);
+      await getClient().send(
+        new PutObjectCommand({
+          Bucket: getBucket(),
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          ContentLength: body.length,
+        }),
+      );
+      return;
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    await getGcsClient()
+      .bucket(bucketName)
+      .file(objectName)
+      .save(body, { contentType, resumable: false });
+  }
+
   /** Stream a private object ("/objects/<entityId>") to the response. */
   async servePrivateObject(objectPath: string, res: ExpressResponse): Promise<void> {
     if (!objectPath.startsWith("/objects/")) {

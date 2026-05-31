@@ -1076,6 +1076,43 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+export type BackupStatus = typeof BackupStatus[keyof typeof BackupStatus];
+
+
+export const BackupStatus = {
+  running: 'running',
+  success: 'success',
+  failed: 'failed',
+} as const;
+
+export type BackupTrigger = typeof BackupTrigger[keyof typeof BackupTrigger];
+
+
+export const BackupTrigger = {
+  manual: 'manual',
+  auto: 'auto',
+} as const;
+
+export interface Backup {
+  id: number;
+  filename: string;
+  /** @nullable */
+  sizeBytes: number | null;
+  status: BackupStatus;
+  trigger: BackupTrigger;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface BackupListResponse {
+  items: Backup[];
+  /** @nullable */
+  lastSuccessAt: string | null;
+}
+
 export interface AuditLogPage {
   items: AuditLogEntry[];
   total: number;

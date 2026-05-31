@@ -20,7 +20,11 @@ const router: IRouter = Router();
 
 // Device credentials are a sensitive credential vault (plaintext passwords).
 // Restrict all access to elevated roles; guests/read-only users must not read them.
-router.use(requireRole("master", "admin"));
+// NOTE: requireRole is applied per-route (not via a pathless router.use), because
+// this router is mounted pathlessly in routes/index.ts — a pathless middleware here
+// would run for every request flowing through the router chain, not just device
+// credential routes, and would 401 unauthenticated requests (e.g. login) downstream.
+const requireVaultAccess = requireRole("master", "admin");
 
 function serializeCredential(c: typeof deviceCredentialsTable.$inferSelect) {
   return {
@@ -48,6 +52,7 @@ async function siteBelongsToCustomer(
 
 router.get(
   "/customers/:customerId/device-credentials",
+  requireVaultAccess,
   async (req, res): Promise<void> => {
     const params = ListDeviceCredentialsParams.safeParse(req.params);
     if (!params.success) {
@@ -66,6 +71,7 @@ router.get(
 
 router.post(
   "/customers/:customerId/device-credentials",
+  requireVaultAccess,
   async (req, res): Promise<void> => {
     const params = CreateDeviceCredentialParams.safeParse(req.params);
     if (!params.success) {
@@ -104,7 +110,7 @@ router.post(
   },
 );
 
-router.patch("/device-credentials/:id", async (req, res): Promise<void> => {
+router.patch("/device-credentials/:id", requireVaultAccess, async (req, res): Promise<void> => {
   const params = UpdateDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -144,7 +150,7 @@ router.patch("/device-credentials/:id", async (req, res): Promise<void> => {
   res.json(serializeCredential(credential));
 });
 
-router.delete("/device-credentials/:id", async (req, res): Promise<void> => {
+router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): Promise<void> => {
   const params = DeleteDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

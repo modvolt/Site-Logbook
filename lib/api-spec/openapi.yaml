@@ -2292,6 +2292,62 @@ paths:
                 items:
                   $ref: "#/components/schemas/MyJobSummary"
 
+  /backups:
+    get:
+      operationId: listBackups
+      tags: [backups]
+      summary: List database backups (admin only)
+      responses:
+        "200":
+          description: Backups and the timestamp of the last successful one
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupListResponse"
+    post:
+      operationId: createBackup
+      tags: [backups]
+      summary: Create a database backup now (admin only)
+      responses:
+        "201":
+          description: Backup created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Backup"
+        "500":
+          description: Backup failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /backups/{id}/download:
+    get:
+      operationId: downloadBackup
+      tags: [backups]
+      summary: Download a backup file (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Backup file streamed as an attachment
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   schemas:
     HealthStatus:
@@ -3705,6 +3761,40 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+
+    Backup:
+      type: object
+      required: [id, filename, sizeBytes, status, trigger, error, createdBy, createdAt]
+      properties:
+        id:
+          type: integer
+        filename:
+          type: string
+        sizeBytes:
+          type: ["integer", "null"]
+        status:
+          type: string
+          enum: [running, success, failed]
+        trigger:
+          type: string
+          enum: [manual, auto]
+        error:
+          type: ["string", "null"]
+        createdBy:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    BackupListResponse:
+      type: object
+      required: [items, lastSuccessAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Backup"
+        lastSuccessAt:
+          type: ["string", "null"]
 
     AuditLogPage:
       type: object

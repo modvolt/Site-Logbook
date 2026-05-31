@@ -18,3 +18,4 @@ export * from "./device-credentials";
 export * from "./audit-log";
 export * from "./time-entries";
 export * from "./email-settings";
+export * from "./backup-log";

@@ -6,6 +6,8 @@
 - [PWA shared-device caching](pwa-shared-device-caching.md) — cache authenticated GET /api with NetworkFirst but purge the SW cache on logout so shared devices never leak one user's data to the next.
 - [Recurring occurrence dedupe](recurring-occurrence-dedupe.md) — auto-creating next recurring job on done-transition must dedupe by (type,date,title,customer); gating on status alone duplicates on reopen→re-done.
 - [Device credential vault authz](device-credential-vault-authz.md) — credential-vault routes gate to master+admin (not requireAuth); guests have read access by default & secrets are plaintext.
+- [Pathless router middleware leak](pathless-router-middleware-leak.md) — sub-routers mount pathlessly; a pathless router.use(auth) gates EVERY request, breaking login. Gate per-route.
+- [Database backup system](backup-system.md) — pg_dump -Fc to object storage backups/ prefix; never serve via generic /storage/objects/* (guests can GET); download only via admin /api/backups/:id/download.
 - [api-zod body validator names](api-zod-body-names.md) — server imports Zod validators by PascalCase(operationId)+Body (e.g. UpdateEmailSettingsBody), NOT component schema names (those are types only → TS2693).
 - [Email settings DB+env](email-settings-config.md) — SMTP config is a DB singleton (id=1) with SMTP_* env fallback; password write-only & plaintext; source enum db|env|none; editable in prod w/o redeploy.
 - [Attachment type-based sections](attachment-type-sections.md) — jobs/activities share one attachments list keyed by free-string `type`; every section must filter by type or photos/doklady leak across sections.

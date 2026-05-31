@@ -41,6 +41,21 @@ ENV PORT=5000
 # Location of the committed SQL migrations applied on startup.
 ENV MIGRATIONS_DIR=/app/migrations
 
+# pg_dump (postgresql-client) is needed at runtime for the database backup
+# feature. node:24-slim is Debian 12 (bookworm), whose postgresql-client is
+# v15 — add the official PGDG repo to install the v16 client matching the
+# PostgreSQL 16 server (pg_dump must be >= the server's major version).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends wget gnupg ca-certificates \
+  && install -d /usr/share/postgresql-common/pgdg \
+  && wget -qO /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-client-16 \
+  && apt-get purge -y wget gnupg \
+  && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
+
 # Runtime deps that esbuild keeps external (e.g. @aws-sdk, nodemailer).
 COPY --from=builder /app/node_modules ./node_modules
 # Bundled server + migrator + pino transport workers.

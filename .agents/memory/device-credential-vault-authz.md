@@ -28,8 +28,12 @@ takes a client-supplied `pdfBase64`/`to`, so generic write access would turn
 it into a credential-exfil + SMTP-relay channel.
 
 **How to apply:**
-- Backend: `router.use(requireRole("master", "admin"))` at the top of the
-  device-credentials router.
+- Backend: apply `requireRole("master", "admin")` **per-route** on each
+  device-credential endpoint. Do NOT use a pathless `router.use(requireRole(...))`
+  at the top of the router — every router is mounted pathlessly in
+  `routes/index.ts`, so a pathless guard runs for *every* request flowing through
+  the chain and 401s unauthenticated requests (e.g. login) on routers mounted
+  after it. See `pathless-router-middleware-leak.md`.
 - Frontend: gate both the nav item and the route with `can("write")`
   (master+admin) so guests never see a page that only 403s.
 - On POST/PATCH, validate that any provided `siteId` belongs to the same

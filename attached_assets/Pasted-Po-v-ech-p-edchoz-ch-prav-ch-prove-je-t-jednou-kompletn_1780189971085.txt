@@ -1,0 +1,62 @@
+Po všech předchozích úpravách proveď ještě jednou kompletní finální kontrolu projektu před prvním pushi do GitHubu a před nasazením na vlastní server Hetzner přes Coolify.
+
+Cílem je potvrdit, že je aplikace připravená pro produkční provoz, bezpečnost, GDPR a budoucí údržbu.
+
+Zkontroluj a případně oprav:
+
+1. Žádná závislost na Replit infrastruktuře.
+2. Žádné Replit-specific služby, API ani tajné klíče.
+3. Všechny citlivé hodnoty pouze přes environment variables.
+4. Připravený Dockerfile pro produkční provoz.
+5. Připravený docker-compose.yml pro produkci.
+6. Připravený .env.example se všemi potřebnými proměnnými.
+7. Správné oddělení aplikace, databáze a úložiště souborů.
+8. PostgreSQL jako hlavní databáze.
+9. Migrace databáze musí fungovat automaticky.
+10. Aplikace nesmí mít natvrdo nastavený localhost.
+11. Aplikace nesmí mít natvrdo nastavené porty nebo URL.
+12. Veškeré API URL musí být konfigurovatelné.
+13. Aplikace musí být připravená pro reverse proxy v Coolify.
+14. Připrav produkční build bez debug režimu.
+15. Připrav healthcheck endpoint.
+16. Ověř, že aplikace běží správně na Linux serveru.
+17. Ověř správnou práci s cestami k souborům na serveru.
+18. Ověř přihlašování, session a role uživatelů.
+19. Ověř ochranu proti neoprávněnému přístupu.
+20. Ověř bezpečnost API endpointů.
+21. Ověř validaci všech vstupů od uživatelů.
+22. Ověř ochranu proti SQL injection.
+23. Ověř ochranu proti XSS.
+24. Ověř ochranu proti CSRF, pokud je relevantní.
+25. Ověř ochranu proti brute-force útokům.
+26. Ověř, že nejsou v kódu žádná hardcoded hesla, tokeny ani API klíče.
+27. Ověř, že v produkci není zapnutý debug režim.
+28. Ověř, že logy neobsahují citlivá data.
+29. Ověř, že upload souborů a fotografií je bezpečný.
+30. Ověř limity a typy nahrávaných souborů.
+31. Ověř, že fotografie a dokumenty nejsou ukládány do databáze.
+32. Připrav nebo ověř S3 kompatibilní objektové úložiště pro soubory.
+33. Ověř export dat a připravenost na mazání dat.
+34. Ověř minimalizaci osobních údajů.
+35. Ověř audit log změn.
+36. Ověř připravenost na GDPR z pohledu aplikace.
+37. Připrav funkci automatických záloh databáze.
+38. Připrav možnost ručního vytvoření zálohy z administrace.
+39. Připrav možnost stažení zálohy administrátorem.
+40. Připrav evidenci poslední úspěšné zálohy.
+41. Připrav logování zálohování.
+42. Zkontroluj, že je možné obnovit data ze zálohy bezpečně a kontrolovaně.
+43. Zkontroluj nevyužívané nebo zbytečné závislosti.
+44. Zkontroluj velikost a bezpečnost build výstupů.
+45. Připrav README s přesným postupem nasazení na GitHub → Coolify → Hetzner.
+46. Připrav stručný seznam proměnných prostředí a jejich významu.
+47. Připrav stručný Production Readiness Report.
+
+Na konci vytvoř jasné finální vyhodnocení:
+
+KRITICKÉ PROBLÉMY
+DOPORUČENÉ OPRAVY
+PŘIPRAVENO K PRODUKČNÍMU NASAZENÍ
+NEPŘIPRAVENO K PRODUKČNÍMU NASAZENÍ
+
+Pokud je cokoliv kritického, oprav to před tím, než doporučíš push do GitHubu.

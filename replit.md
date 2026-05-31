@@ -64,11 +64,22 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Routers in `artifacts/api-server/src/routes/index.ts` are mounted **pathlessly**
+  (`router.use(jobsRouter)`), so every request flows through every router in order.
+  Never use a pathless `router.use(requireAuth/requireRole)` inside a sub-router —
+  it leaks to all downstream routers. Apply auth/role middleware **per-route**.
+- Auth is gated centrally in `app.ts` via `PUBLIC_PREFIXES` allowlist + `requireAuth`;
+  public paths are `/api/healthz`, `/api/auth/`, `/api/storage/public-objects/`.
+- DB backups are `pg_dump -Fc` (custom format) uploaded to the uploads bucket under
+  `backups/`; only the object path is stored, never the dump bytes, in DB.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Stavba is a Czech construction job tracker for Modvolt s.r.o.: jobs/tasks,
+materials, people, customers (with sites & contacts), a device-credential vault
+(admin-only), time entries, dashboard/stats, audit log, GDPR erase, PDF job
+sheets emailed to customers, an installable PWA with offline shell, and
+admin-managed automated database backups.
 
 ## User preferences
 
@@ -76,7 +87,14 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Sub-routers are mounted pathlessly in `routes/index.ts`; a pathless
+  `router.use(requireAuth/requireRole)` inside any sub-router 401s **all**
+  downstream routes. Always gate per-route.
+- `backup_log` in dev was created via direct `psql` (drizzle migrate replay can
+  fail on `0000` in dev). Never blind `push --force` (can drop `user_sessions`).
+- Dev DB admin (`admin` / role admin) password was reset to `TestAdmin123!`
+  during this audit (the original dev hash could not be recovered). Change it in
+  Settings; this only affects the dev database, never production.
 
 ## Pointers
 

@@ -102,6 +102,10 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `SMTP_SECURE`             | no       | auto          | `true` for implicit TLS (465).                                   |
 | `SMTP_USER/PASSWORD`      | no       | —             | Credentials (optional for open relays).                          |
 | `SMTP_FROM`               | no       | `SMTP_USER`   | From address.                                                    |
+| `BACKUP_ENABLED`          | no       | `true`        | `false` disables scheduled backups (manual still works).         |
+| `BACKUP_INTERVAL_HOURS`   | no       | `24`          | Hours between scheduled backups.                                 |
+| `BACKUP_RETENTION`        | no       | `14`          | Most-recent successful backups to keep; older ones are pruned.    |
+| `PG_DUMP_PATH`            | no       | `pg_dump`     | Path to the `pg_dump` binary if not on `PATH`.                   |
 | `MIGRATIONS_DIR`          | no       | `/app/migrations` | Where the API reads SQL migrations (set in the image).      |
 
 \* Required when using the bundled `postgres` service; otherwise supply
@@ -135,7 +139,56 @@ Production uses **non-interactive, file-based migrations** instead of
 
 ---
 
-## 5. Building images individually
+## 5. Database backups & restore
+
+The API takes **automated `pg_dump` backups** and uploads them to the same object
+storage bucket as uploads, under the `backups/` prefix. Backups use Postgres's
+custom format (`pg_dump -Fc`), which is compressed and restorable with
+`pg_restore`.
+
+- **Scheduled:** a backup runs on startup-scheduled intervals
+  (`BACKUP_INTERVAL_HOURS`, default 24h). Old backups beyond `BACKUP_RETENTION`
+  (default 14) are pruned from storage and the `backup_log` table.
+- **Manual:** admins (`master`/`admin` roles) can trigger a backup and download
+  any backup from **Settings → Backups** in the app, or via the API:
+  - `POST /api/backups` — create a backup now
+  - `GET /api/backups` — list backups + last success time
+  - `GET /api/backups/:id/download` — download the dump file
+- **Requirements:** object storage must be configured (`S3_*`) and `pg_dump`
+  must be available on the API container. The API image already installs
+  `postgresql-client-16`. If object storage is not configured, backups are
+  skipped (logged, not fatal).
+
+### Restoring from a backup
+
+1. Download the desired backup (admin UI or `GET /api/backups/:id/download`).
+   The file is named `stavba-<timestamp>.pgcustom`.
+2. Restore into a Postgres database with `pg_restore`. To restore into a clean
+   database:
+
+   ```bash
+   # Create an empty target DB (or drop & recreate the existing one).
+   createdb -h <host> -U <user> stavba_restore
+
+   # Restore. --clean --if-exists makes it idempotent against an existing schema.
+   pg_restore --clean --if-exists --no-owner --no-acl \
+     -h <host> -U <user> -d stavba_restore \
+     stavba-<timestamp>.pgcustom
+   ```
+
+   To restore into the live database, point `-d` at it (stop the API first to
+   avoid concurrent writes). `--no-owner --no-acl` avoids role-ownership errors
+   when restoring across different Postgres users.
+
+3. Point the app's `DATABASE_URL` at the restored database (or swap it in place)
+   and restart the API. Migrations are idempotent and run on boot.
+
+> **Tip:** periodically test a restore into a throwaway database — an untested
+> backup is not a backup.
+
+---
+
+## 6. Building images individually
 
 Both Dockerfiles expect the **repository root** as the build context:
 

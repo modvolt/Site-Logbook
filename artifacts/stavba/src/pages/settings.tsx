@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +13,11 @@ import {
   useSendTestEmail,
   getGetEmailSettingsQueryKey,
   type EmailSettingsInput,
+  useListBackups,
+  useCreateBackup,
+  getListBackupsQueryKey,
+  downloadBackup,
+  type Backup,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -48,6 +53,182 @@ const EMPTY_EMAIL_FORM: EmailForm = {
   fromAddress: "",
   fromName: "",
 };
+
+function formatBytes(bytes: number | null): string {
+  if (bytes == null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["kB", "MB", "GB"];
+  let value = bytes / 1024;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value.toFixed(1)} ${units[i]}`;
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("cs-CZ", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function BackupStatusBadge({ status }: { status: Backup["status"] }) {
+  if (status === "success") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+        <CheckCircle2 className="h-3.5 w-3.5" /> Hotovo
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-destructive">
+        <XCircle className="h-3.5 w-3.5" /> Selhalo
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Probíhá
+    </span>
+  );
+}
+
+function BackupCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useListBackups({
+    query: { queryKey: getListBackupsQueryKey() },
+  });
+  const createMutation = useCreateBackup();
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  const handleCreate = () => {
+    createMutation.mutate(undefined, {
+      onSuccess: () => {
+        toast({ title: "Záloha vytvořena", description: "Databáze byla úspěšně zazálohována." });
+        queryClient.invalidateQueries({ queryKey: getListBackupsQueryKey() });
+      },
+      onError: (err: unknown) => {
+        const message =
+          err && typeof err === "object" && "error" in err
+            ? String((err as { error: unknown }).error)
+            : "Vytvoření zálohy se nezdařilo.";
+        toast({ title: "Chyba", description: message, variant: "destructive" });
+      },
+    });
+  };
+
+  const handleDownload = async (backup: Backup) => {
+    setDownloadingId(backup.id);
+    try {
+      const blob = await downloadBackup(backup.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = backup.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Chyba", description: "Stažení zálohy se nezdařilo.", variant: "destructive" });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const items = data?.items ?? [];
+  const lastSuccessAt = data?.lastSuccessAt ?? null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5" />
+          Zálohy databáze
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            {lastSuccessAt ? (
+              <>
+                Poslední úspěšná záloha:{" "}
+                <span className="font-medium text-foreground">{formatDateTime(lastSuccessAt)}</span>
+              </>
+            ) : (
+              "Zatím nebyla vytvořena žádná úspěšná záloha."
+            )}
+          </div>
+          <Button type="button" onClick={handleCreate} disabled={createMutation.isPending} className="gap-2">
+            {createMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Zálohovat nyní
+          </Button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Automatická záloha probíhá denně. Zálohy se ukládají do objektového úložiště; zde je můžete
+          stáhnout pro bezpečné uložení mimo server.
+        </p>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Načítání…</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Žádné zálohy.</p>
+        ) : (
+          <div className="divide-y rounded-md border">
+            {items.map((backup) => (
+              <div key={backup.id} className="flex items-center justify-between gap-3 p-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <BackupStatusBadge status={backup.status} />
+                    <span className="text-xs text-muted-foreground">
+                      {backup.trigger === "auto" ? "automatická" : "ruční"}
+                    </span>
+                  </div>
+                  <div className="truncate text-sm font-medium">{formatDateTime(backup.createdAt)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatBytes(backup.sizeBytes)}
+                    {backup.error ? ` · ${backup.error}` : ""}
+                  </div>
+                </div>
+                {backup.status === "success" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={downloadingId === backup.id}
+                    onClick={() => handleDownload(backup)}
+                  >
+                    {downloadingId === backup.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    Stáhnout
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function EmailSettingsCard() {
   const queryClient = useQueryClient();
@@ -641,6 +822,8 @@ export default function Settings() {
       </Card>
 
       {can("manageUsers") && <EmailSettingsCard />}
+
+      {can("manageUsers") && <BackupCard />}
     </div>
   );
 }

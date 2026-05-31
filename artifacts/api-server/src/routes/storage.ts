@@ -8,6 +8,29 @@ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage"
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
+// Hard limit on a single uploaded file (photos/documents). Enforced here at
+// presign time so the server never hands out an upload URL for an oversized or
+// disallowed file. 30 MB comfortably covers phone photos and PDFs.
+const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
+
+// Allowlist of content types the app accepts. Notably excludes text/html and
+// SVG to avoid storing active content that could be served back inline.
+const ALLOWED_UPLOAD_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "text/csv",
+]);
+
 /**
  * POST /storage/uploads/request-url
  *
@@ -22,9 +45,20 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     return;
   }
 
-  try {
-    const { name, size, contentType } = parsed.data;
+  const { name, size, contentType } = parsed.data;
 
+  if (typeof size === "number" && size > MAX_UPLOAD_BYTES) {
+    res.status(413).json({
+      error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+    });
+    return;
+  }
+  if (contentType && !ALLOWED_UPLOAD_TYPES.has(contentType)) {
+    res.status(415).json({ error: "Tento typ souboru není povolen." });
+    return;
+  }
+
+  try {
     const { uploadURL, objectPath } =
       await objectStorageService.getObjectEntityUploadURL();
 
@@ -72,6 +106,14 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
+    // Database backups live under the "backups/" prefix and contain the entire
+    // database. They must NEVER be served through this generic (any authenticated
+    // user, incl. guests on GET) endpoint — only via the admin-gated
+    // GET /api/backups/:id/download route. Treat them as nonexistent here.
+    if (wildcardPath === "backups" || wildcardPath.startsWith("backups/")) {
+      res.status(404).json({ error: "Object not found" });
+      return;
+    }
     const objectPath = `/objects/${wildcardPath}`;
     await objectStorageService.servePrivateObject(objectPath, res);
   } catch (error) {
