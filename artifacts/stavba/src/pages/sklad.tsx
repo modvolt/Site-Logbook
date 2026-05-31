@@ -12,9 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Package, Plus, Trash2, Pencil, Save, X } from "lucide-react";
+import { Package, Plus, Trash2, Pencil, Save, X, FileUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import WarehouseCsvImport from "@/components/warehouse-csv-import";
 
 type FormState = {
   name: string;
@@ -40,6 +41,7 @@ export default function Sklad() {
   const { can } = useAuth();
 
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<FormState>(EMPTY);
@@ -129,12 +131,26 @@ export default function Sklad() {
       <div className="flex items-center justify-between mb-6 gap-2">
         <h1 className="text-2xl font-bold">Sklad</h1>
         {can("write") && (
-          <Button onClick={() => setShowForm((s) => !s)} className="h-10">
-            <Plus className="h-5 w-5 md:mr-2" />
-            <span className="hidden md:inline">Přidat položku</span>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowImport(true)} className="h-10">
+              <FileUp className="h-5 w-5 md:mr-2" />
+              <span className="hidden md:inline">Import ceníku</span>
+            </Button>
+            <Button onClick={() => setShowForm((s) => !s)} className="h-10">
+              <Plus className="h-5 w-5 md:mr-2" />
+              <span className="hidden md:inline">Přidat položku</span>
+            </Button>
+          </div>
         )}
       </div>
+
+      {can("write") && (
+        <WarehouseCsvImport
+          open={showImport}
+          onOpenChange={setShowImport}
+          onImported={invalidate}
+        />
+      )}
 
       {can("write") && showForm && (
         <Card className="mb-8 border-primary/20 bg-primary/5">

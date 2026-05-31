@@ -1136,6 +1136,28 @@ export const CreateWarehouseItemBody = zod.object({
 
 
 /**
+ * @summary Bulk import (upsert) warehouse items from a supplier price list
+ */
+export const ImportWarehouseItemsBody = zod.object({
+  "items": zod.array(zod.object({
+  "name": zod.string(),
+  "code": zod.string().nullish(),
+  "category": zod.string().nullish(),
+  "unit": zod.string().nullish(),
+  "purchasePrice": zod.number().nullish(),
+  "salePrice": zod.number().nullish(),
+  "minQuantity": zod.number().nullish()
+}))
+})
+
+export const ImportWarehouseItemsResponse = zod.object({
+  "created": zod.number(),
+  "updated": zod.number(),
+  "skipped": zod.number()
+})
+
+
+/**
  * @summary Update a warehouse item
  */
 export const UpdateWarehouseItemParams = zod.object({

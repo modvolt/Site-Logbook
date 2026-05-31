@@ -97,6 +97,8 @@ import type {
   UserPreferences,
   UserPreferencesInput,
   UserUpdate,
+  WarehouseImportInput,
+  WarehouseImportResult,
   WarehouseItem,
   WarehouseItemInput
 } from './api.schemas';
@@ -3784,6 +3786,77 @@ export const useCreateWarehouseItem = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateWarehouseItemMutationOptions(options));
+    }
+
+export const getImportWarehouseItemsUrl = () => {
+
+
+
+
+  return `/api/warehouse-items/import`
+}
+
+/**
+ * @summary Bulk import (upsert) warehouse items from a supplier price list
+ */
+export const importWarehouseItems = async (warehouseImportInput: WarehouseImportInput, options?: RequestInit): Promise<WarehouseImportResult> => {
+
+  return customFetch<WarehouseImportResult>(getImportWarehouseItemsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      warehouseImportInput,)
+  }
+);}
+
+
+
+
+export const getImportWarehouseItemsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importWarehouseItems>>, TError,{data: BodyType<WarehouseImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importWarehouseItems>>, TError,{data: BodyType<WarehouseImportInput>}, TContext> => {
+
+const mutationKey = ['importWarehouseItems'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importWarehouseItems>>, {data: BodyType<WarehouseImportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importWarehouseItems(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportWarehouseItemsMutationResult = NonNullable<Awaited<ReturnType<typeof importWarehouseItems>>>
+    export type ImportWarehouseItemsMutationBody = BodyType<WarehouseImportInput>
+    export type ImportWarehouseItemsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Bulk import (upsert) warehouse items from a supplier price list
+ */
+export const useImportWarehouseItems = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importWarehouseItems>>, TError,{data: BodyType<WarehouseImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importWarehouseItems>>,
+        TError,
+        {data: BodyType<WarehouseImportInput>},
+        TContext
+      > => {
+      return useMutation(getImportWarehouseItemsMutationOptions(options));
     }
 
 export const getUpdateWarehouseItemUrl = (id: number,) => {

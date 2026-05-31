@@ -1088,6 +1088,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/WarehouseItem"
 
+  /warehouse-items/import:
+    post:
+      operationId: importWarehouseItems
+      tags: [warehouse]
+      summary: Bulk import (upsert) warehouse items from a supplier price list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarehouseImportInput"
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseImportResult"
+
   /warehouse-items/{id}:
     patch:
       operationId: updateWarehouseItem
@@ -3772,6 +3791,45 @@ components:
           type: ["number", "null"]
         minQuantity:
           type: ["number", "null"]
+
+    WarehouseImportItem:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        code:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        unit:
+          type: ["string", "null"]
+        purchasePrice:
+          type: ["number", "null"]
+        salePrice:
+          type: ["number", "null"]
+        minQuantity:
+          type: ["number", "null"]
+
+    WarehouseImportInput:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseImportItem"
+
+    WarehouseImportResult:
+      type: object
+      required: [created, updated, skipped]
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        skipped:
+          type: integer
 
     AuditLogEntry:
       type: object

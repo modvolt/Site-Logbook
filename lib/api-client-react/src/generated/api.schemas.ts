@@ -1067,6 +1067,32 @@ export interface WarehouseItemInput {
   minQuantity?: number | null;
 }
 
+export interface WarehouseImportItem {
+  name: string;
+  /** @nullable */
+  code?: string | null;
+  /** @nullable */
+  category?: string | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  purchasePrice?: number | null;
+  /** @nullable */
+  salePrice?: number | null;
+  /** @nullable */
+  minQuantity?: number | null;
+}
+
+export interface WarehouseImportInput {
+  items: WarehouseImportItem[];
+}
+
+export interface WarehouseImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
 export interface AuditLogEntry {
   id: number;
   /** @nullable */

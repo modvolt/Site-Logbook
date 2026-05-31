@@ -96,5 +96,8 @@ export * from './userInput';
 export * from './userPreferences';
 export * from './userPreferencesInput';
 export * from './userUpdate';
+export * from './warehouseImportInput';
+export * from './warehouseImportItem';
+export * from './warehouseImportResult';
 export * from './warehouseItem';
 export * from './warehouseItemInput';
