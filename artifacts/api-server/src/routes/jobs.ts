@@ -269,11 +269,6 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     .where(eq(jobsTable.id, params.data.id))
     .returning();
 
-  if (!job) {
-    res.status(404).json({ error: "Job not found" });
-    return;
-  }
-
   // For recurring service calls, auto-create the next occurrence when this one
   // transitions to "done" (only on the actual transition, to avoid duplicates).
   if (

@@ -1,0 +1,34 @@
+# Keep the Docker build context small and reproducible.
+**/node_modules
+**/dist
+**/.tsbuildinfo
+*.tsbuildinfo
+
+.git
+.gitignore
+
+# Replit / agent local state
+.local
+.cache
+.config
+.replit
+.replitignore
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log
+yarn-error.log
+
+# Deployment files themselves
+docker-compose.yml
+**/Dockerfile
+.dockerignore
+.env
+.env.*
+!.env.example

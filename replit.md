@@ -8,8 +8,20 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only, interactive)
+- `pnpm --filter @workspace/db run generate` — generate versioned SQL migrations (commit them; used for production deploys)
+- `pnpm --filter @workspace/db run migrate` — apply pending migrations non-interactively (`DATABASE_URL` required)
+- Required env: `DATABASE_URL` — Postgres connection string; `SESSION_SECRET` — signs session cookies
+
+## Deploy (Docker / Coolify)
+
+The app is fully containerized and self-hostable (no Replit infra). See
+**`DEPLOYMENT.md`** for the full guide. Quick start:
+
+- `cp .env.example .env` then `docker compose up --build` → app on <http://localhost:8080>
+- Stack: PostgreSQL + MinIO (S3) + API (`artifacts/api-server/Dockerfile`) + web/PWA (`artifacts/stavba/Dockerfile`, nginx serving static assets and reverse-proxying `/api`).
+- The API container applies SQL migrations on startup (`dist/migrate.mjs`), replacing interactive `drizzle-kit push` for production.
+- Production builds skip the Replit-only Vite plugins (gated on `REPL_ID`).
 
 ### Object storage (S3-compatible)
 
@@ -17,7 +29,8 @@ File uploads (photos/documents) are stored in an S3-compatible bucket (MinIO,
 Hetzner Object Storage, AWS S3, …). Files are never stored in the database — only
 their object paths are. Configure:
 
-- `S3_ENDPOINT` — endpoint URL (e.g. `http://minio:9000`); omit for AWS S3
+- `S3_ENDPOINT` — endpoint the API uses (e.g. `http://minio:9000`); omit for AWS S3
+- `S3_PUBLIC_ENDPOINT` — browser-reachable endpoint used to sign presigned upload URLs (defaults to `S3_ENDPOINT`); needed when the API and browser reach storage at different hosts (Docker/Coolify)
 - `S3_REGION` — region (default `us-east-1`)
 - `S3_BUCKET` — bucket name (required)
 - `S3_ACCESS_KEY_ID` — access key (required)

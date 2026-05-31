@@ -35,24 +35,42 @@ function trimSlashes(value: string): string {
 }
 
 let cachedClient: S3Client | null = null;
+let cachedPublicClient: S3Client | null = null;
 
-function getClient(): S3Client {
-  if (cachedClient) return cachedClient;
-
-  const endpoint = process.env.S3_ENDPOINT;
+function buildClient(endpoint: string | undefined): S3Client {
   const region = process.env.S3_REGION || "us-east-1";
   const accessKeyId = requireEnv("S3_ACCESS_KEY_ID");
   const secretAccessKey = requireEnv("S3_SECRET_ACCESS_KEY");
   // Path-style addressing is required by MinIO and some self-hosted gateways.
   const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
 
-  cachedClient = new S3Client({
+  return new S3Client({
     region,
     endpoint: endpoint || undefined,
     forcePathStyle,
     credentials: { accessKeyId, secretAccessKey },
   });
+}
+
+// Client used for all server-side operations (Head/Get/Delete). It talks to the
+// object store over the internal/private endpoint (e.g. http://minio:9000).
+function getClient(): S3Client {
+  if (cachedClient) return cachedClient;
+  cachedClient = buildClient(process.env.S3_ENDPOINT);
   return cachedClient;
+}
+
+// Client used only to presign upload URLs handed back to the browser. The
+// signature is bound to the endpoint host, so when the browser cannot reach the
+// internal endpoint (typical in Docker/Coolify where the API talks to MinIO at
+// http://minio:9000 but the browser must use a public URL), set
+// S3_PUBLIC_ENDPOINT to the browser-reachable endpoint. Falls back to
+// S3_ENDPOINT when both sides share a single endpoint (e.g. AWS S3).
+function getPublicClient(): S3Client {
+  if (cachedPublicClient) return cachedPublicClient;
+  const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT;
+  cachedPublicClient = buildClient(publicEndpoint);
+  return cachedPublicClient;
 }
 
 function getBucket(): string {
@@ -146,7 +164,7 @@ export class ObjectStorageService {
     const key = joinKey(getPrivatePrefix(), entityId);
 
     const uploadURL = await getSignedUrl(
-      getClient(),
+      getPublicClient(),
       new PutObjectCommand({ Bucket: getBucket(), Key: key }),
       { expiresIn: 900 },
     );
