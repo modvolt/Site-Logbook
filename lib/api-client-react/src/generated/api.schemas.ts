@@ -60,6 +60,64 @@ export interface SendJobEmailResult {
   to: string;
 }
 
+export interface StatsJobTypeCount {
+  type: string;
+  count: number;
+}
+
+export interface StatsEmployee {
+  personId: number;
+  name: string;
+  jobs: number;
+  hours: number;
+}
+
+export interface StatsMaterialRow {
+  name: string;
+  cost: number;
+  quantity: number;
+}
+
+export type StatsOverviewJobs = {
+  total: number;
+  planned: number;
+  inProgress: number;
+  done: number;
+  cancelled: number;
+  totalHours: number;
+  byType: StatsJobTypeCount[];
+};
+
+export type StatsOverviewRevenue = {
+  work: number;
+  material: number;
+  total: number;
+  parking: number;
+  fines: number;
+  transport: number;
+};
+
+export type StatsOverviewMaterials = {
+  totalCost: number;
+  top: StatsMaterialRow[];
+};
+
+export type StatsOverviewWarehouse = {
+  itemCount: number;
+  stockValue: number;
+  lowStockCount: number;
+};
+
+export interface StatsOverview {
+  from: string;
+  to: string;
+  jobs: StatsOverviewJobs;
+  revenue: StatsOverviewRevenue;
+  employees: StatsEmployee[];
+  materials: StatsOverviewMaterials;
+  warehouse: StatsOverviewWarehouse;
+}
+
 export interface CustomerInput {
   /** @minLength 1 */
   companyName: string;
@@ -1013,6 +1071,17 @@ status?: string;
  * @nullable
  */
 assignedPersonId?: number | null;
+};
+
+export type GetStatsOverviewParams = {
+/**
+ * ISO date string (YYYY-MM-DD), inclusive
+ */
+from: string;
+/**
+ * ISO date string (YYYY-MM-DD), inclusive
+ */
+to: string;
 };
 
 export type ListAuditLogsParams = {

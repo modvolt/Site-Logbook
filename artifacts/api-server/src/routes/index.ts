@@ -21,6 +21,7 @@ import warehouseItemsRouter from "./warehouse-items";
 import auditRouter from "./audit";
 import gdprRouter from "./gdpr";
 import timeEntriesRouter from "./time-entries";
+import statsRouter from "./stats";
 
 const router: IRouter = Router();
 
@@ -46,5 +47,6 @@ router.use(warehouseItemsRouter);
 router.use(auditRouter);
 router.use(gdprRouter);
 router.use(timeEntriesRouter);
+router.use(statsRouter);
 
 export default router;

@@ -1,0 +1,330 @@
+import { useState } from "react";
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addWeeks, addMonths, addYears } from "date-fns";
+import { cs } from "date-fns/locale";
+import { useGetStatsOverview, getGetStatsOverviewQueryKey } from "@workspace/api-client-react";
+import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Loader2, Briefcase, Users, Package, Warehouse, Banknote } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { JOB_TYPES } from "@/components/badges";
+import { useToast } from "@/hooks/use-toast";
+import { renderJobSheetPdf } from "@/lib/job-sheet-pdf";
+import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
+import { loadCompanySettings } from "@/lib/company-settings";
+
+const PRINT_CSS = `
+@media print {
+  @page { size: A4; margin: 14mm; }
+  html, body { background: #fff !important; }
+  body * { visibility: hidden !important; }
+  #statistika-list, #statistika-list * { visibility: visible !important; }
+  #statistika-list { position: absolute; left: 0; top: 0; width: 100%; margin: 0; box-shadow: none !important; }
+  .no-print { display: none !important; }
+}
+`;
+
+type Period = "week" | "month" | "year";
+
+const PERIOD_LABELS: Record<Period, string> = {
+  week: "Týden",
+  month: "Měsíc",
+  year: "Rok",
+};
+
+function fmtKc(n: number): string {
+  return `${Math.round(n).toLocaleString("cs-CZ")} Kč`;
+}
+
+function fmtHours(n: number): string {
+  return `${n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} h`;
+}
+
+function typeLabel(type: string): string {
+  return JOB_TYPES[type as keyof typeof JOB_TYPES]?.label ?? type;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function getRange(period: Period, anchor: Date): { from: Date; to: Date } {
+  switch (period) {
+    case "week":
+      return { from: startOfWeek(anchor, { weekStartsOn: 1 }), to: endOfWeek(anchor, { weekStartsOn: 1 }) };
+    case "month":
+      return { from: startOfMonth(anchor), to: endOfMonth(anchor) };
+    case "year":
+      return { from: startOfYear(anchor), to: endOfYear(anchor) };
+  }
+}
+
+function rangeLabel(period: Period, from: Date, to: Date): string {
+  switch (period) {
+    case "week":
+      return `${format(from, "d. M.")} – ${format(to, "d. M. yyyy")}`;
+    case "month":
+      return capitalize(format(from, "LLLL yyyy", { locale: cs }));
+    case "year":
+      return format(from, "yyyy");
+  }
+}
+
+export default function Statistika() {
+  const [period, setPeriod] = useState<Period>("month");
+  const [anchor, setAnchor] = useState<Date>(new Date());
+  const [exporting, setExporting] = useState(false);
+  const [company] = useState(() => loadCompanySettings());
+  const { toast } = useToast();
+
+  const { from, to } = getRange(period, anchor);
+  const fromStr = format(from, "yyyy-MM-dd");
+  const toStr = format(to, "yyyy-MM-dd");
+  const label = rangeLabel(period, from, to);
+
+  const companyName = company.name || BRAND_NAME;
+  const companyLogo = company.logoDataUrl || BRAND_LOGO_URL;
+
+  const { data: stats, isLoading } = useGetStatsOverview(
+    { from: fromStr, to: toStr },
+    { query: { queryKey: getGetStatsOverviewQueryKey({ from: fromStr, to: toStr }) } },
+  );
+
+  const shift = (dir: -1 | 1) => {
+    setAnchor((prev) => {
+      if (period === "week") return addWeeks(prev, dir);
+      if (period === "month") return addMonths(prev, dir);
+      return addYears(prev, dir);
+    });
+  };
+
+  const handleDownload = async () => {
+    const element = document.getElementById("statistika-list");
+    if (!element) return;
+    setExporting(true);
+    try {
+      const doc = await renderJobSheetPdf(element);
+      doc.save(`statistika-${period}-${fromStr}.pdf`);
+    } catch {
+      toast({ variant: "destructive", title: "Export selhal", description: "PDF se nepodařilo vytvořit. Zkuste to prosím znovu." });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-[100dvh] bg-neutral-200 dark:bg-neutral-800 pb-16">
+      <style>{PRINT_CSS}</style>
+
+      {/* Toolbar */}
+      <div className="no-print sticky top-0 z-20 bg-card border-b shadow-sm">
+        <div className="p-3 max-w-3xl mx-auto w-full flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => window.history.back()} className="shrink-0">
+              <ArrowLeft className="h-6 w-6" />
+            </Button>
+            <h1 className="text-lg font-bold flex-1 min-w-0 truncate">Statistika</h1>
+            <Button variant="outline" onClick={handleDownload} disabled={exporting || isLoading} className="shrink-0">
+              {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+              Stáhnout PDF
+            </Button>
+            <Button onClick={() => window.print()} disabled={isLoading} className="shrink-0">
+              <Printer className="h-4 w-4 mr-2" /> Tisk
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex rounded-lg border bg-muted p-0.5">
+              {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    period === p ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {PERIOD_LABELS[p]}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 ml-auto">
+              <Button variant="outline" size="icon" onClick={() => shift(-1)} aria-label="Předchozí období">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="px-2 text-sm font-semibold min-w-[10rem] text-center">{label}</span>
+              <Button variant="outline" size="icon" onClick={() => shift(1)} aria-label="Další období">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Document */}
+      <div className="max-w-3xl mx-auto w-full p-4 md:p-8">
+        {isLoading ? (
+          <div className="space-y-4">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-96 w-full" />
+          </div>
+        ) : !stats ? (
+          <div className="p-8 text-center text-muted-foreground">Statistiku se nepodařilo načíst.</div>
+        ) : (
+          <div id="statistika-list" className="bg-white text-neutral-900 shadow-lg mx-auto p-8 md:p-10" style={{ maxWidth: "210mm" }}>
+            {/* Header */}
+            <div className="flex items-start justify-between border-b-2 border-neutral-900 pb-4 mb-6">
+              <div>
+                <h2 className="text-2xl font-bold tracking-tight">Statistika</h2>
+                <p className="text-sm text-neutral-600 mt-1">{PERIOD_LABELS[period]}: {label}</p>
+              </div>
+              <div className="flex flex-col items-end text-right">
+                <img src={companyLogo} alt={companyName} crossOrigin="anonymous" className="h-16 w-auto object-contain" />
+                <p className="text-xs text-neutral-500 mt-1">Vystaveno: {format(new Date(), "d. M. yyyy")}</p>
+              </div>
+            </div>
+
+            {/* Jobs overview */}
+            <Section title="Zakázky" icon={<Briefcase className="w-4 h-4" />}>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 mb-4">
+                <Stat label="Celkem" value={String(stats.jobs.total)} />
+                <Stat label="Naplánováno" value={String(stats.jobs.planned)} />
+                <Stat label="Probíhá" value={String(stats.jobs.inProgress)} />
+                <Stat label="Hotovo" value={String(stats.jobs.done)} />
+                <Stat label="Zrušeno" value={String(stats.jobs.cancelled)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-4 max-w-sm">
+                <Stat label="Odpracované hodiny" value={fmtHours(stats.jobs.totalHours)} />
+              </div>
+              {stats.jobs.byType.length > 0 && (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-neutral-300 text-left text-neutral-600">
+                      <th className="py-1 pr-2 font-semibold">Druh zakázky</th>
+                      <th className="py-1 pl-2 font-semibold text-right">Počet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.jobs.byType.map((row) => (
+                      <tr key={row.type} className="border-b border-neutral-200">
+                        <td className="py-1 pr-2">{typeLabel(row.type)}</td>
+                        <td className="py-1 pl-2 text-right font-medium">{row.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Section>
+
+            {/* Revenue */}
+            <Section title="Tržby" icon={<Banknote className="w-4 h-4" />}>
+              <div className="text-sm space-y-1 max-w-sm">
+                <PriceRow label="Práce a doprava" value={fmtKc(stats.revenue.work)} />
+                <PriceRow label="Materiál" value={fmtKc(stats.revenue.material)} />
+                {stats.revenue.transport > 0 && <PriceRow label="z toho doprava" value={fmtKc(stats.revenue.transport)} muted />}
+                {stats.revenue.parking > 0 && <PriceRow label="z toho parkování" value={fmtKc(stats.revenue.parking)} muted />}
+                {stats.revenue.fines > 0 && <PriceRow label="z toho pokuty" value={fmtKc(stats.revenue.fines)} muted />}
+                <div className="flex justify-between border-t-2 border-neutral-900 pt-2 mt-2 text-base font-bold">
+                  <span>Celkem</span>
+                  <span>{fmtKc(stats.revenue.total)}</span>
+                </div>
+                <p className="text-xs text-neutral-500">Ceny jsou uvedeny bez DPH.</p>
+              </div>
+            </Section>
+
+            {/* Employees */}
+            <Section title="Zaměstnanci" icon={<Users className="w-4 h-4" />}>
+              {stats.employees.length === 0 ? (
+                <p className="text-sm text-neutral-500">V tomto období bez aktivity.</p>
+              ) : (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-neutral-300 text-left text-neutral-600">
+                      <th className="py-1 pr-2 font-semibold">Jméno</th>
+                      <th className="py-1 px-2 font-semibold text-right">Zakázky</th>
+                      <th className="py-1 pl-2 font-semibold text-right">Hodiny</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.employees.map((e) => (
+                      <tr key={e.personId} className="border-b border-neutral-200">
+                        <td className="py-1 pr-2">{e.name}</td>
+                        <td className="py-1 px-2 text-right">{e.jobs}</td>
+                        <td className="py-1 pl-2 text-right font-medium">{fmtHours(e.hours)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Section>
+
+            {/* Materials */}
+            <Section title="Materiál" icon={<Package className="w-4 h-4" />}>
+              <div className="grid grid-cols-2 gap-3 mb-4 max-w-sm">
+                <Stat label="Náklady na materiál" value={fmtKc(stats.materials.totalCost)} />
+              </div>
+              {stats.materials.top.length === 0 ? (
+                <p className="text-sm text-neutral-500">V tomto období bez materiálu.</p>
+              ) : (
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-neutral-300 text-left text-neutral-600">
+                      <th className="py-1 pr-2 font-semibold">Položka</th>
+                      <th className="py-1 px-2 font-semibold text-right">Množství</th>
+                      <th className="py-1 pl-2 font-semibold text-right">Náklady</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.materials.top.map((m) => (
+                      <tr key={m.name} className="border-b border-neutral-200">
+                        <td className="py-1 pr-2">{m.name}</td>
+                        <td className="py-1 px-2 text-right">{m.quantity.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })}</td>
+                        <td className="py-1 pl-2 text-right font-medium">{fmtKc(m.cost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Section>
+
+            {/* Warehouse */}
+            <Section title="Sklad" icon={<Warehouse className="w-4 h-4" />}>
+              <p className="text-xs text-neutral-500 mb-2">Aktuální stav skladu (nezávisí na zvoleném období).</p>
+              <div className="grid grid-cols-3 gap-3">
+                <Stat label="Položek" value={String(stats.warehouse.itemCount)} />
+                <Stat label="Hodnota skladu" value={fmtKc(stats.warehouse.stockValue)} />
+                <Stat label="Pod minimem" value={String(stats.warehouse.lowStockCount)} />
+              </div>
+            </Section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="mb-6">
+      <h3 className="text-sm font-bold uppercase tracking-wide border-b border-neutral-300 pb-1 mb-3 flex items-center gap-1.5">
+        {icon}{title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-neutral-300 rounded-md p-3">
+      <div className="text-lg font-bold leading-none">{value}</div>
+      <div className="text-[11px] text-neutral-500 font-medium mt-1">{label}</div>
+    </div>
+  );
+}
+
+function PriceRow({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div className={`flex justify-between ${muted ? "text-neutral-500 text-xs pl-3" : ""}`}>
+      <span className={muted ? "" : "text-neutral-600"}>{label}</span>
+      <span className={muted ? "" : "font-medium"}>{value}</span>
+    </div>
+  );
+}

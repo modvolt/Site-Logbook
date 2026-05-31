@@ -647,6 +647,59 @@ export const SendCredentialsEmailResponse = zod.object({
 
 
 /**
+ * @summary Aggregated statistics for a date range (admin only)
+ */
+export const GetStatsOverviewQueryParams = zod.object({
+  "from": zod.coerce.string(),
+  "to": zod.coerce.string()
+})
+
+export const GetStatsOverviewResponse = zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "jobs": zod.object({
+  "total": zod.number(),
+  "planned": zod.number(),
+  "inProgress": zod.number(),
+  "done": zod.number(),
+  "cancelled": zod.number(),
+  "totalHours": zod.number(),
+  "byType": zod.array(zod.object({
+  "type": zod.string(),
+  "count": zod.number()
+}))
+}),
+  "revenue": zod.object({
+  "work": zod.number(),
+  "material": zod.number(),
+  "total": zod.number(),
+  "parking": zod.number(),
+  "fines": zod.number(),
+  "transport": zod.number()
+}),
+  "employees": zod.array(zod.object({
+  "personId": zod.number(),
+  "name": zod.string(),
+  "jobs": zod.number(),
+  "hours": zod.number()
+})),
+  "materials": zod.object({
+  "totalCost": zod.number(),
+  "top": zod.array(zod.object({
+  "name": zod.string(),
+  "cost": zod.number(),
+  "quantity": zod.number()
+}))
+}),
+  "warehouse": zod.object({
+  "itemCount": zod.number(),
+  "stockValue": zod.number(),
+  "lowStockCount": zod.number()
+})
+})
+
+
+/**
  * @summary List contacts for a customer
  */
 export const ListCustomerContactsParams = zod.object({

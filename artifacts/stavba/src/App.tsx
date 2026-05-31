@@ -33,6 +33,7 @@ import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
 import AuditLog from "@/pages/audit-log";
 import Gdpr from "@/pages/gdpr";
+import Statistika from "@/pages/statistika";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 
 const queryClient = new QueryClient({
@@ -94,6 +95,7 @@ function AuthenticatedApp() {
         <Route path="/me" component={MyOverview} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />
+        <Route path="/statistika">{() => <AdminOnly component={Statistika} />}</Route>
         <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
         <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>

@@ -51,6 +51,7 @@ import type {
   GdprEraseResult,
   GdprExport,
   GetMyDoneJobsParams,
+  GetStatsOverviewParams,
   HealthStatus,
   Job,
   JobInput,
@@ -76,6 +77,7 @@ import type {
   SendJobEmailInput,
   SendJobEmailResult,
   SetupInput,
+  StatsOverview,
   Task,
   TaskInput,
   TaskUpdate,
@@ -2232,6 +2234,90 @@ export const useSendCredentialsEmail = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getSendCredentialsEmailMutationOptions(options));
     }
+
+export const getGetStatsOverviewUrl = (params: GetStatsOverviewParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/stats/overview?${stringifiedParams}` : `/api/stats/overview`
+}
+
+/**
+ * @summary Aggregated statistics for a date range (admin only)
+ */
+export const getStatsOverview = async (params: GetStatsOverviewParams, options?: RequestInit): Promise<StatsOverview> => {
+
+  return customFetch<StatsOverview>(getGetStatsOverviewUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStatsOverviewQueryKey = (params?: GetStatsOverviewParams,) => {
+    return [
+    `/api/stats/overview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetStatsOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getStatsOverview>>, TError = ErrorType<unknown>>(params: GetStatsOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStatsOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStatsOverviewQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStatsOverview>>> = ({ signal }) => getStatsOverview(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStatsOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStatsOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof getStatsOverview>>>
+export type GetStatsOverviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Aggregated statistics for a date range (admin only)
+ */
+
+export function useGetStatsOverview<TData = Awaited<ReturnType<typeof getStatsOverview>>, TError = ErrorType<unknown>>(
+ params: GetStatsOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStatsOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStatsOverviewQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListCustomerContactsUrl = (customerId: number,) => {
 

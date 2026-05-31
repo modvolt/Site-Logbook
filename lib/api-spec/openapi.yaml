@@ -654,6 +654,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/SendJobEmailResult"
 
+  /stats/overview:
+    get:
+      operationId: getStatsOverview
+      tags: [stats]
+      summary: Aggregated statistics for a date range (admin only)
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            description: ISO date string (YYYY-MM-DD), inclusive
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            description: ISO date string (YYYY-MM-DD), inclusive
+      responses:
+        "200":
+          description: Aggregated statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsOverview"
+
   /customers/{customerId}/contacts:
     get:
       operationId: listCustomerContacts
@@ -2252,6 +2278,108 @@ components:
           type: boolean
         to:
           type: string
+
+    StatsJobTypeCount:
+      type: object
+      required: [type, count]
+      properties:
+        type:
+          type: string
+        count:
+          type: integer
+
+    StatsEmployee:
+      type: object
+      required: [personId, name, jobs, hours]
+      properties:
+        personId:
+          type: integer
+        name:
+          type: string
+        jobs:
+          type: integer
+        hours:
+          type: number
+
+    StatsMaterialRow:
+      type: object
+      required: [name, cost, quantity]
+      properties:
+        name:
+          type: string
+        cost:
+          type: number
+        quantity:
+          type: number
+
+    StatsOverview:
+      type: object
+      required: [from, to, jobs, revenue, employees, materials, warehouse]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        jobs:
+          type: object
+          required: [total, planned, inProgress, done, cancelled, totalHours, byType]
+          properties:
+            total:
+              type: integer
+            planned:
+              type: integer
+            inProgress:
+              type: integer
+            done:
+              type: integer
+            cancelled:
+              type: integer
+            totalHours:
+              type: number
+            byType:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatsJobTypeCount"
+        revenue:
+          type: object
+          required: [work, material, total, parking, fines, transport]
+          properties:
+            work:
+              type: number
+            material:
+              type: number
+            total:
+              type: number
+            parking:
+              type: number
+            fines:
+              type: number
+            transport:
+              type: number
+        employees:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatsEmployee"
+        materials:
+          type: object
+          required: [totalCost, top]
+          properties:
+            totalCost:
+              type: number
+            top:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatsMaterialRow"
+        warehouse:
+          type: object
+          required: [itemCount, stockValue, lowStockCount]
+          properties:
+            itemCount:
+              type: integer
+            stockValue:
+              type: number
+            lowStockCount:
+              type: integer
 
     CustomerInput:
       type: object
