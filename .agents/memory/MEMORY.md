@@ -6,6 +6,7 @@
 - [PWA shared-device caching](pwa-shared-device-caching.md) — cache authenticated GET /api with NetworkFirst but purge the SW cache on logout so shared devices never leak one user's data to the next.
 - [Recurring occurrence dedupe](recurring-occurrence-dedupe.md) — auto-creating next recurring job on done-transition must dedupe by (type,date,title,customer); gating on status alone duplicates on reopen→re-done.
 - [Device credential vault authz](device-credential-vault-authz.md) — credential-vault routes gate to master+admin (not requireAuth); guests have read access by default & secrets are plaintext.
+- [Vite build env requirements](vite-build-env-requirements.md) — stavba vite.config must only require PORT when command===serve (not build), else Docker/Coolify build fails; also raise PWA workbox precache cap above the 2.3MB main bundle.
 - [Pathless router middleware leak](pathless-router-middleware-leak.md) — sub-routers mount pathlessly; a pathless router.use(auth) gates EVERY request, breaking login. Gate per-route.
 - [Database backup system](backup-system.md) — pg_dump -Fc to object storage backups/ prefix; never serve via generic /storage/objects/* (guests can GET); download only via admin /api/backups/:id/download.
 - [api-zod body validator names](api-zod-body-names.md) — server imports Zod validators by PascalCase(operationId)+Body (e.g. UpdateEmailSettingsBody), NOT component schema names (those are types only → TS2693).
