@@ -19,6 +19,7 @@ import {
 } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useUpload } from "@workspace/object-storage-web";
+import { UploadProgressBar } from "@/components/upload-progress-bar";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -822,6 +823,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
             >
               <Camera className="h-4 w-4 mr-2" /> {isUploading ? `Nahrávám… ${progress}%` : "Vyfotit / nahrát doklad"}
             </Button>
+            <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
         )}
 
@@ -950,6 +952,7 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
             >
               <Camera className="h-4 w-4 mr-2" /> {isUploading ? `Nahrávám… ${progress}%` : "Vyfotit / nahrát"}
             </Button>
+            <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
         )}
 

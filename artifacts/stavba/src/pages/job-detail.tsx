@@ -17,6 +17,7 @@ import {
 import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@workspace/object-storage-web";
+import { UploadProgressBar } from "@/components/upload-progress-bar";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
@@ -1205,6 +1206,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
             <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? `Nahrávám… ${dokladProgress}%` : "Vyfotit / nahrát doklad"}
           </Button>
         </div>
+        <UploadProgressBar isUploading={isUploadingDoklad} progress={dokladProgress} />
 
         {doklady.length > 0 && (
           <div className="space-y-2">
@@ -1376,6 +1378,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? `Nahrávám… ${photoProgress}%` : "Vyfotit stavbu"}
           </Button>
         </div>
+        <UploadProgressBar isUploading={isUploadingPhoto} progress={photoProgress} />
 
         {photos.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
