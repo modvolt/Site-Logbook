@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { cs } from "date-fns/locale";
@@ -8,7 +8,7 @@ import {
   useListPeople, getListPeopleQueryKey, useListJobs, getListJobsQueryKey,
   useReorderJobs,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useIsFetching } from "@tanstack/react-query";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -20,8 +20,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { PullToRefresh } from "@/components/pull-to-refresh";
 
 function useTimer(timerStartedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState(0);
@@ -327,6 +328,10 @@ export default function Dashboard() {
   const { toast } = useToast();
   const reorder = useReorderJobs();
   const [orderedJobs, setOrderedJobs] = useState<any[]>([]);
+  const isFetching = useIsFetching();
+  const handleRefresh = useCallback(async () => {
+    await queryClient.invalidateQueries();
+  }, [queryClient]);
 
   useEffect(() => {
     if (jobs) setOrderedJobs(jobs);
@@ -368,8 +373,22 @@ export default function Dashboard() {
   const weekTo = format(sunday, "yyyy-MM-dd");
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
-      <h1 className="text-2xl font-bold mb-6">Dnes</h1>
+    <PullToRefresh onRefresh={handleRefresh}>
+      <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Dnes</h1>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => { void handleRefresh(); }}
+          disabled={isFetching > 0}
+          className="hidden md:inline-flex shrink-0"
+          title="Obnovit"
+          aria-label="Obnovit"
+        >
+          <RefreshCw className={`h-4 w-4 ${isFetching > 0 ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
 
       {jobs && <ActiveTimerBanner jobs={jobs} />}
 
@@ -460,6 +479,7 @@ export default function Dashboard() {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </PullToRefresh>
   );
 }
