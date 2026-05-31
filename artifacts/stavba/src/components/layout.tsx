@@ -95,7 +95,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile Header */}
-      <header className="md:hidden border-b bg-card px-4 py-2 flex items-center justify-between">
+      <header className="md:hidden border-b bg-card px-4 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] flex items-center justify-between sticky top-0 z-30">
         <h1 className="text-base font-bold text-primary flex items-center gap-2">
           <Briefcase className="h-5 w-5" /> Stavba
         </h1>
@@ -104,15 +104,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${ROLE_BADGE[role || "guest"]}`}>
               {user.name}
             </span>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8">
-              <LogOut className="h-4 w-4" />
+            <Button variant="ghost" size="icon" onClick={handleLogout} className="h-10 w-10" aria-label="Odhlásit">
+              <LogOut className="h-5 w-5" />
             </Button>
           </div>
         )}
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col pb-16 md:pb-0 relative min-h-[100dvh]">
+      {/* Main Content. Bottom padding clears the fixed mobile nav (h-16) plus the
+          iOS home-indicator safe area so content is never hidden behind it. */}
+      <main className="flex-1 flex flex-col pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0 relative min-h-[100dvh]">
         {role === "guest" && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 px-4 py-2 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
             <Eye className="w-3.5 h-3.5" />
@@ -123,7 +124,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Global FAB on mobile for fast add (writers only) */}
         {can("write") && (
-          <div className="fixed bottom-20 right-4 md:bottom-8 md:right-8 z-50">
+          <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 md:bottom-8 md:right-8 z-50">
             <Link href="/jobs/new">
               <Button
                 size="icon"

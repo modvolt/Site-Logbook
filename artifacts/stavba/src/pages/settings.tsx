@@ -28,6 +28,7 @@ import {
   applyTextColor,
   type CompanySettings,
 } from "@/lib/company-settings";
+import { hardRefreshApp } from "@/lib/pwa";
 
 const MAX_LOGO_BYTES = 500 * 1024;
 const MAX_SIGNATURE_BYTES = 500 * 1024;
@@ -824,6 +825,28 @@ export default function Settings() {
       {can("manageUsers") && <EmailSettingsCard />}
 
       {can("manageUsers") && <BackupCard />}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <RefreshCw className="h-4 w-4" /> Obnovit aplikaci
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Pokud aplikace zobrazuje starou verzi, neaktualizuje se nebo se chová
+            divně, vymažte uloženou mezipaměť a načtěte ji znovu ze serveru.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2 h-11"
+            onClick={() => { void hardRefreshApp(); }}
+          >
+            <RefreshCw className="h-4 w-4" /> Vymazat mezipaměť a obnovit
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -1,6 +1,17 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, X, CheckCircle2 } from "lucide-react";
+import { debugLog } from "@/lib/pwa";
+
+// How often to ask the browser to check for a new service worker (a new app
+// version). Phones left open all day on a site would otherwise never notice a
+// deploy until they're fully closed and reopened.
+const SW_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+// Guard so the periodic update poller is started at most once for the page's
+// lifetime, even if the SW registration callback fires again (re-registration /
+// dev HMR). Prevents accumulating duplicate timers.
+let updatePollerStarted = false;
 
 // Shows a small banner when a new version of the app is available (prompt
 // update flow) or when the app is ready to work offline. Choosing "Aktualizovat"
@@ -11,7 +22,30 @@ export default function PwaUpdatePrompt() {
     offlineReady: [offlineReady, setOfflineReady],
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
-  } = useRegisterSW();
+  } = useRegisterSW({
+    onRegisteredSW(swUrl, registration) {
+      debugLog("sw", `registered: ${swUrl}`);
+      if (!registration || updatePollerStarted) return;
+      updatePollerStarted = true;
+      // Periodically poll for a new deployed version so long-lived sessions
+      // (a phone open all day) still pick up updates.
+      setInterval(() => {
+        debugLog("sw", "periodic update check");
+        registration.update().catch(() => {
+          /* offline / transient — ignore, will retry next interval */
+        });
+      }, SW_UPDATE_CHECK_INTERVAL_MS);
+    },
+    onRegisterError(error) {
+      debugLog("sw", "registration failed", error);
+    },
+    onNeedRefresh() {
+      debugLog("sw", "new version available (needRefresh)");
+    },
+    onOfflineReady() {
+      debugLog("sw", "app ready to work offline");
+    },
+  });
 
   const close = () => {
     setOfflineReady(false);

@@ -113,7 +113,7 @@ export function MobileNav({ location, isActive, can }: Props) {
 
   return (
     <>
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card flex items-center justify-around h-16 px-1 z-40 safe-area-bottom">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card flex items-center justify-around h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] px-1 z-40">
         {quickItems.map((item) => {
           const active = isActive(item);
           return (

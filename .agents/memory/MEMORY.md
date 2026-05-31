@@ -9,6 +9,7 @@
 - [Vite build env requirements](vite-build-env-requirements.md) — stavba vite.config must only require PORT when command===serve (not build), else Docker/Coolify build fails; also raise PWA workbox precache cap above the 2.3MB main bundle.
 - [Coolify one-shot init container](coolify-oneshot-init-container.md) — init/one-shot compose services (e.g. createbuckets) must set restart:"no" + idempotent cmd + exit 0, else Coolify deploy fails with "No such container".
 - [Proxy secure cookie](proxy-secure-cookie.md) — behind Coolify(Traefik)→nginx→API, inner nginx must pass through X-Forwarded-Proto (not $scheme) + use cookie.secure:"auto", else login silently fails (cookie dropped).
+- [PWA safe-area utilities](pwa-safe-area-utilities.md) — iOS notch: use viewport-fit=cover + inline additive calc(env(safe-area-inset-*)); never a flat @utility (silently overrides base padding on non-notch).
 - [Pathless router middleware leak](pathless-router-middleware-leak.md) — sub-routers mount pathlessly; a pathless router.use(auth) gates EVERY request, breaking login. Gate per-route.
 - [Database backup system](backup-system.md) — pg_dump -Fc to object storage backups/ prefix; never serve via generic /storage/objects/* (guests can GET); download only via admin /api/backups/:id/download.
 - [api-zod body validator names](api-zod-body-names.md) — server imports Zod validators by PascalCase(operationId)+Body (e.g. UpdateEmailSettingsBody), NOT component schema names (those are types only → TS2693).

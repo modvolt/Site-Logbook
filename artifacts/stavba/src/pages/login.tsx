@@ -1,14 +1,17 @@
 import { useState } from "react";
-import { Briefcase, LogIn, ShieldAlert } from "lucide-react";
+import { useLocation } from "wouter";
+import { Briefcase, LogIn, ShieldAlert, RotateCw } from "lucide-react";
 import { useLogin, useSetupFirstAdmin } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { debugLog, hardRefreshApp } from "@/lib/pwa";
 
 export default function Login() {
   const { needsSetup, refresh } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const login = useLogin();
   const setup = useSetupFirstAdmin();
 
@@ -17,11 +20,21 @@ export default function Login() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
 
+  // After a successful login/setup, re-check /api/auth/me and send the user
+  // straight to the dashboard ("/"), so the router never lingers on the login
+  // view and the entry point matches the PWA start_url.
+  const goToApp = () => {
+    debugLog("auth", "login success → redirect to dashboard (/)");
+    refresh();
+    setLocation("/");
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return;
+    debugLog("auth", "login attempt");
     login.mutate({ data: { username, password } }, {
-      onSuccess: () => { refresh(); toast({ title: `Vítej, ${username}` }); },
+      onSuccess: () => { goToApp(); toast({ title: `Vítej, ${username}` }); },
       onError: () => toast({ title: "Přihlášení selhalo", description: "Špatné jméno nebo heslo", variant: "destructive" }),
     });
   };
@@ -31,7 +44,7 @@ export default function Login() {
     if (!username || !password || !name) return;
     if (password.length < 6) { toast({ title: "Heslo musí mít aspoň 6 znaků", variant: "destructive" }); return; }
     setup.mutate({ data: { username, password, name, email: email || null } }, {
-      onSuccess: () => { refresh(); toast({ title: "Admin účet vytvořen" }); },
+      onSuccess: () => { goToApp(); toast({ title: "Admin účet vytvořen" }); },
       onError: (err: any) => toast({ title: "Nepodařilo se vytvořit účet", description: err?.message, variant: "destructive" }),
     });
   };
@@ -96,6 +109,19 @@ export default function Login() {
             </p>
           </form>
         )}
+
+        <div className="mt-6 pt-4 border-t text-center">
+          <button
+            type="button"
+            onClick={() => { void hardRefreshApp(); }}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <RotateCw className="w-3.5 h-3.5" /> Obnovit aplikaci
+          </button>
+          <p className="text-[10px] text-muted-foreground/70 mt-1">
+            Pokud appka zobrazuje starou verzi nebo se nedaří přihlásit.
+          </p>
+        </div>
       </div>
     </div>
   );

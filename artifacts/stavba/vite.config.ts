@@ -42,6 +42,7 @@ export default defineConfig(async ({ command }) => {
         registerType: "prompt",
         includeAssets: ["favicon.svg", "apple-touch-icon.png", "robots.txt"],
         manifest: {
+          id: basePath,
           name: "Stavba – Evidence zakázek",
           short_name: "Stavba",
           description:
