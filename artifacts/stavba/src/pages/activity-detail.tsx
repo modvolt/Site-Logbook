@@ -29,7 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
-  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText,
+  ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Download,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -73,6 +73,26 @@ function getAttachmentUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("data:")) return url;
   return `/api/storage${url}`;
+}
+
+async function downloadAttachment(src: string, fileName: string) {
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error("fetch failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Defer revocation: revoking immediately can cancel the download in some
+    // WebKit/Safari builds (relevant for iOS users).
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch {
+    window.open(src, "_blank");
+  }
 }
 
 function useTimer(startedAt: string | null | undefined) {
@@ -593,6 +613,16 @@ function MaterialReceipt({
         >
           <img src={src} alt="Doklad" className="h-full w-full object-cover" />
         </a>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground"
+          onClick={() => downloadAttachment(src, `doklad-${material.name || material.id}.jpg`)}
+          title="Stáhnout doklad"
+          aria-label="Stáhnout doklad"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </Button>
         {canWrite && (
           <Button
             variant="ghost"
@@ -887,6 +917,16 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
                     <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                       <Camera className="w-8 h-8 opacity-20" />
                     </div>
+                  )}
+                  {src && (
+                    <button
+                      onClick={() => downloadAttachment(src, photo.fileName || `foto-${photo.id}.jpg`)}
+                      className="absolute top-2 left-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-foreground shadow-sm"
+                      title="Stáhnout fotografii"
+                      aria-label="Stáhnout fotografii"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
                   )}
                   {canWrite && (
                     <button
