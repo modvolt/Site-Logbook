@@ -38,7 +38,7 @@ PostgreSQL + Drizzle ORM, Zod, OpenAPI codegen (Orval), Vite + React, esbuild.
 **Pro nasazení (doporučeno):**
 
 - Docker + Docker Compose (nebo Coolify)
-- Doména s možností nastavit DNS záznamy (kvůli TLS a presigned uploadům)
+- Doména s možností nastavit DNS záznamy (kvůli TLS)
 
 **Pro lokální vývoj bez Dockeru:**
 
@@ -66,8 +66,7 @@ cp .env.example .env
 | `S3_BUCKET`                 | ano     | —                | Název bucketu pro přílohy a zálohy.                                   |
 | `S3_ACCESS_KEY_ID`          | ano     | —                | Přístupový klíč (v Compose z `MINIO_ROOT_USER`).                     |
 | `S3_SECRET_ACCESS_KEY`      | ano     | —                | Tajný klíč (v Compose z `MINIO_ROOT_PASSWORD`).                      |
-| `S3_ENDPOINT`              | ne      | AWS výchozí      | Interní endpoint, který používá API (`http://minio:9000` v Compose). |
-| `S3_PUBLIC_ENDPOINT`        | ne      | `S3_ENDPOINT`    | Endpoint dosažitelný z prohlížeče pro presigned uploady.             |
+| `S3_ENDPOINT`              | ne      | AWS výchozí      | Endpoint, přes který API přistupuje k úložišti (`http://minio:9000` v Compose). |
 | `S3_REGION`                 | ne      | `us-east-1`      | Region úložiště.                                                      |
 | `S3_FORCE_PATH_STYLE`       | ne      | `false`          | `true` pro MinIO / path-style brány.                                 |
 | `S3_PRIVATE_PREFIX`         | ne      | `private`        | Prefix klíčů pro nahrané soubory.                                    |
@@ -127,11 +126,11 @@ Soubor `docker-compose.yml` v kořeni repozitáře je připraven pro Coolify.
 3. **Domény / TLS** — reverzní proxy Coolify (Traefik) ukončuje TLS. Namapujte
    svou doménu na službu **`web`** (port kontejneru `80`). Certifikáty řeší
    Coolify, v aplikaci není co nastavovat.
-4. **Objektové úložiště** — dejte MinIO veřejnou subdoménu (např.
-   `storage.vasedomena.cz`) a nastavte `S3_PUBLIC_ENDPOINT` na ni (HTTPS). API
-   může dál používat interní `http://minio:9000`. Alternativně nasměrujte
-   všechny `S3_*` na externí/spravovaný S3 bucket a služby `minio` +
-   `createbuckets` můžete vypustit.
+4. **Objektové úložiště** — API přistupuje k MinIO přes interní
+   `http://minio:9000`; veřejná subdoména úložiště ani CORS nejsou potřeba,
+   protože nahrávání souborů probíhá přes API. Alternativně nasměrujte všechny
+   `S3_*` na externí/spravovaný S3 bucket a služby `minio` + `createbuckets`
+   můžete vypustit.
 5. **Nasaďte.** Migrace se aplikují automaticky při každém startu API kontejneru.
 
 Podrobný průvodce nasazením, zálohami a obnovou DB je v

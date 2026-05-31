@@ -35,31 +35,26 @@ What happens on startup:
 
 To stop and wipe data: `docker compose down -v`.
 
-### File uploads & the two MinIO endpoints
+### File uploads
 
-Uploads use presigned URLs: the browser `PUT`s the file **directly** to MinIO.
-A presigned URL's signature is bound to its host, so the host the API signs for
-must equal the host the browser uses:
+Uploads are **proxied through the API**: the browser `POST`s the file to
+`/api/storage/uploads` (same origin as the app), and the API streams it into the
+bucket server-side. The browser never talks to the storage host directly, which
+means:
 
-- The **API** reaches MinIO over the internal network at `http://minio:9000`
-  (`S3_ENDPOINT`, hard-wired in `docker-compose.yml`).
-- The **browser** reaches MinIO via `S3_PUBLIC_ENDPOINT` — `http://localhost:9000`
-  locally. The API signs upload URLs with this endpoint so they validate.
+- The **API** reaches storage over `S3_ENDPOINT` (`http://minio:9000` internally
+  in Compose). This is the only storage endpoint that has to be reachable.
+- There is **no** browser-reachable storage endpoint to configure and **no CORS**
+  to set up on the bucket — the bytes flow browser → nginx → API → bucket.
 
-If you only have a single endpoint reachable by both (e.g. AWS S3 or a MinIO
-subdomain), leave `S3_PUBLIC_ENDPOINT` equal to that endpoint.
+Because uploads pass through nginx, `client_max_body_size` in
+`artifacts/stavba/nginx.conf` must stay at/above the API's upload limit (50 MB),
+or large photos are rejected by nginx with a 413 before reaching the API.
 
 **Endpoint scheme:** endpoint values may omit the scheme — `fsn1.your-objectstorage.com`
 is normalized to `https://fsn1.your-objectstorage.com`. To force plain HTTP
 (e.g. an internal MinIO at `minio:9000`), write the scheme explicitly:
 `http://minio:9000`.
-
-**CORS is mandatory for browser uploads.** Because the browser `PUT`s directly to
-the storage host, the bucket must allow cross-origin `PUT`/`GET` from your app's
-origin (e.g. `https://modvoltapp.cz`). Without a CORS rule the presigned request
-succeeds server-side but the browser blocks the upload. On Hetzner/AWS/MinIO set a
-bucket CORS policy allowing `PUT, GET, HEAD` from your domain with the
-`Content-Type` header.
 
 ---
 
@@ -75,9 +70,9 @@ This repo's `docker-compose.yml` is Coolify-ready.
 3. **Domains / TLS** — Coolify's reverse proxy (Traefik) terminates TLS. Map
    your domain to the **`web`** service (container port `80`). TLS and
    certificates are handled by Coolify; nothing to configure in the app.
-4. **Object storage endpoint** — give MinIO a public subdomain (e.g.
-   `storage.yourdomain.tld`) and set `S3_PUBLIC_ENDPOINT` to it (HTTPS). The API
-   can keep using the internal `http://minio:9000`. Alternatively, point all the
+4. **Object storage** — the API reaches MinIO over the internal
+   `http://minio:9000`; no public storage subdomain or bucket CORS is needed,
+   since uploads are proxied through the API. Alternatively, point all the
    `S3_*` vars at an external/managed S3 bucket and you can drop the `minio` and
    `createbuckets` services.
 5. **Deploy.** Migrations run automatically on each API container start.
@@ -103,8 +98,7 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `S3_BUCKET`               | yes      | —             | Bucket for uploads.                                              |
 | `S3_ACCESS_KEY_ID`        | yes      | —             | From `MINIO_ROOT_USER` in Compose.                              |
 | `S3_SECRET_ACCESS_KEY`    | yes      | —             | From `MINIO_ROOT_PASSWORD` in Compose.                          |
-| `S3_ENDPOINT`             | no       | AWS default   | Internal endpoint the API uses (`http://minio:9000` in Compose). |
-| `S3_PUBLIC_ENDPOINT`      | no       | `S3_ENDPOINT` | Browser-reachable endpoint for presigned uploads.                |
+| `S3_ENDPOINT`             | no       | AWS default   | Endpoint the API uses to reach storage (`http://minio:9000` in Compose). |
 | `S3_REGION`               | no       | `us-east-1`   |                                                                  |
 | `S3_FORCE_PATH_STYLE`     | no       | `false`       | `true` for MinIO / path-style gateways.                         |
 | `S3_PRIVATE_PREFIX`       | no       | `private`     | Key prefix for uploaded objects.                                 |

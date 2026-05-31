@@ -30,7 +30,6 @@ Hetzner Object Storage, AWS S3, …). Files are never stored in the database —
 their object paths are. Configure:
 
 - `S3_ENDPOINT` — endpoint the API uses (e.g. `http://minio:9000`); omit for AWS S3
-- `S3_PUBLIC_ENDPOINT` — browser-reachable endpoint used to sign presigned upload URLs (defaults to `S3_ENDPOINT`); needed when the API and browser reach storage at different hosts (Docker/Coolify)
 - `S3_REGION` — region (default `us-east-1`)
 - `S3_BUCKET` — bucket name (required)
 - `S3_ACCESS_KEY_ID` — access key (required)

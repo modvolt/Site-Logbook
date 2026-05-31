@@ -33,8 +33,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - miniodata:/data
-    # Exposed so the browser can PUT uploads directly via presigned URLs.
-    # S3_PUBLIC_ENDPOINT must match how the browser reaches this port.
+    # Published for admin/console access only. Uploads are proxied through the
+    # API (browser → /api/storage/uploads → API → bucket), so the browser never
+    # connects to MinIO directly and does not need this port.
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -86,10 +87,10 @@ services:
       PORT: 5000
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       SESSION_SECRET: ${SESSION_SECRET}
-      # Object storage. The API reaches MinIO over the internal network, while
-      # the browser uses S3_PUBLIC_ENDPOINT for presigned uploads.
+      # Object storage. Uploads are proxied through the API, which reaches MinIO
+      # over the internal Docker network — the browser never talks to MinIO, so
+      # no browser-reachable storage endpoint or bucket CORS is required.
       S3_ENDPOINT: http://minio:9000
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET}
       S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}

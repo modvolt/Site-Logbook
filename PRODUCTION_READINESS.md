@@ -52,7 +52,7 @@ Ověřeno end-to-end: vytvoření → uložení → seznam → stažení (formá
   reverzní proxy (Coolify/Traefik),
 - `secure` cookie v produkci,
 - rate-limiting na `/auth/login` a `/auth/setup` (ochrana proti brute-force),
-- allowlist typů souborů + limit velikosti (30 MB) při nahrávání (presign).
+- allowlist typů souborů + limit velikosti (50 MB) při nahrávání přes API.
 
 ---
 
@@ -76,7 +76,8 @@ Ověřeno end-to-end: vytvoření → uložení → seznam → stažení (formá
 - [ ] Nastavit silné `SESSION_SECRET`, `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`
       (`openssl rand -hex 32`).
 - [ ] Nastavit `S3_*` proměnné a vytvořit bucket.
-- [ ] Ověřit, že `S3_PUBLIC_ENDPOINT` je dosažitelný z prohlížeče (HTTPS).
+- [ ] Ověřit, že API dosáhne na úložiště přes `S3_ENDPOINT` (nahrávání jde přes
+      API — veřejná subdoména úložiště ani CORS nejsou potřeba).
 - [ ] Nastavit doménu na službu `web` (Coolify/Traefik řeší TLS).
 - [ ] Ponechat `BACKUP_ENABLED=true`; ověřit první zálohu po nasazení.
 - [ ] Po nasazení provést první přihlášení / `/auth/setup` (vytvoření admina).
