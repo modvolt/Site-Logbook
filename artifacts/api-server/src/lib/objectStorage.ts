@@ -4,6 +4,8 @@ import {
   PutObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  ListBucketsCommand,
+  HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 import { Storage } from "@google-cloud/storage";
 import { randomUUID } from "crypto";
@@ -95,6 +97,176 @@ export function describeObjectStorageConfig(): Record<string, unknown> {
     accessKeyIdTail: accessKeyId.slice(-4),
     // Proves the checksum workaround (this build) is the one running.
     uploadChecksum: "WHEN_REQUIRED",
+  };
+}
+
+// Pull the diagnostic-relevant fields off an AWS SDK / S3 error without ever
+// exposing the secret key. Providers echo back the *access key id* they received
+// in an InvalidAccessKeyId body and a region hint on a wrong-location redirect —
+// both are gold for telling "wrong key" apart from "wrong bucket location".
+function extractS3Error(error: unknown): {
+  code?: string;
+  message?: string;
+  httpStatusCode?: number;
+  requestId?: string;
+  rejectedKeyTail?: string;
+  regionHint?: string;
+} {
+  const e = error as Record<string, unknown> & {
+    name?: string;
+    message?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number; requestId?: string };
+    $response?: { headers?: Record<string, string> };
+  };
+  const rejectedKey =
+    (e?.["AWSAccessKeyId"] as string | undefined) ||
+    (e?.["AccessKeyId"] as string | undefined);
+  const headers = e?.$response?.headers || {};
+  const regionHint =
+    (e?.["Region"] as string | undefined) ||
+    (e?.["region"] as string | undefined) ||
+    (e?.["BucketRegion"] as string | undefined) ||
+    headers["x-amz-bucket-region"];
+  return {
+    code: (e?.Code as string | undefined) || e?.name,
+    message: typeof e?.message === "string" ? e.message : undefined,
+    httpStatusCode: e?.$metadata?.httpStatusCode,
+    requestId: e?.$metadata?.requestId,
+    rejectedKeyTail:
+      typeof rejectedKey === "string" ? rejectedKey.slice(-4) : undefined,
+    regionHint: typeof regionHint === "string" ? regionHint : undefined,
+  };
+}
+
+// Admin-only live probe of the configured S3 backend. Runs three lightweight
+// operations (ListBuckets, HeadBucket, a tiny PutObject which is deleted again)
+// and returns a plain, secret-free verdict. Designed to be read directly in the
+// browser so the diagnosis never has to travel through log files (whose access
+// keys get scrubbed/redacted by deploy-log viewers). Returns last-4 chars of the
+// configured key and of any key the provider echoes back — never the full key,
+// never the secret.
+export async function diagnoseS3(): Promise<Record<string, unknown>> {
+  if (!s3Configured()) {
+    return {
+      backend: "gcs-replit",
+      verdict:
+        "Aktivní je Replit úložiště (GCS), ne S3. Na self-hostu nastav proměnné S3_*.",
+    };
+  }
+
+  const configuredKeyTail = (process.env.S3_ACCESS_KEY_ID || "").trim().slice(-4);
+  const region = process.env.S3_REGION || "us-east-1";
+  const endpoint = normalizeEndpoint(process.env.S3_ENDPOINT) || "(aws default)";
+  const bucket = process.env.S3_BUCKET;
+  const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
+  const client = buildClient(process.env.S3_ENDPOINT);
+
+  const probes: Record<string, unknown> = {};
+
+  // 1) ListBuckets — pure credential check, independent of the bucket/region.
+  let listBucketsOk = false;
+  let bucketListed: boolean | undefined;
+  try {
+    const out = await client.send(new ListBucketsCommand({}));
+    listBucketsOk = true;
+    const names = (out.Buckets || []).map((b) => b.Name);
+    bucketListed = bucket ? names.includes(bucket) : undefined;
+    probes.listBuckets = { ok: true, bucketListed };
+  } catch (error) {
+    probes.listBuckets = { ok: false, ...extractS3Error(error) };
+  }
+
+  // 2) HeadBucket — checks bucket existence + that we're hitting the right region.
+  let headBucketOk = false;
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: bucket }));
+    headBucketOk = true;
+    probes.headBucket = { ok: true };
+  } catch (error) {
+    probes.headBucket = { ok: false, ...extractS3Error(error) };
+  }
+
+  // 3) PutObject (then delete) — the exact operation uploads use.
+  let putObjectOk = false;
+  const testKey = joinKey(getPrivatePrefix(), `_diag/${randomUUID()}.txt`);
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: testKey,
+        Body: Buffer.from("modvolt-storage-diagnostic"),
+        ContentType: "text/plain",
+        ContentLength: 26,
+      }),
+    );
+    putObjectOk = true;
+    probes.putObject = { ok: true };
+    try {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: testKey }));
+    } catch {
+      // Cleanup best-effort; leaving a 26-byte diag file is harmless.
+    }
+  } catch (error) {
+    probes.putObject = { ok: false, ...extractS3Error(error) };
+  }
+
+  // Build a human Czech verdict from the probe outcomes.
+  let verdict: string;
+  if (putObjectOk) {
+    verdict = "OK – přihlašovací údaje i bucket fungují, nahrávání by mělo jít.";
+  } else if (!listBucketsOk) {
+    const d = probes.listBuckets as { code?: string; rejectedKeyTail?: string };
+    if (d.code === "InvalidAccessKeyId") {
+      const tailMatch =
+        d.rejectedKeyTail && d.rejectedKeyTail === configuredKeyTail
+          ? "Odeslaný klíč se shoduje s tím v Coolify"
+          : `Pozor: odeslaný klíč (…${d.rejectedKeyTail ?? "?"}) se LIŠÍ od klíče v Coolify (…${configuredKeyTail})`;
+      verdict =
+        `Hetzner klíč NEZNÁ (InvalidAccessKeyId) už při výpisu bucketů. ${tailMatch}. ` +
+        "Příčina je téměř jistě: (a) klíč/secret v Coolify neodpovídá platnému klíči v Hetzneru, " +
+        "nebo (b) bucket je v jiné lokalitě než endpoint (S3_REGION/S3_ENDPOINT). " +
+        "Vygeneruj nové S3 credentials v Hetzner konzoli ve STEJNÉM projektu, kde je bucket, a ověř lokalitu bucketu.";
+    } else {
+      verdict =
+        `Selhalo ověření přihlašovacích údajů: ${d.code ?? "neznámá chyba"}. Zkontroluj S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY.`;
+    }
+  } else if (!headBucketOk) {
+    const d = probes.headBucket as {
+      code?: string;
+      httpStatusCode?: number;
+      regionHint?: string;
+    };
+    if (d.httpStatusCode === 301 || d.regionHint) {
+      verdict =
+        `Klíč je platný, ale bucket "${bucket}" je v jiné lokalitě/regionu` +
+        (d.regionHint ? ` (Hetzner hlásí region: ${d.regionHint})` : "") +
+        `. Uprav S3_REGION a S3_ENDPOINT na správnou lokalitu bucketu.`;
+    } else {
+      verdict =
+        `Klíč je platný, ale bucket "${bucket}" není dostupný: ${d.code ?? "neznámá chyba"} (HTTP ${d.httpStatusCode ?? "?"}). Zkontroluj název bucketu.`;
+    }
+  } else {
+    const d = probes.putObject as {
+      code?: string;
+      message?: string;
+      rejectedKeyTail?: string;
+    };
+    verdict =
+      `Výpis bucketů i HeadBucket prošly, ale samotné nahrání selhalo: ${d.code ?? "neznámá chyba"}` +
+      (d.message ? ` – ${d.message}` : "") +
+      ". To bývá nekompatibilita podpisu/checksumu nebo chybějící oprávnění k zápisu.";
+  }
+
+  return {
+    backend: "s3",
+    endpoint,
+    region,
+    bucket,
+    forcePathStyle,
+    configuredKeyTail,
+    probes,
+    verdict,
   };
 }
 

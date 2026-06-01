@@ -7,7 +7,12 @@ import express, {
 } from "express";
 import { randomUUID } from "node:crypto";
 import { UploadObjectResponse } from "@workspace/api-zod";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import {
+  ObjectStorageService,
+  ObjectNotFoundError,
+  diagnoseS3,
+} from "../lib/objectStorage";
+import { requireRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -146,6 +151,29 @@ router.post(
           ? `Nepodařilo se uložit soubor do úložiště: ${detail}`
           : "Nepodařilo se uložit soubor do úložiště.",
       });
+    }
+  },
+);
+
+/**
+ * GET /storage/diagnose
+ *
+ * Admin-only live probe of the configured object-storage backend. Runs
+ * ListBuckets / HeadBucket / a throwaway PutObject and returns a plain,
+ * secret-free Czech verdict so a misconfigured self-hosted S3 (e.g. Hetzner
+ * InvalidAccessKeyId) can be diagnosed straight from the browser — without
+ * relying on deploy logs whose access keys get scrubbed by log viewers.
+ */
+router.get(
+  "/storage/diagnose",
+  requireRole("admin"),
+  async (req: Request, res: Response) => {
+    try {
+      const result = await diagnoseS3();
+      res.json(result);
+    } catch (error) {
+      req.log.error({ err: error }, "Storage diagnostic failed");
+      res.status(500).json({ error: "Diagnostika úložiště selhala." });
     }
   },
 );
