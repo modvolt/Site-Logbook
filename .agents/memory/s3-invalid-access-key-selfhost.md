@@ -48,3 +48,16 @@ so the error alone doesn't tell you which endpoint the API hit. If the
 `createbuckets` service succeeds (`Bucket created successfully`), the unified
 creds are valid against MinIO — so a still-failing API means it's pointed at the
 external S3 (S3_ENDPOINT set) and the external key is the problem.
+
+## RESOLVED (Hetzner): path-style addressing, not credentials
+Diagnose probe on Hetzner Object Storage (fsn1) showed: ListBuckets ok +
+bucket LISTED, yet HeadBucket/PutObject on that same bucket → 403
+InvalidAccessKeyId. That combination (service-level call works, bucket-scoped
+calls 403) means the KEY IS FINE and the bucket EXISTS — the failure is the
+addressing style. Hetzner expects **virtual-hosted-style**
+(`<bucket>.fsn1.your-objectstorage.com`), not path-style
+(`fsn1.your-objectstorage.com/<bucket>`). Fix: set
+`S3_FORCE_PATH_STYLE=false` (env-only, no rebuild). path-style (true) is for
+MinIO-style gateways, NOT Hetzner.
+**Tell:** if ListBuckets+bucketListed succeed but HeadBucket/PutObject 403,
+stop suspecting creds — flip the addressing style first.
