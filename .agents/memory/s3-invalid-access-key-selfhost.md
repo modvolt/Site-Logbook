@@ -28,6 +28,21 @@ Hetzner) have had several distinct root causes. Work through them in order:
    Diagnose in the api container: `printenv | grep -E 'S3_ENDPOINT|S3_REGION|S3_BUCKET|S3_ACCESS_KEY_ID'`
    and confirm the key matches Hetzner and shares the bucket's project.
 
+5. **AWS SDK v3 default checksum trailer (THE actual root cause here).** This is
+   the one that finally explained it: keys were correct, in the right project &
+   location (Falkenstein/fsn1), env clean in the container — yet uploads still
+   got `InvalidAccessKeyId`. **Tell-tale sign: ONLY PutObject (upload) fails;
+   GET/HEAD/DELETE succeed.** AWS SDK v3 >= 3.729 defaults to attaching a CRC32
+   checksum to uploads via `aws-chunked` content-encoding + a streaming trailer.
+   Hetzner Object Storage (and other non-AWS S3 stores) don't implement trailing
+   checksums and reject the request with a misleading `InvalidAccessKeyId`.
+   **Fix:** set `requestChecksumCalculation: "WHEN_REQUIRED"` and
+   `responseChecksumValidation: "WHEN_REQUIRED"` on the S3Client. MinIO is
+   unaffected (it supports trailers), which is why bundled MinIO worked while
+   Hetzner didn't.
+   **Order note:** check #5 FIRST when only uploads fail but reads/deletes work —
+   that pattern rules out creds/commit/whitespace and points straight here.
+
 **Disambiguation:** the bundled MinIO and Hetzner both return `InvalidAccessKeyId`,
 so the error alone doesn't tell you which endpoint the API hit. If the
 `createbuckets` service succeeds (`Bucket created successfully`), the unified

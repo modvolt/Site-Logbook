@@ -88,6 +88,18 @@ function buildClient(endpoint: string | undefined): S3Client {
     endpoint: normalizeEndpoint(endpoint),
     forcePathStyle,
     credentials: { accessKeyId, secretAccessKey },
+    // AWS SDK v3 (>= 3.729) defaults to adding a CRC32 integrity checksum to
+    // uploads, sent via `aws-chunked` content-encoding with a streaming
+    // trailer (Content-Encoding: aws-chunked + x-amz-trailer). Many
+    // S3-compatible providers — notably Hetzner Object Storage — do NOT
+    // implement trailing checksums and reject such PutObject requests with a
+    // misleading `InvalidAccessKeyId` (the credentials are actually fine; only
+    // uploads break, while GET/HEAD/DELETE keep working). Forcing checksums to
+    // "WHEN_REQUIRED" disables the default trailer so uploads use a plain
+    // signed payload that every S3-compatible store accepts (AWS S3 and MinIO
+    // included).
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
 }
 
