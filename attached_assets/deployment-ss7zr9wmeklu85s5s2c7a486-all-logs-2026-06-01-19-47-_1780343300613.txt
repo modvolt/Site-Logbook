@@ -1,0 +1,469 @@
+2026-Jun-01 19:42:12.580475 Docker 29.5.2 with BuildKit and Buildx detected on deployment server (localhost).
+2026-Jun-01 19:42:12.599170 Starting deployment of Modvolt to localhost.
+2026-Jun-01 19:42:12.849928 Preparing container with helper image: ghcr.io/coollabsio/coolify-helper:1.0.14
+2026-Jun-01 19:42:12.989704 [DEBUG] [CMD]: docker stop --time=30 ss7zr9wmeklu85s5s2c7a486
+2026-Jun-01 19:42:12.989704 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:42:12.993313 [DEBUG] Error response from daemon: No such container: ss7zr9wmeklu85s5s2c7a486
+2026-Jun-01 19:42:13.261453 [DEBUG] [CMD]: docker run -d --network 'coolify' --name ss7zr9wmeklu85s5s2c7a486  --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/coollabsio/coolify-helper:1.0.14
+2026-Jun-01 19:42:13.261453 [DEBUG] 72e82e0044bdcdc9d873f1da1b51c4a5a597c24edc4b44c05695adc51aa5ee9e
+2026-Jun-01 19:42:15.311249 [DEBUG] [CMD]: docker exec ss7zr9wmeklu85s5s2c7a486 bash -c 'GIT_SSH_COMMAND="ssh -o ConnectTimeout=30 -p 22 -o Port=22 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git ls-remote https://x-access-token:<REDACTED>@github.com/modvolt/Site-Logbook.git refs/heads/main'
+2026-Jun-01 19:42:15.311249 [DEBUG] 0804943ac751840d987f4e1385dfd33b304b0e43	refs/heads/main
+2026-Jun-01 19:42:15.569459 ----------------------------------------
+2026-Jun-01 19:42:15.595643 Importing modvolt/Site-Logbook:main (commit sha 0804943ac751840d987f4e1385dfd33b304b0e43) to /artifacts/ss7zr9wmeklu85s5s2c7a486.
+2026-Jun-01 19:42:15.824040 [DEBUG] [CMD]: docker exec ss7zr9wmeklu85s5s2c7a486 bash -c 'git clone --depth=1 --recurse-submodules --shallow-submodules -b '\''main'\'' '\''https://x-access-token:<REDACTED>@github.com/modvolt/Site-Logbook.git'\'' '\''/artifacts/ss7zr9wmeklu85s5s2c7a486'\'' && cd '\''/artifacts/ss7zr9wmeklu85s5s2c7a486'\'' && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git fetch --depth=1 origin '\''0804943ac751840d987f4e1385dfd33b304b0e43'\'' && git -c advice.detachedHead=false checkout '\''0804943ac751840d987f4e1385dfd33b304b0e43'\'' >/dev/null 2>&1 && cd '\''/artifacts/ss7zr9wmeklu85s5s2c7a486'\'' && if [ -f .gitmodules ]; then git submodule sync && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git submodule update --init --recursive --depth=1; fi && cd '\''/artifacts/ss7zr9wmeklu85s5s2c7a486'\'' && GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" git lfs pull'
+2026-Jun-01 19:42:15.824040 [DEBUG] Cloning into '/artifacts/ss7zr9wmeklu85s5s2c7a486'...
+2026-Jun-01 19:42:18.211658 [DEBUG] From https://github.com/modvolt/Site-Logbook
+2026-Jun-01 19:<REDACTED>@10.26.1
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] # Install dependencies first for better layer caching.
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json tsconfig.json ./
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY .npmrc ./
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY artifacts ./artifacts
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY lib ./lib
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY scripts ./scripts
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] RUN pnpm install --frozen-lockfile
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] # Bundle the API (produces dist/index.mjs and dist/migrate.mjs).
+2026-Jun-01 19:42:22.333577 [DEBUG] RUN pnpm --filter @workspace/api-server run build
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] # Produce a pruned, production-only node_modules at /app.
+2026-Jun-01 19:42:22.333577 [DEBUG] RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] # ---------- Runtime ----------
+2026-Jun-01 19:42:22.333577 [DEBUG] FROM node:24-slim AS runtime
+2026-Jun-01 19:42:22.333577 [DEBUG] WORKDIR /app
+2026-Jun-01 19:42:22.333577 [DEBUG] ENV NODE_ENV=production
+2026-Jun-01 19:42:22.333577 [DEBUG] ENV PORT=5000
+2026-Jun-01 19:42:22.333577 [DEBUG] # Location of the committed SQL migrations applied on startup.
+2026-Jun-01 19:42:22.333577 [DEBUG] ENV MIGRATIONS_DIR=/app/migrations
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] # pg_dump (postgresql-client) is needed at runtime for the database backup
+2026-Jun-01 19:42:22.333577 [DEBUG] # feature. node:24-slim is Debian 12 (bookworm), whose postgresql-client is
+2026-Jun-01 19:42:22.333577 [DEBUG] # v15 — add the official PGDG repo to install the v16 client matching the
+2026-Jun-01 19:42:22.333577 [DEBUG] # PostgreSQL 16 server (pg_dump must be >= the server's major version).
+2026-Jun-01 19:42:22.333577 [DEBUG] RUN apt-get update \
+2026-Jun-01 19:42:22.333577 [DEBUG] && apt-get install -y --no-install-recommends wget gnupg ca-certificates \
+2026-Jun-01 19:42:22.333577 [DEBUG] && install -d /usr/share/postgresql-common/pgdg \
+2026-Jun-01 19:42:22.333577 [DEBUG] && wget -qO /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+2026-Jun-01 19:<REDACTED>@aws-sdk, nodemailer).
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY --from=builder /app/node_modules ./node_modules
+2026-Jun-01 19:42:22.333577 [DEBUG] # Bundled server + migrator + pino transport workers.
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY --from=builder /repo/artifacts/api-server/dist ./dist
+2026-Jun-01 19:42:22.333577 [DEBUG] # SQL migrations (read at startup by dist/migrate.mjs).
+2026-Jun-01 19:42:22.333577 [DEBUG] COPY --from=builder /repo/lib/db/migrations ./migrations
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] RUN chown -R node:node /app
+2026-Jun-01 19:42:22.333577 [DEBUG] USER node
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] EXPOSE 5000
+2026-Jun-01 19:42:22.333577 [DEBUG] 
+2026-Jun-01 19:42:22.333577 [DEBUG] # Built-in HTTP health check using the global fetch in Node 24 (no curl needed).
+2026-Jun-01 19:42:22.333577 [DEBUG] HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+2026-Jun-01 19:42:22.333577 [DEBUG] CMD node -e "fetch('http://127.0.0.1:<REDACTED>@10.26.1
+2026-Jun-01 19:42:22.904004 [DEBUG] 
+2026-Jun-01 19:42:22.904004 [DEBUG] COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json tsconfig.json ./
+2026-Jun-01 19:42:22.904004 [DEBUG] COPY .npmrc ./
+2026-Jun-01 19:42:22.904004 [DEBUG] COPY artifacts ./artifacts
+2026-Jun-01 19:42:22.904004 [DEBUG] COPY lib ./lib
+2026-Jun-01 19:42:22.904004 [DEBUG] COPY scripts ./scripts
+2026-Jun-01 19:42:22.904004 [DEBUG] COPY attached_assets ./attached_assets
+2026-Jun-01 19:42:22.904004 [DEBUG] 
+2026-Jun-01 19:42:22.904004 [DEBUG] RUN pnpm install --frozen-lockfile
+2026-Jun-01 19:42:22.904004 [DEBUG] 
+2026-Jun-01 19:42:22.904004 [DEBUG] # NODE_ENV=production keeps the Replit-only dev plugins inactive; BASE_PATH=/
+2026-Jun-01 19:42:22.904004 [DEBUG] # serves the app at the domain root (the API lives under /api on the same host).
+2026-Jun-01 19:42:22.904004 [DEBUG] ENV NODE_ENV=production
+2026-Jun-01 19:42:22.904004 [DEBUG] ENV PORT=3000
+2026-Jun-01 19:42:22.904004 [DEBUG] ARG BASE_PATH=/
+2026-Jun-01 19:42:22.904004 [DEBUG] ENV BASE_PATH=$BASE_PATH
+2026-Jun-01 19:42:22.904004 [DEBUG] 
+2026-Jun-01 19:42:22.904004 [DEBUG] RUN pnpm --filter @workspace/stavba run build
+2026-Jun-01 19:42:22.904004 [DEBUG] 
+2026-Jun-01 19:42:22.904004 [DEBUG] # ---------- Runtime ----------
+2026-Jun-01 19:42:22.904004 [DEBUG] FROM nginx:1.27-alpine AS runtime
+2026-Jun-01 19:42:22.904004 [DEBUG] 
+2026-Jun-01 19:42:22.904004 [DEBUG] # nginx substitutes ${NGINX_PORT}/${API_UPSTREAM} into the config at startup.
+2026-Jun-01 19:42:22.904004 [DEBUG] ENV NGINX_PORT=80
+2026-Jun-01 19:42:22.904004 [DEBUG] ENV API_UPSTREAM=http://api:<REDACTED>@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
+2026-Jun-01 19:42:24.266407 [DEBUG] #5 resolve docker.io/docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89 0.0s done
+2026-Jun-01 19:42:24.266407 [DEBUG] #5 CACHED
+2026-Jun-01 19:42:24.266407 [DEBUG] 
+2026-Jun-01 19:42:24.266407 [DEBUG] #6 [api internal] load metadata for docker.io/library/node:24-slim
+2026-Jun-01 19:42:24.451569 [DEBUG] #6 ...
+2026-Jun-01 19:42:24.451569 [DEBUG] 
+2026-Jun-01 19:42:24.451569 [DEBUG] #7 [web internal] load metadata for docker.io/library/nginx:1.27-alpine
+2026-Jun-01 19:42:24.451569 [DEBUG] #7 DONE 0.2s
+2026-Jun-01 19:42:24.592639 [DEBUG] #6 [api internal] load metadata for docker.io/library/node:24-slim
+2026-Jun-01 19:42:24.592639 [DEBUG] #6 DONE 0.2s
+2026-Jun-01 19:42:24.592639 [DEBUG] 
+2026-Jun-01 19:42:24.592639 [DEBUG] #8 [web internal] load .dockerignore
+2026-Jun-01 19:42:24.592639 [DEBUG] #8 transferring context: 439B done
+2026-Jun-01 19:42:24.592639 [DEBUG] #8 DONE 0.0s
+2026-Jun-01 19:42:24.707279 [DEBUG] #9 [api builder  1/11] FROM docker.io/library/node:24-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf
+2026-Jun-01 19:42:24.707279 [DEBUG] #9 resolve docker.io/library/node:24-slim@sha256:242549cd46785b480c832479a730f4f2a20865d61ea2e404fdb2a5c3d3b73ecf 0.0s done
+2026-Jun-01 19:42:24.707279 [DEBUG] #9 DONE 0.0s
+2026-Jun-01 19:42:24.707279 [DEBUG] 
+2026-Jun-01 19:42:24.707279 [DEBUG] #10 [web builder  2/11] WORKDIR /repo
+2026-Jun-01 19:42:24.707279 [DEBUG] #10 CACHED
+2026-Jun-01 19:42:24.707279 [DEBUG] 
+2026-Jun-01 19:42:24.707279 [DEBUG] #11 [web runtime 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+2026-Jun-01 19:42:24.707279 [DEBUG] #11 resolve docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 0.0s done
+2026-Jun-01 19:42:24.707279 [DEBUG] #11 CACHED
+2026-Jun-01 19:42:24.707279 [DEBUG] 
+2026-Jun-01 19:42:24.707279 [DEBUG] #12 [api runtime 2/7] WORKDIR /app
+2026-Jun-01 19:42:24.707279 [DEBUG] #12 CACHED
+2026-Jun-01 19:42:24.707279 [DEBUG] 
+2026-Jun-01 19:42:24.707279 [DEBUG] #13 [api internal] load build context
+2026-Jun-01 19:42:25.131485 [DEBUG] #13 transferring context: 3.34MB 0.4s done
+2026-Jun-01 19:42:25.131485 [DEBUG] #13 DONE 0.5s
+2026-Jun-01 19:42:25.131485 [DEBUG] 
+2026-Jun-01 19:42:25.131485 [DEBUG] #14 [web internal] load build context
+2026-Jun-01 19:42:25.131485 [DEBUG] #14 transferring context: 5.22MB 0.4s done
+2026-Jun-01 19:42:25.131485 [DEBUG] #14 DONE 0.5s
+2026-Jun-01 19:42:25.131485 [DEBUG] 
+2026-Jun-01 19:42:25.131485 [DEBUG] #15 [web runtime 2/3] COPY artifacts/stavba/nginx.conf /etc/nginx/templates/default.conf.template
+2026-Jun-01 19:42:25.297513 [DEBUG] #15 DONE 0.1s
+2026-Jun-01 19:42:25.297513 [DEBUG] 
+2026-Jun-01 19:42:25.297513 [DEBUG] #16 [api runtime 3/7] RUN apt-get update   && apt-get install -y --no-install-recommends wget gnupg ca-certificates   && install -d /usr/share/postgresql-common/pgdg   && wget -qO /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc   && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https:<REDACTED>@10.26.1
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.656
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.656 added 1 package in 2s
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.656
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.657 1 package is looking for funding
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.657   run `npm fund` for details
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.660 npm notice
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.660 npm notice New minor version of npm available! 11.13.0 -> 11.16.0
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.660 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.16.0
+2026-Jun-01 19:<REDACTED>@11.16.0
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 2.660 npm notice
+2026-Jun-01 19:42:27.547189 [DEBUG] #17 DONE 2.8s
+2026-Jun-01 19:42:27.554151 [DEBUG] #18 [web builder  4/11] COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json tsconfig.json ./
+2026-Jun-01 19:42:27.554151 [DEBUG] #18 DONE 0.1s
+2026-Jun-01 19:42:27.676564 [DEBUG] #19 [web builder  5/11] COPY .npmrc ./
+2026-Jun-01 19:42:27.676564 [DEBUG] #19 DONE 0.0s
+2026-Jun-01 19:42:27.676564 [DEBUG] 
+2026-Jun-01 19:42:27.676564 [DEBUG] #20 [web builder  6/11] COPY artifacts ./artifacts
+2026-Jun-01 19:42:27.676564 [DEBUG] #20 DONE 0.1s
+2026-Jun-01 19:42:27.676564 [DEBUG] 
+2026-Jun-01 19:42:27.676564 [DEBUG] #21 [api builder  7/11] COPY lib ./lib
+2026-Jun-01 19:42:27.853361 [DEBUG] #21 DONE 0.1s
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #22 [web builder  8/11] COPY scripts ./scripts
+2026-Jun-01 19:42:27.853361 [DEBUG] #22 DONE 0.0s
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #23 [web builder  8/11] COPY scripts ./scripts
+2026-Jun-01 19:42:27.853361 [DEBUG] #23 CACHED
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #24 [web builder  4/11] COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json tsconfig.json ./
+2026-Jun-01 19:42:27.853361 [DEBUG] #24 CACHED
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #25 [web builder  5/11] COPY .npmrc ./
+2026-Jun-01 19:42:27.853361 [DEBUG] #25 CACHED
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #26 [web builder  6/11] COPY artifacts ./artifacts
+2026-Jun-01 19:42:27.853361 [DEBUG] #26 CACHED
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #27 [web builder  7/11] COPY lib ./lib
+2026-Jun-01 19:42:27.853361 [DEBUG] #27 CACHED
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #28 [web builder  9/11] COPY attached_assets ./attached_assets
+2026-Jun-01 19:42:27.853361 [DEBUG] #28 DONE 0.1s
+2026-Jun-01 19:42:27.853361 [DEBUG] 
+2026-Jun-01 19:42:27.853361 [DEBUG] #29 [api builder  9/11] RUN pnpm install --frozen-lockfile
+2026-Jun-01 19:42:28.784510 [DEBUG] #29 1.066 Scope: all 10 workspace projects
+2026-Jun-01 19:42:29.117809 [DEBUG] #29 1.328 Lockfile is up to date, resolution step is skipped
+2026-Jun-01 19:42:29.356366 [DEBUG] #29 1.636 Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-Jun-01 19:42:29.470113 [DEBUG] #29 1.750 Packages: +944
+2026-Jun-01 19:42:29.470113 [DEBUG] #29 1.750 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-Jun-01 19:42:29.967414 [DEBUG] #29 2.092
+2026-Jun-01 19:42:29.967414 [DEBUG] #29 2.092    ╭─────────────────────────────────────────╮
+2026-Jun-01 19:42:29.967414 [DEBUG] #29 2.092    │                                         │
+2026-Jun-01 19:42:29.967414 [DEBUG] #29 2.092    │   Update available! 10.26.1 → 11.5.0.   │
+2026-Jun-01 19:42:29.967414 [DEBUG] #29 2.092    │   Changelog: https://pnpm.io/v/11.5.0   │
+2026-Jun-01 19:<REDACTED>@INC (you may need to install the Term::ReadLine module) (@INC contains: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.36.0 /usr/local/share/perl/5.36.0 /usr/lib/x86_64-linux-gnu/perl5/5.36 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.36 /usr/share/perl/5.36 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 7.)
+2026-Jun-01 19:42:33.865508 [DEBUG] #16 9.024 debconf: falling back to frontend: Teletype
+2026-Jun-01 19:42:34.560340 [DEBUG] #16 9.764 Updating certificates in /etc/ssl/certs...
+2026-Jun-01 19:42:35.728612 [DEBUG] #16 11.08 142 added, 0 removed; done.
+2026-Jun-01 19:42:35.828637 [DEBUG] #16 11.18 Setting up gpgconf (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:36.014104 [DEBUG] #16 11.19 Setting up gpg (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:36.014104 [DEBUG] #16 11.21 Setting up gnupg-utils (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:36.014104 [DEBUG] #16 11.22 Setting up gpg-agent (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:36.948591 [DEBUG] #16 12.14 Setting up gpgsm (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:36.948591 [DEBUG] #16 12.15 Setting up dirmngr (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:36.988452 [DEBUG] #16 12.34 Setting up gpg-wks-server (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:37.114546 [DEBUG] #16 12.36 Setting up gpg-wks-client (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:37.124980 [DEBUG] #16 12.37 Setting up gnupg (2.2.40-1.1+deb12u2) ...
+2026-Jun-01 19:42:37.124980 [DEBUG] #16 12.38 Processing triggers for libc-bin (2.36-9+deb12u14) ...
+2026-Jun-01 19:42:37.124980 [DEBUG] #16 12.47 Processing triggers for ca-certificates (20230311+deb12u1) ...
+2026-Jun-01 19:42:37.289963 [DEBUG] #16 12.49 Updating certificates in /etc/ssl/certs...
+2026-Jun-01 19:42:37.297787 [DEBUG] 
+2026-Jun-01 19:42:37.664893 [DEBUG] #16 13.02 0 added, 0 removed; done.
+2026-Jun-01 19:42:37.664893 [DEBUG] #16 13.02 Running hooks in /etc/ca-certificates/update.d...
+2026-Jun-01 19:42:37.884124 [DEBUG] #16 13.02 done.
+2026-Jun-01 19:42:37.884124 [DEBUG] #16 ...
+2026-Jun-01 19:42:37.884124 [DEBUG] 
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 [web builder 10/11] RUN pnpm install --frozen-lockfile
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 1.272 Scope: all 10 workspace projects
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 1.545 Lockfile is up to date, resolution step is skipped
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 1.841 Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 1.967 Packages: +944
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 1.967 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 2.451
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 2.451    ╭─────────────────────────────────────────╮
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 2.451    │                                         │
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 2.451    │   Update available! 10.26.1 → 11.5.0.   │
+2026-Jun-01 19:42:37.884124 [DEBUG] #30 2.451    │   Changelog: https://pnpm.io/v/11.5.0   │
+2026-Jun-01 19:<REDACTED>@0.27.3/node_modules/esbuild postinstall$ node install.js
+2026-Jun-01 19:42:56.372607 [DEBUG] #30 28.52 .../esbuild@0.27.3/node_modules/esbuild postinstall: Done
+2026-Jun-01 19:42:56.921663 [DEBUG] #30 29.07
+2026-Jun-01 19:42:56.921663 [DEBUG] #30 29.07 devDependencies:
+2026-Jun-01 19:42:56.921663 [DEBUG] #30 29.07 + prettier 3.8.3
+2026-Jun-01 19:42:56.921663 [DEBUG] #30 29.07 + typescript 5.9.3
+2026-Jun-01 19:42:56.921663 [DEBUG] #30 29.07
+2026-Jun-01 19:42:57.034552 [DEBUG] #30 29.16 . preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm instead" >&2; exit 1 ;; esac'
+2026-Jun-01 19:42:57.034552 [DEBUG] #30 29.18 . preinstall: Done
+2026-Jun-01 19:42:57.225400 [DEBUG] #30 ...
+2026-Jun-01 19:42:57.225400 [DEBUG] 
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 [api builder  9/11] RUN pnpm install --frozen-lockfile
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 27.67 Progress: resolved 944, reused 0, downloaded 944, added 944, done
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.17 .../esbuild@0.27.3/node_modules/esbuild postinstall$ node install.js
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.30 .../esbuild@0.27.3/node_modules/esbuild postinstall: Done
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.84
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.84 devDependencies:
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.84 + prettier 3.8.3
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.84 + typescript 5.9.3
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.84
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.91 . preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm instead" >&2; exit 1 ;; esac'
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 28.94 . preinstall: Done
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 ╭ Warning ─────────────────────────────────────────────────────────────────────╮
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 │                                                                              │
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 │   Ignored build scripts: core-js@3.49.0.                                     │
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 │   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 │   to run scripts.                                                            │
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 │                                                                              │
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.26 ╰──────────────────────────────────────────────────────────────────────────────╯
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 29.27 Done in 28.9s using pnpm v10.26.1
+2026-Jun-01 19:42:57.225400 [DEBUG] #29 DONE 29.5s
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 [web builder 10/11] RUN pnpm install --frozen-lockfile
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 29.47 ╭ Warning ─────────────────────────────────────────────────────────────────────╮
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 29.47 │                                                                              │
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 29.47 │   Ignored build scripts: core-js@3.49.0.                                     │
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 29.47 │   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 29.47 │   to run scripts.                                                            │
+2026-Jun-01 19:42:57.333495 [DEBUG] #30 29.47 │                                                                              │
+2026-Jun-01 19:42:57.339482 [DEBUG] #30 29.47 ╰──────────────────────────────────────────────────────────────────────────────╯
+2026-Jun-01 19:42:57.339482 [DEBUG] #30 29.48 Done in 29.1s using pnpm v10.26.1
+2026-Jun-01 19:42:57.495058 [DEBUG] #30 DONE 29.6s
+2026-Jun-01 19:42:57.495058 [DEBUG] 
+2026-Jun-01 19:42:57.495058 [DEBUG] #31 [api builder 10/11] RUN pnpm --filter @workspace/api-server run build
+2026-Jun-01 19:43:00.582262 [DEBUG] #31 3.352
+2026-Jun-01 19:43:00.582262 [DEBUG] #31 3.352 > @workspace/api-server@0.0.0 build /repo/artifacts/api-server
+2026-Jun-01 19:43:00.582262 [DEBUG] #31 3.352 > node ./build.mjs
+2026-Jun-01 19:43:00.582262 [DEBUG] #31 3.352
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/index.mjs                       2.5mb ⚠️
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/migrate.mjs                   503.3kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/pino-worker.mjs               153.4kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/pino-file.mjs                 142.0kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/pino-pretty.mjs               114.6kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/thread-stream-worker.mjs        7.3kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/index.mjs.map                   4.4mb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/migrate.mjs.map               996.6kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/pino-worker.mjs.map           256.9kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/pino-file.mjs.map             229.0kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/pino-pretty.mjs.map           204.0kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537   dist/thread-stream-worker.mjs.map   12.0kb
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 4.537 ⚡ Done in 1095ms
+2026-Jun-01 19:43:01.897237 [DEBUG] #31 DONE 4.7s
+2026-Jun-01 19:43:01.897237 [DEBUG] 
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 [web builder 11/11] RUN pnpm --filter @workspace/stavba run build
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 3.105
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 3.105 > @workspace/stavba@0.0.0 build /repo/artifacts/stavba
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 3.105 > vite build --config vite.config.ts
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 3.105
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 4.051 vite v7.3.3 building client environment for production...
+2026-Jun-01 19:43:01.897237 [DEBUG] #32 4.174 transforming...
+2026-Jun-01 19:43:03.706237 [DEBUG] #32 ...
+2026-Jun-01 19:43:03.706237 [DEBUG] 
+2026-Jun-01 19:43:03.706237 [DEBUG] #33 [api builder 11/11] RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:43:03.706237 [DEBUG] #33 0.705  WARN  Shared workspace lockfile detected but configuration forces legacy deploy implementation.
+2026-Jun-01 19:43:03.706237 [DEBUG] #33 0.886 Packages are copied from the content-addressable store to the virtual store.
+2026-Jun-01 19:43:03.706237 [DEBUG] #33 0.886   Content-addressable store is at: /root/.local/share/pnpm/store/v10
+2026-Jun-01 19:43:03.712684 [DEBUG] #33 0.886   Virtual store is at:             ../app/node_modules/.pnpm
+2026-Jun-01 19:43:03.712684 [DEBUG] #33 1.163 Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:03.712684 [DEBUG] #33 1.359 artifacts/api-server                     |  WARN  deprecated @types/bcryptjs@3.0.0
+2026-Jun-01 19:43:04.070254 [DEBUG] #33 2.173 Progress: resolved 39, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:04.952960 [DEBUG] #33 3.055 artifacts/mockup-sandbox                 |  WARN  deprecated recharts@2.15.4
+2026-Jun-01 19:43:05.118063 [DEBUG] #33 3.221 Progress: resolved 78, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:06.136465 [DEBUG] #33 4.237 Progress: resolved 88, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:07.554560 [DEBUG] #33 5.648 Progress: resolved 114, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:08.559774 [DEBUG] #33 6.660 Progress: resolved 119, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:09.690776 [DEBUG] #33 7.794 Progress: resolved 120, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:15.108355 [DEBUG] #33 ...
+2026-Jun-01 19:43:15.108355 [DEBUG] 
+2026-Jun-01 19:43:15.108355 [DEBUG] #32 [web builder 11/11] RUN pnpm --filter @workspace/stavba run build
+2026-Jun-01 19:43:15.121909 [DEBUG] #32 7.493 src/components/ui/tooltip.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+2026-Jun-01 19:43:15.121909 [DEBUG] #32 7.733 src/components/ui/label.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+2026-Jun-01 19:43:15.121909 [DEBUG] #32 7.737 src/components/ui/select.tsx (2:0): Error when using sourcemap for reporting an error: Can't resolve original location of error.
+2026-Jun-01 19:43:16.139464 [DEBUG] #32 ...
+2026-Jun-01 19:43:16.180360 [DEBUG] #33 [api builder 11/11] RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:43:16.180360 [DEBUG] #33 14.19  WARN  Request took 12945ms: https://registry.npmjs.org/drizzle-orm
+2026-Jun-01 19:<REDACTED>@workspace/stavba run build
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 18.74 ✓ 3266 modules transformed.
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 20.02 rendering chunks...
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 22.72 computing gzip size...
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 22.89 dist/public/manifest.webmanifest                                              0.54 kB
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 22.90
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 22.90 (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 22.90 - Using dynamic import() to code-split the application
+2026-Jun-01 19:43:26.510989 [DEBUG] #32 22.90 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-Jun-01 19:<REDACTED>@workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:43:30.276380 [DEBUG] #33 28.21 Progress: resolved 581, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:31.486379 [DEBUG] #33 29.45 Progress: resolved 588, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:33.142107 [DEBUG] #33 30.82 Progress: resolved 614, reused 0, downloaded 0, added 0
+2026-Jun-01 19:43:56.344065 [DEBUG] #33 54.16  WARN  Request took 23822ms: https://registry.npmjs.org/buffer-equal-constant-time
+2026-Jun-01 19:<REDACTED>@aws-sdk%2Fcredential-provider-login
+2026-Jun-01 19:44:22.931523 [DEBUG] #33 80.78  WARN  Request took 49525ms: https://registry.npmjs.org/@aws-sdk%2Fnested-clients
+2026-Jun-01 19:<REDACTED>@aws-sdk%2Fnested-clients
+2026-Jun-01 19:44:23.338712 [DEBUG] #33 81.19 Progress: resolved 638, reused 0, downloaded 0, added 0
+2026-Jun-01 19:44:23.958273 [DEBUG] #33 81.86  WARN  Request took 40819ms: https://registry.npmjs.org/@aws-sdk%2Ftoken-providers
+2026-Jun-01 19:<REDACTED>@floating-ui%2Fcore
+2026-Jun-01 19:45:03.505978 [DEBUG] #33 121.5  WARN  Request took 10681ms: https://registry.npmjs.org/gopd
+2026-Jun-01 19:<REDACTED>@11.1.0, node-domexception@1.0.0, source-map@0.8.0-beta.0, uuid@8.3.2, uuid@9.0.1
+2026-Jun-01 19:45:07.294594 [DEBUG] #33 125.3 Progress: resolved 950, reused 0, downloaded 0, added 0, done
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4  WARN  Issues with peer dependencies found
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4 artifacts/stavba
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4 └─┬ @zxing/browser 0.2.0
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4   └── ✕ unmet peer @zxing/library@^0.22.0: found 0.23.0
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4 lib/api-client-react
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4 └─┬ @tanstack/react-query 5.100.9
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4   └── ✕ missing peer react@"^18 || ^19"
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4 Peer dependencies that should be installed:
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.4   react@"^18 || ^19"
+2026-Jun-01 19:45:07.387679 [DEBUG] #33 125.5 .                                        | +237 ++++++++++++++++++++++++
+2026-Jun-01 19:45:09.338247 [DEBUG] #33 ...
+2026-Jun-01 19:45:09.338247 [DEBUG] 
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 [web builder 11/11] RUN pnpm --filter @workspace/stavba run build
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8 PWA v1.3.0
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8 mode      generateSW
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8 precache  22 entries (4358.50 KiB)
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8 files generated
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8   dist/public/sw.js
+2026-Jun-01 19:45:09.338247 [DEBUG] #32 131.8   dist/public/workbox-efbd304a.js
+2026-Jun-01 19:45:09.639160 [DEBUG] #32 DONE 132.1s
+2026-Jun-01 19:45:09.639160 [DEBUG] 
+2026-Jun-01 19:45:09.639160 [DEBUG] #33 [api builder 11/11] RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:45:09.811161 [DEBUG] #33 ...
+2026-Jun-01 19:45:09.811161 [DEBUG] 
+2026-Jun-01 19:45:09.811161 [DEBUG] #34 [web runtime 3/3] COPY --from=builder /repo/artifacts/stavba/dist/public /usr/share/nginx/html
+2026-Jun-01 19:45:09.811161 [DEBUG] #34 DONE 0.1s
+2026-Jun-01 19:45:09.978520 [DEBUG] #35 [web] exporting to image
+2026-Jun-01 19:45:09.978520 [DEBUG] #35 exporting layers
+2026-Jun-01 19:45:10.158659 [DEBUG] #35 exporting layers 0.3s done
+2026-Jun-01 19:45:10.337980 [DEBUG] #35 exporting manifest sha256:dc69ac5ec009c2b5a00ace8fcdbb8401d75031dd46207c6d68278582739b85a2 0.0s done
+2026-Jun-01 19:45:10.337980 [DEBUG] #35 exporting config sha256:cd15a0e81391fddedd151a1ce965115a9b3b8eaf096390a3fa710fd02906fa87 done
+2026-Jun-01 19:45:10.337980 [DEBUG] #35 exporting attestation manifest sha256:692096f920c3e839dd66374090276122cfeb9e974f930517d8ba7d802b70d3f7 0.0s done
+2026-Jun-01 19:45:10.337980 [DEBUG] #35 exporting manifest list sha256:1bf817847c79a67f0634f5f4886dfeeb838c721e4bce826380353d4af727efd8 done
+2026-Jun-01 19:45:10.337980 [DEBUG] #35 naming to docker.io/library/ef09696arga7h9ox6ojgv7ru_web:0804943ac751840d987f4e1385dfd33b304b0e43 done
+2026-Jun-01 19:45:10.337980 [DEBUG] #35 unpacking to docker.io/library/ef09696arga7h9ox6ojgv7ru_web:0804943ac751840d987f4e1385dfd33b304b0e43 0.1s done
+2026-Jun-01 19:45:10.533278 [DEBUG] #35 DONE 0.6s
+2026-Jun-01 19:45:10.533278 [DEBUG] 
+2026-Jun-01 19:45:10.533278 [DEBUG] #33 [api builder 11/11] RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:45:10.551024 [DEBUG] #33 ...
+2026-Jun-01 19:45:10.551024 [DEBUG] 
+2026-Jun-01 19:45:10.551024 [DEBUG] #36 [web] resolving provenance for metadata file
+2026-Jun-01 19:45:10.746407 [DEBUG] #36 DONE 0.0s
+2026-Jun-01 19:45:10.746407 [DEBUG] 
+2026-Jun-01 19:45:10.746407 [DEBUG] #33 [api builder 11/11] RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+2026-Jun-01 19:45:29.165041 [DEBUG] #33 147.3 . preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm instead" >&2; exit 1 ;; esac'
+2026-Jun-01 19:45:29.369904 [DEBUG] #33 147.3 . preinstall: Done
+2026-Jun-01 19:45:29.494577 [DEBUG] #33 DONE 147.6s
+2026-Jun-01 19:45:30.521382 [DEBUG] #37 [api runtime 4/7] COPY --from=builder /app/node_modules ./node_modules
+2026-Jun-01 19:45:35.569192 [DEBUG] #37 DONE 5.0s
+2026-Jun-01 19:45:35.721788 [DEBUG] #38 [api runtime 5/7] COPY --from=builder /repo/artifacts/api-server/dist ./dist
+2026-Jun-01 19:45:35.764434 [DEBUG] #38 DONE 0.2s
+2026-Jun-01 19:45:35.966510 [DEBUG] #39 [api runtime 6/7] COPY --from=builder /repo/lib/db/migrations ./migrations
+2026-Jun-01 19:45:35.966510 [DEBUG] #39 DONE 0.0s
+2026-Jun-01 19:45:35.966510 [DEBUG] 
+2026-Jun-01 19:45:35.966510 [DEBUG] #40 [api runtime 7/7] RUN chown -R node:node /app
+2026-Jun-01 19:45:55.330575 [DEBUG] #40 DONE 19.5s
+2026-Jun-01 19:45:55.498653 [DEBUG] #41 [api] exporting to image
+2026-Jun-01 19:45:55.498653 [DEBUG] #41 exporting layers
+2026-Jun-01 19:46:01.397922 [DEBUG] #41 exporting layers 6.1s done
+2026-Jun-01 19:46:01.397922 [DEBUG] #41 exporting manifest sha256:07c01d7b89c614bef610167baec5930774a224d65b516f7a1423bf710cce8b77
+2026-Jun-01 19:46:01.633967 [DEBUG] #41 exporting manifest sha256:07c01d7b89c614bef610167baec5930774a224d65b516f7a1423bf710cce8b77 0.0s done
+2026-Jun-01 19:46:01.633967 [DEBUG] #41 exporting config sha256:fcbed0f194e8731e74ecac1050f886b59a25bea8f49aa24f7256f4a6a2bb60d3 0.0s done
+2026-Jun-01 19:46:01.633967 [DEBUG] #41 exporting attestation manifest sha256:e8971cddb40bcc37a1a9fb485376555903627ac974092412176a771e10be88ea 0.0s done
+2026-Jun-01 19:46:01.633967 [DEBUG] #41 exporting manifest list sha256:d3134af9e3cb1dac38aefae766d9c87dc27e5a48e879dd83d9efb26c76ac73ef done
+2026-Jun-01 19:46:01.633967 [DEBUG] #41 naming to docker.io/library/ef09696arga7h9ox6ojgv7ru_api:0804943ac751840d987f4e1385dfd33b304b0e43 done
+2026-Jun-01 19:46:01.633967 [DEBUG] #41 unpacking to docker.io/library/ef09696arga7h9ox6ojgv7ru_api:0804943ac751840d987f4e1385dfd33b304b0e43
+2026-Jun-01 19:46:06.080566 [DEBUG] #41 unpacking to docker.io/library/ef09696arga7h9ox6ojgv7ru_api:0804943ac751840d987f4e1385dfd33b304b0e43 4.6s done
+2026-Jun-01 19:46:06.262579 [DEBUG] #41 DONE 10.8s
+2026-Jun-01 19:46:06.262579 [DEBUG] 
+2026-Jun-01 19:46:06.262579 [DEBUG] #42 [api] resolving provenance for metadata file
+2026-Jun-01 19:46:06.325009 [DEBUG] #42 DONE 0.0s
+2026-Jun-01 19:46:06.341915 [DEBUG] api  Built
+2026-Jun-01 19:46:06.341915 [DEBUG] web  Built
+2026-Jun-01 19:46:06.598331 [DEBUG] Creating .env file with runtime variables for container.
+2026-Jun-01 19:46:07.060625 Removing old containers.
+2026-Jun-01 19:46:07.336689 [DEBUG] [CMD]: docker stop --time=30 web-ef09696arga7h9ox6ojgv7ru-192848292431
+2026-Jun-01 19:46:07.336689 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:46:07.636629 [DEBUG] web-ef09696arga7h9ox6ojgv7ru-192848292431
+2026-Jun-01 19:46:07.797295 [DEBUG] [CMD]: docker rm -f web-ef09696arga7h9ox6ojgv7ru-192848292431
+2026-Jun-01 19:46:07.797295 [DEBUG] web-ef09696arga7h9ox6ojgv7ru-192848292431
+2026-Jun-01 19:46:07.893971 [DEBUG] [CMD]: docker stop --time=30 api-ef09696arga7h9ox6ojgv7ru-192848262389
+2026-Jun-01 19:46:07.893971 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:46:38.091685 [DEBUG] api-ef09696arga7h9ox6ojgv7ru-192848262389
+2026-Jun-01 19:46:38.244725 [DEBUG] [CMD]: docker rm -f api-ef09696arga7h9ox6ojgv7ru-192848262389
+2026-Jun-01 19:46:38.244725 [DEBUG] api-ef09696arga7h9ox6ojgv7ru-192848262389
+2026-Jun-01 19:46:38.349830 [DEBUG] [CMD]: docker stop --time=30 createbuckets-ef09696arga7h9ox6ojgv7ru-192848253567
+2026-Jun-01 19:46:38.349830 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:46:38.362741 [DEBUG] createbuckets-ef09696arga7h9ox6ojgv7ru-192848253567
+2026-Jun-01 19:46:38.512977 [DEBUG] [CMD]: docker rm -f createbuckets-ef09696arga7h9ox6ojgv7ru-192848253567
+2026-Jun-01 19:46:38.512977 [DEBUG] createbuckets-ef09696arga7h9ox6ojgv7ru-192848253567
+2026-Jun-01 19:46:38.632131 [DEBUG] [CMD]: docker stop --time=30 postgres-ef09696arga7h9ox6ojgv7ru-192848226285
+2026-Jun-01 19:46:38.632131 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:46:38.792007 [DEBUG] postgres-ef09696arga7h9ox6ojgv7ru-192848226285
+2026-Jun-01 19:46:38.973422 [DEBUG] [CMD]: docker rm -f postgres-ef09696arga7h9ox6ojgv7ru-192848226285
+2026-Jun-01 19:46:38.973422 [DEBUG] postgres-ef09696arga7h9ox6ojgv7ru-192848226285
+2026-Jun-01 19:46:39.078394 [DEBUG] [CMD]: docker stop --time=30 minio-ef09696arga7h9ox6ojgv7ru-192848240761
+2026-Jun-01 19:46:39.078394 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:46:39.245030 [DEBUG] minio-ef09696arga7h9ox6ojgv7ru-192848240761
+2026-Jun-01 19:46:39.393404 [DEBUG] [CMD]: docker rm -f minio-ef09696arga7h9ox6ojgv7ru-192848240761
+2026-Jun-01 19:46:39.393404 [DEBUG] minio-ef09696arga7h9ox6ojgv7ru-192848240761
+2026-Jun-01 19:46:39.404280 Starting new application.
+2026-Jun-01 19:46:39.669231 [DEBUG] [CMD]: docker exec ss7zr9wmeklu85s5s2c7a486 bash -c 'COOLIFY_BRANCH=main COOLIFY_RESOURCE_UUID=ef09696arga7h9ox6ojgv7ru  docker compose --env-file /artifacts/ss7zr9wmeklu85s5s2c7a486/.env --project-name ef09696arga7h9ox6ojgv7ru --project-directory /artifacts/ss7zr9wmeklu85s5s2c7a486 -f /artifacts/ss7zr9wmeklu85s5s2c7a486/docker-compose.yml up -d'
+2026-Jun-01 19:46:40.465910 Container minio-ef09696arga7h9ox6ojgv7ru-194221528939  Creating
+2026-Jun-01 19:46:40.474825 Container postgres-ef09696arga7h9ox6ojgv7ru-194221521610  Creating
+2026-Jun-01 19:46:40.534602 Container minio-ef09696arga7h9ox6ojgv7ru-194221528939  Created
+2026-Jun-01 19:46:40.548520 Container createbuckets-ef09696arga7h9ox6ojgv7ru-194221541018  Creating
+2026-Jun-01 19:46:40.548520 Container postgres-ef09696arga7h9ox6ojgv7ru-194221521610  Created
+2026-Jun-01 19:46:40.582501 Container createbuckets-ef09696arga7h9ox6ojgv7ru-194221541018  Created
+2026-Jun-01 19:46:40.582501 Container api-ef09696arga7h9ox6ojgv7ru-194221548459  Creating
+2026-Jun-01 19:46:40.646054 Container api-ef09696arga7h9ox6ojgv7ru-194221548459  Created
+2026-Jun-01 19:46:40.660428 Container web-ef09696arga7h9ox6ojgv7ru-194221575186  Creating
+2026-Jun-01 19:46:40.702345 Container web-ef09696arga7h9ox6ojgv7ru-194221575186  Created
+2026-Jun-01 19:46:40.738425 Container minio-ef09696arga7h9ox6ojgv7ru-194221528939  Starting
+2026-Jun-01 19:46:40.738425 Container postgres-ef09696arga7h9ox6ojgv7ru-194221521610  Starting
+2026-Jun-01 19:46:40.916192 Container postgres-ef09696arga7h9ox6ojgv7ru-194221521610  Started
+2026-Jun-01 19:46:41.037211 Container minio-ef09696arga7h9ox6ojgv7ru-194221528939  Started
+2026-Jun-01 19:46:41.037211 Container createbuckets-ef09696arga7h9ox6ojgv7ru-194221541018  Starting
+2026-Jun-01 19:46:41.189664 Container createbuckets-ef09696arga7h9ox6ojgv7ru-194221541018  Started
+2026-Jun-01 19:46:41.210277 Container createbuckets-ef09696arga7h9ox6ojgv7ru-194221541018  Waiting
+2026-Jun-01 19:46:41.210277 Container postgres-ef09696arga7h9ox6ojgv7ru-194221521610  Waiting
+2026-Jun-01 19:46:43.691863 Container createbuckets-ef09696arga7h9ox6ojgv7ru-194221541018  Exited
+2026-Jun-01 19:46:51.192539 Container postgres-ef09696arga7h9ox6ojgv7ru-194221521610  Healthy
+2026-Jun-01 19:46:51.192539 Container api-ef09696arga7h9ox6ojgv7ru-194221548459  Starting
+2026-Jun-01 19:46:51.376893 Container api-ef09696arga7h9ox6ojgv7ru-194221548459  Started
+2026-Jun-01 19:46:51.376893 Container api-ef09696arga7h9ox6ojgv7ru-194221548459  Waiting
+2026-Jun-01 19:46:56.876698 Container api-ef09696arga7h9ox6ojgv7ru-194221548459  Healthy
+2026-Jun-01 19:46:56.876698 Container web-ef09696arga7h9ox6ojgv7ru-194221575186  Starting
+2026-Jun-01 19:46:57.089316 Container web-ef09696arga7h9ox6ojgv7ru-194221575186  Started
+2026-Jun-01 19:46:57.426526 New container started.
+2026-Jun-01 19:46:57.850263 Gracefully shutting down build container: ss7zr9wmeklu85s5s2c7a486
+2026-Jun-01 19:46:57.947233 [DEBUG] [CMD]: docker stop --time=30 ss7zr9wmeklu85s5s2c7a486
+2026-Jun-01 19:46:57.947233 [DEBUG] Flag --time has been deprecated, use --timeout instead
+2026-Jun-01 19:46:58.111686 [DEBUG] ss7zr9wmeklu85s5s2c7a486

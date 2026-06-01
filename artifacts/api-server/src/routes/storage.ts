@@ -100,7 +100,33 @@ router.post(
         }),
       );
     } catch (error) {
-      req.log.error({ err: error }, "Error uploading object");
+      // Capture the full S3/Hetzner error detail. An InvalidAccessKeyId XML
+      // body echoes back the exact key the provider received (`AWSAccessKeyId`)
+      // and a human message — invaluable for telling a mangled/wrong key apart
+      // from a genuinely-unknown one. These fields never contain the secret.
+      const s3err = error as Record<string, unknown> & {
+        name?: string;
+        message?: string;
+        Code?: string;
+        $metadata?: { httpStatusCode?: number; requestId?: string };
+      };
+      req.log.error(
+        {
+          err: error,
+          s3Detail: {
+            name: s3err?.name,
+            code: s3err?.Code,
+            message: s3err?.message,
+            awsAccessKeyId: s3err?.["AWSAccessKeyId"],
+            hostId: s3err?.["HostId"],
+            endpoint: s3err?.["Endpoint"],
+            bucketRegion: s3err?.["Region"] ?? s3err?.["region"],
+            httpStatusCode: s3err?.$metadata?.httpStatusCode,
+            requestId: s3err?.$metadata?.requestId,
+          },
+        },
+        "Error uploading object",
+      );
       // Surface the underlying storage reason (e.g. "InvalidAccessKeyId",
       // "Access Denied", "bucket does not exist", "ENOTFOUND <endpoint>") so a
       // misconfigured deployment is diagnosable from the UI instead of a blanket
