@@ -74,8 +74,12 @@ function normalizeEndpoint(endpoint: string | undefined): string | undefined {
 
 function buildClient(endpoint: string | undefined): S3Client {
   const region = process.env.S3_REGION || "us-east-1";
-  const accessKeyId = requireEnv("S3_ACCESS_KEY_ID");
-  const secretAccessKey = requireEnv("S3_SECRET_ACCESS_KEY");
+  // Trim credentials: pasting keys into a deploy UI (Coolify, etc.) commonly
+  // appends a trailing space/newline, which the provider rejects with a
+  // confusing "InvalidAccessKeyId". S3 keys never contain surrounding
+  // whitespace, so trimming is always safe.
+  const accessKeyId = requireEnv("S3_ACCESS_KEY_ID").trim();
+  const secretAccessKey = requireEnv("S3_SECRET_ACCESS_KEY").trim();
   // Path-style addressing is required by MinIO and some self-hosted gateways.
   const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
 
