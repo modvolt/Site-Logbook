@@ -81,9 +81,15 @@ This repo's `docker-compose.yml` is Coolify-ready.
 
 - **Database:** remove the `postgres` service and set `DATABASE_URL` to your
   managed connection string. Migrations still run on API startup.
-- **Storage:** remove `minio` + `createbuckets`, set the `S3_*` variables to the
-  managed bucket, create the bucket once, and unset `S3_FORCE_PATH_STYLE` (AWS
-  uses virtual-hosted style).
+- **Storage:** point the API at the external bucket by setting `S3_ENDPOINT`,
+  `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` and `S3_FORCE_PATH_STYLE`
+  in your environment (these override the bundled-MinIO defaults). Create the
+  bucket once on the provider. For AWS S3 set `S3_FORCE_PATH_STYLE=false`
+  (virtual-hosted style); for Hetzner/MinIO keep it `true`.
+  - You can leave the bundled `minio` + `createbuckets` services running (they
+    sit unused), **or** remove them — but if you remove them you must also remove
+    the `createbuckets` entry under `api.depends_on`, otherwise Compose refuses to
+    start the API (it waits on a service that no longer exists).
 
 ---
 
@@ -96,11 +102,11 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `SESSION_SECRET`          | yes      | —             | Secret signing session cookies.                                  |
 | `PORT`                    | no       | `5000`        | API listen port (inside the container).                          |
 | `S3_BUCKET`               | yes      | —             | Bucket for uploads.                                              |
-| `S3_ACCESS_KEY_ID`        | yes      | —             | From `MINIO_ROOT_USER` in Compose.                              |
-| `S3_SECRET_ACCESS_KEY`    | yes      | —             | From `MINIO_ROOT_PASSWORD` in Compose.                          |
-| `S3_ENDPOINT`             | no       | AWS default   | Endpoint the API uses to reach storage (`http://minio:9000` in Compose). |
+| `S3_ACCESS_KEY_ID`        | yes      | `MINIO_ROOT_USER` | Access key; defaults to the bundled MinIO root user. Set to override for external S3. |
+| `S3_SECRET_ACCESS_KEY`    | yes      | `MINIO_ROOT_PASSWORD` | Secret key; defaults to the bundled MinIO root password. Set to override for external S3. |
+| `S3_ENDPOINT`             | no       | `http://minio:9000` | Endpoint the API uses to reach storage. Override for external S3 (e.g. `https://fsn1.your-objectstorage.com`). |
 | `S3_REGION`               | no       | `us-east-1`   |                                                                  |
-| `S3_FORCE_PATH_STYLE`     | no       | `false`       | `true` for MinIO / path-style gateways.                         |
+| `S3_FORCE_PATH_STYLE`     | no       | `true`        | Compose default `true` (MinIO/Hetzner path-style). Set `false` for AWS virtual-hosted style. |
 | `S3_PRIVATE_PREFIX`       | no       | `private`     | Key prefix for uploaded objects.                                 |
 | `S3_PUBLIC_PREFIX`        | no       | `public`      | Comma-separated prefixes for public assets.                      |
 | `SMTP_HOST`               | no       | —             | Empty disables outbound email (PDF job sheets).                  |

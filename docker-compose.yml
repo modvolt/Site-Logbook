@@ -87,15 +87,25 @@ services:
       PORT: 5000
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       SESSION_SECRET: ${SESSION_SECRET}
-      # Object storage. Uploads are proxied through the API, which reaches MinIO
-      # over the internal Docker network — the browser never talks to MinIO, so
-      # no browser-reachable storage endpoint or bucket CORS is required.
-      S3_ENDPOINT: http://minio:9000
+      # Object storage. Uploads are proxied through the API, which reaches the
+      # bucket over S3_ENDPOINT — the browser never talks to storage, so no
+      # browser-reachable endpoint or bucket CORS is required.
+      #
+      # Defaults target the bundled MinIO. To use an EXTERNAL S3-compatible
+      # provider (Hetzner, AWS, …) instead, override these in your environment
+      # (e.g. the Coolify env UI):
+      #   S3_ENDPOINT=https://fsn1.your-objectstorage.com
+      #   S3_REGION=fsn1
+      #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY = your provider's keys
+      #   S3_FORCE_PATH_STYLE=true   (Hetzner/MinIO) or false (AWS)
+      # The bucket must already exist on the external provider. The bundled
+      # `minio`/`createbuckets` services can be left running (unused) or removed.
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      S3_FORCE_PATH_STYLE: "true"
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER}}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD}}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       # SMTP (optional — email features are disabled until configured).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
