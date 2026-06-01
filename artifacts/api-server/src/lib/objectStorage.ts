@@ -72,6 +72,32 @@ function normalizeEndpoint(endpoint: string | undefined): string | undefined {
   return `https://${trimmed}`;
 }
 
+// Startup diagnostic: a safe, secret-free summary of the active S3 backend
+// config. Logged once on boot so the deployed image can be verified at a glance
+// (e.g. to confirm a no-cache rebuild actually shipped the latest code, and that
+// the upload-checksum workaround for Hetzner is active). NEVER include the
+// secret access key here.
+export function describeObjectStorageConfig(): Record<string, unknown> {
+  if (!s3Configured()) {
+    return { backend: "gcs-replit" };
+  }
+  const accessKeyId = (process.env.S3_ACCESS_KEY_ID || "").trim();
+  return {
+    backend: "s3",
+    endpoint: normalizeEndpoint(process.env.S3_ENDPOINT) || "(aws default)",
+    region: process.env.S3_REGION || "us-east-1",
+    bucket: process.env.S3_BUCKET,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+    privatePrefix: getPrivatePrefix(),
+    // Length + last 4 chars only — enough to spot a wrong/truncated key without
+    // leaking it.
+    accessKeyIdLen: accessKeyId.length,
+    accessKeyIdTail: accessKeyId.slice(-4),
+    // Proves the checksum workaround (this build) is the one running.
+    uploadChecksum: "WHEN_REQUIRED",
+  };
+}
+
 function buildClient(endpoint: string | undefined): S3Client {
   const region = process.env.S3_REGION || "us-east-1";
   // Trim credentials: pasting keys into a deploy UI (Coolify, etc.) commonly

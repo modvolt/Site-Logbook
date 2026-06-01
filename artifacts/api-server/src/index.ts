@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startBackupScheduler } from "./lib/backup";
+import { describeObjectStorageConfig } from "./lib/objectStorage";
 
 const rawPort = process.env["PORT"];
 
@@ -23,5 +24,6 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  logger.info(describeObjectStorageConfig(), "Object storage configuration");
   startBackupScheduler();
 });

@@ -1,6 +1,7 @@
 - [Object storage setup](object-storage.md) — dual backend: S3-compatible (prod) else GCS/Replit (dev), chosen by s3Configured(); url column holds backend-agnostic /objects/... paths; legacy base64 still displays via getAttachmentUrl() fallback.
 - [Upload failure diagnostics](upload-failure-diagnostics.md) — request-url 500 = scheme-less S3 endpoint (now https-normalized); else browser→storage PUT fails on S3_PUBLIC_ENDPOINT/CORS.
 - [S3 InvalidAccessKeyId on self-host](s3-invalid-access-key-selfhost.md) — if ONLY uploads fail (GET/DELETE ok) it's AWS SDK v3 checksum trailer, set requestChecksumCalculation WHEN_REQUIRED; else Coolify nested ${..} defaults / whitespace / wrong commit/project.
+- [Coolify stale Docker cache](coolify-stale-docker-cache.md) — if a deploy log shows every step CACHED & finishes in ~1s, the fix never compiled; force a no-cache rebuild & verify via a startup marker log, don't trust matching commit sha.
 - [Drizzle push interactive conflict](drizzle-push-conflict.md) — push can prompt rename & fail in non-TTY; add single columns via direct SQL ALTER, never blind push --force (can drop user_sessions).
 - [jsPDF Czech diacritics](pdf-czech-diacritics.md) — built-in fonts can't render ř/š/ě; must embed Roboto TTF on every autoTable style; group headers go in table head to avoid orphaning.
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
