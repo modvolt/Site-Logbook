@@ -73,7 +73,7 @@ Ověřeno end-to-end: vytvoření → uložení → seznam → stažení (formá
 
 ## Provozní kontrolní seznam před nasazením
 
-- [ ] Nastavit silné `SESSION_SECRET`, `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`
+- [ ] Nastavit silné `SESSION_SECRET`, `POSTGRES_PASSWORD`, `S3_SECRET_ACCESS_KEY`
       (`openssl rand -hex 32`).
 - [ ] Nastavit `S3_*` proměnné a vytvořit bucket.
 - [ ] Ověřit, že API dosáhne na úložiště přes `S3_ENDPOINT` (nahrávání jde přes

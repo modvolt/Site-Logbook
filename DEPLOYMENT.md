@@ -66,7 +66,7 @@ This repo's `docker-compose.yml` is Coolify-ready.
    compose file is at the repo root).
 2. **Environment variables** — set everything from `.env.example` in Coolify's
    UI. Use strong values for `POSTGRES_PASSWORD`, `SESSION_SECRET`, and
-   `MINIO_ROOT_PASSWORD` (`openssl rand -hex 32`).
+   `S3_SECRET_ACCESS_KEY` (`openssl rand -hex 32`).
 3. **Domains / TLS** — Coolify's reverse proxy (Traefik) terminates TLS. Map
    your domain to the **`web`** service (container port `80`). TLS and
    certificates are handled by Coolify; nothing to configure in the app.
@@ -102,8 +102,8 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `SESSION_SECRET`          | yes      | —             | Secret signing session cookies.                                  |
 | `PORT`                    | no       | `5000`        | API listen port (inside the container).                          |
 | `S3_BUCKET`               | yes      | —             | Bucket for uploads.                                              |
-| `S3_ACCESS_KEY_ID`        | yes      | `MINIO_ROOT_USER` | Access key; defaults to the bundled MinIO root user. Set to override for external S3. |
-| `S3_SECRET_ACCESS_KEY`    | yes      | `MINIO_ROOT_PASSWORD` | Secret key; defaults to the bundled MinIO root password. Set to override for external S3. |
+| `S3_ACCESS_KEY_ID`        | yes      | —             | Access key. Single credential pair for both the API and bundled MinIO; set to the provider's key for external S3. |
+| `S3_SECRET_ACCESS_KEY`    | yes      | —             | Secret key (>= 8 chars for MinIO). Set to the provider's secret for external S3. |
 | `S3_ENDPOINT`             | no       | `http://minio:9000` | Endpoint the API uses to reach storage. Override for external S3 (e.g. `https://fsn1.your-objectstorage.com`). |
 | `S3_REGION`               | no       | `us-east-1`   |                                                                  |
 | `S3_FORCE_PATH_STYLE`     | no       | `true`        | Compose default `true` (MinIO/Hetzner path-style). Set `false` for AWS virtual-hosted style. |

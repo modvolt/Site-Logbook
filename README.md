@@ -64,8 +64,8 @@ cp .env.example .env
 | `SESSION_SECRET`            | ano     | —                | Tajný klíč pro podpis session cookie (`openssl rand -hex 32`).        |
 | `PORT`                      | ne      | `5000`           | Port, na kterém API naslouchá uvnitř kontejneru.                     |
 | `S3_BUCKET`                 | ano     | —                | Název bucketu pro přílohy a zálohy.                                   |
-| `S3_ACCESS_KEY_ID`          | ano     | —                | Přístupový klíč (v Compose z `MINIO_ROOT_USER`).                     |
-| `S3_SECRET_ACCESS_KEY`      | ano     | —                | Tajný klíč (v Compose z `MINIO_ROOT_PASSWORD`).                      |
+| `S3_ACCESS_KEY_ID`          | ano     | —                | Přístupový klíč. Jediná sada údajů pro API i vestavěné MinIO; pro externí S3 nastavte klíč poskytovatele. |
+| `S3_SECRET_ACCESS_KEY`      | ano     | —                | Tajný klíč (min. 8 znaků kvůli MinIO). Pro externí S3 nastavte tajný klíč poskytovatele. |
 | `S3_ENDPOINT`              | ne      | AWS výchozí      | Endpoint, přes který API přistupuje k úložišti (`http://minio:9000` v Compose). |
 | `S3_REGION`                 | ne      | `us-east-1`      | Region úložiště.                                                      |
 | `S3_FORCE_PATH_STYLE`       | ne      | `false`          | `true` pro MinIO / path-style brány.                                 |
@@ -80,7 +80,6 @@ cp .env.example .env
 | `SMTP_SECURE`               | ne      | auto             | `true` pro implicitní TLS (port 465).                               |
 | `SMTP_USER` / `SMTP_PASSWORD` | ne    | —                | Přihlašovací údaje SMTP (nepovinné u otevřených relay).             |
 | `SMTP_FROM`                 | ne      | `SMTP_USER`      | Adresa odesílatele.                                                  |
-| `MINIO_ROOT_USER/PASSWORD`  | ano\*   | —                | Přihlašovací údaje vestavěného MinIO (Compose).                     |
 | `MINIO_PORT` / `MINIO_CONSOLE_PORT` | ne | `9000` / `9001` | Host porty, na kterých je MinIO publikováno.                         |
 | `WEB_PORT`                  | ne      | `8080`           | Host port, na kterém je aplikace dostupná.                           |
 
@@ -122,7 +121,7 @@ Soubor `docker-compose.yml` v kořeni repozitáře je připraven pro Coolify.
 1. **Vytvořte resource** → *Docker Compose* → nasměrujte na tento repozitář.
 2. **Proměnné prostředí** — nastavte vše z `.env.example` v UI Coolify. Použijte
    silné hodnoty pro `POSTGRES_PASSWORD`, `SESSION_SECRET` a
-   `MINIO_ROOT_PASSWORD` (`openssl rand -hex 32`).
+   `S3_SECRET_ACCESS_KEY` (`openssl rand -hex 32`).
 3. **Domény / TLS** — reverzní proxy Coolify (Traefik) ukončuje TLS. Namapujte
    svou doménu na službu **`web`** (port kontejneru `80`). Certifikáty řeší
    Coolify, v aplikaci není co nastavovat.
