@@ -56,7 +56,7 @@ const ALLOWED_UPLOAD_TYPES = new Set<string>([
 router.post(
   "/storage/uploads",
   (req: Request, res: Response, next: NextFunction) => {
-    // Parse the raw body capped at the 30 MB limit. A too-large payload is
+    // Parse the raw body capped at MAX_UPLOAD_BYTES. A too-large payload is
     // rejected here with a clean JSON 413 instead of bubbling up as HTML.
     express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(req, res, (err) => {
       if (err) {
