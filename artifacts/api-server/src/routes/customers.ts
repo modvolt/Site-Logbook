@@ -8,6 +8,7 @@ import {
   DeleteCustomerParams,
   SendCredentialsEmailParams,
   SendCredentialsEmailBody,
+  ImportCustomersBody,
 } from "@workspace/api-zod";
 import { sendEmailWithPdf } from "../lib/email";
 import { requireRole } from "../middlewares/auth";
@@ -35,6 +36,83 @@ router.post("/customers", async (req, res): Promise<void> => {
 
   const [customer] = await db.insert(customersTable).values(parsed.data).returning();
   res.status(201).json(serializeCustomer(customer));
+});
+
+router.post("/customers/import", async (req, res): Promise<void> => {
+  const parsed = ImportCustomersBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  await db.transaction(async (tx) => {
+    const existing = await tx
+      .select({
+        id: customersTable.id,
+        ic: customersTable.ic,
+        companyName: customersTable.companyName,
+      })
+      .from(customersTable);
+    // Match incoming rows by IČ first (more reliable), then by company name.
+    const byIc = new Map<string, number>();
+    const byName = new Map<string, number>();
+    for (const row of existing) {
+      if (row.ic) byIc.set(row.ic.trim().toLowerCase(), row.id);
+      if (row.companyName) byName.set(row.companyName.trim().toLowerCase(), row.id);
+    }
+
+    for (const raw of parsed.data.items) {
+      const companyName = raw.companyName?.trim();
+      if (!companyName) {
+        skipped++;
+        continue;
+      }
+      const ic = raw.ic?.trim() || null;
+
+      // Only set fields the caller actually provided, so a partial file updates
+      // those fields without wiping the rest of a matched customer.
+      const provided: Record<string, unknown> = { companyName };
+      if (raw.contactPerson !== undefined) provided.contactPerson = raw.contactPerson;
+      if (raw.phone !== undefined) provided.phone = raw.phone;
+      if (raw.email !== undefined) provided.email = raw.email;
+      if (raw.ic !== undefined) provided.ic = ic;
+      if (raw.dic !== undefined) provided.dic = raw.dic;
+      if (raw.address !== undefined) provided.address = raw.address;
+
+      const icKey = ic?.toLowerCase();
+      const nameKey = companyName.toLowerCase();
+      const matchId = (icKey ? byIc.get(icKey) : undefined) ?? byName.get(nameKey);
+
+      if (matchId != null) {
+        await tx
+          .update(customersTable)
+          .set(provided)
+          .where(eq(customersTable.id, matchId));
+        // Refresh the lookup maps so later rows referencing this customer's
+        // (possibly changed) IČ or name resolve to the same record instead of
+        // being inserted as duplicates.
+        if (icKey) byIc.set(icKey, matchId);
+        byName.set(nameKey, matchId);
+        updated++;
+      } else {
+        const [row] = await tx
+          .insert(customersTable)
+          .values(provided as any)
+          .returning({ id: customersTable.id });
+        if (row) {
+          if (icKey) byIc.set(icKey, row.id);
+          byName.set(nameKey, row.id);
+        }
+        created++;
+      }
+    }
+  });
+
+  res.json({ created, updated, skipped });
 });
 
 router.patch("/customers/:id", async (req, res): Promise<void> => {

@@ -364,6 +364,32 @@ export interface CustomerInput {
   address?: string | null;
 }
 
+export interface CustomerImportItem {
+  companyName: string;
+  /** @nullable */
+  contactPerson?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  ic?: string | null;
+  /** @nullable */
+  dic?: string | null;
+  /** @nullable */
+  address?: string | null;
+}
+
+export interface CustomerImportInput {
+  items: CustomerImportItem[];
+}
+
+export interface CustomerImportResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
 export interface SendCredentialsEmailInput {
   /** Base64-encoded PDF of the access-credentials sheet */
   pdfBase64: string;

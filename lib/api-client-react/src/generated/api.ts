@@ -40,6 +40,8 @@ import type {
   Customer,
   CustomerContact,
   CustomerContactInput,
+  CustomerImportInput,
+  CustomerImportResult,
   CustomerInput,
   CustomerSite,
   CustomerSiteInput,
@@ -2098,6 +2100,77 @@ export const useCreateCustomer = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateCustomerMutationOptions(options));
+    }
+
+export const getImportCustomersUrl = () => {
+
+
+
+
+  return `/api/customers/import`
+}
+
+/**
+ * @summary Bulk import (upsert) customers from a CSV file
+ */
+export const importCustomers = async (customerImportInput: CustomerImportInput, options?: RequestInit): Promise<CustomerImportResult> => {
+
+  return customFetch<CustomerImportResult>(getImportCustomersUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      customerImportInput,)
+  }
+);}
+
+
+
+
+export const getImportCustomersMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importCustomers>>, TError,{data: BodyType<CustomerImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importCustomers>>, TError,{data: BodyType<CustomerImportInput>}, TContext> => {
+
+const mutationKey = ['importCustomers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importCustomers>>, {data: BodyType<CustomerImportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importCustomers(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportCustomersMutationResult = NonNullable<Awaited<ReturnType<typeof importCustomers>>>
+    export type ImportCustomersMutationBody = BodyType<CustomerImportInput>
+    export type ImportCustomersMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Bulk import (upsert) customers from a CSV file
+ */
+export const useImportCustomers = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importCustomers>>, TError,{data: BodyType<CustomerImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importCustomers>>,
+        TError,
+        {data: BodyType<CustomerImportInput>},
+        TContext
+      > => {
+      return useMutation(getImportCustomersMutationOptions(options));
     }
 
 export const getUpdateCustomerUrl = (id: number,) => {

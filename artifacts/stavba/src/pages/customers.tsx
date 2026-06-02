@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight } from "lucide-react";
+import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import CustomerCsvImport from "@/components/customer-csv-import";
 
 type CustomerForm = {
   companyName: string;
@@ -46,6 +47,7 @@ export default function Customers() {
   const deleteCustomer = useDeleteCustomer();
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [newForm, setNewForm] = useState<CustomerForm>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<CustomerForm>(emptyForm);
@@ -124,10 +126,23 @@ export default function Customers() {
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Zákazníci</h1>
-        <Button onClick={() => { setShowAddForm(true); setEditingId(null); }} className="h-10">
-          <Plus className="h-4 w-4 mr-2" /> Přidat zákazníka
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)} className="h-10">
+            <Upload className="h-4 w-4 mr-2" /> Import CSV
+          </Button>
+          <Button onClick={() => { setShowAddForm(true); setEditingId(null); }} className="h-10">
+            <Plus className="h-4 w-4 mr-2" /> Přidat zákazníka
+          </Button>
+        </div>
       </div>
+
+      <CustomerCsvImport
+        open={showImport}
+        onOpenChange={setShowImport}
+        onImported={() =>
+          queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() })
+        }
+      />
 
       {showAddForm && (
         <Card className="mb-6 border-primary/30 bg-primary/5">

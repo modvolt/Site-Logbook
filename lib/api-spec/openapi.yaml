@@ -619,6 +619,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Customer"
 
+  /customers/import:
+    post:
+      operationId: importCustomers
+      tags: [customers]
+      summary: Bulk import (upsert) customers from a CSV file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerImportInput"
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerImportResult"
+
   /customers/{id}:
     patch:
       operationId: updateCustomer
@@ -2461,6 +2480,45 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+
+    CustomerImportItem:
+      type: object
+      required: [companyName]
+      properties:
+        companyName:
+          type: string
+        contactPerson:
+          type: ["string", "null"]
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        ic:
+          type: ["string", "null"]
+        dic:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+
+    CustomerImportInput:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerImportItem"
+
+    CustomerImportResult:
+      type: object
+      required: [created, updated, skipped]
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        skipped:
+          type: integer
 
     SendJobEmailInput:
       type: object

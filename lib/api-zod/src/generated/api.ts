@@ -599,6 +599,28 @@ export const CreateCustomerBody = zod.object({
 
 
 /**
+ * @summary Bulk import (upsert) customers from a CSV file
+ */
+export const ImportCustomersBody = zod.object({
+  "items": zod.array(zod.object({
+  "companyName": zod.string(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "ic": zod.string().nullish(),
+  "dic": zod.string().nullish(),
+  "address": zod.string().nullish()
+}))
+})
+
+export const ImportCustomersResponse = zod.object({
+  "created": zod.number(),
+  "updated": zod.number(),
+  "skipped": zod.number()
+})
+
+
+/**
  * @summary Update a customer
  */
 export const UpdateCustomerParams = zod.object({
