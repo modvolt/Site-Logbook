@@ -2,7 +2,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { format } from "date-fns";
 import { 
-  useGetJob, getGetJobQueryKey, 
+  useGetJob, getGetJobQueryKey, getListJobsQueryKey,
+  getGetDashboardSummaryQueryKey, getGetTodayJobsQueryKey,
   useUpdateJobStatus, useUpdateJob, useDeleteJob,
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
@@ -18,7 +19,7 @@ import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@workspace/object-storage-web";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
@@ -41,6 +42,14 @@ import {
   showTimerNotification,
   clearTimerNotification,
 } from "@/lib/timer-notification";
+
+// Keep the jobs list, calendar and dashboard in sync after a job changes,
+// so the user never has to refresh manually (global staleTime is 5 min).
+function invalidateJobLists(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+  queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
+  queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+}
 
 async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
   let processedFile = file;
@@ -181,6 +190,7 @@ export default function JobDetail() {
     updateStatus.mutate({ id, data: { status: newStatus } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        invalidateJobLists(queryClient);
         toast({ title: "Stav změněn" });
       }
     });
@@ -191,6 +201,7 @@ export default function JobDetail() {
     updateJob.mutate({ id, data: { timerStartedAt: new Date().toISOString(), status: "in_progress" } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        invalidateJobLists(queryClient);
         if (notify) void showTimerNotification(job?.title ?? "");
         toast({ title: "Měření času spuštěno" });
       }
@@ -206,6 +217,7 @@ export default function JobDetail() {
     updateJob.mutate({ id, data }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        invalidateJobLists(queryClient);
         void clearTimerNotification();
         toast({
           title: belowThreshold
@@ -221,6 +233,7 @@ export default function JobDetail() {
     deleteJob.mutate({ id }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
+        invalidateJobLists(queryClient);
         toast({ title: "Zakázka smazána" });
         setLocation("/jobs");
       },
@@ -237,6 +250,7 @@ export default function JobDetail() {
     updateJob.mutate({ id, data: { hoursSpent: hours, hoursFromPlan: true, hoursBeforePlan: previousActual } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        invalidateJobLists(queryClient);
         toast({ title: `Uloženo ${hours.toFixed(2)} h podle plánu (${job.startTime}–${job.endTime})` });
       }
     });
@@ -247,6 +261,7 @@ export default function JobDetail() {
     updateJob.mutate({ id, data: { hoursSpent: restored, hoursFromPlan: false, hoursBeforePlan: null } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        invalidateJobLists(queryClient);
         toast({
           title: restored != null
             ? `Vráceno na skutečný čas (${restored.toFixed(2)} h)`
@@ -482,6 +497,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
     updateJob.mutate({ id: job.id, data: { date: dateDraft, startTime: startTimeDraft || null, endTime: endTimeDraft || null } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
         setEditingDate(false);
         toast({ title: "Datum a čas uloženy" });
       }
@@ -492,6 +508,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
     updateJob.mutate({ id: job.id, data: { address: addressDraft || null } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
         setEditingAddress(false);
         toast({ title: "Adresa uložena" });
       }
@@ -527,6 +544,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
     updateJob.mutate({ id: job.id, data: { notes } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
         setEditingNotes(false);
         toast({ title: "Poznámky uloženy" });
       }
@@ -537,6 +555,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
     updateJob.mutate({ id: job.id, data: { clientSite: customerSearch || null, customerId: selectedCustomerId } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
         setEditingCustomer(false);
         toast({ title: "Zákazník uložen" });
       }
@@ -1484,6 +1503,7 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
     }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
         flash();
         toast({ title: "Souhrn uložen" });
       }
@@ -1580,6 +1600,7 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
     updateJob.mutate({ id: job.id, data }, {
       onSuccess: (updated) => {
         queryClient.setQueryData(getGetJobQueryKey(job.id), updated);
+        invalidateJobLists(queryClient);
         flash();
         toast({ title: "Výdaje uloženy" });
       }

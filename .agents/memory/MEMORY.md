@@ -8,6 +8,7 @@
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
 - [Vite peer-variants](vite-peer-variants.md) — adding a vite plugin (e.g. vite-plugin-pwa pulls terser) to one artifact can break another artifact's typecheck; unify the peer set.
 - [PWA shared-device caching](pwa-shared-device-caching.md) — cache authenticated GET /api with NetworkFirst but purge the SW cache on logout so shared devices never leak one user's data to the next.
+- [Job mutation invalidation](job-mutation-invalidation.md) — any job mutation must invalidate getListJobs + getGetTodayJobs + getGetDashboardSummary (global staleTime 5min, detail-only setQueryData leaves lists stale); today-jobs key is easiest to miss.
 - [Recurring occurrence dedupe](recurring-occurrence-dedupe.md) — auto-creating next recurring job on done-transition must dedupe by (type,date,title,customer); gating on status alone duplicates on reopen→re-done.
 - [Device credential vault authz](device-credential-vault-authz.md) — credential-vault routes gate to master+admin (not requireAuth); guests have read access by default & secrets are plaintext.
 - [Orval binary request bodies](orval-binary-body.md) — Orval JSON.stringifies any non-formdata/text body; binary uploads need a hand-rolled fetch hook + exclude the op (dedicated tag) from the react-query client, keep zod schema.
