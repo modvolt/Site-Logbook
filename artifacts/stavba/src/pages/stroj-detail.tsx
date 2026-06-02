@@ -16,9 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Trash2, Pencil, Download, Save, X, User } from "lucide-react";
+import { ArrowLeft, Trash2, Pencil, Download, Save, X, User, ScanLine } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { BarcodeScanner } from "@/components/barcode-scanner";
 import { MACHINE_KINDS } from "./stroje";
 
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -40,6 +41,7 @@ export default function StrojDetail() {
 
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [form, setForm] = useState({
     name: "", kind: "stroj", type: "", manufacturer: "", serialNumber: "", purchaseDate: "",
     licensePlate: "", vin: "", mileageKm: "", inspectionDate: "", assignedPersonId: "none", notes: "",
@@ -257,7 +259,20 @@ export default function StrojDetail() {
                   <>
                     <Input value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="Typ" className="h-11" />
                     <Input value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="Výrobce" className="h-11" />
-                    <Input value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} placeholder="Sériové číslo" className="h-11" />
+                    <div className="flex gap-2">
+                      <Input value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} placeholder="Sériové číslo" className="h-11 flex-1" />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-11 w-11 shrink-0"
+                        onClick={() => setScannerOpen(true)}
+                        aria-label="Naskenovat sériové číslo fotoaparátem"
+                        title="Naskenovat sériové číslo fotoaparátem"
+                      >
+                        <ScanLine className="h-5 w-5" />
+                      </Button>
+                    </div>
                     <div>
                       <label className="text-xs text-muted-foreground ml-1">Datum nákupu</label>
                       <Input type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} className="h-11" />
@@ -269,6 +284,14 @@ export default function StrojDetail() {
                   </>
                 )}
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Poznámka" className="h-11" />
+                <BarcodeScanner
+                  open={scannerOpen}
+                  onOpenChange={setScannerOpen}
+                  onResult={(text) => {
+                    setForm((f) => ({ ...f, serialNumber: text }));
+                    toast({ title: "Sériové číslo naskenováno" });
+                  }}
+                />
                 <div className="flex gap-2 justify-end">
                   <Button type="button" variant="ghost" onClick={() => setEditing(false)}><X className="h-4 w-4 mr-1" /> Zrušit</Button>
                   <Button type="submit" disabled={!form.name.trim() || updateMachine.isPending}><Save className="h-4 w-4 mr-1" /> Uložit</Button>
