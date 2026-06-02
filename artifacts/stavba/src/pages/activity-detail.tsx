@@ -756,6 +756,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const listKey = getListActivityAttachmentsQueryKey(activityId);
   const { data: attachments } = useListActivityAttachments(activityId, {
     query: { queryKey: listKey, enabled: Number.isFinite(activityId) },
@@ -823,20 +824,37 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
           <>
             <input
               type="file"
+              accept="image/*"
+              capture="environment"
+              ref={cameraInputRef}
+              onChange={handleUpload}
+              className="hidden"
+            />
+            <input
+              type="file"
               accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
               multiple
               ref={fileInputRef}
               onChange={handleUpload}
               className="hidden"
             />
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={createAttachment.isPending || isUploading}
-              variant="secondary"
-              className="w-full h-11"
-            >
-              <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit / nahrát doklad"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={createAttachment.isPending || isUploading}
+                className="flex-1 h-11"
+              >
+                <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit"}
+              </Button>
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={createAttachment.isPending || isUploading}
+                variant="outline"
+                className="flex-1 h-11"
+              >
+                <FileImage className="h-4 w-4 mr-2" /> Nahrát doklad
+              </Button>
+            </div>
             <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
         )}
