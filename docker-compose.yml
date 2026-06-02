@@ -66,11 +66,23 @@ services:
     # (--ignore-existing => existing bucket is NOT an error), then exit 0.
     # set -e makes a genuine bucket-creation failure (e.g. bad credentials) exit
     # non-zero so the API gate is not satisfied, instead of silently passing.
+    #
+    # The connection wait is BOUNDED (60 tries x 2s = ~120s). Without a cap, an
+    # unreachable MinIO or bad credentials made this loop run forever, and because
+    # the API gates on `service_completed_successfully`, the WHOLE deploy hung
+    # indefinitely with no error. Now it fails fast with a clear message so the
+    # Coolify deploy stops with a diagnosable cause instead of stalling.
     entrypoint: >
       /bin/sh -c "
       set -e;
+      i=0;
       until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do
-        echo 'waiting for minio...'; sleep 2;
+        i=$$((i+1));
+        if [ $$i -ge 60 ]; then
+          echo 'ERROR: could not connect to MinIO after 60 attempts (~120s). Check that the minio service is running and that S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are set correctly (MinIO root password must be >= 8 chars).' >&2;
+          exit 1;
+        fi;
+        echo \"waiting for minio... ($$i/60)\"; sleep 2;
       done;
       mc mb --ignore-existing local/\"$$S3_BUCKET\";
       echo 'bucket ready';

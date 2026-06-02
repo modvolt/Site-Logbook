@@ -26,3 +26,23 @@ Coolify: `restart: "no"`, make the command idempotent (e.g.
 `mc mb --ignore-existing` so an existing bucket is not an error), and end with an
 explicit `exit 0`. Keep dependents gated with `service_completed_successfully`
 (init jobs) and `service_healthy` (long-running services).
+
+## Bounded waits — never an unbounded `until` in a gating init container
+
+A gating init container that waits for a dependency with an **unbounded** loop
+(e.g. `until mc alias set ...; do sleep 2; done`) can hang the ENTIRE Coolify
+deploy forever if the dependency is unreachable or its credentials are wrong:
+the build succeeds, then `docker compose up` blocks silently because the API
+gates on `service_completed_successfully` and that init job never finishes. The
+deploy log just stops after `built in ...s` with no error — looks like a build
+hang but is actually the start-up dependency chain.
+
+**Rule:** bound every such wait (e.g. 60 tries × 2s ≈ 120s), then `exit 1` with a
+clear stderr message naming the likely causes. A failed init job makes
+`docker compose up` exit with a diagnosable error instead of stalling.
+
+**How to diagnose a "stuck" Coolify deploy:** the build is almost never the
+cause if it printed a success line. Look at the start-up chain
+`postgres(healthy) → createbuckets(completed) → api(healthy) → web` and find
+which link never resolves. Note: peer-dependency `✕ unmet/missing peer` lines in
+the pnpm install step are warnings, NOT errors — they never fail the build.

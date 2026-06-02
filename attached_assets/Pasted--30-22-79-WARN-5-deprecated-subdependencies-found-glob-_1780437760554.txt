@@ -1,0 +1,74 @@
+#30 22.79  WARN  5 deprecated subdependencies found: glob@11.1.0, node-domexception@1.0.0, source-map@0.8.0-beta.0, uuid@8.3.2, uuid@9.0.1
+2026-Jun-02 21:37:44.463525
+#30 22.79 Progress: resolved 950, reused 0, downloaded 0, added 0, done
+2026-Jun-02 21:37:44.728710
+#30 22.81  WARN  Issues with peer dependencies found
+2026-Jun-02 21:37:44.728710
+#30 22.81 artifacts/stavba
+2026-Jun-02 21:37:44.728710
+#30 22.81 └─┬ @zxing/browser 0.2.0
+2026-Jun-02 21:37:44.728710
+#30 22.81   └── ✕ unmet peer @zxing/library@^0.22.0: found 0.23.0
+2026-Jun-02 21:37:44.728710
+#30 22.81
+2026-Jun-02 21:37:44.728710
+#30 22.81 lib/api-client-react
+2026-Jun-02 21:37:44.728710
+#30 22.81 └─┬ @tanstack/react-query 5.100.9
+2026-Jun-02 21:37:44.728710
+#30 22.81   └── ✕ missing peer react@"^18 || ^19"
+2026-Jun-02 21:37:44.728710
+#30 22.81 Peer dependencies that should be installed:
+2026-Jun-02 21:37:44.728710
+#30 22.81   react@"^18 || ^19"
+2026-Jun-02 21:37:44.728710
+#30 22.89 .                                        | +237 ++++++++++++++++++++++++
+2026-Jun-02 21:37:47.901682
+#30 ...
+2026-Jun-02 21:37:48.408085
+#28 [web builder 11/11] RUN pnpm --filter @workspace/stavba run build
+2026-Jun-02 21:37:48.408085
+#28 21.74 ✓ 3268 modules transformed.
+2026-Jun-02 21:37:48.408085
+#28 22.66 rendering chunks...
+2026-Jun-02 21:37:48.408085
+#28 25.20 computing gzip size...
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/manifest.webmanifest                                              0.54 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/index.html                                                        1.83 kB │ gzip:   0.68 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/podpis_firma_1780171718219-I2oalnAl.jpeg                  59.49 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/Color_logo_-_no_background_1780171783567-Csl8oEQF.png    164.71 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/Roboto-Bold-BtpdIk24.ttf                                 514.26 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/Roboto-Regular-DPspvn0D.ttf                              515.10 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/index-DIWDmkni.css                                       136.16 kB │ gzip:  21.89 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/workbox-window.prod.es5-BBnX5xw4.js                        5.75 kB │ gzip:   2.36 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/purify.es-xRF8S0N-.js                                     25.89 kB │ gzip:   9.74 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/qr-scanner-worker.min-D85Z9gVD.js                         43.95 kB │ gzip:  10.46 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/index.es-hOo-3JmU.js                                     158.79 kB │ gzip:  53.02 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/html2canvas.esm-DXEQVQnt.js                              201.04 kB │ gzip:  47.43 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/heic2any-DsgULEsh.js                                   1,352.90 kB │ gzip: 341.25 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62 dist/public/assets/index-DHVSzwum.js                                      2,351.96 kB │ gzip: 686.67 kB
+2026-Jun-02 21:37:48.408085
+#28 25.62
+2026-Jun-02 21:37:48.408085
+#28 25.62 (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-Jun-02 21:37:48.408085
+#28 25.62 - Using dynamic import() to code-split the application
+2026-Jun-02 21:37:48.408085
+#28 25.62 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-Jun-02 21:37:48.408085
+#28 25.62 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+2026-Jun-02 21:37:48.408085
