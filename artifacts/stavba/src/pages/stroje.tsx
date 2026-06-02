@@ -13,10 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck } from "lucide-react";
+import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck, ScanLine } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { QrScannerDialog } from "@/components/qr-scanner-dialog";
+import { BarcodeScanner } from "@/components/barcode-scanner";
 
 export const MACHINE_KINDS: Record<string, { label: string; icon: typeof Wrench }> = {
   stroj: { label: "Stroj", icon: Wrench },
@@ -38,6 +39,7 @@ export default function Stroje() {
   const [assignedPersonId, setAssignedPersonId] = useState("none");
   const [showForm, setShowForm] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [snScanOpen, setSnScanOpen] = useState(false);
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -171,7 +173,20 @@ export default function Stroje() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Input value={type} onChange={(e) => setType(e.target.value)} placeholder="Typ" className="h-12 bg-background" />
                   <Input value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} placeholder="Výrobce" className="h-12 bg-background" />
-                  <Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} placeholder="Sériové číslo" className="h-12 bg-background" />
+                  <div className="flex gap-2">
+                    <Input value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} placeholder="Sériové číslo" className="h-12 bg-background flex-1" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-12 w-12 shrink-0"
+                      onClick={() => setSnScanOpen(true)}
+                      aria-label="Naskenovat sériové číslo fotoaparátem"
+                      title="Naskenovat sériové číslo fotoaparátem"
+                    >
+                      <ScanLine className="h-5 w-5" />
+                    </Button>
+                  </div>
                   <Input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} placeholder="Datum nákupu" className="h-12 bg-background" />
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs text-muted-foreground ml-1">Revize do</label>
@@ -244,6 +259,14 @@ export default function Stroje() {
       </div>
 
       <QrScannerDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScanResult} />
+      <BarcodeScanner
+        open={snScanOpen}
+        onOpenChange={setSnScanOpen}
+        onResult={(text) => {
+          setSerialNumber(text);
+          toast({ title: "Sériové číslo naskenováno" });
+        }}
+      />
     </div>
   );
 }
