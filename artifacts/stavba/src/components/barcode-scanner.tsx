@@ -25,6 +25,16 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
   const controlsRef = useRef<IScannerControls | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Keep the latest callbacks in refs so the scanning effect only depends on
+  // `open`. Otherwise new inline callback references on every parent render
+  // restart the camera in a loop and it never stabilizes enough to decode.
+  const onResultRef = useRef(onResult);
+  const onOpenChangeRef = useRef(onOpenChange);
+  useEffect(() => {
+    onResultRef.current = onResult;
+    onOpenChangeRef.current = onOpenChange;
+  });
+
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -33,15 +43,18 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
 
     (async () => {
       try {
-        const controls = await reader.decodeFromVideoDevice(
-          undefined,
+        // Prefer the rear ("environment") camera and let the browser pick the
+        // best matching device; passing an undefined deviceId often selects the
+        // front camera on phones, which makes scanning unreliable.
+        const controls = await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: "environment" } } },
           videoRef.current ?? undefined,
           (result) => {
             if (result && !cancelled) {
               const text = result.getText().trim();
               if (text) {
-                onResult(text);
-                onOpenChange(false);
+                onResultRef.current(text);
+                onOpenChangeRef.current(false);
               }
             }
           },
@@ -67,17 +80,17 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [open, onOpenChange, onResult]);
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ScanLine className="h-5 w-5 text-primary" /> Naskenovat SN
+            <ScanLine className="h-5 w-5 text-primary" /> Naskenovat kód
           </DialogTitle>
           <DialogDescription>
-            Namiřte fotoaparát na čárový/QR kód se sériovým číslem zařízení.
+            Namiřte fotoaparát na čárový nebo QR kód.
           </DialogDescription>
         </DialogHeader>
         {error ? (

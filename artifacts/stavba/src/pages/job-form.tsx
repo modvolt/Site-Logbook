@@ -15,7 +15,7 @@ import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -55,6 +55,7 @@ export default function JobForm() {
     recurrenceIntervalDays: "",
   });
 
+  const [gpsLoading, setGpsLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [tasks, setTasks] = useState<string[]>([]);
@@ -88,6 +89,56 @@ export default function JobForm() {
 
   const handleSelectChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleUseCurrentLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast({
+        title: "GPS není dostupné",
+        description: "Tento prohlížeč nepodporuje zjištění polohy.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const coords = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&accept-language=cs`,
+            { headers: { Accept: "application/json" } },
+          );
+          const data = res.ok ? await res.json() : null;
+          const address: string | undefined = data?.display_name;
+          if (address) {
+            setFormData((p) => ({ ...p, address }));
+            toast({ title: "Poloha načtena" });
+          } else {
+            setFormData((p) => ({ ...p, address: coords }));
+            toast({ title: "Poloha načtena (souřadnice)" });
+          }
+        } catch {
+          setFormData((p) => ({ ...p, address: coords }));
+          toast({ title: "Poloha načtena (souřadnice)" });
+        } finally {
+          setGpsLoading(false);
+        }
+      },
+      (err) => {
+        setGpsLoading(false);
+        toast({
+          title: "Nepodařilo se zjistit polohu",
+          description:
+            err.code === err.PERMISSION_DENIED
+              ? "Povolte přístup k poloze v prohlížeči."
+              : "Zkuste to prosím znovu.",
+          variant: "destructive",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
   };
 
   const selectCustomer = (c: NonNullable<typeof customers>[number]) => {
@@ -305,6 +356,16 @@ export default function JobForm() {
               placeholder="např. Korunní 47, Praha 2"
               className="h-14 text-base"
             />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleUseCurrentLocation}
+              disabled={gpsLoading}
+              className="h-12 w-full text-base"
+            >
+              <LocateFixed className={`h-4 w-4 mr-2 ${gpsLoading ? "animate-pulse" : ""}`} />
+              {gpsLoading ? "Zjišťuji polohu…" : "Načíst aktuální polohu (GPS)"}
+            </Button>
             {formData.address && (
               <a
                 href={`https://waze.com/ul?q=${encodeURIComponent(formData.address)}`}

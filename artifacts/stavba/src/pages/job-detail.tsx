@@ -36,6 +36,11 @@ import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
+import {
+  ensureNotificationPermission,
+  showTimerNotification,
+  clearTimerNotification,
+} from "@/lib/timer-notification";
 
 async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
   let processedFile = file;
@@ -149,6 +154,10 @@ export default function JobDetail() {
 
   const elapsed = useJobTimer(job?.timerStartedAt);
   const isTimerRunning = !!job?.timerStartedAt;
+
+  useEffect(() => {
+    if (job?.timerStartedAt) void showTimerNotification(job?.title ?? "");
+  }, [job?.id, job?.timerStartedAt, job?.title]);
   
   const toggleSection = (section: string) => {
     setExpandedSection(prev => prev === section ? null : section);
@@ -177,10 +186,12 @@ export default function JobDetail() {
     });
   };
 
-  const handleTimerStart = () => {
+  const handleTimerStart = async () => {
+    const notify = await ensureNotificationPermission();
     updateJob.mutate({ id, data: { timerStartedAt: new Date().toISOString(), status: "in_progress" } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        if (notify) void showTimerNotification(job?.title ?? "");
         toast({ title: "Měření času spuštěno" });
       }
     });
@@ -195,6 +206,7 @@ export default function JobDetail() {
     updateJob.mutate({ id, data }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        void clearTimerNotification();
         toast({
           title: belowThreshold
             ? `Čas zastaven — pod 5 min, nezapočítáno`
@@ -1320,6 +1332,7 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
 
 function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const { data: attachments } = useListAttachments(jobId, {
     query: { enabled: isExpanded, queryKey: getListAttachmentsQueryKey(jobId) }
   });
@@ -1383,16 +1396,28 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
     >
       <div className="p-4 space-y-6">
         <div className="flex gap-3">
+          <input
+            type="file" accept="image/*" capture="environment"
+            ref={cameraInputRef} onChange={handlePhotoCapture} className="hidden"
+          />
           <input 
             type="file" accept="image/*" multiple
             ref={fileInputRef} onChange={handlePhotoCapture} className="hidden" 
           />
           <Button 
-            onClick={() => fileInputRef.current?.click()} 
+            onClick={() => cameraInputRef.current?.click()} 
             disabled={createAttachment.isPending || isUploadingPhoto}
             className="flex-1 h-14 bg-primary text-primary-foreground text-base"
           >
-            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? photoStatus : "Vyfotit stavbu"}
+            <Camera className="w-5 h-5 mr-2" /> {isUploadingPhoto ? photoStatus : "Vyfotit"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={createAttachment.isPending || isUploadingPhoto}
+            className="flex-1 h-14 text-base"
+          >
+            <FileImage className="w-5 h-5 mr-2" /> Z galerie
           </Button>
         </div>
         <UploadProgressBar isUploading={isUploadingPhoto} progress={photoProgress} />

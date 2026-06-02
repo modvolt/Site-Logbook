@@ -341,6 +341,7 @@ export default function PristupoveUdaje() {
                     {p.label}
                   </option>
                 ))}
+                <option value="Nemá">Nemá</option>
               </select>
               <Input
                 value={form.ipAddress}

@@ -902,6 +902,7 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
 }
 
 function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -968,14 +969,25 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
 
         {canWrite && (
           <>
+            <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handleCapture} className="hidden" />
             <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleCapture} className="hidden" />
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={createAttachment.isPending || isUploading}
-              className="w-full"
-            >
-              <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit / nahrát"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={createAttachment.isPending || isUploading}
+                className="flex-1"
+              >
+                <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={createAttachment.isPending || isUploading}
+                className="flex-1"
+              >
+                <FileImage className="h-4 w-4 mr-2" /> Z galerie
+              </Button>
+            </div>
             <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
         )}

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLogout } from "@workspace/api-client-react";
 import { clearApiCache } from "@/lib/pwa";
+import { clearTimerNotification } from "@/lib/timer-notification";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileNav } from "@/components/mobile-nav";
 import { mainNavItems, adminNavItems, type NavItem } from "@/components/nav-items";
@@ -25,6 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       onSuccess: () => {
         queryClient.clear();
         void clearApiCache();
+        void clearTimerNotification();
         refresh();
       },
     });

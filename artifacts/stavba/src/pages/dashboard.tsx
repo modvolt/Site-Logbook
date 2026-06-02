@@ -23,6 +23,12 @@ import { TypeBadge, StatusBadge } from "@/components/badges";
 import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PullToRefresh } from "@/components/pull-to-refresh";
+import {
+  ensureNotificationPermission,
+  showTimerNotification,
+  clearTimerNotification,
+  syncTimerNotification,
+} from "@/lib/timer-notification";
 
 function useTimer(timerStartedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState(0);
@@ -75,9 +81,10 @@ function DashboardJobRow({ job }: { job: any }) {
   const elapsed = useTimer(job.timerStartedAt);
   const isRunning = !!job.timerStartedAt;
 
-  const handleStart = (e: React.MouseEvent) => {
+  const handleStart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const notify = await ensureNotificationPermission();
     updateJob.mutate(
       { id: job.id, data: { timerStartedAt: new Date().toISOString(), status: "in_progress" } },
       {
@@ -85,6 +92,7 @@ function DashboardJobRow({ job }: { job: any }) {
           queryClient.setQueryData(getGetJobQueryKey(job.id), data);
           queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          if (notify) void showTimerNotification(job.title);
           toast({ title: "Čas spuštěn" });
         },
       }
@@ -102,6 +110,7 @@ function DashboardJobRow({ job }: { job: any }) {
           queryClient.setQueryData(getGetJobQueryKey(job.id), data);
           queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          void clearTimerNotification();
           toast({
             title: belowThreshold
               ? `Čas zastaven — pod 5 min, nezapočítáno`
@@ -238,6 +247,10 @@ function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
   const [, setLocation] = useLocation();
   const elapsed = useTimer(runningJob?.timerStartedAt);
 
+  useEffect(() => {
+    syncTimerNotification(runningJob?.title ?? null);
+  }, [runningJob?.id, runningJob?.timerStartedAt, runningJob?.title]);
+
   if (!runningJob) return null;
 
   const handleStop = () => {
@@ -249,6 +262,7 @@ function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
           queryClient.setQueryData(getGetJobQueryKey(runningJob.id), data);
           queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          void clearTimerNotification();
           toast({
             title: belowThreshold
               ? `Čas zastaven — pod 5 min, nezapočítáno`
