@@ -81,6 +81,7 @@ import type {
   MyStats,
   Person,
   PersonInput,
+  RestoreResult,
   SaveJobSheetInput,
   SendCredentialsEmailInput,
   SendJobEmailInput,
@@ -8152,4 +8153,74 @@ export function useDownloadBackup<TData = Awaited<ReturnType<typeof downloadBack
 
 
 
+
+export const getRestoreBackupUrl = (id: number,) => {
+
+
+
+
+  return `/api/backups/${id}/restore`
+}
+
+/**
+ * @summary Restore the database from a backup (admin only, destructive)
+ */
+export const restoreBackup = async (id: number, options?: RequestInit): Promise<RestoreResult> => {
+
+  return customFetch<RestoreResult>(getRestoreBackupUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRestoreBackupMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreBackup>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof restoreBackup>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['restoreBackup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restoreBackup>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  restoreBackup(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestoreBackupMutationResult = NonNullable<Awaited<ReturnType<typeof restoreBackup>>>
+
+    export type RestoreBackupMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Restore the database from a backup (admin only, destructive)
+ */
+export const useRestoreBackup = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreBackup>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof restoreBackup>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRestoreBackupMutationOptions(options));
+    }
 

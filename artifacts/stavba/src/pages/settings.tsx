@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,10 +15,22 @@ import {
   type EmailSettingsInput,
   useListBackups,
   useCreateBackup,
+  useRestoreBackup,
   getListBackupsQueryKey,
   downloadBackup,
   type Backup,
 } from "@workspace/api-client-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -109,7 +121,9 @@ function BackupCard() {
     query: { queryKey: getListBackupsQueryKey() },
   });
   const createMutation = useCreateBackup();
+  const restoreMutation = useRestoreBackup();
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
 
   const handleCreate = () => {
     createMutation.mutate(undefined, {
@@ -144,6 +158,33 @@ function BackupCard() {
     } finally {
       setDownloadingId(null);
     }
+  };
+
+  const handleRestore = (backup: Backup) => {
+    setRestoringId(backup.id);
+    restoreMutation.mutate(
+      { id: backup.id },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Databáze obnovena",
+            description:
+              "Data byla obnovena ze zálohy. Pro jistotu se prosím znovu přihlaste.",
+          });
+          queryClient.invalidateQueries();
+        },
+        onError: (err: unknown) => {
+          const message =
+            err && typeof err === "object" && "error" in err
+              ? String((err as { error: unknown }).error)
+              : "Obnovení ze zálohy se nezdařilo.";
+          toast({ title: "Chyba", description: message, variant: "destructive" });
+        },
+        onSettled: () => {
+          setRestoringId(null);
+        },
+      },
+    );
   };
 
   const items = data?.items ?? [];
@@ -206,21 +247,72 @@ function BackupCard() {
                   </div>
                 </div>
                 {backup.status === "success" && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    disabled={downloadingId === backup.id}
-                    onClick={() => handleDownload(backup)}
-                  >
-                    {downloadingId === backup.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )}
-                    Stáhnout
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={downloadingId === backup.id || restoringId !== null}
+                      onClick={() => handleDownload(backup)}
+                    >
+                      {downloadingId === backup.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                      Stáhnout
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          disabled={restoringId !== null}
+                        >
+                          {restoringId === backup.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
+                          )}
+                          Obnovit
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5 text-destructive" />
+                            Obnovit databázi ze zálohy?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription className="space-y-2">
+                            <span className="block">
+                              Tímto se <strong>přepíšou všechna současná data</strong> stavem ze
+                              zálohy z{" "}
+                              <strong>{formatDateTime(backup.createdAt)}</strong>. Vše, co bylo
+                              vytvořeno nebo změněno po této záloze, bude nenávratně ztraceno.
+                            </span>
+                            <span className="block">
+                              Po obnově budete pravděpodobně odhlášeni — poté se prosím znovu
+                              přihlaste.
+                            </span>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={restoringId !== null}>
+                            Zrušit
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => handleRestore(backup)}
+                          >
+                            Obnovit ze zálohy
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 )}
               </div>
             ))}

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { desc, eq, lt } from "drizzle-orm";
@@ -151,6 +151,78 @@ export async function createBackup(opts: {
       .where(eq(backupLogTable.id, row.id));
     logger.error({ err, backupId: row.id }, "Database backup failed");
     throw err;
+  }
+}
+
+/** pg_restore binary; override with PG_RESTORE_PATH if it lives elsewhere. */
+const PG_RESTORE = process.env.PG_RESTORE_PATH || "pg_restore";
+
+/**
+ * Restore the database from a previously created backup.
+ *
+ * The dump bytes are streamed from object storage to a temp file, then applied
+ * with `pg_restore --clean --if-exists --single-transaction`. `--single-transaction`
+ * makes the whole restore atomic: if anything fails the database is rolled back
+ * to its previous state, so a failed restore never leaves a half-restored DB.
+ *
+ * This is destructive: it drops and recreates every object captured in the dump,
+ * overwriting all current data (including the session table — the user is logged
+ * out afterwards).
+ */
+let restoreInProgress = false;
+
+export async function restoreBackup(id: number): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL not set");
+
+  // A restore overwrites the whole database; never let two run concurrently
+  // (e.g. two admins, or a double-click that slips past the UI guard).
+  if (restoreInProgress) {
+    throw new Error("Obnovení už právě probíhá. Počkejte na jeho dokončení.");
+  }
+
+  const row = await getBackup(id);
+  if (!row || row.status !== "success" || !row.objectPath) {
+    throw new Error("Záloha nenalezena nebo není dokončená.");
+  }
+
+  restoreInProgress = true;
+  const dir = await mkdtemp(join(tmpdir(), "stavba-restore-"));
+  const filePath = join(dir, "dump.pgcustom");
+  try {
+    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath);
+    await writeFile(filePath, buffer);
+
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        PG_RESTORE,
+        [
+          "--clean",
+          "--if-exists",
+          "--no-owner",
+          "--no-acl",
+          "--single-transaction",
+          "-d",
+          databaseUrl,
+          filePath,
+        ],
+        { stdio: ["ignore", "ignore", "pipe"] },
+      );
+      let stderr = "";
+      child.stderr.on("data", (d) => {
+        stderr += d.toString();
+      });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`));
+      });
+    });
+
+    logger.warn({ backupId: id }, "Database restored from backup");
+  } finally {
+    restoreInProgress = false;
+    await rm(dir, { recursive: true, force: true });
   }
 }
 

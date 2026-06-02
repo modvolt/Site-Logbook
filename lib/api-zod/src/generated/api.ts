@@ -2239,3 +2239,16 @@ export const DownloadBackupParams = zod.object({
 })
 
 
+/**
+ * @summary Restore the database from a backup (admin only, destructive)
+ */
+export const RestoreBackupParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RestoreBackupResponse = zod.object({
+  "ok": zod.boolean(),
+  "message": zod.string()
+})
+
+

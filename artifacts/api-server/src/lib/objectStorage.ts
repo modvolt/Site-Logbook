@@ -525,6 +525,37 @@ export class ObjectStorageService {
       .save(body, { contentType, resumable: false });
   }
 
+  /**
+   * Read a private object ("/objects/<entityId>") fully into a Buffer. Used by
+   * the restore flow, which needs the dump bytes on the local filesystem before
+   * handing them to pg_restore. Throws ObjectNotFoundError if missing.
+   */
+  async getPrivateObjectBuffer(objectPath: string): Promise<Buffer> {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+
+    if (s3Configured()) {
+      const entityId = trimSlashes(objectPath.slice("/objects/".length));
+      if (!entityId) throw new ObjectNotFoundError();
+      const key = joinKey(getPrivatePrefix(), entityId);
+      if (!(await s3ObjectExists(key))) throw new ObjectNotFoundError();
+      const out = await getClient().send(
+        new GetObjectCommand({ Bucket: getBucket(), Key: key }),
+      );
+      if (!out.Body) throw new ObjectNotFoundError();
+      const bytes = await out.Body.transformToByteArray();
+      return Buffer.from(bytes);
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    const file = getGcsClient().bucket(bucketName).file(objectName);
+    const [exists] = await file.exists();
+    if (!exists) throw new ObjectNotFoundError();
+    const [contents] = await file.download();
+    return contents;
+  }
+
   /** Stream a private object ("/objects/<entityId>") to the response. */
   async servePrivateObject(objectPath: string, res: ExpressResponse): Promise<void> {
     if (!objectPath.startsWith("/objects/")) {

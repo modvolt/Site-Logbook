@@ -2448,6 +2448,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /backups/{id}/restore:
+    post:
+      operationId: restoreBackup
+      tags: [backups]
+      summary: Restore the database from a backup (admin only, destructive)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Database restored from the backup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreResult"
+        "404":
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Restore failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   schemas:
     HealthStatus:
@@ -3980,6 +4011,15 @@ components:
             $ref: "#/components/schemas/Backup"
         lastSuccessAt:
           type: ["string", "null"]
+
+    RestoreResult:
+      type: object
+      required: [ok, message]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
 
     AuditLogPage:
       type: object

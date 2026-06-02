@@ -74,6 +74,7 @@ export * from './myJobSummary';
 export * from './myStats';
 export * from './person';
 export * from './personInput';
+export * from './restoreResult';
 export * from './saveJobSheetInput';
 export * from './sendCredentialsEmailInput';
 export * from './sendJobEmailInput';

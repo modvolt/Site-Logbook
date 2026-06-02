@@ -19,6 +19,7 @@
 - [PWA safe-area utilities](pwa-safe-area-utilities.md) — iOS notch: use viewport-fit=cover + inline additive calc(env(safe-area-inset-*)); never a flat @utility (silently overrides base padding on non-notch).
 - [Pathless router middleware leak](pathless-router-middleware-leak.md) — sub-routers mount pathlessly; a pathless router.use(auth) gates EVERY request, breaking login. Gate per-route.
 - [Database backup system](backup-system.md) — pg_dump -Fc to object storage backups/ prefix; never serve via generic /storage/objects/* (guests can GET); download only via admin /api/backups/:id/download.
+- [Database restore from backup](backup-restore.md) — pg_restore --clean --if-exists --single-transaction (atomic); destructive (wipes data + sessions → logout); guarded by in-process restoreInProgress lock; admin/master only.
 - [api-zod body validator names](api-zod-body-names.md) — server imports Zod validators by PascalCase(operationId)+Body (e.g. UpdateEmailSettingsBody), NOT component schema names (those are types only → TS2693).
 - [Email settings DB+env](email-settings-config.md) — SMTP config is a DB singleton (id=1) with SMTP_* env fallback; password write-only & plaintext; source enum db|env|none; editable in prod w/o redeploy.
 - [Attachment type-based sections](attachment-type-sections.md) — jobs/activities share one attachments list keyed by free-string `type`; every section must filter by type or photos/doklady leak across sections.

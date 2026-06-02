@@ -1188,6 +1188,11 @@ export interface BackupListResponse {
   lastSuccessAt: string | null;
 }
 
+export interface RestoreResult {
+  ok: boolean;
+  message: string;
+}
+
 export type ListJobsParams = {
 /**
  * ISO date string (YYYY-MM-DD)

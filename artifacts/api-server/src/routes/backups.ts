@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { requireRole } from "../middlewares/auth";
-import { createBackup, getBackup, listBackups } from "../lib/backup";
+import { createBackup, getBackup, listBackups, restoreBackup } from "../lib/backup";
 import type { BackupLog } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -68,6 +68,33 @@ router.get("/backups/:id/download", async (req, res): Promise<void> => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Stažení zálohy selhalo." });
     }
+  }
+});
+
+router.post("/backups/:id/restore", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Neplatné ID zálohy." });
+    return;
+  }
+  const row = await getBackup(id);
+  if (!row || row.status !== "success" || !row.objectPath) {
+    res.status(404).json({ error: "Záloha nenalezena." });
+    return;
+  }
+  try {
+    req.log.warn({ backupId: id, actor: req.auth?.name ?? null }, "Database restore started");
+    await restoreBackup(id);
+    res.json({ ok: true, message: "Databáze byla obnovena ze zálohy." });
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "Soubor zálohy nebyl nalezen v úložišti." });
+      return;
+    }
+    req.log.error({ err, backupId: id }, "Database restore failed");
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Obnovení ze zálohy selhalo.",
+    });
   }
 });
 
