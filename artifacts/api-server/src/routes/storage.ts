@@ -23,7 +23,7 @@ const objectStorageService = new ObjectStorageService();
 // or large files are rejected at the proxy with an HTML 413 before reaching here.
 // Note: the body is buffered in memory, so each concurrent upload uses up to this
 // many bytes of RAM — raise with that in mind.
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 // Allowlist of content types the app accepts. Notably excludes text/html and
 // SVG to avoid storing active content that could be served back inline.
