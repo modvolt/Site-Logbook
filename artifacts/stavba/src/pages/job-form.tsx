@@ -3,8 +3,8 @@ import { useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
 import { 
   useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
-  useListCustomers, useListJobs, useListWarehouseItems,
-  getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey 
+  useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites,
+  getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey 
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -55,9 +55,14 @@ export default function JobForm() {
     recurrenceIntervalDays: "",
   });
 
+  const { data: customerSites } = useListCustomerSites(formData.customerId ?? 0, {
+    query: { queryKey: getListCustomerSitesQueryKey(formData.customerId ?? 0), enabled: !!formData.customerId },
+  });
+
   const [gpsLoading, setGpsLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<string[]>([]);
   const [newTaskInput, setNewTaskInput] = useState("");
   type MaterialRow = { name: string; quantity: string; unit: string; pricePerUnit: string };
@@ -74,6 +79,10 @@ export default function JobForm() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    setSelectedSiteId(null);
+  }, [formData.customerId]);
 
   const filteredCustomers = customers?.filter(c =>
     c.companyName.toLowerCase().includes(customerSearch.toLowerCase()) ||
@@ -150,6 +159,7 @@ export default function JobForm() {
   const clearCustomer = () => {
     setFormData(prev => ({ ...prev, customerId: null, clientSite: "" }));
     setCustomerSearch("");
+    setSelectedSiteId(null);
   };
 
   const addTask = () => {
@@ -345,6 +355,44 @@ export default function JobForm() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {selectedCustomer && (customerSites?.length ?? 0) > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <Label className="text-sm flex items-center gap-1.5 text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5" /> Stavba / pobočka
+                </Label>
+                <Select
+                  value={selectedSiteId ? String(selectedSiteId) : "none"}
+                  onValueChange={(v) => {
+                    if (v === "none") {
+                      setSelectedSiteId(null);
+                      setFormData(p => ({ ...p, clientSite: selectedCustomer.companyName }));
+                      return;
+                    }
+                    const site = customerSites?.find(s => String(s.id) === v);
+                    if (!site) return;
+                    setSelectedSiteId(site.id);
+                    setFormData(p => ({
+                      ...p,
+                      clientSite: `${selectedCustomer.companyName} – ${site.name}`,
+                      address: site.address || p.address,
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="h-12 text-base">
+                    <SelectValue placeholder="Vyberte stavbu / pobočku" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Bez konkrétní stavby —</SelectItem>
+                    {customerSites?.map(s => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}{s.address ? ` · ${s.address}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
           </div>
