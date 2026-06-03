@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload } from "lucide-react";
+import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CustomerCsvImport from "@/components/customer-csv-import";
 
@@ -46,6 +46,7 @@ export default function Customers() {
   const updateCustomer = useUpdateCustomer();
   const deleteCustomer = useDeleteCustomer();
 
+  const [search, setSearch] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [newForm, setNewForm] = useState<CustomerForm>(emptyForm);
@@ -122,6 +123,15 @@ export default function Customers() {
     });
   };
 
+  const query = search.trim().toLowerCase();
+  const filtered = customers?.filter(c =>
+    c.companyName.toLowerCase().includes(query) ||
+    (c.contactPerson || "").toLowerCase().includes(query) ||
+    (c.phone || "").toLowerCase().includes(query) ||
+    (c.email || "").toLowerCase().includes(query) ||
+    (c.ic || "").toLowerCase().includes(query)
+  );
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
       <div className="flex items-center justify-between mb-6">
@@ -134,6 +144,16 @@ export default function Customers() {
             <Plus className="h-4 w-4 mr-2" /> Přidat zákazníka
           </Button>
         </div>
+      </div>
+
+      <div className="relative mb-6">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Hledat zákazníky..."
+          className="pl-10 h-12 text-base"
+        />
       </div>
 
       <CustomerCsvImport
@@ -235,8 +255,8 @@ export default function Customers() {
       <div className="space-y-3">
         {isLoading ? (
           [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)
-        ) : customers && customers.length > 0 ? (
-          customers.map(customer => (
+        ) : filtered && filtered.length > 0 ? (
+          filtered.map(customer => (
             <Card key={customer.id} className="hover:bg-muted/30 transition-colors">
               <CardContent className="p-4">
                 {editingId === customer.id ? (
@@ -338,6 +358,11 @@ export default function Customers() {
               </CardContent>
             </Card>
           ))
+        ) : query ? (
+          <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+            <Building2 className="h-12 w-12 mx-auto mb-4 opacity-20" />
+            <p>Žádní zákazníci odpovídající vašemu hledání.</p>
+          </div>
         ) : (
           <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <Building2 className="h-12 w-12 mx-auto mb-4 opacity-20" />
