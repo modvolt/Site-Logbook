@@ -1,10 +1,11 @@
-import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck } from "lucide-react";
+import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck, Receipt } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export const JOB_STATUSES = {
   planned: { label: "Naplánováno", color: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800", icon: Clock },
   in_progress: { label: "Probíhá", color: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800", icon: AlertCircle },
   done: { label: "Hotovo", color: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800", icon: Check },
+  vyfakturovano: { label: "Vyfakturováno", color: "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-800", icon: Receipt },
   cancelled: { label: "Zrušeno", color: "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700", icon: XCircle },
 };
 
