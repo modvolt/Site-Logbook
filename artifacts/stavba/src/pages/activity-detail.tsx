@@ -21,6 +21,7 @@ import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useUpload } from "@workspace/object-storage-web";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
 import { AttachmentViewer } from "@/components/attachment-viewer";
+import { FileDropZone } from "@/components/file-drop-zone";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -776,10 +777,8 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
   const doklady = (attachments ?? []).filter((a) => DOKLAD_TYPES.includes(a.type ?? ""));
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const uploadDokladyFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    e.target.value = "";
 
     const { succeeded, failed, errors } = await uploadDoklady(files, async (file) => {
       const isPhoto =
@@ -805,6 +804,12 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
         : `${failed} z ${files.length} se nepodařilo nahrát`;
       toast({ title: "Nahrání selhalo", description, variant: "destructive" });
     }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadDokladyFiles(files);
   };
 
   const handleDelete = (id: number) => {
@@ -857,6 +862,12 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
                 <FileImage className="h-4 w-4 mr-2" /> Nahrát doklad
               </Button>
             </div>
+            <FileDropZone
+              onFiles={uploadDokladyFiles}
+              accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
+              disabled={createAttachment.isPending || isUploading}
+              label="Sem přetáhněte doklady (PDF nebo foto)"
+            />
             <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
         )}
@@ -943,10 +954,8 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
   const photos = (attachments ?? []).filter((a) => (a.type ?? "photo") === "photo");
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
 
-  const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const uploadPhotoFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    e.target.value = "";
 
     const { succeeded, failed, errors } = await uploadPhotos(files, async (file) => {
       const prepared = await prepareImageFile(file);
@@ -968,6 +977,12 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
         : `${failed} z ${files.length} se nepodařilo nahrát`;
       toast({ title: "Nahrání fotky selhalo", description, variant: "destructive" });
     }
+  };
+
+  const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadPhotoFiles(files);
   };
 
   const handleDelete = (attachmentId: number) => {
@@ -1008,6 +1023,12 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
                 <FileImage className="h-4 w-4 mr-2" /> Z galerie
               </Button>
             </div>
+            <FileDropZone
+              onFiles={uploadPhotoFiles}
+              accept="image/*"
+              disabled={createAttachment.isPending || isUploading}
+              label="Sem přetáhněte fotky"
+            />
             <UploadProgressBar isUploading={isUploading} progress={progress} />
           </>
         )}

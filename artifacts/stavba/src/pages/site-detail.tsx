@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
 import { AttachmentViewer } from "@/components/attachment-viewer";
+import { FileDropZone } from "@/components/file-drop-zone";
 import {
   ArrowLeft, Store, MapPin, User, Phone, FileText, Upload, Trash2, FolderOpen,
 } from "lucide-react";
@@ -68,10 +69,8 @@ export default function SiteDetail() {
   const invalidateDocs = () =>
     queryClient.invalidateQueries({ queryKey: getListCustomerSiteAttachmentsQueryKey(siteId) });
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const uploadDocumentFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    e.target.value = "";
 
     const { succeeded, failed, errors } = await uploadFiles(files, async (file) => {
       const result = await uploadFile(file);
@@ -91,6 +90,12 @@ export default function SiteDetail() {
         : `${failed} z ${files.length} se nepodařilo nahrát`;
       toast({ title: "Nahrání selhalo", description, variant: "destructive" });
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadDocumentFiles(files);
   };
 
   const handleDelete = (id: number) => {
@@ -217,6 +222,12 @@ export default function SiteDetail() {
               <Upload className="w-5 h-5 mr-2" />
               {isUploading ? statusLabel : `Nahrát do: ${categoryLabel(category)}`}
             </Button>
+            <FileDropZone
+              onFiles={uploadDocumentFiles}
+              accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+              disabled={createAttachment.isPending || isUploading}
+              label={`Sem přetáhněte dokumenty do: ${categoryLabel(category)}`}
+            />
             <UploadProgressBar isUploading={isUploading} progress={displayProgress} />
           </CardContent>
         </Card>

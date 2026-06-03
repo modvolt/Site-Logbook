@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Upload, Download, FileSpreadsheet } from "lucide-react";
+import { FileDropZone } from "@/components/file-drop-zone";
 import { useToast } from "@/hooks/use-toast";
 
 type FieldKey =
@@ -243,6 +244,13 @@ export default function CustomerCsvImport({ open, onOpenChange, onImported }: Pr
               </span>
             )}
           </div>
+
+          <FileDropZone
+            onFiles={(files) => files[0] && handleFile(files[0])}
+            accept=".csv,text/csv"
+            multiple={false}
+            label="Sem přetáhněte CSV soubor"
+          />
 
           {headers.length > 0 && (
             <>

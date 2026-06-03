@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
+import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -619,8 +620,7 @@ export default function Settings() {
     setSavedAt(Date.now());
   }
 
-  function onLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  function processLogoFile(file: File | undefined) {
     if (!file) return;
     setLogoError(null);
     if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) {
@@ -641,8 +641,11 @@ export default function Settings() {
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  function onSignatureFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  function onLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    processLogoFile(e.target.files?.[0]);
+  }
+
+  function processSignatureFile(file: File | undefined) {
     if (!file) return;
     setSignatureError(null);
     if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) {
@@ -661,6 +664,10 @@ export default function Settings() {
     };
     reader.readAsDataURL(file);
     if (sigRef.current) sigRef.current.value = "";
+  }
+
+  function onSignatureFile(e: React.ChangeEvent<HTMLInputElement>) {
+    processSignatureFile(e.target.files?.[0]);
   }
 
   function clearLogo() {
@@ -846,6 +853,12 @@ export default function Settings() {
                 onChange={onLogoFile}
               />
             </div>
+            <FileDropZone
+              onFiles={(files) => processLogoFile(files[0])}
+              accept="image/png,image/jpeg"
+              multiple={false}
+              label="Sem přetáhněte logo (PNG nebo JPG)"
+            />
             <p className="text-xs text-muted-foreground">
               PNG nebo JPG, max 500 kB. Doporučeno: průhledné PNG.
             </p>
@@ -902,6 +915,12 @@ export default function Settings() {
                 onChange={onSignatureFile}
               />
             </div>
+            <FileDropZone
+              onFiles={(files) => processSignatureFile(files[0])}
+              accept="image/png,image/jpeg"
+              multiple={false}
+              label="Sem přetáhněte podpis (PNG nebo JPG)"
+            />
             <p className="text-xs text-muted-foreground">
               PNG nebo JPG, max 500 kB. Použije se jako podpis zhotovitele na zakázkovém listu.
             </p>

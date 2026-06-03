@@ -37,6 +37,7 @@ import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 import { AttachmentViewer } from "@/components/attachment-viewer";
+import { FileDropZone } from "@/components/file-drop-zone";
 import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
 import {
   ensureNotificationPermission,
@@ -1186,10 +1187,8 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
     statusLabel: dokladStatus,
   } = useUpload();
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const uploadDokladyFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    e.target.value = "";
 
     const { succeeded, failed, errors } = await uploadDoklady(files, async (file) => {
       const isPhoto = file.type.startsWith("image/") ||
@@ -1211,6 +1210,12 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
         : `${failed} z ${files.length} se nepodařilo nahrát`;
       toast({ title: "Nahrání selhalo", description, variant: "destructive" });
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadDokladyFiles(files);
   };
 
   const handleDelete = (id: number) => {
@@ -1247,6 +1252,12 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
             <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? dokladStatus : "Vyfotit / nahrát doklad"}
           </Button>
         </div>
+        <FileDropZone
+          onFiles={uploadDokladyFiles}
+          accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
+          disabled={createAttachment.isPending || isUploadingDoklad}
+          label="Sem přetáhněte doklady (PDF nebo foto)"
+        />
         <UploadProgressBar isUploading={isUploadingDoklad} progress={dokladProgress} />
 
         {doklady.length > 0 && (
@@ -1374,10 +1385,8 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
     statusLabel: photoStatus,
   } = useUpload();
 
-  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const uploadPhotoFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    e.target.value = "";
 
     const { succeeded, failed, errors } = await uploadPhotos(files, async (file) => {
       const prepared = await prepareImageFile(file);
@@ -1399,6 +1408,12 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
         : `${failed} z ${files.length} se nepodařilo nahrát`;
       toast({ title: "Nahrání fotky selhalo", description, variant: "destructive" });
     }
+  };
+
+  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadPhotoFiles(files);
   };
 
   const handleDelete = (attachmentId: number) => {
@@ -1445,6 +1460,12 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             <FileImage className="w-5 h-5 mr-2" /> Z galerie
           </Button>
         </div>
+        <FileDropZone
+          onFiles={uploadPhotoFiles}
+          accept="image/*"
+          disabled={createAttachment.isPending || isUploadingPhoto}
+          label="Sem přetáhněte fotky"
+        />
         <UploadProgressBar isUploading={isUploadingPhoto} progress={photoProgress} />
 
         {photos.length > 0 && (
