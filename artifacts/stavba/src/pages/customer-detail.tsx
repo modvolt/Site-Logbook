@@ -738,7 +738,10 @@ export default function CustomerDetail() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-start gap-3">
+                    <div
+                      className="flex items-start gap-3 cursor-pointer"
+                      onClick={() => setLocation(`/customer-sites/${s.id}`)}
+                    >
                       <div className="bg-amber-100 dark:bg-amber-950/40 p-2 rounded-lg text-amber-600 shrink-0">
                         <Store className="h-4 w-4" />
                       </div>
@@ -764,13 +767,14 @@ export default function CustomerDetail() {
                         </div>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => startEditSite(s)}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={(e) => { e.stopPropagation(); startEditSite(s); }}>
                           <Edit3 className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteSite(s.id)}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); handleDeleteSite(s.id); }}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 self-center" />
                     </div>
                   )}
                 </CardContent>

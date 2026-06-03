@@ -44,6 +44,8 @@ import type {
   CustomerImportResult,
   CustomerInput,
   CustomerSite,
+  CustomerSiteAttachment,
+  CustomerSiteAttachmentInput,
   CustomerSiteInput,
   DashboardSummary,
   DeviceCredential,
@@ -2912,6 +2914,83 @@ export const useCreateCustomerSite = <TError = ErrorType<unknown>,
       return useMutation(getCreateCustomerSiteMutationOptions(options));
     }
 
+export const getGetCustomerSiteUrl = (id: number,) => {
+
+
+
+
+  return `/api/customer-sites/${id}`
+}
+
+/**
+ * @summary Get a single customer site
+ */
+export const getCustomerSite = async (id: number, options?: RequestInit): Promise<CustomerSite> => {
+
+  return customFetch<CustomerSite>(getGetCustomerSiteUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCustomerSiteQueryKey = (id: number,) => {
+    return [
+    `/api/customer-sites/${id}`
+    ] as const;
+    }
+
+
+export const getGetCustomerSiteQueryOptions = <TData = Awaited<ReturnType<typeof getCustomerSite>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerSite>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCustomerSiteQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomerSite>>> = ({ signal }) => getCustomerSite(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCustomerSite>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCustomerSiteQueryResult = NonNullable<Awaited<ReturnType<typeof getCustomerSite>>>
+export type GetCustomerSiteQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a single customer site
+ */
+
+export function useGetCustomerSite<TData = Awaited<ReturnType<typeof getCustomerSite>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerSite>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCustomerSiteQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getUpdateCustomerSiteUrl = (id: number,) => {
 
 
@@ -3052,6 +3131,227 @@ export const useDeleteCustomerSite = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteCustomerSiteMutationOptions(options));
+    }
+
+export const getListCustomerSiteAttachmentsUrl = (siteId: number,) => {
+
+
+
+
+  return `/api/customer-sites/${siteId}/attachments`
+}
+
+/**
+ * @summary List documents for a customer site
+ */
+export const listCustomerSiteAttachments = async (siteId: number, options?: RequestInit): Promise<CustomerSiteAttachment[]> => {
+
+  return customFetch<CustomerSiteAttachment[]>(getListCustomerSiteAttachmentsUrl(siteId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCustomerSiteAttachmentsQueryKey = (siteId: number,) => {
+    return [
+    `/api/customer-sites/${siteId}/attachments`
+    ] as const;
+    }
+
+
+export const getListCustomerSiteAttachmentsQueryOptions = <TData = Awaited<ReturnType<typeof listCustomerSiteAttachments>>, TError = ErrorType<unknown>>(siteId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCustomerSiteAttachments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCustomerSiteAttachmentsQueryKey(siteId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCustomerSiteAttachments>>> = ({ signal }) => listCustomerSiteAttachments(siteId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(siteId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCustomerSiteAttachments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCustomerSiteAttachmentsQueryResult = NonNullable<Awaited<ReturnType<typeof listCustomerSiteAttachments>>>
+export type ListCustomerSiteAttachmentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List documents for a customer site
+ */
+
+export function useListCustomerSiteAttachments<TData = Awaited<ReturnType<typeof listCustomerSiteAttachments>>, TError = ErrorType<unknown>>(
+ siteId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCustomerSiteAttachments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCustomerSiteAttachmentsQueryOptions(siteId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateCustomerSiteAttachmentUrl = (siteId: number,) => {
+
+
+
+
+  return `/api/customer-sites/${siteId}/attachments`
+}
+
+/**
+ * @summary Add a document to a customer site
+ */
+export const createCustomerSiteAttachment = async (siteId: number,
+    customerSiteAttachmentInput: CustomerSiteAttachmentInput, options?: RequestInit): Promise<CustomerSiteAttachment> => {
+
+  return customFetch<CustomerSiteAttachment>(getCreateCustomerSiteAttachmentUrl(siteId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      customerSiteAttachmentInput,)
+  }
+);}
+
+
+
+
+export const getCreateCustomerSiteAttachmentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerSiteAttachment>>, TError,{siteId: number;data: BodyType<CustomerSiteAttachmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCustomerSiteAttachment>>, TError,{siteId: number;data: BodyType<CustomerSiteAttachmentInput>}, TContext> => {
+
+const mutationKey = ['createCustomerSiteAttachment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCustomerSiteAttachment>>, {siteId: number;data: BodyType<CustomerSiteAttachmentInput>}> = (props) => {
+          const {siteId,data} = props ?? {};
+
+          return  createCustomerSiteAttachment(siteId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCustomerSiteAttachmentMutationResult = NonNullable<Awaited<ReturnType<typeof createCustomerSiteAttachment>>>
+    export type CreateCustomerSiteAttachmentMutationBody = BodyType<CustomerSiteAttachmentInput>
+    export type CreateCustomerSiteAttachmentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add a document to a customer site
+ */
+export const useCreateCustomerSiteAttachment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerSiteAttachment>>, TError,{siteId: number;data: BodyType<CustomerSiteAttachmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCustomerSiteAttachment>>,
+        TError,
+        {siteId: number;data: BodyType<CustomerSiteAttachmentInput>},
+        TContext
+      > => {
+      return useMutation(getCreateCustomerSiteAttachmentMutationOptions(options));
+    }
+
+export const getDeleteCustomerSiteAttachmentUrl = (siteId: number,
+    attachmentId: number,) => {
+
+
+
+
+  return `/api/customer-sites/${siteId}/attachments/${attachmentId}`
+}
+
+/**
+ * @summary Delete a customer site document
+ */
+export const deleteCustomerSiteAttachment = async (siteId: number,
+    attachmentId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCustomerSiteAttachmentUrl(siteId,attachmentId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCustomerSiteAttachmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCustomerSiteAttachment>>, TError,{siteId: number;attachmentId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCustomerSiteAttachment>>, TError,{siteId: number;attachmentId: number}, TContext> => {
+
+const mutationKey = ['deleteCustomerSiteAttachment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCustomerSiteAttachment>>, {siteId: number;attachmentId: number}> = (props) => {
+          const {siteId,attachmentId} = props ?? {};
+
+          return  deleteCustomerSiteAttachment(siteId,attachmentId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCustomerSiteAttachmentMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCustomerSiteAttachment>>>
+
+    export type DeleteCustomerSiteAttachmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a customer site document
+ */
+export const useDeleteCustomerSiteAttachment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCustomerSiteAttachment>>, TError,{siteId: number;attachmentId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCustomerSiteAttachment>>,
+        TError,
+        {siteId: number;attachmentId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCustomerSiteAttachmentMutationOptions(options));
     }
 
 export const getListDeviceCredentialsUrl = (customerId: number,) => {

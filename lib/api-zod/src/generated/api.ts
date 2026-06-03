@@ -847,6 +847,25 @@ export const CreateCustomerSiteBody = zod.object({
 
 
 /**
+ * @summary Get a single customer site
+ */
+export const GetCustomerSiteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCustomerSiteResponse = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "name": zod.string(),
+  "address": zod.string().nullish(),
+  "contactPerson": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary Update a customer site
  */
 export const UpdateCustomerSiteParams = zod.object({
@@ -881,6 +900,49 @@ export const UpdateCustomerSiteResponse = zod.object({
  */
 export const DeleteCustomerSiteParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary List documents for a customer site
+ */
+export const ListCustomerSiteAttachmentsParams = zod.object({
+  "siteId": zod.coerce.number()
+})
+
+export const ListCustomerSiteAttachmentsResponseItem = zod.object({
+  "id": zod.number(),
+  "siteId": zod.number(),
+  "type": zod.string().describe('projektova_dokumentace | revize | ostatni'),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish().describe('object storage path'),
+  "description": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListCustomerSiteAttachmentsResponse = zod.array(ListCustomerSiteAttachmentsResponseItem)
+
+
+/**
+ * @summary Add a document to a customer site
+ */
+export const CreateCustomerSiteAttachmentParams = zod.object({
+  "siteId": zod.coerce.number()
+})
+
+export const CreateCustomerSiteAttachmentBody = zod.object({
+  "type": zod.string(),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "description": zod.string().nullish()
+})
+
+
+/**
+ * @summary Delete a customer site document
+ */
+export const DeleteCustomerSiteAttachmentParams = zod.object({
+  "siteId": zod.coerce.number(),
+  "attachmentId": zod.coerce.number()
 })
 
 

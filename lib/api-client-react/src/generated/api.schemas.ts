@@ -514,6 +514,33 @@ export interface CustomerSiteInput {
   note?: string | null;
 }
 
+export interface CustomerSiteAttachment {
+  id: number;
+  siteId: number;
+  /** projektova_dokumentace | revize | ostatni */
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /**
+     * object storage path
+     * @nullable
+     */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+  createdAt: string;
+}
+
+export interface CustomerSiteAttachmentInput {
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+}
+
 export interface JablotronUser {
   id: string;
   name: string;

@@ -5,6 +5,7 @@ import {
   CreateCustomerSiteBody,
   CreateCustomerSiteParams,
   ListCustomerSitesParams,
+  GetCustomerSiteParams,
   UpdateCustomerSiteBody,
   UpdateCustomerSiteParams,
   DeleteCustomerSiteParams,
@@ -61,6 +62,26 @@ router.post("/customers/:customerId/sites", async (req, res): Promise<void> => {
     .values({ ...parsed.data, customerId: params.data.customerId })
     .returning();
   res.status(201).json(serializeSite(site));
+});
+
+router.get("/customer-sites/:id", async (req, res): Promise<void> => {
+  const params = GetCustomerSiteParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [site] = await db
+    .select()
+    .from(customerSitesTable)
+    .where(eq(customerSitesTable.id, params.data.id));
+
+  if (!site) {
+    res.status(404).json({ error: "Site not found" });
+    return;
+  }
+
+  res.json(serializeSite(site));
 });
 
 router.patch("/customer-sites/:id", async (req, res): Promise<void> => {

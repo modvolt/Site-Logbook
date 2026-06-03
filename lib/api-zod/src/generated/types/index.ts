@@ -34,6 +34,8 @@ export * from './customerImportItem';
 export * from './customerImportResult';
 export * from './customerInput';
 export * from './customerSite';
+export * from './customerSiteAttachment';
+export * from './customerSiteAttachmentInput';
 export * from './customerSiteInput';
 export * from './dashboardSummary';
 export * from './deviceCredential';

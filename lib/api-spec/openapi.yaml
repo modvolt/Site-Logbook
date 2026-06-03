@@ -862,6 +862,25 @@ paths:
                 $ref: "#/components/schemas/CustomerSite"
 
   /customer-sites/{id}:
+    get:
+      operationId: getCustomerSite
+      tags: [customers]
+      summary: Get a single customer site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSite"
+        "404":
+          description: Not found
     patch:
       operationId: updateCustomerSite
       tags: [customers]
@@ -893,6 +912,72 @@ paths:
       summary: Delete a customer site
       parameters:
         - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /customer-sites/{siteId}/attachments:
+    get:
+      operationId: listCustomerSiteAttachments
+      tags: [customers]
+      summary: List documents for a customer site
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Site documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomerSiteAttachment"
+    post:
+      operationId: createCustomerSiteAttachment
+      tags: [customers]
+      summary: Add a document to a customer site
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerSiteAttachmentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSiteAttachment"
+
+  /customer-sites/{siteId}/attachments/{attachmentId}:
+    delete:
+      operationId: deleteCustomerSiteAttachment
+      tags: [customers]
+      summary: Delete a customer site document
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
           in: path
           required: true
           schema:
@@ -2791,6 +2876,40 @@ components:
         phone:
           type: ["string", "null"]
         note:
+          type: ["string", "null"]
+
+    CustomerSiteAttachment:
+      type: object
+      required: [id, siteId, type, createdAt]
+      properties:
+        id:
+          type: integer
+        siteId:
+          type: integer
+        type:
+          type: string
+          description: "projektova_dokumentace | revize | ostatni"
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+          description: object storage path
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CustomerSiteAttachmentInput:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        description:
           type: ["string", "null"]
 
     JablotronUser:

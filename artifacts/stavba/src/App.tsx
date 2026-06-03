@@ -18,6 +18,7 @@ import JobForm from "@/pages/job-form";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
+import SiteDetail from "@/pages/site-detail";
 import PristupoveUdaje from "@/pages/pristupove-udaje";
 import PristupoveUdajeExport from "@/pages/pristupove-udaje-export";
 import Settings from "@/pages/settings";
@@ -83,6 +84,7 @@ function AuthenticatedApp() {
         <Route path="/jobs/:id" component={JobDetail} />
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
+        <Route path="/customer-sites/:id" component={SiteDetail} />
         <Route path="/pristupove-udaje/export/:id">{() => <WriteOnly component={PristupoveUdajeExport} />}</Route>
         <Route path="/pristupove-udaje">{() => <WriteOnly component={PristupoveUdaje} />}</Route>
         <Route path="/people" component={People} />

@@ -14,6 +14,7 @@ export * from "./machines";
 export * from "./warehouse-items";
 export * from "./customer-contacts";
 export * from "./customer-sites";
+export * from "./customer-site-attachments";
 export * from "./device-credentials";
 export * from "./audit-log";
 export * from "./time-entries";
