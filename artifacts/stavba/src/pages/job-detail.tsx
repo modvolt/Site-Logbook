@@ -38,6 +38,7 @@ import { debugLog } from "@/lib/pwa";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 import { AttachmentViewer } from "@/components/attachment-viewer";
 import { FileDropZone } from "@/components/file-drop-zone";
+import { prepareImageFile } from "@/lib/prepare-image";
 import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
 import {
   ensureNotificationPermission,
@@ -53,63 +54,6 @@ function invalidateJobLists(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
 }
 
-async function prepareImageFile(file: File, maxPx = 1920, quality = 0.82): Promise<File> {
-  let processedFile = file;
-  // Convert HEIC/HEIF to JPEG (iPhones, some shared Android photos)
-  if (
-    file.type === "image/heic" || file.type === "image/heif" ||
-    file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif")
-  ) {
-    const heic2any = (await import("heic2any")).default;
-    const blob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 }) as Blob;
-    processedFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
-  }
-  // Client-side resize is a best-effort optimisation. On memory-constrained
-  // iOS standalone (PWA) webviews the canvas pipeline can fail for large camera
-  // photos; in that case fall back to uploading the (already allowed-type)
-  // source file rather than failing the whole upload.
-  // Types the backend accepts as-is (HEIC/HEIF are already transcoded to JPEG
-  // above). If the resize pipeline fails for one of these we can safely upload
-  // the source; anything else must be rejected with a clear message rather than
-  // sent on to be refused by the server with a 415.
-  const FALLBACK_ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(processedFile);
-    const fallback = (reason: string) => {
-      URL.revokeObjectURL(objectUrl);
-      debugLog("upload", `image resize skipped: ${reason}`);
-      if (FALLBACK_ALLOWED.has(processedFile.type)) {
-        resolve(processedFile);
-      } else {
-        reject(new Error(`Formát obrázku není podporován (${processedFile.type || "neznámý"}). Použijte JPEG nebo PNG.`));
-      }
-    };
-    img.onload = () => {
-      try {
-        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { fallback("no canvas context"); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-        canvas.toBlob((blob) => {
-          if (!blob) { fallback("toBlob returned null"); return; }
-          URL.revokeObjectURL(objectUrl);
-          const outName = processedFile.name.replace(/\.(heic|heif)$/i, ".jpg");
-          resolve(new File([blob], outName, { type: "image/jpeg" }));
-        }, "image/jpeg", quality);
-      } catch (e) {
-        fallback(e instanceof Error ? e.message : "draw failed");
-      }
-    };
-    img.onerror = () => fallback("image decode failed");
-    img.src = objectUrl;
-  });
-}
 
 function getAttachmentUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
