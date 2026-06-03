@@ -1,0 +1,77 @@
+
+#31 40.46  WARN  Request took 12321ms: https://registry.npmjs.org/@babel%2Fplugin-transform-unicode-escapes
+2026-Jun-03 21:18:56.204172
+#31 49.07 Progress: resolved 760, reused 0, downloaded 0, added 0
+2026-Jun-03 21:18:56.511178
+#31 49.28  WARN  Request took 27217ms: https://registry.npmjs.org/@babel%2Fplugin-transform-parameters
+2026-Jun-03 21:18:56.716098
+#31 49.37  WARN  Request took 27047ms: https://registry.npmjs.org/@babel%2Fplugin-transform-regenerator
+2026-Jun-03 21:18:56.716098
+#31 49.52  WARN  Request took 23552ms:<REDACTED>@babel%2Fplugin-transform-shorthand-properties
+2026-Jun-03 21:18:57.000243
+#31 49.76  WARN  Request took 20535ms: https://registry.npmjs.org/@babel%2Fpreset-modules
+2026-Jun-03 21:18:57.301043
+#31 50.08  WARN  Request took 23966ms: https://registry.npmjs.org/@babel%2Fplugin-transform-spread
+2026-Jun-03 21:18:57.509674
+#31 50.09  WARN  Request took 23518ms: https://registry.npmjs.org/@babel%2Fplugin-transform-sticky-regex
+2026-Jun-03 21:18:57.509674
+#31 50.09  WARN  Request took 21306ms:<REDACTED>@babel%2Fplugin-transform-unicode-sets-regex
+2026-Jun-03 21:18:57.509674
+#31 50.13 Progress: resolved 768, reused 0, downloaded 0, added 0
+2026-Jun-03 21:18:57.509674
+#31 50.17  WARN  Request took 22656ms: https://registry.npmjs.org/@babel%2Fplugin-transform-typeof-symbol
+2026-Jun-03 21:18:57.509674
+#31 50.19  WARN  Request took 22789ms:<REDACTED>@babel%2Fplugin-transform-template-literals
+2026-Jun-03 21:18:57.954482
+#31 50.74  WARN  Request took 12745ms: https://registry.npmjs.org/babel-plugin-polyfill-regenerator
+2026-Jun-03 21:18:58.167477
+#31 50.76  WARN  Request took 19141ms: https://registry.npmjs.org/babel-plugin-polyfill-corejs2
+2026-Jun-03 21:18:58.167477
+#31 50.85  WARN  Request took 22931ms:<REDACTED>@babel%2Fplugin-transform-unicode-regex
+2026-Jun-03 21:18:58.167477
+#31 50.85  WARN  Request took 18329ms: https://registry.npmjs.org/babel-plugin-polyfill-corejs3
+2026-Jun-03 21:18:58.361719
+#31 51.17 Progress: resolved 795, reused 0, downloaded 0, added 0
+2026-Jun-03 21:18:59.449917
+#31 52.18 Progress: resolved 809, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:00.690443
+#31 53.44 Progress: resolved 815, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:02.230970
+#31 54.94 Progress: resolved 830, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:04.675689
+#31 57.21 Progress: resolved 834, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:07.343954
+#31 58.70 Progress: resolved 837, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:09.148637
+#31 61.73 Progress: resolved 839, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:10.585769
+#31 62.75 Progress: resolved 841, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:12.973243
+#31 63.81 Progress: resolved 842, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:13.565487
+#31 64.16  WARN  Request took 22761ms: https://registry.npmjs.org/core-js-compat
+2026-Jun-03 21:19:14.514993
+#31 67.13 Progress: resolved 846, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:23.836572
+#31 76.56  WARN  Request took 14334ms: https://registry.npmjs.org/color-convert
+2026-Jun-03 21:19:24.070234
+#31 76.60 Progress: resolved 847, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:24.070234
+#31 76.86  WARN  Request took 24645ms: https://registry.npmjs.org/jake
+2026-Jun-03 21:19:24.393552
+#31 77.13  WARN  Request took 25734ms: https://registry.npmjs.org/baseline-browser-mapping
+2026-Jun-03 21:19:24.737865
+#31 77.40  WARN  Request took 25664ms: https://registry.npmjs.org/es-abstract
+2026-Jun-03 21:19:25.145428
+#31 77.75 Progress: resolved 854, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:25.630256
+#31 78.09  WARN  Request took 10738ms: https://registry.npmjs.org/@babel%2Fhelper-annotate-as-pure
+2026-Jun-03 21:19:25.877705
+#31 78.45  WARN  Request took 10400ms: https://registry.npmjs.org/@babel%2Fhelper-remap-async-to-generator
+2026-Jun-03 21:19:26.293925
+#31 78.98 Progress: resolved 861, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:26.569527
+#31 79.14  WARN  Request took 11656ms: https://registry.npmjs.org/@babel%2Fhelper-replace-supers
+2026-Jun-03 21:19:27.740405
+#31 80.42 Progress: resolved 867, reused 0, downloaded 0, added 0
+2026-Jun-03 21:19:30.629544

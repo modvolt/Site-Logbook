@@ -23,7 +23,12 @@ COPY lib ./lib
 COPY scripts ./scripts
 COPY attached_assets ./attached_assets
 
-RUN pnpm install --frozen-lockfile
+# Persist pnpm's content-addressable store across builds via a BuildKit cache
+# mount, so a slow npm registry isn't re-hit for every dependency on every
+# deploy ("reused 0, downloaded 0" symptom). The mount survives layer-cache
+# invalidation when the lockfile changes.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
 # NODE_ENV=production keeps the Replit-only dev plugins inactive; BASE_PATH=/
 # serves the app at the domain root (the API lives under /api on the same host).

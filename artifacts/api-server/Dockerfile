@@ -25,13 +25,20 @@ COPY artifacts ./artifacts
 COPY lib ./lib
 COPY scripts ./scripts
 
-RUN pnpm install --frozen-lockfile
+# Persist pnpm's content-addressable store across builds via a BuildKit cache
+# mount, so a slow npm registry isn't re-hit for every dependency on every
+# deploy ("reused 0, downloaded 0" symptom). The mount survives layer-cache
+# invalidation when the lockfile changes.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
 # Bundle the API (produces dist/index.mjs and dist/migrate.mjs).
 RUN pnpm --filter @workspace/api-server run build
 
-# Produce a pruned, production-only node_modules at /app.
-RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app
+# Produce a pruned, production-only node_modules at /app. Reuse the same warm
+# pnpm store so this step doesn't re-fetch from the registry either.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm --filter @workspace/api-server deploy --prod --legacy --store-dir=/pnpm/store /app
 
 # ---------- Runtime ----------
 FROM node:24-slim AS runtime
