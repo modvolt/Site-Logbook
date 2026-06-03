@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
+import { AttachmentViewer } from "@/components/attachment-viewer";
 import {
   ArrowLeft, Store, MapPin, User, Phone, FileText, Upload, Trash2, FolderOpen,
 } from "lucide-react";
@@ -53,6 +54,7 @@ export default function SiteDetail() {
   const deleteAttachment = useDeleteCustomerSiteAttachment();
 
   const [category, setCategory] = useState<CategoryValue>("projektova_dokumentace");
+  const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -244,9 +246,12 @@ export default function SiteDetail() {
                             <p className="text-sm font-medium truncate">{doc.fileName || "Dokument"}</p>
                           </div>
                           {displayUrl && (
-                            <a href={displayUrl} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">
+                            <button
+                              onClick={() => setViewer({ url: displayUrl, fileName: doc.fileName })}
+                              className="text-xs text-primary hover:underline shrink-0"
+                            >
                               Zobrazit
-                            </a>
+                            </button>
                           )}
                           <Button
                             variant="ghost"
@@ -271,6 +276,10 @@ export default function SiteDetail() {
           </div>
         )}
       </div>
+
+      {viewer && (
+        <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />
+      )}
     </div>
   );
 }

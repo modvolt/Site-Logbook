@@ -36,6 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
+import { AttachmentViewer } from "@/components/attachment-viewer";
 import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
 import {
   ensureNotificationPermission,
@@ -1166,7 +1167,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
 function DokladySection({ jobId, isExpanded, onToggle }: any) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: attachments } = useListAttachments(jobId, {
-    query: { enabled: isExpanded, queryKey: getListAttachmentsQueryKey(jobId) }
+    query: { queryKey: getListAttachmentsQueryKey(jobId) }
   });
   
   const createAttachment = useCreateAttachment();
@@ -1175,6 +1176,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
   const { toast } = useToast();
 
   const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
+  const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
 
   const {
     uploadFile: uploadDoklad,
@@ -1261,7 +1263,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
                     <p className="text-xs text-muted-foreground capitalize">{doc.type === "invoice" ? "Faktura" : doc.type === "receipt" ? "Účtenka" : "Dodací list"}</p>
                   </div>
                   {displayUrl && (
-                    <a href={displayUrl} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">Zobrazit</a>
+                    <button onClick={() => setViewer({ url: displayUrl, fileName: doc.fileName })} className="text-xs text-primary hover:underline shrink-0">Zobrazit</button>
                   )}
                   <Button 
                     variant="ghost" size="icon" 
@@ -1282,6 +1284,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
             <p className="text-sm">Přidejte faktury, účtenky nebo dodací listy.</p>
           </div>
         )}
+        {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
     </SectionCard>
   );
@@ -1289,7 +1292,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
 
 function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
   const { data: attachments } = useListAttachments(jobId, {
-    query: { enabled: isExpanded, queryKey: getListAttachmentsQueryKey(jobId) }
+    query: { queryKey: getListAttachmentsQueryKey(jobId) }
   });
   const deleteAttachment = useDeleteAttachment();
   const queryClient = useQueryClient();
@@ -1297,6 +1300,7 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
   const sheets = (attachments?.filter(a => a.type === "job_sheet") || [])
     .slice()
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
 
   const handleDelete = (id: number) => {
     if (!confirm("Smazat tento zakázkový list?")) return;
@@ -1332,7 +1336,7 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
                 <p className="text-xs text-muted-foreground">{format(new Date(sheet.createdAt), "d.M.yyyy H:mm")}</p>
               </div>
               {displayUrl && (
-                <a href={displayUrl} target="_blank" rel="noopener" className="text-xs text-primary hover:underline shrink-0">Otevřít</a>
+                <button onClick={() => setViewer({ url: displayUrl, fileName: sheet.description || sheet.fileName || "Zakázkový list.pdf" })} className="text-xs text-primary hover:underline shrink-0">Otevřít</button>
               )}
               <Button
                 variant="ghost" size="icon"
@@ -1344,6 +1348,7 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
             </div>
           );
         })}
+        {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
     </SectionCard>
   );
@@ -1353,7 +1358,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const { data: attachments } = useListAttachments(jobId, {
-    query: { enabled: isExpanded, queryKey: getListAttachmentsQueryKey(jobId) }
+    query: { queryKey: getListAttachmentsQueryKey(jobId) }
   });
   
   const createAttachment = useCreateAttachment();
@@ -1404,6 +1409,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const photos = attachments?.filter(a => a.type === "photo") || [];
+  const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
   
   return (
     <SectionCard 
@@ -1448,7 +1454,9 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
               return (
                 <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden border group bg-muted">
                   {src ? (
-                    <img src={src} alt={photo.fileName || "Fotografie"} className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => setViewer({ url: src, fileName: photo.fileName })} className="w-full h-full">
+                      <img src={src} alt={photo.fileName || "Fotografie"} className="w-full h-full object-cover" />
+                    </button>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                       <Camera className="w-8 h-8 opacity-20" />
@@ -1472,6 +1480,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             <p>Foťte průběh prací, stav stavby apod.</p>
           </div>
         )}
+        {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
     </SectionCard>
   );
