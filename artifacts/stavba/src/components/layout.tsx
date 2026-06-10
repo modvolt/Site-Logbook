@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { Briefcase, Plus, LogOut, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuickAddDate } from "@/hooks/use-quick-add-date";
 import { useLogout } from "@workspace/api-client-react";
 import { clearApiCache } from "@/lib/pwa";
 import { clearTimerNotification } from "@/lib/timer-notification";
@@ -18,6 +19,7 @@ const ROLE_BADGE: Record<string, string> = {
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user, role, can, refresh } = useAuth();
+  const { quickAddDate } = useQuickAddDate();
   const queryClient = useQueryClient();
   const logout = useLogout();
 
@@ -127,7 +129,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Global FAB on mobile for fast add (writers only) */}
         {can("write") && (
           <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 md:bottom-8 md:right-8 z-50">
-            <Link href="/jobs/new">
+            <Link href={quickAddDate ? `/jobs/new?date=${quickAddDate}` : "/jobs/new"}>
               <Button
                 size="icon"
                 className="h-14 w-14 rounded-full shadow-lg hover:shadow-xl transition-shadow bg-primary text-primary-foreground"

@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { QuickAddDateProvider } from "@/hooks/use-quick-add-date";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -74,8 +75,9 @@ function WriteOnly({ component: Component }: { component: React.ComponentType })
 
 function AuthenticatedApp() {
   return (
-    <Layout>
-      <Switch>
+    <QuickAddDateProvider>
+      <Layout>
+        <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/calendar" component={Calendar} />
         <Route path="/jobs" component={Jobs} />
@@ -102,8 +104,9 @@ function AuthenticatedApp() {
         <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
         <Route component={NotFound} />
-      </Switch>
-    </Layout>
+        </Switch>
+      </Layout>
+    </QuickAddDateProvider>
   );
 }
 

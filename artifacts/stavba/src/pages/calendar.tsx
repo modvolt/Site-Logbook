@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks } from "date-fns";
 import { cs } from "date-fns/locale";
 import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
@@ -7,11 +7,23 @@ import { Button } from "@/components/ui/button";
 import { JobCard } from "@/components/job-card";
 import { JOB_TYPES } from "@/components/badges";
 import { sortJobsDoneLast, isJobFinished } from "@/lib/job-sort";
+import { useQuickAddDate } from "@/hooks/use-quick-add-date";
 import { Link } from "wouter";
 
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const { setQuickAddDate } = useQuickAddDate();
+
+  // While the calendar is open, the global "+" FAB should create jobs on the
+  // selected day — unless today is selected, where the default (today) applies.
+  // Cleared on unmount so every other screen keeps the default behaviour.
+  useEffect(() => {
+    setQuickAddDate(
+      isSameDay(selectedDate, new Date()) ? null : format(selectedDate, "yyyy-MM-dd"),
+    );
+    return () => setQuickAddDate(null);
+  }, [selectedDate, setQuickAddDate]);
 
   const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const startDate = subWeeks(currentWeekStart, 2);
