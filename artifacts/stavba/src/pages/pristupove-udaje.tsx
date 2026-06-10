@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Autocomplete } from "@/components/autocomplete";
 import {
   KeyRound, Plus, Save, X, Edit3, Trash2, Eye, EyeOff, Copy,
   Building2, MapPin, Server, User as UserIcon, Mail, FileText,
@@ -116,6 +117,7 @@ export default function PristupoveUdaje() {
   const [, setLocation] = useLocation();
 
   const [customerId, setCustomerId] = useState<number | null>(null);
+  const [customerQuery, setCustomerQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [newForm, setNewForm] = useState<CredForm>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -137,6 +139,22 @@ export default function PristupoveUdaje() {
   const { data: customers, isLoading: loadingCustomers } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() },
   });
+
+  const customerOptions = useMemo(() => {
+    const list = customers ?? [];
+    const nameCounts = new Map<string, number>();
+    for (const c of list) {
+      const key = c.companyName.trim().toLowerCase();
+      nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+    }
+    return list.map((c) => {
+      const isDup = (nameCounts.get(c.companyName.trim().toLowerCase()) ?? 0) > 1;
+      const label = isDup
+        ? `${c.companyName}${c.address ? ` — ${c.address}` : ` (#${c.id})`}`
+        : c.companyName;
+      return { id: c.id, label };
+    });
+  }, [customers]);
 
   const { data: sites } = useListCustomerSites(customerId ?? 0, {
     query: {
@@ -817,22 +835,22 @@ export default function PristupoveUdaje() {
         {loadingCustomers ? (
           <Skeleton className="h-11 w-full" />
         ) : (
-          <select
-            value={customerId ?? ""}
-            onChange={(e) => {
-              setCustomerId(e.target.value ? parseInt(e.target.value, 10) : null);
+          <Autocomplete
+            value={customerQuery}
+            onValueChange={(v) => {
+              setCustomerQuery(v);
+              const match = customerOptions.find(
+                (o) => o.label.trim().toLowerCase() === v.trim().toLowerCase(),
+              );
+              setCustomerId(match ? match.id : null);
               setShowAdd(false);
               setEditingId(null);
             }}
-            className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          >
-            <option value="">— Vyberte zákazníka —</option>
-            {customers?.map((c) => (
-              <option key={c.id} value={String(c.id)}>
-                {c.companyName}
-              </option>
-            ))}
-          </select>
+            suggestions={customerOptions.map((o) => o.label)}
+            maxItems={12}
+            placeholder="Začněte psát název zákazníka…"
+            className="h-11"
+          />
         )}
       </div>
 
