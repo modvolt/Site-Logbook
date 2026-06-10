@@ -3,7 +3,7 @@
 - [S3 InvalidAccessKeyId on self-host](s3-invalid-access-key-selfhost.md) — Hetzner: if ListBuckets ok+bucketListed but HeadBucket/PutObject 403 InvalidAccessKeyId, it's ADDRESSING not creds → set S3_FORCE_PATH_STYLE=false (Hetzner needs virtual-hosted, not path-style).
 - [Self-host S3 browser diagnostic](s3-selfhost-browser-diagnostic.md) — don't paste logs (scrubbers redact key fields); add admin GET /api/storage/diagnose that probes ListBuckets/HeadBucket/PutObject & returns masked-tail Czech verdict.
 - [Coolify stale Docker cache](coolify-stale-docker-cache.md) — if a deploy log shows every step CACHED & finishes in ~1s, the fix never compiled; force a no-cache rebuild & verify via a startup marker log, don't trust matching commit sha.
-- [Docker pnpm store cache](docker-pnpm-store-cache.md) — build hung on slow npm registry (reused 0 every deploy); both Dockerfiles wrap pnpm install/deploy in BuildKit cache mount (id=pnpm-store,--store-dir=/pnpm/store) + long .npmrc fetch retries.
+- [Docker pnpm store cache](docker-pnpm-store-cache.md) — "reused 0" on warm Coolify build = wiped builder cache, not a Dockerfile bug; fix with a BuildKit pnpm-store cache mount + .npmrc fetch retries.
 - [Drizzle push interactive conflict](drizzle-push-conflict.md) — push can prompt rename & fail in non-TTY; add single columns via direct SQL ALTER, never blind push --force (can drop user_sessions).
 - [jsPDF Czech diacritics](pdf-czech-diacritics.md) — built-in fonts can't render ř/š/ě; must embed Roboto TTF on every autoTable style; group headers go in table head to avoid orphaning.
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
@@ -26,4 +26,4 @@
 - [Attachment type-based sections](attachment-type-sections.md) — jobs/activities share one attachments list keyed by free-string `type`; every section must filter by type or photos/doklady leak across sections.
 - [Time-entry timer accumulation](time-entry-timer-accumulation.md) — per-person time_entries; setHours while timer runs MUST rebase timerStartedAt to now() in same UPDATE or stop double-counts.
 - [PWA ongoing timer notification](timer-notification-pwa.md) — local (not push) "časovač běží" notification; iOS PWAs can't do it (no-op); await permission in the start gesture before show, clear on stop/logout, reconcile from dashboard.
-- [PWA camera video binding](pwa-camera-video-binding.md) — ZXing scanner black in iOS PWA: bind live <video> via state callback ref (gate effect on element), not useRef (portaled dialog = null); add autoPlay/muted/playsInline + explicit play().
+- [PWA camera video binding](pwa-camera-video-binding.md) — ZXing live-camera preview black in iOS PWA: bind <video> via state callback ref (not useRef; portaled dialog null) + autoplay trio & explicit play().
