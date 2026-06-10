@@ -33,3 +33,12 @@ path, not at camera permissions.
 **How to apply:** any live-camera/getUserMedia preview rendered inside a
 portaled/animated dialog — gate init on the real element via callback ref, and
 add the autoplay trio + explicit play() for iOS PWA.
+
+**Pitfall — duplicate scanner components:** the app had TWO camera dialogs
+(`barcode-scanner.tsx` ZXing and a separate `qr-scanner-dialog.tsx` using the
+`qr-scanner` lib). Fixing only one left the machine-ID ("ID stroje") QR scan on
+the Stroje page still broken with the same plain-`useRef`/restart-loop bug. The
+durable lesson: keep ONE camera-scanner component. ZXing's
+`BrowserMultiFormatReader` already decodes QR, so the QR-only dialog was
+consolidated onto `BarcodeScanner` and deleted. If you ever add a second
+camera-preview path, it inherits this whole bug class — reuse the fixed one.

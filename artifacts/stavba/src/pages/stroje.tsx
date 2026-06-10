@@ -16,7 +16,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck, ScanLine } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { QrScannerDialog } from "@/components/qr-scanner-dialog";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 
 export const MACHINE_KINDS: Record<string, { label: string; icon: typeof Wrench }> = {
@@ -258,7 +257,7 @@ export default function Stroje() {
         )}
       </div>
 
-      <QrScannerDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScanResult} />
+      <BarcodeScanner open={scanOpen} onOpenChange={setScanOpen} onResult={handleScanResult} />
       <BarcodeScanner
         open={snScanOpen}
         onOpenChange={setSnScanOpen}
