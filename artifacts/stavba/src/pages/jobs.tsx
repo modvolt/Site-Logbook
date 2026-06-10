@@ -319,7 +319,7 @@ export default function Jobs() {
         {isLoading ? (
           [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full" />)
         ) : filtered && filtered.length > 0 ? (
-          sortJobsDoneLast(filtered).map(job => <JobCard key={job.id} job={job} />)
+          sortJobsDoneLast(filtered, { newestFirst: true }).map(job => <JobCard key={job.id} job={job} />)
         ) : (
           <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <p>Žádné zakázky odpovídající vašemu hledání.</p>
