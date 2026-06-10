@@ -26,3 +26,4 @@
 - [Attachment type-based sections](attachment-type-sections.md) — jobs/activities share one attachments list keyed by free-string `type`; every section must filter by type or photos/doklady leak across sections.
 - [Time-entry timer accumulation](time-entry-timer-accumulation.md) — per-person time_entries; setHours while timer runs MUST rebase timerStartedAt to now() in same UPDATE or stop double-counts.
 - [PWA ongoing timer notification](timer-notification-pwa.md) — local (not push) "časovač běží" notification; iOS PWAs can't do it (no-op); await permission in the start gesture before show, clear on stop/logout, reconcile from dashboard.
+- [PWA camera video binding](pwa-camera-video-binding.md) — ZXing scanner black in iOS PWA: bind live <video> via state callback ref (gate effect on element), not useRef (portaled dialog = null); add autoPlay/muted/playsInline + explicit play().

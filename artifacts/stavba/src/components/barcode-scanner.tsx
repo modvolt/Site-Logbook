@@ -21,7 +21,12 @@ type Props = {
  * stream of the rear ("environment") camera.
  */
 export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // Use a state-backed callback ref instead of useRef so the scanning effect
+  // only starts once the <video> is actually mounted. Radix Dialog portals its
+  // content, so a plain ref can still be null when the effect first runs —
+  // ZXing would then bind to an internal hidden element and the visible preview
+  // stays black (the reported iOS PWA bug).
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +41,7 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !videoEl) return;
     setError(null);
     let cancelled = false;
     const reader = new BrowserMultiFormatReader();
@@ -48,7 +53,7 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
         // front camera on phones, which makes scanning unreliable.
         const controls = await reader.decodeFromConstraints(
           { video: { facingMode: { ideal: "environment" } } },
-          videoRef.current ?? undefined,
+          videoEl,
           (result) => {
             if (result && !cancelled) {
               const text = result.getText().trim();
@@ -64,6 +69,17 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
           return;
         }
         controlsRef.current = controls;
+        // On iOS standalone PWAs the programmatic play() inside ZXing can be
+        // dropped (the await breaks the user-gesture chain), leaving a black
+        // frame. Explicitly (re)start playback; muted+playsInline makes this
+        // allowed without a gesture.
+        if (videoEl.paused) {
+          try {
+            await videoEl.play();
+          } catch {
+            /* ignore: autoPlay attribute is the fallback */
+          }
+        }
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -80,7 +96,7 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [open]);
+  }, [open, videoEl]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -101,8 +117,9 @@ export function BarcodeScanner({ open, onOpenChange, onResult }: Props) {
         ) : (
           <div className="relative overflow-hidden rounded-lg bg-black aspect-[4/3]">
             <video
-              ref={videoRef}
+              ref={setVideoEl}
               className="h-full w-full object-cover"
+              autoPlay
               muted
               playsInline
             />
