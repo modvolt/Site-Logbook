@@ -468,7 +468,7 @@ export default function Dashboard() {
             <Card className="bg-muted border-none">
               <CardContent className="p-4">
                 <div className="text-sm text-muted-foreground font-medium mb-1">Celkem hodin</div>
-                <div className="text-2xl font-bold">{summary.totalHoursThisWeek} h</div>
+                <div className="text-2xl font-bold">{Number(Number(summary.totalHoursThisWeek).toFixed(2))} h</div>
               </CardContent>
             </Card>
             <Card className="bg-muted border-none">
