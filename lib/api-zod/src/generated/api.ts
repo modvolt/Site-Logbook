@@ -1400,6 +1400,75 @@ export const SetupFirstAdminBody = zod.object({
 
 
 /**
+ * @summary Whether the current user has security questions configured
+ */
+export const GetSecurityQuestionsStatusResponse = zod.object({
+  "configured": zod.boolean().describe('True when the current user has 3 security questions set')
+})
+
+
+/**
+ * @summary Set or replace the current admin's 3 security questions (requires current password)
+ */
+
+
+
+export const setSecurityQuestionsBodyQuestionsMin = 3;
+export const setSecurityQuestionsBodyQuestionsMax = 3;
+
+
+
+export const SetSecurityQuestionsBody = zod.object({
+  "currentPassword": zod.string().min(1),
+  "questions": zod.array(zod.object({
+  "question": zod.string().min(1),
+  "answer": zod.string().min(1)
+})).min(setSecurityQuestionsBodyQuestionsMin).max(setSecurityQuestionsBodyQuestionsMax)
+})
+
+
+/**
+ * @summary Public — fetch an admin account's security questions by username
+ */
+
+
+
+export const ForgotPasswordQuestionsBody = zod.object({
+  "username": zod.string().min(1)
+})
+
+export const ForgotPasswordQuestionsResponse = zod.object({
+  "username": zod.string(),
+  "questions": zod.array(zod.object({
+  "position": zod.number().describe('1, 2 or 3'),
+  "question": zod.string()
+}))
+})
+
+
+/**
+ * @summary Public — reset an admin password by answering all security questions
+ */
+
+
+export const resetPasswordWithAnswersBodyAnswersMin = 3;
+export const resetPasswordWithAnswersBodyAnswersMax = 3;
+
+export const resetPasswordWithAnswersBodyNewPasswordMin = 6;
+
+
+
+export const ResetPasswordWithAnswersBody = zod.object({
+  "username": zod.string().min(1),
+  "answers": zod.array(zod.object({
+  "position": zod.number(),
+  "answer": zod.string().min(1)
+})).min(resetPasswordWithAnswersBodyAnswersMin).max(resetPasswordWithAnswersBodyAnswersMax),
+  "newPassword": zod.string().min(resetPasswordWithAnswersBodyNewPasswordMin)
+})
+
+
+/**
  * @summary Get the current user's preferences
  */
 export const GetMyPreferencesResponse = zod.object({

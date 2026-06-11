@@ -57,6 +57,8 @@ import type {
   EmailTestResult,
   ErrorEnvelope,
   ExportSubjectDataParams,
+  ForgotPasswordQuestions,
+  ForgotPasswordQuestionsInput,
   GdprEraseInput,
   GdprEraseResult,
   GdprExport,
@@ -83,11 +85,14 @@ import type {
   MyStats,
   Person,
   PersonInput,
+  ResetPasswordWithAnswersInput,
   RestoreResult,
   SaveJobSheetInput,
+  SecurityQuestionsStatus,
   SendCredentialsEmailInput,
   SendJobEmailInput,
   SendJobEmailResult,
+  SetSecurityQuestionsInput,
   SetupInput,
   StatsOverview,
   Task,
@@ -4814,6 +4819,296 @@ export const useSetupFirstAdmin = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSetupFirstAdminMutationOptions(options));
+    }
+
+export const getGetSecurityQuestionsStatusUrl = () => {
+
+
+
+
+  return `/api/security-questions/status`
+}
+
+/**
+ * @summary Whether the current user has security questions configured
+ */
+export const getSecurityQuestionsStatus = async ( options?: RequestInit): Promise<SecurityQuestionsStatus> => {
+
+  return customFetch<SecurityQuestionsStatus>(getGetSecurityQuestionsStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSecurityQuestionsStatusQueryKey = () => {
+    return [
+    `/api/security-questions/status`
+    ] as const;
+    }
+
+
+export const getGetSecurityQuestionsStatusQueryOptions = <TData = Awaited<ReturnType<typeof getSecurityQuestionsStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSecurityQuestionsStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSecurityQuestionsStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSecurityQuestionsStatus>>> = ({ signal }) => getSecurityQuestionsStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSecurityQuestionsStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSecurityQuestionsStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getSecurityQuestionsStatus>>>
+export type GetSecurityQuestionsStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Whether the current user has security questions configured
+ */
+
+export function useGetSecurityQuestionsStatus<TData = Awaited<ReturnType<typeof getSecurityQuestionsStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSecurityQuestionsStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSecurityQuestionsStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getSetSecurityQuestionsUrl = () => {
+
+
+
+
+  return `/api/security-questions`
+}
+
+/**
+ * @summary Set or replace the current admin's 3 security questions (requires current password)
+ */
+export const setSecurityQuestions = async (setSecurityQuestionsInput: SetSecurityQuestionsInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getSetSecurityQuestionsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      setSecurityQuestionsInput,)
+  }
+);}
+
+
+
+
+export const getSetSecurityQuestionsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setSecurityQuestions>>, TError,{data: BodyType<SetSecurityQuestionsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setSecurityQuestions>>, TError,{data: BodyType<SetSecurityQuestionsInput>}, TContext> => {
+
+const mutationKey = ['setSecurityQuestions'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setSecurityQuestions>>, {data: BodyType<SetSecurityQuestionsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setSecurityQuestions(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetSecurityQuestionsMutationResult = NonNullable<Awaited<ReturnType<typeof setSecurityQuestions>>>
+    export type SetSecurityQuestionsMutationBody = BodyType<SetSecurityQuestionsInput>
+    export type SetSecurityQuestionsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set or replace the current admin's 3 security questions (requires current password)
+ */
+export const useSetSecurityQuestions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setSecurityQuestions>>, TError,{data: BodyType<SetSecurityQuestionsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setSecurityQuestions>>,
+        TError,
+        {data: BodyType<SetSecurityQuestionsInput>},
+        TContext
+      > => {
+      return useMutation(getSetSecurityQuestionsMutationOptions(options));
+    }
+
+export const getForgotPasswordQuestionsUrl = () => {
+
+
+
+
+  return `/api/auth/forgot-password/questions`
+}
+
+/**
+ * @summary Public — fetch an admin account's security questions by username
+ */
+export const forgotPasswordQuestions = async (forgotPasswordQuestionsInput: ForgotPasswordQuestionsInput, options?: RequestInit): Promise<ForgotPasswordQuestions> => {
+
+  return customFetch<ForgotPasswordQuestions>(getForgotPasswordQuestionsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      forgotPasswordQuestionsInput,)
+  }
+);}
+
+
+
+
+export const getForgotPasswordQuestionsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof forgotPasswordQuestions>>, TError,{data: BodyType<ForgotPasswordQuestionsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof forgotPasswordQuestions>>, TError,{data: BodyType<ForgotPasswordQuestionsInput>}, TContext> => {
+
+const mutationKey = ['forgotPasswordQuestions'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof forgotPasswordQuestions>>, {data: BodyType<ForgotPasswordQuestionsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  forgotPasswordQuestions(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ForgotPasswordQuestionsMutationResult = NonNullable<Awaited<ReturnType<typeof forgotPasswordQuestions>>>
+    export type ForgotPasswordQuestionsMutationBody = BodyType<ForgotPasswordQuestionsInput>
+    export type ForgotPasswordQuestionsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Public — fetch an admin account's security questions by username
+ */
+export const useForgotPasswordQuestions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof forgotPasswordQuestions>>, TError,{data: BodyType<ForgotPasswordQuestionsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof forgotPasswordQuestions>>,
+        TError,
+        {data: BodyType<ForgotPasswordQuestionsInput>},
+        TContext
+      > => {
+      return useMutation(getForgotPasswordQuestionsMutationOptions(options));
+    }
+
+export const getResetPasswordWithAnswersUrl = () => {
+
+
+
+
+  return `/api/auth/forgot-password/reset`
+}
+
+/**
+ * @summary Public — reset an admin password by answering all security questions
+ */
+export const resetPasswordWithAnswers = async (resetPasswordWithAnswersInput: ResetPasswordWithAnswersInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getResetPasswordWithAnswersUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      resetPasswordWithAnswersInput,)
+  }
+);}
+
+
+
+
+export const getResetPasswordWithAnswersMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetPasswordWithAnswers>>, TError,{data: BodyType<ResetPasswordWithAnswersInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetPasswordWithAnswers>>, TError,{data: BodyType<ResetPasswordWithAnswersInput>}, TContext> => {
+
+const mutationKey = ['resetPasswordWithAnswers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetPasswordWithAnswers>>, {data: BodyType<ResetPasswordWithAnswersInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  resetPasswordWithAnswers(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetPasswordWithAnswersMutationResult = NonNullable<Awaited<ReturnType<typeof resetPasswordWithAnswers>>>
+    export type ResetPasswordWithAnswersMutationBody = BodyType<ResetPasswordWithAnswersInput>
+    export type ResetPasswordWithAnswersMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Public — reset an admin password by answering all security questions
+ */
+export const useResetPasswordWithAnswers = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetPasswordWithAnswers>>, TError,{data: BodyType<ResetPasswordWithAnswersInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resetPasswordWithAnswers>>,
+        TError,
+        {data: BodyType<ResetPasswordWithAnswersInput>},
+        TContext
+      > => {
+      return useMutation(getResetPasswordWithAnswersMutationOptions(options));
     }
 
 export const getGetMyPreferencesUrl = () => {

@@ -5,6 +5,7 @@ export * from "./tasks";
 export * from "./attachments";
 export * from "./materials";
 export * from "./users";
+export * from "./security-questions";
 export * from "./user-preferences";
 export * from "./activities";
 export * from "./activity-materials";

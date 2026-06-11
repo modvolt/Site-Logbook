@@ -825,6 +825,62 @@ export interface SetupInput {
   email?: string | null;
 }
 
+export interface SecurityQuestionsStatus {
+  /** True when the current user has 3 security questions set */
+  configured: boolean;
+}
+
+export interface SecurityQuestionAnswerInput {
+  /** @minLength 1 */
+  question: string;
+  /** @minLength 1 */
+  answer: string;
+}
+
+export interface SetSecurityQuestionsInput {
+  /** @minLength 1 */
+  currentPassword: string;
+  /**
+     * @minItems 3
+     * @maxItems 3
+     */
+  questions: SecurityQuestionAnswerInput[];
+}
+
+export interface ForgotPasswordQuestionsInput {
+  /** @minLength 1 */
+  username: string;
+}
+
+export interface SecurityQuestionItem {
+  /** 1, 2 or 3 */
+  position: number;
+  question: string;
+}
+
+export interface ForgotPasswordQuestions {
+  username: string;
+  questions: SecurityQuestionItem[];
+}
+
+export interface ResetAnswerInput {
+  position: number;
+  /** @minLength 1 */
+  answer: string;
+}
+
+export interface ResetPasswordWithAnswersInput {
+  /** @minLength 1 */
+  username: string;
+  /**
+     * @minItems 3
+     * @maxItems 3
+     */
+  answers: ResetAnswerInput[];
+  /** @minLength 6 */
+  newPassword: string;
+}
+
 export interface UserPreferences {
   /** @nullable */
   exportColumns: string[] | null;

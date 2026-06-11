@@ -2,8 +2,9 @@ import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { db, usersTable, USER_ROLES, type User, type UserRole } from "@workspace/db";
-import { LoginBody, SetupFirstAdminBody } from "@workspace/api-zod";
+import { db, usersTable, securityQuestionsTable, USER_ROLES, type User, type UserRole } from "@workspace/db";
+import { LoginBody, SetupFirstAdminBody, ForgotPasswordQuestionsBody, ResetPasswordWithAnswersBody } from "@workspace/api-zod";
+import { normalizeAnswer } from "./security-questions";
 
 const router: IRouter = Router();
 
@@ -102,6 +103,73 @@ router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
   req.session.role = user.role as UserRole;
   req.session.name = user.name;
   res.status(201).json(serializeUser(user));
+});
+
+// --- Forgotten-password reset via security questions (public, admin only) ---
+
+router.post("/auth/forgot-password/questions", authLimiter, async (req, res): Promise<void> => {
+  const parsed = ForgotPasswordQuestionsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { username } = parsed.data;
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.username, username));
+  if (!user || !user.isActive || user.role !== "admin") {
+    res.status(404).json({ error: "Pro tento účet není obnova dostupná" });
+    return;
+  }
+  const questions = await db
+    .select({ position: securityQuestionsTable.position, question: securityQuestionsTable.question })
+    .from(securityQuestionsTable)
+    .where(eq(securityQuestionsTable.userId, user.id))
+    .orderBy(securityQuestionsTable.position);
+  if (questions.length < 3) {
+    res.status(404).json({ error: "Pro tento účet není obnova dostupná" });
+    return;
+  }
+  res.json({ username: user.username, questions });
+});
+
+router.post("/auth/forgot-password/reset", authLimiter, async (req, res): Promise<void> => {
+  const parsed = ResetPasswordWithAnswersBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { username, answers, newPassword } = parsed.data;
+  const fail = () => res.status(401).json({ error: "Nesprávné odpovědi" });
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.username, username));
+  if (!user || !user.isActive || user.role !== "admin") {
+    fail();
+    return;
+  }
+  const questions = await db
+    .select()
+    .from(securityQuestionsTable)
+    .where(eq(securityQuestionsTable.userId, user.id));
+  if (questions.length < 3) {
+    fail();
+    return;
+  }
+
+  for (const q of questions) {
+    const provided = answers.find((a) => a.position === q.position);
+    if (!provided) {
+      fail();
+      return;
+    }
+    const ok = await bcrypt.compare(normalizeAnswer(provided.answer), q.answerHash);
+    if (!ok) {
+      fail();
+      return;
+    }
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, user.id));
+  res.sendStatus(204);
 });
 
 export { serializeUser, USER_ROLES };

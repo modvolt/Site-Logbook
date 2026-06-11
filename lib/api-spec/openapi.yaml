@@ -1360,6 +1360,110 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /security-questions/status:
+    get:
+      operationId: getSecurityQuestionsStatus
+      tags: [auth]
+      summary: Whether the current user has security questions configured
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityQuestionsStatus"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /security-questions:
+    put:
+      operationId: setSecurityQuestions
+      tags: [auth]
+      summary: Set or replace the current admin's 3 security questions (requires current password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSecurityQuestionsInput"
+      responses:
+        "204":
+          description: Saved
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized or wrong current password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (admins only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/forgot-password/questions:
+    post:
+      operationId: forgotPasswordQuestions
+      tags: [auth]
+      summary: Public — fetch an admin account's security questions by username
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordQuestionsInput"
+      responses:
+        "200":
+          description: The account's security questions (without answers)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForgotPasswordQuestions"
+        "404":
+          description: No reset available for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/forgot-password/reset:
+    post:
+      operationId: resetPasswordWithAnswers
+      tags: [auth]
+      summary: Public — reset an admin password by answering all security questions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordWithAnswersInput"
+      responses:
+        "204":
+          description: Password reset
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Incorrect answers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /preferences:
     get:
       operationId: getMyPreferences
@@ -3474,6 +3578,95 @@ components:
           minLength: 1
         email:
           type: ["string", "null"]
+
+    SecurityQuestionsStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+          description: True when the current user has 3 security questions set
+
+    SecurityQuestionItem:
+      type: object
+      required: [position, question]
+      properties:
+        position:
+          type: integer
+          description: 1, 2 or 3
+        question:
+          type: string
+
+    SecurityQuestionAnswerInput:
+      type: object
+      required: [question, answer]
+      properties:
+        question:
+          type: string
+          minLength: 1
+        answer:
+          type: string
+          minLength: 1
+
+    SetSecurityQuestionsInput:
+      type: object
+      required: [currentPassword, questions]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+        questions:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/SecurityQuestionAnswerInput"
+
+    ForgotPasswordQuestionsInput:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+          minLength: 1
+
+    ForgotPasswordQuestions:
+      type: object
+      required: [username, questions]
+      properties:
+        username:
+          type: string
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityQuestionItem"
+
+    ResetAnswerInput:
+      type: object
+      required: [position, answer]
+      properties:
+        position:
+          type: integer
+        answer:
+          type: string
+          minLength: 1
+
+    ResetPasswordWithAnswersInput:
+      type: object
+      required: [username, answers, newPassword]
+      properties:
+        username:
+          type: string
+          minLength: 1
+        answers:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ResetAnswerInput"
+        newPassword:
+          type: string
+          minLength: 6
 
     UserInput:
       type: object

@@ -19,6 +19,7 @@
 - [Proxy secure cookie](proxy-secure-cookie.md) — behind Coolify(Traefik)→nginx→API, inner nginx must pass through X-Forwarded-Proto (not $scheme) + use cookie.secure:"auto", else login silently fails (cookie dropped).
 - [PWA safe-area utilities](pwa-safe-area-utilities.md) — iOS notch: use viewport-fit=cover + inline additive calc(env(safe-area-inset-*)); never a flat @utility (silently overrides base padding on non-notch).
 - [Pathless router middleware leak](pathless-router-middleware-leak.md) — sub-routers mount pathlessly; a pathless router.use(auth) gates EVERY request, breaking login. Gate per-route.
+- [Security-questions password reset](security-questions-reset.md) — /auth/* is in PUBLIC_PREFIXES so authed security-q routes must live OUTSIDE /auth/; public reset under /auth/; normalize answers same way on write+verify.
 - [Database backup system](backup-system.md) — pg_dump -Fc to object storage backups/ prefix; never serve via generic /storage/objects/* (guests can GET); download only via admin /api/backups/:id/download.
 - [Database restore from backup](backup-restore.md) — pg_restore --clean --if-exists --single-transaction (atomic); destructive (wipes data + sessions → logout); guarded by in-process restoreInProgress lock; admin/master only.
 - [api-zod body validator names](api-zod-body-names.md) — server imports Zod validators by PascalCase(operationId)+Body (e.g. UpdateEmailSettingsBody), NOT component schema names (those are types only → TS2693).

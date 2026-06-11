@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion } from "lucide-react";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,9 @@ import {
   getListBackupsQueryKey,
   downloadBackup,
   type Backup,
+  useGetSecurityQuestionsStatus,
+  useSetSecurityQuestions,
+  getGetSecurityQuestionsStatusQueryKey,
 } from "@workspace/api-client-react";
 import {
   AlertDialog,
@@ -585,6 +588,118 @@ function EmailSettingsCard() {
   );
 }
 
+function SecurityQuestionsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: status } = useGetSecurityQuestionsStatus({
+    query: { queryKey: getGetSecurityQuestionsStatusQueryKey() },
+  });
+  const save = useSetSecurityQuestions();
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [questions, setQuestions] = useState(["", "", ""]);
+  const [answers, setAnswers] = useState(["", "", ""]);
+
+  const configured = status?.configured ?? false;
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword) {
+      toast({ title: "Zadejte své aktuální heslo", variant: "destructive" });
+      return;
+    }
+    if (questions.some((q) => !q.trim()) || answers.some((a) => !a.trim())) {
+      toast({ title: "Vyplňte všechny 3 otázky a odpovědi", variant: "destructive" });
+      return;
+    }
+    save.mutate(
+      {
+        data: {
+          currentPassword,
+          questions: questions.map((q, i) => ({ question: q.trim(), answer: answers[i] })),
+        },
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Bezpečnostní otázky uloženy" });
+          setCurrentPassword("");
+          setAnswers(["", "", ""]);
+          void queryClient.invalidateQueries({ queryKey: getGetSecurityQuestionsStatusQueryKey() });
+        },
+        onError: (err: unknown) => {
+          const msg = (err as { message?: string })?.message;
+          toast({
+            title: "Uložení selhalo",
+            description: msg?.includes("heslo") ? "Nesprávné aktuální heslo." : "Zkontrolujte zadané údaje.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShieldQuestion className="h-4 w-4" /> Bezpečnostní otázky (obnova hesla)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex items-center gap-2 text-sm">
+          {configured ? (
+            <span className="inline-flex items-center gap-1.5 text-emerald-600">
+              <CheckCircle2 className="h-4 w-4" /> Nastaveno
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <XCircle className="h-4 w-4" /> Zatím nenastaveno
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Nastavte si 3 vlastní otázky a odpovědi. Pokud zapomenete heslo, budete
+          si ho moci na přihlašovací obrazovce obnovit správným zodpovězením všech
+          tří otázek. Odpovědi se ukládají zabezpečeně (zašifrovaně) a nelze je
+          zpětně zobrazit.
+        </p>
+        <form onSubmit={handleSave} className="space-y-5">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="space-y-2 rounded-lg border p-3">
+              <Label className="text-xs font-medium text-muted-foreground">Otázka {i + 1}</Label>
+              <Input
+                value={questions[i]}
+                onChange={(e) => setQuestions((q) => q.map((v, j) => (j === i ? e.target.value : v)))}
+                placeholder="Např. Jak se jmenovalo vaše první auto?"
+              />
+              <Input
+                value={answers[i]}
+                onChange={(e) => setAnswers((a) => a.map((v, j) => (j === i ? e.target.value : v)))}
+                placeholder="Odpověď"
+                autoComplete="off"
+              />
+            </div>
+          ))}
+          <div>
+            <Label className="text-sm font-medium block mb-1">Vaše aktuální heslo *</Label>
+            <Input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              placeholder="Pro potvrzení změny"
+            />
+          </div>
+          <Button type="submit" disabled={save.isPending} className="gap-2 h-11">
+            {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+            {configured ? "Změnit otázky" : "Uložit otázky"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { can } = useAuth();
@@ -936,6 +1051,8 @@ export default function Settings() {
       {can("manageUsers") && <EmailSettingsCard />}
 
       {can("manageUsers") && <BackupCard />}
+
+      {can("manageUsers") && <SecurityQuestionsCard />}
 
       <Card>
         <CardHeader>
