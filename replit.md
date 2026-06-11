@@ -12,6 +12,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/db run generate` — generate versioned SQL migrations (commit them; used for production deploys)
 - `pnpm --filter @workspace/db run migrate` — apply pending migrations non-interactively (`DATABASE_URL` required)
 - Required env: `DATABASE_URL` — Postgres connection string; `SESSION_SECRET` — signs session cookies
+- Optional env: `CORS_ORIGINS` — comma-separated allowlist of cross-origin origins. Unset = cross-origin blocked (the web app is same-origin behind nginx, so this is the safe default)
 
 ## Deploy (Docker / Coolify)
 

@@ -28,3 +28,4 @@
 - [Time-entry timer accumulation](time-entry-timer-accumulation.md) — per-person time_entries; setHours while timer runs MUST rebase timerStartedAt to now() in same UPDATE or stop double-counts.
 - [PWA ongoing timer notification](timer-notification-pwa.md) — local (not push) "časovač běží" notification; iOS PWAs can't do it (no-op); await permission in the start gesture before show, clear on stop/logout, reconcile from dashboard.
 - [PWA camera video binding](pwa-camera-video-binding.md) — ZXing live-camera preview black in iOS PWA: bind <video> via state callback ref (not useRef; portaled dialog null) + autoplay trio & explicit play().
+- [Security hardening defaults](security-hardening.md) — same-origin SPA behind nginx: CORS safe to lock to origin:false (env CORS_ORIGINS allowlist); upload route must sniff magic bytes vs declared type (text/* skipped); session sameSite:lax already covers CSRF.

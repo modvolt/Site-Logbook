@@ -13,6 +13,7 @@ import {
   diagnoseS3,
 } from "../lib/objectStorage";
 import { requireRole } from "../middlewares/auth";
+import { contentMatchesType } from "../lib/fileSignature";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -91,6 +92,15 @@ router.post(
     if (body.length > MAX_UPLOAD_BYTES) {
       res.status(413).json({
         error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+      });
+      return;
+    }
+
+    // Verify the actual file bytes match the declared content type, so a client
+    // cannot store disguised active content (e.g. HTML labelled image/png).
+    if (!contentMatchesType(contentType, body)) {
+      res.status(415).json({
+        error: "Obsah souboru neodpovídá jeho typu.",
       });
       return;
     }

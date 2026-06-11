@@ -54,7 +54,20 @@ app.use(
     crossOriginEmbedderPolicy: false,
   }),
 );
-app.use(cors());
+// The web app and API are served from the same origin (nginx proxies /api), so
+// the browser never needs cross-origin access — a wildcard CORS policy only
+// widens the attack surface. Lock it down: cross-origin requests are refused by
+// default; set CORS_ORIGINS (comma-separated) to allowlist specific origins.
+const corsOrigins = (process.env.CORS_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: corsOrigins.length > 0 ? corsOrigins : false,
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ extended: true, limit: "20mb" }));
 
@@ -80,7 +93,10 @@ app.use(
       // A hard `secure: true` silently drops the cookie whenever the forwarded
       // proto is misread as http, leaving the user stuck on the login screen.
       secure: "auto",
-      maxAge: 1000 * 60 * 60 * 24 * 30,
+      // 14 days of inactivity. `rolling: true` refreshes this on every request,
+      // so active users are never logged out — only genuinely idle sessions
+      // expire after two weeks (down from 30 days, per the security review).
+      maxAge: 1000 * 60 * 60 * 24 * 14,
     },
   }),
 );
