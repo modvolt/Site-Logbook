@@ -48,7 +48,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <div className="mt-3 flex items-center justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">{user.name}</p>
-                <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${ROLE_BADGE[role || "guest"]}`}>
+                <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[0.625rem] font-medium ${ROLE_BADGE[role || "guest"]}`}>
                   {role === "admin" ? "Admin" : role === "master" ? "Master" : "Guest"}
                 </span>
               </div>
@@ -110,8 +110,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Briefcase className="h-5 w-5" /> Stavba
         </h1>
         {user && (
-          <div className="flex items-center gap-2">
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${ROLE_BADGE[role || "guest"]}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`px-1.5 py-0.5 rounded text-[0.625rem] font-medium truncate max-w-[40vw] ${ROLE_BADGE[role || "guest"]}`}>
               {user.name}
             </span>
             <Button variant="ghost" size="icon" onClick={handleLogout} className="h-10 w-10" aria-label="Odhlásit">

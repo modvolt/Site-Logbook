@@ -897,9 +897,10 @@ export default function Settings() {
               <ZoomIn className="h-4 w-4" /> Velikost zobrazení
             </Label>
             <p className="text-sm text-muted-foreground">
-              Zvětší nebo zmenší celé rozhraní (text i rozestupy). Pomáhá, když se
-              na menších obrazovkách nevejde celé menu. Nastavení se uloží do
-              tohoto prohlížeče.
+              Zvětší nebo zmenší celé rozhraní (text i rozestupy) na počítači i
+              na telefonu. Pomáhá, když se na menších obrazovkách nevejde celé
+              menu nebo je text špatně čitelný. Nastavení se uloží do tohoto
+              prohlížeče.
             </p>
             <div className="grid grid-cols-5 gap-2">
               {UI_SCALE_OPTIONS.map(({ value, label }) => {

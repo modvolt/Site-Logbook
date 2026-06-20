@@ -113,6 +113,11 @@ export function MobileNav({ location, isActive, can }: Props) {
 
   return (
     <>
+      {/* Bottom bar height + icons + labels are rem-based, so they scale with
+          the chosen "Velikost zobrazení" (UI zoom) like the rest of the app.
+          The safe-area inset stays in px (device-fixed). min-w-0 + truncate on
+          each cell keep the (now scalable) labels from overflowing at the
+          largest zoom on narrow phones. */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card flex items-center justify-around h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] px-1 z-40">
         {quickItems.map((item) => {
           const active = isActive(item);
@@ -120,12 +125,12 @@ export function MobileNav({ location, isActive, can }: Props) {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-0.5 transition-colors ${
+              className={`flex flex-col items-center justify-center w-full min-w-0 h-full space-y-0.5 transition-colors ${
                 active ? item.color : "text-muted-foreground"
               }`}
             >
-              <item.icon className="h-5 w-5" />
-              <span className="text-[9px] font-medium leading-tight">
+              <item.icon className="h-5 w-5 shrink-0" />
+              <span className="text-[0.5625rem] font-medium leading-tight max-w-full truncate px-0.5">
                 {item.shortLabel ?? item.label}
               </span>
             </Link>
@@ -134,13 +139,13 @@ export function MobileNav({ location, isActive, can }: Props) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className={`flex flex-col items-center justify-center w-full h-full space-y-0.5 transition-colors ${
+          className={`flex flex-col items-center justify-center w-full min-w-0 h-full space-y-0.5 transition-colors ${
             moreActive ? "text-primary" : "text-muted-foreground"
           }`}
           aria-label="Další položky"
         >
-          <MoreHorizontal className="h-5 w-5" />
-          <span className="text-[9px] font-medium leading-tight">Další</span>
+          <MoreHorizontal className="h-5 w-5 shrink-0" />
+          <span className="text-[0.5625rem] font-medium leading-tight max-w-full truncate px-0.5">Další</span>
         </button>
       </nav>
 
@@ -202,7 +207,7 @@ export function MobileNav({ location, isActive, can }: Props) {
                       <span className={`p-2 rounded-lg bg-muted ${item.color}`}>
                         <item.icon className="h-5 w-5" />
                       </span>
-                      <span className="text-[11px] font-medium leading-tight line-clamp-2">
+                      <span className="text-[0.6875rem] font-medium leading-tight line-clamp-2">
                         {label}
                       </span>
                     </button>
@@ -224,7 +229,7 @@ export function MobileNav({ location, isActive, can }: Props) {
                     <span className={`p-2 rounded-lg bg-muted ${item.color}`}>
                       <item.icon className="h-5 w-5" />
                     </span>
-                    <span className="text-[11px] font-medium leading-tight line-clamp-2">
+                    <span className="text-[0.6875rem] font-medium leading-tight line-clamp-2">
                       {label}
                     </span>
                   </Link>
