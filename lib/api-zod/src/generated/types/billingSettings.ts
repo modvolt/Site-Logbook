@@ -37,5 +37,7 @@ export interface BillingSettings {
   /** @nullable */
   numberYear?: number | null;
   numberNextSeq: number;
+  reminderEnabled?: boolean;
+  reminderDays?: string;
   updatedAt: string;
 }

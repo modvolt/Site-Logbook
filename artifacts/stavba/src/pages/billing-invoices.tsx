@@ -4,6 +4,7 @@ import {
   useListInvoices,
   getListInvoicesQueryKey,
   useUpdateInvoiceStatus,
+  useSendInvoiceReminder,
   getGetBillingSummaryQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,7 +21,7 @@ import {
 import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
 import { fmtKc, fmtDate, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, FileText, Plus, ChevronRight, CircleDollarSign } from "lucide-react";
+import { ArrowLeft, FileText, Plus, ChevronRight, CircleDollarSign, BellRing } from "lucide-react";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "Všechny stavy" },
@@ -51,6 +52,7 @@ export default function BillingInvoices() {
   });
 
   const markPaid = useUpdateInvoiceStatus();
+  const sendReminder = useSendInvoiceReminder();
 
   const invoices =
     status === "overdue"
@@ -68,6 +70,23 @@ export default function BillingInvoices() {
         },
         onError: () =>
           toast({ title: "Změna stavu se nezdařila", variant: "destructive" }),
+      },
+    );
+
+  const handleSendReminder = (id: number) =>
+    sendReminder.mutate(
+      { id, data: { to: null, subject: null, message: null } },
+      {
+        onSuccess: (res) => {
+          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+          toast({
+            title: res.sent ? "Upomínka odeslána" : "Upomínku se nepodařilo odeslat",
+            description: res.to ? `Příjemce: ${res.to}` : undefined,
+            variant: res.sent ? undefined : "destructive",
+          });
+        },
+        onError: () =>
+          toast({ title: "Odeslání upomínky se nezdařilo", variant: "destructive" }),
       },
     );
 
@@ -141,6 +160,21 @@ export default function BillingInvoices() {
                       <div className="font-bold">{fmtKc(inv.totalWithVat)}</div>
                       <div className="text-xs text-muted-foreground">s DPH</div>
                     </div>
+                    {overdue != null && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 text-amber-700 border-amber-200 hover:bg-amber-50 hover:text-amber-800 dark:text-amber-300 dark:border-amber-900 dark:hover:bg-amber-950/40"
+                        disabled={sendReminder.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSendReminder(inv.id);
+                        }}
+                      >
+                        <BellRing className="h-4 w-4 mr-1" />
+                        Upomínka
+                      </Button>
+                    )}
                     {canMarkPaid && (
                       <Button
                         variant="outline"

@@ -2424,6 +2424,8 @@ export const GetBillingSettingsResponse = zod.object({
   "numberFormat": zod.string(),
   "numberYear": zod.number().nullish(),
   "numberNextSeq": zod.number(),
+  "reminderEnabled": zod.boolean().optional(),
+  "reminderDays": zod.string().optional(),
   "updatedAt": zod.string()
 })
 
@@ -2449,7 +2451,9 @@ export const UpdateBillingSettingsBody = zod.object({
   "numberPrefix": zod.string().nullish(),
   "numberFormat": zod.string().nullish(),
   "numberYear": zod.number().nullish(),
-  "numberNextSeq": zod.number().nullish()
+  "numberNextSeq": zod.number().nullish(),
+  "reminderEnabled": zod.boolean().nullish(),
+  "reminderDays": zod.string().nullish()
 })
 
 export const UpdateBillingSettingsResponse = zod.object({
@@ -2472,6 +2476,8 @@ export const UpdateBillingSettingsResponse = zod.object({
   "numberFormat": zod.string(),
   "numberYear": zod.number().nullish(),
   "numberNextSeq": zod.number(),
+  "reminderEnabled": zod.boolean().optional(),
+  "reminderDays": zod.string().optional(),
   "updatedAt": zod.string()
 })
 
@@ -3031,6 +3037,41 @@ export const SendInvoiceEmailBody = zod.object({
 export const SendInvoiceEmailResponse = zod.object({
   "sent": zod.boolean(),
   "to": zod.string().nullish()
+})
+
+
+/**
+ * @summary Email an overdue-payment reminder to the customer (admin only)
+ */
+export const SendInvoiceReminderParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SendInvoiceReminderBody = zod.object({
+  "to": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "message": zod.string().nullish()
+})
+
+export const SendInvoiceReminderResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string(),
+  "daysOverdue": zod.number()
+})
+
+
+/**
+ * @summary Preview the default reminder text for an overdue invoice (admin only)
+ */
+export const GetInvoiceReminderPreviewParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetInvoiceReminderPreviewResponse = zod.object({
+  "subject": zod.string(),
+  "message": zod.string(),
+  "to": zod.string().nullish(),
+  "daysOverdue": zod.number()
 })
 
 

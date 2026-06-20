@@ -35,6 +35,13 @@ export const billingSettingsTable = pgTable("billing_settings", {
   numberFormat: text("number_format").notNull().default("{PREFIX}{YYYY}{SEQ4}"),
   numberYear: integer("number_year"),
   numberNextSeq: integer("number_next_seq").notNull().default(1),
+  // Overdue reminders (upomínky). When enabled, the server periodically sends a
+  // polite reminder e-mail for each issued/sent invoice once it crosses one of
+  // the configured day thresholds past its due date (comma-separated days, e.g.
+  // "3,14,30"). Each threshold fires at most once per invoice (repeat
+  // protection lives in invoice_reminders).
+  reminderEnabled: boolean("reminder_enabled").notNull().default(false),
+  reminderDays: text("reminder_days").notNull().default("3,14,30"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

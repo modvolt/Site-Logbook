@@ -8,6 +8,8 @@ import {
   useDeleteInvoice,
   useUpdateInvoiceStatus,
   useSendInvoiceEmail,
+  useSendInvoiceReminder,
+  getInvoiceReminderPreview,
   downloadInvoicePdf,
   getGetInvoiceQueryKey,
   getListInvoicesQueryKey,
@@ -48,8 +50,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { InvoiceStatusBadge } from "@/components/badges";
-import { fmtKc, fmtDate, vatModeLabel } from "@/lib/billing-format";
+import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
+import { fmtKc, fmtDate, vatModeLabel, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -62,6 +64,7 @@ import {
   Send,
   CircleDollarSign,
   Ban,
+  BellRing,
   Loader2,
 } from "lucide-react";
 
@@ -82,6 +85,7 @@ export default function BillingInvoiceDetail() {
   const remove = useDeleteInvoice();
   const updateStatus = useUpdateInvoiceStatus();
   const sendEmail = useSendInvoiceEmail();
+  const sendReminder = useSendInvoiceReminder();
 
   const [downloading, setDownloading] = useState(false);
   const [confirmIssue, setConfirmIssue] = useState(false);
@@ -95,6 +99,11 @@ export default function BillingInvoiceDetail() {
   const [paidOpen, setPaidOpen] = useState(false);
   const [paidDate, setPaidDate] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [reminderLoading, setReminderLoading] = useState(false);
+  const [reminderTo, setReminderTo] = useState("");
+  const [reminderSubject, setReminderSubject] = useState("");
+  const [reminderMessage, setReminderMessage] = useState("");
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: getGetInvoiceQueryKey(id) });
@@ -266,6 +275,49 @@ export default function BillingInvoiceDetail() {
       },
     );
 
+  const openReminder = async () => {
+    setReminderTo(inv?.customerEmail ?? "");
+    setReminderSubject("");
+    setReminderMessage("");
+    setReminderOpen(true);
+    setReminderLoading(true);
+    try {
+      const preview = await getInvoiceReminderPreview(id);
+      setReminderTo((prev) => prev || preview.to || "");
+      setReminderSubject(preview.subject);
+      setReminderMessage(preview.message);
+    } catch (err) {
+      toast({ title: "Náhled upomínky se nepodařilo načíst", description: errMsg(err), variant: "destructive" });
+    } finally {
+      setReminderLoading(false);
+    }
+  };
+
+  const handleSendReminder = () =>
+    sendReminder.mutate(
+      {
+        id,
+        data: {
+          to: reminderTo.trim() || null,
+          subject: reminderSubject.trim() || null,
+          message: reminderMessage.trim() || null,
+        },
+      },
+      {
+        onSuccess: (res) => {
+          invalidateAll();
+          setReminderOpen(false);
+          toast({
+            title: res.sent ? "Upomínka odeslána" : "Upomínku se nepodařilo odeslat",
+            description: res.to ? `Příjemce: ${res.to}` : undefined,
+            variant: res.sent ? undefined : "destructive",
+          });
+        },
+        onError: (err: unknown) =>
+          toast({ title: "Odeslání upomínky se nezdařilo", description: errMsg(err), variant: "destructive" }),
+      },
+    );
+
   if (isLoading) {
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-4">
@@ -283,6 +335,7 @@ export default function BillingInvoiceDetail() {
   const isDraft = inv.status === "draft";
   const isActive = inv.status === "issued" || inv.status === "sent" || inv.status === "paid";
   const showVat = inv.totalVat > 0;
+  const overdue = overdueDays(inv.dueDate, inv.status);
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -300,6 +353,7 @@ export default function BillingInvoiceDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold">{inv.invoiceNumber || "Koncept faktury"}</h1>
             <InvoiceStatusBadge status={inv.status} />
+            {overdue !== null && <OverdueBadge days={overdue} />}
           </div>
           <p className="text-sm text-muted-foreground mt-1">{inv.customerName || "—"}</p>
         </div>
@@ -336,6 +390,11 @@ export default function BillingInvoiceDetail() {
             <Button variant="outline" onClick={openEmail} className="h-10">
               <Mail className="h-4 w-4 mr-2" /> Odeslat e-mailem
             </Button>
+            {overdue !== null && (
+              <Button variant="outline" onClick={openReminder} className="h-10">
+                <BellRing className="h-4 w-4 mr-2" /> Poslat upomínku
+              </Button>
+            )}
             {inv.status === "issued" && (
               <Button variant="outline" onClick={() => handleStatus("sent")} disabled={updateStatus.isPending} className="h-10">
                 <Send className="h-4 w-4 mr-2" /> Označit jako odesláno
@@ -607,6 +666,49 @@ export default function BillingInvoiceDetail() {
             <Button onClick={handleSendEmail} disabled={sendEmail.isPending || !emailTo.trim()}>
               {sendEmail.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
               Odeslat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reminder dialog */}
+      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Poslat upomínku</DialogTitle>
+            <DialogDescription>
+              Upomínka na neuhrazenou fakturu po splatnosti se odešle i s PDF přílohou.
+            </DialogDescription>
+          </DialogHeader>
+          {reminderLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <Label className="text-sm mb-1 block">Příjemce</Label>
+                <Input type="email" value={reminderTo} onChange={(e) => setReminderTo(e.target.value)} placeholder="email@firma.cz" />
+              </div>
+              <div>
+                <Label className="text-sm mb-1 block">Předmět</Label>
+                <Input value={reminderSubject} onChange={(e) => setReminderSubject(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-sm mb-1 block">Zpráva</Label>
+                <Textarea value={reminderMessage} onChange={(e) => setReminderMessage(e.target.value)} rows={6} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReminderOpen(false)}>
+              Zrušit
+            </Button>
+            <Button onClick={handleSendReminder} disabled={sendReminder.isPending || reminderLoading || !reminderTo.trim()}>
+              {sendReminder.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BellRing className="h-4 w-4 mr-2" />}
+              Odeslat upomínku
             </Button>
           </DialogFooter>
         </DialogContent>

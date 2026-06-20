@@ -1338,6 +1338,8 @@ export interface BillingSettings {
   /** @nullable */
   numberYear?: number | null;
   numberNextSeq: number;
+  reminderEnabled?: boolean;
+  reminderDays?: string;
   updatedAt: string;
 }
 
@@ -1378,6 +1380,10 @@ export interface BillingSettingsInput {
   numberYear?: number | null;
   /** @nullable */
   numberNextSeq?: number | null;
+  /** @nullable */
+  reminderEnabled?: boolean | null;
+  /** @nullable */
+  reminderDays?: string | null;
 }
 
 export interface UnbilledCustomer {
@@ -1819,6 +1825,29 @@ export interface SendInvoiceEmailResult {
   sent: boolean;
   /** @nullable */
   to?: string | null;
+}
+
+export interface SendInvoiceReminderInput {
+  /** @nullable */
+  to?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  message?: string | null;
+}
+
+export interface SendInvoiceReminderResult {
+  sent: boolean;
+  to: string;
+  daysOverdue: number;
+}
+
+export interface InvoiceReminderPreview {
+  subject: string;
+  message: string;
+  /** @nullable */
+  to?: string | null;
+  daysOverdue: number;
 }
 
 export type ListJobsParams = {

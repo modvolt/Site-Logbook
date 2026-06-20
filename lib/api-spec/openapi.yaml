@@ -3184,6 +3184,92 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/invoices/{id}/reminder:
+    post:
+      operationId: sendInvoiceReminder
+      tags: [billing]
+      summary: Email an overdue-payment reminder to the customer (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendInvoiceReminderInput"
+      responses:
+        "200":
+          description: Reminder sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendInvoiceReminderResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice is not overdue / not issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Sending failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/reminder-preview:
+    get:
+      operationId: getInvoiceReminderPreview
+      tags: [billing]
+      summary: Preview the default reminder text for an overdue invoice (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Default reminder text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceReminderPreview"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice is not overdue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/invoices/{id}/pdf:
     get:
       operationId: downloadInvoicePdf
@@ -5045,6 +5131,10 @@ components:
           type: ["integer", "null"]
         numberNextSeq:
           type: integer
+        reminderEnabled:
+          type: boolean
+        reminderDays:
+          type: string
         updatedAt:
           type: string
 
@@ -5087,6 +5177,10 @@ components:
           type: ["integer", "null"]
         numberNextSeq:
           type: ["integer", "null"]
+        reminderEnabled:
+          type: ["boolean", "null"]
+        reminderDays:
+          type: ["string", "null"]
 
     Invoice:
       type: object
@@ -5550,3 +5644,37 @@ components:
           type: boolean
         to:
           type: ["string", "null"]
+
+    SendInvoiceReminderInput:
+      type: object
+      properties:
+        to:
+          type: ["string", "null"]
+        subject:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+
+    SendInvoiceReminderResult:
+      type: object
+      required: [sent, to, daysOverdue]
+      properties:
+        sent:
+          type: boolean
+        to:
+          type: string
+        daysOverdue:
+          type: integer
+
+    InvoiceReminderPreview:
+      type: object
+      required: [subject, message, daysOverdue]
+      properties:
+        subject:
+          type: string
+        message:
+          type: string
+        to:
+          type: ["string", "null"]
+        daysOverdue:
+          type: integer

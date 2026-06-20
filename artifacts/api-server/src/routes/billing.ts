@@ -6,6 +6,7 @@ import {
   CancelInvoiceBody,
   UpdateInvoiceStatusBody,
   SendInvoiceEmailBody,
+  SendInvoiceReminderBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import {
@@ -13,6 +14,11 @@ import {
   ObjectStorageService,
 } from "../lib/objectStorage";
 import { sendEmailWithPdf } from "../lib/email";
+import {
+  sendInvoiceReminder,
+  composeReminder,
+  isOverdue,
+} from "../lib/invoice-reminders";
 import {
   ensureBillingSettings,
   serializeSettings,
@@ -30,6 +36,7 @@ import {
   cancelInvoice,
   updateInvoiceStatus,
   getInvoiceForPdf,
+  daysOverdue,
   type AppError,
   type Actor,
   type InvoiceCreateInput,
@@ -116,6 +123,10 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
       iban: d.iban,
       bic: d.bic,
       invoiceFooterNote: d.invoiceFooterNote,
+      // reminderEnabled non-nullable: null = "leave unchanged".
+      reminderEnabled: d.reminderEnabled ?? undefined,
+      // reminderDays nullable on input but normalized to a default if cleared.
+      reminderDays: d.reminderDays ?? undefined,
     });
     res.json(serializeSettings(row));
   } catch (err) {
@@ -383,6 +394,60 @@ router.post("/billing/invoices/:id/send-email", async (req, res): Promise<void> 
       error: err instanceof Error ? err.message : "Odeslání faktury e-mailem selhalo.",
     });
   }
+});
+
+router.post("/billing/invoices/:id/reminder", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID faktury." });
+    return;
+  }
+  const parsed = SendInvoiceReminderBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  try {
+    const result = await sendInvoiceReminder(
+      id,
+      {
+        to: parsed.data.to ?? null,
+        subject: parsed.data.subject ?? null,
+        message: parsed.data.message ?? null,
+        auto: false,
+      },
+      actorOf(req),
+    );
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err, invoiceId: id }, "Invoice reminder failed");
+    handleError(err, "Odeslání upomínky selhalo.", res);
+  }
+});
+
+router.get("/billing/invoices/:id/reminder-preview", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID faktury." });
+    return;
+  }
+  const invoice = await getInvoiceForPdf(id);
+  if (!invoice) {
+    res.status(404).json({ error: "Faktura nenalezena." });
+    return;
+  }
+  if (!isOverdue(invoice)) {
+    res.status(409).json({ error: "Faktura není po splatnosti." });
+    return;
+  }
+  const days = daysOverdue(invoice.dueDate!);
+  const { subject, message } = composeReminder(invoice, days);
+  res.json({
+    subject,
+    message,
+    to: invoice.customerEmail ?? null,
+    daysOverdue: days,
+  });
 });
 
 router.get("/billing/invoices/:id/pdf", async (req, res): Promise<void> => {

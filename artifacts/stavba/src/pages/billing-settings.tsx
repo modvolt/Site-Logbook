@@ -23,7 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Building2, Hash, Banknote, FileText } from "lucide-react";
+import { ArrowLeft, Save, Building2, Hash, Banknote, FileText, BellRing } from "lucide-react";
 
 type Form = {
   supplierName: string;
@@ -44,6 +44,8 @@ type Form = {
   numberFormat: string;
   numberYear: string;
   numberNextSeq: string;
+  reminderEnabled: boolean;
+  reminderDays: string;
 };
 
 function toForm(s: BillingSettings): Form {
@@ -66,6 +68,8 @@ function toForm(s: BillingSettings): Form {
     numberFormat: s.numberFormat ?? "",
     numberYear: s.numberYear != null ? String(s.numberYear) : "",
     numberNextSeq: String(s.numberNextSeq ?? 1),
+    reminderEnabled: s.reminderEnabled ?? false,
+    reminderDays: s.reminderDays ?? "3,14,30",
   };
 }
 
@@ -112,6 +116,8 @@ export default function BillingSettings() {
           numberFormat: trimOrNull(form.numberFormat),
           numberYear: form.numberYear.trim() === "" ? null : Number(form.numberYear),
           numberNextSeq: form.numberNextSeq.trim() === "" ? null : Number(form.numberNextSeq),
+          reminderEnabled: form.reminderEnabled,
+          reminderDays: trimOrNull(form.reminderDays),
         },
       },
       {
@@ -296,6 +302,40 @@ export default function BillingSettings() {
             <p className="text-xs text-muted-foreground">
               Číslo se přiřazuje až při vystavení faktury. Pořadové číslo se po
               přechodu na nový rok automaticky resetuje.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BellRing className="h-5 w-5" /> Automatické upomínky
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="font-medium">Posílat automatické upomínky</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Neuhrazené faktury po splatnosti automaticky upozorní odběratele e-mailem.
+                </p>
+              </div>
+              <Switch
+                checked={form.reminderEnabled}
+                onCheckedChange={(v) => set("reminderEnabled", v)}
+              />
+            </div>
+            <Field label="Dny po splatnosti">
+              <Input
+                value={form.reminderDays}
+                onChange={(e) => set("reminderDays", e.target.value)}
+                placeholder="3,14,30"
+                disabled={!form.reminderEnabled}
+              />
+            </Field>
+            <p className="text-xs text-muted-foreground">
+              Čísla oddělená čárkou. Upomínka se odešle nejvýše jednou pro každý
+              práh a jen pokud je nastaven e-mail odběratele a SMTP server.
             </p>
           </CardContent>
         </Card>

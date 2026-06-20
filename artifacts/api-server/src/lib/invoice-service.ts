@@ -56,6 +56,33 @@ function addDaysIso(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Whole calendar days `iso` is past `today` (positive only when overdue). */
+export function daysOverdue(dueDateIso: string, todayIsoStr = todayIso()): number {
+  const due = new Date(`${dueDateIso}T00:00:00Z`).getTime();
+  const today = new Date(`${todayIsoStr}T00:00:00Z`).getTime();
+  if (Number.isNaN(due) || Number.isNaN(today)) return 0;
+  return Math.floor((today - due) / 86_400_000);
+}
+
+/**
+ * Parse a comma-separated reminder-day config into a sorted, de-duplicated list
+ * of positive integers, e.g. "30, 3,14,3" → [3, 14, 30].
+ */
+export function parseReminderDays(raw: string | null | undefined): number[] {
+  if (!raw) return [];
+  const seen = new Set<number>();
+  for (const part of raw.split(",")) {
+    const n = Number(part.trim());
+    if (Number.isInteger(n) && n > 0) seen.add(n);
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
+/** Canonical string form of a reminder-day config (sorted, de-duplicated). */
+export function normalizeReminderDays(raw: string | null | undefined): string {
+  return parseReminderDays(raw).join(",");
+}
+
 // ---------------------------------------------------------------------------
 // Billing settings (singleton)
 // ---------------------------------------------------------------------------
@@ -100,6 +127,8 @@ export function serializeSettings(row: BillingSettings) {
     numberFormat: row.numberFormat,
     numberYear: row.numberYear,
     numberNextSeq: row.numberNextSeq,
+    reminderEnabled: row.reminderEnabled,
+    reminderDays: row.reminderDays,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -123,6 +152,8 @@ export interface BillingSettingsInput {
   numberFormat?: string;
   numberYear?: number | null;
   numberNextSeq?: number;
+  reminderEnabled?: boolean;
+  reminderDays?: string;
 }
 
 export async function updateBillingSettings(
@@ -154,6 +185,10 @@ export async function updateBillingSettings(
   }
   assign("numberYear", "numberYear");
   assign("numberNextSeq", "numberNextSeq");
+  assign("reminderEnabled", "reminderEnabled");
+  if (input.reminderDays !== undefined) {
+    set.reminderDays = normalizeReminderDays(input.reminderDays);
+  }
   const [row] = await db
     .update(billingSettingsTable)
     .set(set)

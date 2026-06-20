@@ -43,4 +43,8 @@ export interface BillingSettingsInput {
   numberYear?: number | null;
   /** @nullable */
   numberNextSeq?: number | null;
+  /** @nullable */
+  reminderEnabled?: boolean | null;
+  /** @nullable */
+  reminderDays?: string | null;
 }

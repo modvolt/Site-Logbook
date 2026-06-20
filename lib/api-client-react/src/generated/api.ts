@@ -72,6 +72,7 @@ import type {
   Invoice,
   InvoiceCreateInput,
   InvoiceDetail,
+  InvoiceReminderPreview,
   InvoiceStatusUpdate,
   InvoiceUpdateInput,
   Job,
@@ -102,6 +103,8 @@ import type {
   SendCredentialsEmailInput,
   SendInvoiceEmailInput,
   SendInvoiceEmailResult,
+  SendInvoiceReminderInput,
+  SendInvoiceReminderResult,
   SendJobEmailInput,
   SendJobEmailResult,
   SetSecurityQuestionsInput,
@@ -9941,4 +9944,153 @@ export const useSendInvoiceEmail = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getSendInvoiceEmailMutationOptions(options));
     }
+
+export const getSendInvoiceReminderUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/reminder`
+}
+
+/**
+ * @summary Email an overdue-payment reminder to the customer (admin only)
+ */
+export const sendInvoiceReminder = async (id: number,
+    sendInvoiceReminderInput: SendInvoiceReminderInput, options?: RequestInit): Promise<SendInvoiceReminderResult> => {
+
+  return customFetch<SendInvoiceReminderResult>(getSendInvoiceReminderUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendInvoiceReminderInput,)
+  }
+);}
+
+
+
+
+export const getSendInvoiceReminderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendInvoiceReminder>>, TError,{id: number;data: BodyType<SendInvoiceReminderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendInvoiceReminder>>, TError,{id: number;data: BodyType<SendInvoiceReminderInput>}, TContext> => {
+
+const mutationKey = ['sendInvoiceReminder'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendInvoiceReminder>>, {id: number;data: BodyType<SendInvoiceReminderInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  sendInvoiceReminder(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendInvoiceReminderMutationResult = NonNullable<Awaited<ReturnType<typeof sendInvoiceReminder>>>
+    export type SendInvoiceReminderMutationBody = BodyType<SendInvoiceReminderInput>
+    export type SendInvoiceReminderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Email an overdue-payment reminder to the customer (admin only)
+ */
+export const useSendInvoiceReminder = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendInvoiceReminder>>, TError,{id: number;data: BodyType<SendInvoiceReminderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendInvoiceReminder>>,
+        TError,
+        {id: number;data: BodyType<SendInvoiceReminderInput>},
+        TContext
+      > => {
+      return useMutation(getSendInvoiceReminderMutationOptions(options));
+    }
+
+export const getGetInvoiceReminderPreviewUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/reminder-preview`
+}
+
+/**
+ * @summary Preview the default reminder text for an overdue invoice (admin only)
+ */
+export const getInvoiceReminderPreview = async (id: number, options?: RequestInit): Promise<InvoiceReminderPreview> => {
+
+  return customFetch<InvoiceReminderPreview>(getGetInvoiceReminderPreviewUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetInvoiceReminderPreviewQueryKey = (id: number,) => {
+    return [
+    `/api/billing/invoices/${id}/reminder-preview`
+    ] as const;
+    }
+
+
+export const getGetInvoiceReminderPreviewQueryOptions = <TData = Awaited<ReturnType<typeof getInvoiceReminderPreview>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInvoiceReminderPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetInvoiceReminderPreviewQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getInvoiceReminderPreview>>> = ({ signal }) => getInvoiceReminderPreview(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getInvoiceReminderPreview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetInvoiceReminderPreviewQueryResult = NonNullable<Awaited<ReturnType<typeof getInvoiceReminderPreview>>>
+export type GetInvoiceReminderPreviewQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Preview the default reminder text for an overdue invoice (admin only)
+ */
+
+export function useGetInvoiceReminderPreview<TData = Awaited<ReturnType<typeof getInvoiceReminderPreview>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInvoiceReminderPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetInvoiceReminderPreviewQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 

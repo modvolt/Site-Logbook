@@ -50,6 +50,13 @@
       "when": 1781978313231,
       "tag": "0006_white_sauron",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781979144329,
+      "tag": "0007_graceful_lenny_balinger",
+      "breakpoints": true
     }
   ]
 }
