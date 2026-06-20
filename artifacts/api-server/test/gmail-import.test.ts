@@ -84,8 +84,13 @@ process.env.GOOGLE_REDIRECT_URI =
 process.env.TOKEN_ENCRYPTION_KEY = "0".repeat(64); // 64 hex chars → 32 bytes
 
 // Imported AFTER env + mocks so the module picks up the mocked deps.
-const { resolveLabelIds, syncAccount, importMessage, collectAttachments } =
-  await import("../src/lib/gmail-import");
+const {
+  resolveLabelIds,
+  syncAccount,
+  importMessage,
+  collectAttachments,
+  updateAccountSettings,
+} = await import("../src/lib/gmail-import");
 const { encryptToken } = await import("../src/lib/token-crypto");
 const { sha256Of } = await import("../src/lib/cost-document-service");
 
@@ -749,5 +754,256 @@ describe("collectAttachments inline + unsupported skipping", () => {
     expect(rar?.supported).toBe(false);
     expect(rar?.skipReason).toMatch(/[Nn]epodporovaný/);
     expect(rar?.skipReason).toContain("application/x-rar-compressed");
+  });
+});
+
+describe("updateAccountSettings labelAfterImport scope guard", () => {
+  it("rejects enabling labelAfterImport on a read-only connection (409)", async () => {
+    // makeAccount with labelAfterImport:false grants only the gmail.readonly scope.
+    await makeAccount({ labelFilter: null, labelAfterImport: false });
+
+    let caught: AppError | undefined;
+    await updateAccountSettings({ labelAfterImport: true }, actor).catch((e) => {
+      caught = e as AppError;
+    });
+    expect(caught).toBeDefined();
+    expect(caught?.statusCode).toBe(409);
+    // The guard must fire before any Gmail call.
+    expect(mocks.gmailRequest).not.toHaveBeenCalled();
+
+    // The flag stays off in the DB — the silent-fail toggle was rejected.
+    const [row] = await db
+      .select()
+      .from(emailImportAccountsTable)
+      .where(eq(emailImportAccountsTable.id, accountIds[accountIds.length - 1]));
+    expect(row.labelAfterImport).toBe(0);
+  });
+
+  it("allows enabling labelAfterImport when the gmail.modify scope is present", async () => {
+    // makeAccount with labelAfterImport:true grants the gmail.modify scope.
+    const accountId = await makeAccount({
+      labelFilter: null,
+      labelAfterImport: true,
+    });
+
+    const updated = await updateAccountSettings(
+      { labelAfterImport: true },
+      actor,
+    );
+    expect(updated.labelAfterImport).toBe(1);
+    expect(mocks.gmailRequest).not.toHaveBeenCalled();
+
+    const [row] = await db
+      .select()
+      .from(emailImportAccountsTable)
+      .where(eq(emailImportAccountsTable.id, accountId));
+    expect(row.labelAfterImport).toBe(1);
+  });
+});
+
+describe("importMessage attachment download failures", () => {
+  async function seedMessageWithAttachment(opts: {
+    accountId: number;
+    providerAttachmentId: string;
+    fileName: string;
+    contentType: string;
+  }): Promise<{ messageId: number; attachmentId: number }> {
+    const [msg] = await db
+      .insert(emailImportMessagesTable)
+      .values({
+        accountId: opts.accountId,
+        providerMessageId: `pm-${opts.providerAttachmentId}`,
+        fromAddress: "dod@example.test",
+        subject: "Faktura",
+        status: "new",
+        attachmentCount: 1,
+      })
+      .returning();
+    const [att] = await db
+      .insert(emailImportAttachmentsTable)
+      .values({
+        messageId: msg.id,
+        providerAttachmentId: opts.providerAttachmentId,
+        fileName: opts.fileName,
+        contentType: opts.contentType,
+        size: 1234,
+        skipped: 0,
+      })
+      .returning();
+    return { messageId: msg.id, attachmentId: att.id };
+  }
+
+  it("marks the attachment skipped (no document) when the download returns no data", async () => {
+    const accountId = await makeAccount({ labelFilter: null });
+    const { messageId, attachmentId } = await seedMessageWithAttachment({
+      accountId,
+      providerAttachmentId: "att-empty",
+      fileName: "faktura.pdf",
+      contentType: "application/pdf",
+    });
+
+    mocks.gmailRequest.mockImplementation(async ({ url }) => {
+      if (/\/attachments\/att-empty/.test(url)) {
+        // Gmail returns a body with no `data` payload.
+        return { data: { size: 0 } };
+      }
+      throw new Error(`unexpected Gmail call: ${url}`);
+    });
+
+    const before = await db.select().from(billingDocumentsTable);
+
+    const result = await importMessage(messageId, actor);
+    expect(result).toEqual({ imported: 0, skipped: 1, duplicates: 0 });
+
+    // No billing document was created.
+    const after = await db.select().from(billingDocumentsTable);
+    expect(after).toHaveLength(before.length);
+
+    // The attachment is recorded as skipped with the download reason.
+    const [att] = await db
+      .select()
+      .from(emailImportAttachmentsTable)
+      .where(eq(emailImportAttachmentsTable.id, attachmentId));
+    expect(att.skipped).toBe(1);
+    expect(att.billingDocumentId).toBeNull();
+    expect(att.skipReason).toMatch(/stáhnout/);
+  });
+
+  it("marks the attachment skipped (no document) when the download throws", async () => {
+    const accountId = await makeAccount({ labelFilter: null });
+    const { messageId, attachmentId } = await seedMessageWithAttachment({
+      accountId,
+      providerAttachmentId: "att-boom",
+      fileName: "faktura.pdf",
+      contentType: "application/pdf",
+    });
+
+    mocks.gmailRequest.mockImplementation(async ({ url }) => {
+      if (/\/attachments\/att-boom/.test(url)) {
+        throw new Error("network down");
+      }
+      throw new Error(`unexpected Gmail call: ${url}`);
+    });
+
+    const before = await db.select().from(billingDocumentsTable);
+
+    const result = await importMessage(messageId, actor);
+    expect(result).toEqual({ imported: 0, skipped: 1, duplicates: 0 });
+
+    const after = await db.select().from(billingDocumentsTable);
+    expect(after).toHaveLength(before.length);
+
+    const [att] = await db
+      .select()
+      .from(emailImportAttachmentsTable)
+      .where(eq(emailImportAttachmentsTable.id, attachmentId));
+    expect(att.skipped).toBe(1);
+    expect(att.billingDocumentId).toBeNull();
+    expect(att.skipReason).toMatch(/[Cc]hyba při stahování/);
+  });
+});
+
+describe("ensureImportLabel create-on-missing", () => {
+  function modifyCalls() {
+    return mocks.gmailRequest.mock.calls.filter((c) =>
+      /\/messages\/[^/?]+\/modify$/.test(c[0].url),
+    );
+  }
+  function labelCreateCalls() {
+    return mocks.gmailRequest.mock.calls.filter(
+      (c) => /\/labels$/.test(c[0].url) && c[0].method === "POST",
+    );
+  }
+
+  async function seedMessageWithAttachment(opts: {
+    accountId: number;
+    providerAttachmentId: string;
+    fileName: string;
+    contentType: string;
+  }): Promise<{ messageId: number; attachmentId: number }> {
+    const [msg] = await db
+      .insert(emailImportMessagesTable)
+      .values({
+        accountId: opts.accountId,
+        providerMessageId: `pm-${opts.providerAttachmentId}`,
+        fromAddress: "dod@example.test",
+        subject: "Faktura",
+        status: "new",
+        attachmentCount: 1,
+      })
+      .returning();
+    const [att] = await db
+      .insert(emailImportAttachmentsTable)
+      .values({
+        messageId: msg.id,
+        providerAttachmentId: opts.providerAttachmentId,
+        fileName: opts.fileName,
+        contentType: opts.contentType,
+        size: 1234,
+        skipped: 0,
+      })
+      .returning();
+    return { messageId: msg.id, attachmentId: att.id };
+  }
+
+  it("creates the import label (POST /labels) when it does not exist, then labels the message", async () => {
+    const accountId = await makeAccount({
+      labelFilter: null,
+      labelAfterImport: true,
+    });
+    const content = Buffer.from(`make-label-${TAG}`);
+    const hash = sha256Of(content);
+    const { messageId } = await seedMessageWithAttachment({
+      accountId,
+      providerAttachmentId: "att-mklabel",
+      fileName: "faktura.pdf",
+      contentType: "application/pdf",
+    });
+
+    mocks.gmailRequest.mockImplementation(async ({ url, method }) => {
+      if (/\/attachments\/att-mklabel/.test(url)) {
+        return {
+          data: { data: content.toString("base64"), size: content.length },
+        };
+      }
+      // Creating the label: POST /labels returns the new label id.
+      if (/\/labels$/.test(url) && method === "POST") {
+        return { data: { id: "Label_created" } };
+      }
+      // Listing labels: the "Modvolt – importováno" label is NOT present yet.
+      if (/\/labels$/.test(url)) {
+        return { data: { labels: [{ id: "Label_1", name: "Faktury" }] } };
+      }
+      if (/\/messages\/[^/?]+\/modify$/.test(url)) {
+        return { data: {} };
+      }
+      throw new Error(`unexpected Gmail call: ${url}`);
+    });
+
+    const result = await importMessage(messageId, actor);
+    expect(result).toEqual({ imported: 1, skipped: 0, duplicates: 0 });
+
+    const [doc] = await db
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.sha256, hash));
+    docIds.push(doc.id);
+
+    // The label did not exist, so it was created exactly once.
+    const creates = labelCreateCalls();
+    expect(creates).toHaveLength(1);
+    expect(creates[0][0].data).toMatchObject({ name: "Modvolt – importováno" });
+
+    // The message is labeled with the NEWLY-created label id.
+    const mods = modifyCalls();
+    expect(mods).toHaveLength(1);
+    expect(mods[0][0].method).toBe("POST");
+    expect(mods[0][0].data).toEqual({ addLabelIds: ["Label_created"] });
+
+    const [msg] = await db
+      .select()
+      .from(emailImportMessagesTable)
+      .where(eq(emailImportMessagesTable.id, messageId));
+    expect(msg.labeled).toBe(1);
   });
 });
