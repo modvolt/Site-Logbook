@@ -28,7 +28,10 @@ import { z } from "zod/v4";
 export const CONFIDENCE_REVIEW_THRESHOLD = 0.7;
 
 const DEFAULT_MODEL = "gpt-4o";
-const DEFAULT_MAX_FILE_MB = 20;
+// OpenAI itself caps inline inputs (~32 MB per PDF, ~20 MB per image), so this is
+// set to OpenAI's practical PDF ceiling. Raising OPENAI_MAX_FILE_MB above that has
+// no effect — OpenAI rejects the oversized file and it falls back to manual review.
+const DEFAULT_MAX_FILE_MB = 32;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 export interface OpenAiConfig {

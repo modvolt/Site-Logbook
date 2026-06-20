@@ -68,8 +68,18 @@ app.use(
     credentials: true,
   }),
 );
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+// Request body size cap for JSON / form payloads — this is what gates CSV bulk
+// imports and base64 uploads. Tunable via MAX_REQUEST_BODY_MB (default 50). Keep
+// nginx's client_max_body_size (artifacts/stavba/nginx.conf) at/above this.
+// Binary file uploads (photos/documents) have their own, higher cap in
+// storage.ts / billing-documents.ts and do not go through this parser.
+const maxBodyMb = (() => {
+  const n = Number(process.env.MAX_REQUEST_BODY_MB);
+  return Number.isFinite(n) && n > 0 ? n : 50;
+})();
+const bodyLimit = `${maxBodyMb}mb`;
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
 app.use(
   session({

@@ -48,8 +48,10 @@ means:
   to set up on the bucket — the bytes flow browser → nginx → API → bucket.
 
 Because uploads pass through nginx, `client_max_body_size` in
-`artifacts/stavba/nginx.conf` must stay at/above the API's upload limit (50 MB),
-or large photos are rejected by nginx with a 413 before reaching the API.
+`artifacts/stavba/nginx.conf` (currently `100m`) must stay at/above the API's
+limits — binary photo/document uploads are capped at 100 MB, and JSON/form
+bulk-import payloads at `MAX_REQUEST_BODY_MB` (default 50 MB) — or large requests
+are rejected by nginx with a 413 before reaching the API.
 
 **Endpoint scheme:** endpoint values may omit the scheme — `fsn1.your-objectstorage.com`
 is normalized to `https://fsn1.your-objectstorage.com`. To force plain HTTP
@@ -117,13 +119,14 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `OPENAI_API_KEY`          | no       | —             | Empty disables AI cost-document extraction (manual review still works). Your own OpenAI key. |
 | `OPENAI_DOCUMENT_EXTRACTION_ENABLED` | no | `false` | Master switch; extraction runs only when exactly `true`.         |
 | `OPENAI_DOCUMENT_MODEL`   | no       | `gpt-4o`      | Vision/file-capable model used for extraction.                   |
-| `OPENAI_MAX_FILE_MB`      | no       | `20`          | Max input file size sent to OpenAI.                              |
+| `OPENAI_MAX_FILE_MB`      | no       | `32`          | Max input file size sent to OpenAI. OpenAI caps inputs (~32 MB/PDF, ~20 MB/image); higher has no effect. |
 | `OPENAI_REQUEST_TIMEOUT_MS` | no     | `60000`       | Per-request timeout to OpenAI (ms).                             |
 | `BACKUP_ENABLED`          | no       | `true`        | `false` disables scheduled backups (manual still works).         |
 | `BACKUP_INTERVAL_HOURS`   | no       | `24`          | Hours between scheduled backups.                                 |
 | `BACKUP_RETENTION`        | no       | `14`          | Most-recent successful backups to keep; older ones are pruned.    |
 | `PG_DUMP_PATH`            | no       | `pg_dump`     | Path to the `pg_dump` binary if not on `PATH`.                   |
 | `MIGRATIONS_DIR`          | no       | `/app/migrations` | Where the API reads SQL migrations (set in the image).      |
+| `MAX_REQUEST_BODY_MB`     | no       | `50`          | Max JSON/form body size (CSV bulk imports, base64 uploads). Raise nginx `client_max_body_size` too if set above 100. |
 
 \* Required when using the bundled `postgres` service; otherwise supply
 `DATABASE_URL` directly.

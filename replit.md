@@ -13,6 +13,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/db run migrate` — apply pending migrations non-interactively (`DATABASE_URL` required)
 - Required env: `DATABASE_URL` — Postgres connection string; `SESSION_SECRET` — signs session cookies
 - Optional env: `CORS_ORIGINS` — comma-separated allowlist of cross-origin origins. Unset = cross-origin blocked (the web app is same-origin behind nginx, so this is the safe default)
+- Optional env: `MAX_REQUEST_BODY_MB` — max JSON/form body size in MB (default `50`); the cap for CSV bulk imports and base64 uploads. If set above `100`, also raise `client_max_body_size` in `artifacts/stavba/nginx.conf`. Binary photo/document uploads have a separate, higher cap (see `storage.ts`/`billing-documents.ts`).
 
 ## Deploy (Docker / Coolify)
 
@@ -63,7 +64,7 @@ is read from env only, never stored in the DB or logged. Status + a no-document
 - `OPENAI_API_KEY` — operator's OpenAI key; empty disables extraction
 - `OPENAI_DOCUMENT_EXTRACTION_ENABLED` — master switch; runs only when exactly `true` (default `false`)
 - `OPENAI_DOCUMENT_MODEL` — vision/file-capable model (default `gpt-4o`)
-- `OPENAI_MAX_FILE_MB` — max input file size sent to OpenAI (default `20`)
+- `OPENAI_MAX_FILE_MB` — max input file size sent to OpenAI (default `32`). OpenAI itself caps inputs (~32 MB per PDF, ~20 MB per image), so going higher has no real effect.
 - `OPENAI_REQUEST_TIMEOUT_MS` — per-request timeout in ms (default `60000`)
 
 ### Gmail / Google Workspace import (OAuth)
