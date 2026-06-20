@@ -514,7 +514,7 @@ export async function listLabels(): Promise<GmailLabel[]> {
  * name. Tokens that match nothing are returned as `unresolved` (surfaced to the
  * admin). Resolving both forms keeps the UI (ids) and env default (names) working.
  */
-async function resolveLabelIds(
+export async function resolveLabelIds(
   client: OAuth2Client,
   tokens: string[],
 ): Promise<{ ids: string[]; unresolved: string[] }> {
