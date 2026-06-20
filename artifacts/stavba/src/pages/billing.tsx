@@ -2,6 +2,9 @@ import { useLocation } from "wouter";
 import {
   useGetBillingSummary,
   getGetBillingSummaryQueryKey,
+  useListCostDocuments,
+  getListCostDocumentsQueryKey,
+  type ListCostDocumentsParams,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,11 +23,20 @@ import {
   Sparkles,
 } from "lucide-react";
 
+const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
+  status: "needs_review",
+  aiOnly: true,
+};
+
 export default function Billing() {
   const [, setLocation] = useLocation();
   const { data, isLoading } = useGetBillingSummary({
     query: { queryKey: getGetBillingSummaryQueryKey() },
   });
+  const { data: aiReviewDocs } = useListCostDocuments(AI_REVIEW_PARAMS, {
+    query: { queryKey: getListCostDocumentsQueryKey(AI_REVIEW_PARAMS) },
+  });
+  const aiReviewCount = aiReviewDocs?.length ?? 0;
 
   const stats = [
     {
@@ -192,6 +204,7 @@ export default function Billing() {
           color="text-violet-500"
           title="Kontrola AI dokladů"
           subtitle="Doklady předvyplněné AI čekající na potvrzení, nejnižší důvěryhodnost první"
+          badge={aiReviewCount}
           onClick={() => setLocation("/billing/documents/review")}
         />
         <NavCard
@@ -231,12 +244,14 @@ function NavCard({
   color,
   title,
   subtitle,
+  badge,
   onClick,
 }: {
   icon: typeof Receipt;
   color: string;
   title: string;
   subtitle: string;
+  badge?: number;
   onClick: () => void;
 }) {
   return (
@@ -249,6 +264,11 @@ function NavCard({
           <p className="font-semibold text-base">{title}</p>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </div>
+        {badge != null && badge > 0 && (
+          <span className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white text-xs font-semibold min-w-[1.5rem] h-6 px-2 shrink-0">
+            {badge}
+          </span>
+        )}
         <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
       </CardContent>
     </Card>

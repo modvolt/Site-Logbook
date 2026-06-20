@@ -6,6 +6,7 @@ import {
   getListCostDocumentsQueryKey,
   getGetBillingSummaryQueryKey,
   type CostDocument,
+  type ListCostDocumentsParams,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,11 @@ import { ArrowLeft, FileText, Inbox, Sparkles, Upload } from "lucide-react";
 const UPLOAD_ACCEPT =
   "image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.xml,.isdoc,.isdocx";
 
+const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
+  status: "needs_review",
+  aiOnly: true,
+};
+
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "Všechny stavy" },
   { value: "needs_review", label: COST_DOC_STATUS_LABELS.needs_review },
@@ -71,6 +77,11 @@ export default function BillingDocuments() {
   const { data: docs, isLoading } = useListCostDocuments(params, {
     query: { queryKey: getListCostDocumentsQueryKey(params) },
   });
+
+  const { data: aiReviewDocs } = useListCostDocuments(AI_REVIEW_PARAMS, {
+    query: { queryKey: getListCostDocumentsQueryKey(AI_REVIEW_PARAMS) },
+  });
+  const aiReviewCount = aiReviewDocs?.length ?? 0;
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/billing/documents"] });
@@ -142,6 +153,11 @@ export default function BillingDocuments() {
           onClick={() => setLocation("/billing/documents/review")}
         >
           <Sparkles className="h-4 w-4 mr-1" /> Kontrola AI dokladů
+          {aiReviewCount > 0 && (
+            <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-violet-600 text-white text-xs font-semibold min-w-[1.25rem] h-5 px-1.5">
+              {aiReviewCount}
+            </span>
+          )}
         </Button>
       </div>
 
