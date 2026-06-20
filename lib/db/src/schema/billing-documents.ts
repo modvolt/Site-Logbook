@@ -43,6 +43,9 @@ export const billingDocumentsTable = pgTable(
     status: text("status").notNull().default("uploaded"),
     docType: text("doc_type").notNull().default("invoice"),
     source: text("source").notNull().default("manual"),
+    // Provenance detail for the source. For source="email" this is the original
+    // sender's address; null for manually uploaded documents.
+    sourceRef: text("source_ref"),
 
     // Original file in object storage (only the path is stored, never bytes).
     objectPath: text("object_path"),

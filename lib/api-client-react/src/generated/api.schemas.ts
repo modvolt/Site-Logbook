@@ -949,6 +949,107 @@ export interface EmailTestResult {
   to: string;
 }
 
+/**
+ * Which configuration is active: "db" (this saved config), "env" (IMAP_* environment fallback), or "none".
+ */
+export type EmailImportSettingsSource = typeof EmailImportSettingsSource[keyof typeof EmailImportSettingsSource];
+
+
+export const EmailImportSettingsSource = {
+  db: 'db',
+  env: 'env',
+  none: 'none',
+} as const;
+
+export interface EmailImportSettings {
+  enabled: boolean;
+  /** @nullable */
+  host: string | null;
+  port: number;
+  secure: boolean;
+  /** @nullable */
+  username: string | null;
+  folder: string;
+  markSeen: boolean;
+  pollMinutes: number;
+  /** Whether a password / app password is stored. */
+  passwordSet: boolean;
+  /** @nullable */
+  lastPolledAt: string | null;
+  /** @nullable */
+  lastStatus: string | null;
+  /** @nullable */
+  lastError: string | null;
+  /** Which configuration is active: "db" (this saved config), "env" (IMAP_* environment fallback), or "none". */
+  source: EmailImportSettingsSource;
+}
+
+export interface EmailImportSettingsInput {
+  enabled: boolean;
+  /** @nullable */
+  host: string | null;
+  port: number;
+  secure: boolean;
+  /** @nullable */
+  username: string | null;
+  folder: string;
+  markSeen: boolean;
+  pollMinutes: number;
+  /**
+     * Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit / null to keep the existing password.
+     * @nullable
+     */
+  password?: string | null;
+}
+
+export interface EmailImportTestResult {
+  ok: boolean;
+  folder: string;
+  /** Total messages present in the opened folder. */
+  messages: number;
+}
+
+export interface EmailImportPollResult {
+  ok: boolean;
+  processed: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  noAttachments: number;
+}
+
+export type EmailImportLogEntryStatus = typeof EmailImportLogEntryStatus[keyof typeof EmailImportLogEntryStatus];
+
+
+export const EmailImportLogEntryStatus = {
+  imported: 'imported',
+  no_attachments: 'no_attachments',
+  skipped: 'skipped',
+  failed: 'failed',
+} as const;
+
+export interface EmailImportLogEntry {
+  id: number;
+  messageId: string;
+  /** @nullable */
+  sender: string | null;
+  /** @nullable */
+  subject: string | null;
+  /** @nullable */
+  receivedAt: string | null;
+  status: EmailImportLogEntryStatus;
+  attachmentsTotal: number;
+  attachmentsImported: number;
+  /**
+     * Comma-separated billing_documents ids created from this message.
+     * @nullable
+     */
+  documentIds: string | null;
+  /** @nullable */
+  error: string | null;
+  createdAt: string;
+}
+
 export interface UserInput {
   /** @minLength 3 */
   username: string;

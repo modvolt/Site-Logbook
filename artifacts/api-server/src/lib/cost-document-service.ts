@@ -7,7 +7,7 @@
  * builder. No AI — every value is either read from an ISDOC document or entered
  * by an admin during review. Matching is only ever a suggestion.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import {
   db,
@@ -34,7 +34,9 @@ function appError(statusCode: number, message: string): AppError {
 }
 
 export interface Actor {
-  userId: number;
+  // Nullable so automated importers (e.g. the e-mail poller) can act without a
+  // human user; the FK columns it writes to are nullable.
+  userId: number | null;
   name: string;
 }
 
@@ -187,6 +189,7 @@ function serializeDocument(row: BillingDocument) {
     status: row.status,
     docType: row.docType,
     source: row.source,
+    sourceRef: row.sourceRef,
     objectPath: row.objectPath,
     fileName: row.fileName,
     contentType: row.contentType,
@@ -298,6 +301,7 @@ export interface CreateDocumentInput {
   fileSize: number;
   sha256: string;
   source: string;
+  sourceRef?: string | null;
   docType?: string;
   jobId?: number | null;
   customerId?: number | null;
@@ -336,6 +340,7 @@ export async function createDocument(
         status: "needs_review",
         docType,
         source: input.source,
+        sourceRef: input.sourceRef ?? null,
         objectPath: input.objectPath,
         fileName: input.fileName,
         contentType: input.contentType,
@@ -399,6 +404,67 @@ export async function createDocument(
   const detail = await getDocument(id);
   if (!detail) throw appError(500, "Doklad se nepodařilo načíst.");
   return detail.document;
+}
+
+// ---------------------------------------------------------------------------
+// Ingest a raw file buffer (shared by the upload route and the e-mail importer)
+// ---------------------------------------------------------------------------
+
+export interface IngestFileInput {
+  fileName: string;
+  contentType: string;
+  source: string;
+  sourceRef?: string | null;
+  docType?: string;
+  jobId?: number | null;
+  customerId?: number | null;
+}
+
+export type IngestFileResult =
+  | { status: "created"; document: SerializedDocument }
+  | { status: "duplicate"; duplicates: DuplicateMatch[] };
+
+/**
+ * Store a file buffer in object storage and create a cost document from it,
+ * skipping when its exact content hash already exists (unless `force`). Centralises
+ * the dedup → store → createDocument flow so the manual upload route and the
+ * automated e-mail importer behave identically (same dedup, same extraction queue).
+ */
+export async function ingestFile(
+  buffer: Buffer,
+  input: IngestFileInput,
+  actor: Actor,
+  force = false,
+): Promise<IngestFileResult> {
+  const hash = sha256Of(buffer);
+
+  if (!force) {
+    const duplicates = await findDuplicates({ sha256: hash });
+    if (duplicates.length) {
+      return { status: "duplicate", duplicates };
+    }
+  }
+
+  const objectPath = `/objects/cost-documents/${randomUUID()}`;
+  await objectStorage.putPrivateObject(objectPath, buffer, input.contentType);
+
+  const document = await createDocument(
+    {
+      objectPath,
+      fileName: input.fileName,
+      contentType: input.contentType,
+      fileSize: buffer.length,
+      sha256: hash,
+      source: input.source,
+      sourceRef: input.sourceRef ?? null,
+      docType: input.docType,
+      jobId: input.jobId ?? null,
+      customerId: input.customerId ?? null,
+    },
+    buffer,
+    actor,
+  );
+  return { status: "created", document };
 }
 
 // ---------------------------------------------------------------------------

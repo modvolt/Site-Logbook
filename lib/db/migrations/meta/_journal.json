@@ -71,6 +71,13 @@
       "when": 1781981354771,
       "tag": "0009_chilly_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781982293335,
+      "tag": "0010_hard_vargas",
+      "breakpoints": true
     }
   ]
 }

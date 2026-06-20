@@ -14,6 +14,15 @@ import {
   useSendTestEmail,
   getGetEmailSettingsQueryKey,
   type EmailSettingsInput,
+  useGetEmailImportSettings,
+  useUpdateEmailImportSettings,
+  useTestEmailImportConnection,
+  usePollEmailImport,
+  useListEmailImportLog,
+  getGetEmailImportSettingsQueryKey,
+  getListEmailImportLogQueryKey,
+  type EmailImportSettingsInput,
+  type EmailImportLogEntry,
   useListBackups,
   useCreateBackup,
   useRestoreBackup,
@@ -72,6 +81,37 @@ const EMPTY_EMAIL_FORM: EmailForm = {
   password: "",
   fromAddress: "",
   fromName: "",
+};
+
+type EmailImportForm = {
+  enabled: boolean;
+  host: string;
+  port: string;
+  secure: boolean;
+  username: string;
+  password: string;
+  folder: string;
+  markSeen: boolean;
+  pollMinutes: string;
+};
+
+const EMPTY_EMAIL_IMPORT_FORM: EmailImportForm = {
+  enabled: false,
+  host: "",
+  port: "993",
+  secure: true,
+  username: "",
+  password: "",
+  folder: "INBOX",
+  markSeen: true,
+  pollMinutes: "15",
+};
+
+const IMPORT_STATUS_LABELS: Record<string, string> = {
+  imported: "Naimportováno",
+  no_attachments: "Bez příloh",
+  skipped: "Přeskočeno (duplicita)",
+  failed: "Chyba",
 };
 
 function formatBytes(bytes: number | null): string {
@@ -591,6 +631,348 @@ function EmailSettingsCard() {
   );
 }
 
+function EmailImportCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetEmailImportSettings({
+    query: { queryKey: getGetEmailImportSettingsQueryKey() },
+  });
+  const { data: log } = useListEmailImportLog({
+    query: { queryKey: getListEmailImportLogQueryKey() },
+  });
+  const updateMutation = useUpdateEmailImportSettings();
+  const testMutation = useTestEmailImportConnection();
+  const pollMutation = usePollEmailImport();
+
+  const [form, setForm] = useState<EmailImportForm>(EMPTY_EMAIL_IMPORT_FORM);
+  const [passwordSet, setPasswordSet] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [source, setSource] = useState<"db" | "env" | "none">("none");
+
+  useEffect(() => {
+    if (!data) return;
+    setForm({
+      enabled: data.enabled,
+      host: data.host ?? "",
+      port: String(data.port ?? 993),
+      secure: data.secure,
+      username: data.username ?? "",
+      password: "",
+      folder: data.folder ?? "INBOX",
+      markSeen: data.markSeen,
+      pollMinutes: String(data.pollMinutes ?? 15),
+    });
+    setPasswordSet(data.passwordSet);
+    setPasswordTouched(false);
+    setSource(data.source);
+  }, [data]);
+
+  function set<K extends keyof EmailImportForm>(key: K, value: EmailImportForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function applyGmailPreset() {
+    setForm((f) => ({ ...f, host: "imap.gmail.com", port: "993", secure: true }));
+  }
+
+  function handleSave() {
+    const port = Number(form.port);
+    if (!Number.isInteger(port) || port <= 0) {
+      toast({ title: "Neplatný port", variant: "destructive" });
+      return;
+    }
+    const pollMinutes = Number(form.pollMinutes);
+    if (!Number.isInteger(pollMinutes) || pollMinutes < 1) {
+      toast({ title: "Neplatný interval", variant: "destructive" });
+      return;
+    }
+    const body: EmailImportSettingsInput = {
+      enabled: form.enabled,
+      host: form.host.trim() || null,
+      port,
+      secure: form.secure,
+      username: form.username.trim() || null,
+      folder: form.folder.trim() || "INBOX",
+      markSeen: form.markSeen,
+      pollMinutes,
+      ...(passwordTouched ? { password: form.password } : {}),
+    };
+    updateMutation.mutate(
+      { data: body },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetEmailImportSettingsQueryKey() });
+          toast({ title: "Nastavení příjmu e-mailů uloženo" });
+        },
+        onError: (err: any) =>
+          toast({ title: "Uložení selhalo", description: err?.message, variant: "destructive" }),
+      },
+    );
+  }
+
+  function handleTest() {
+    testMutation.mutate(
+      undefined,
+      {
+        onSuccess: (res: any) =>
+          toast({
+            title: "Připojení úspěšné",
+            description: `Schránka „${res.folder}“ obsahuje ${res.messages} zpráv.`,
+          }),
+        onError: (err: any) =>
+          toast({
+            title: "Připojení selhalo",
+            description: err?.message,
+            variant: "destructive",
+          }),
+      },
+    );
+  }
+
+  function handlePoll() {
+    pollMutation.mutate(
+      undefined,
+      {
+        onSuccess: (res: any) => {
+          queryClient.invalidateQueries({ queryKey: getListEmailImportLogQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetEmailImportSettingsQueryKey() });
+          toast({
+            title: "Načtení dokončeno",
+            description: `Naimportováno ${res.imported}, přeskočeno ${res.skipped}, chyb ${res.failed}.`,
+          });
+        },
+        onError: (err: any) =>
+          toast({
+            title: "Načtení selhalo",
+            description: err?.message,
+            variant: "destructive",
+          }),
+      },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Download className="h-5 w-5" /> Příjem dokladů e-mailem (IMAP)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-sm text-muted-foreground">
+          Automaticky stahuje přílohy (ISDOC/XML/PDF/obrázky) z poštovní schránky a
+          zakládá z nich přijaté nákladové doklady. Stejná zpráva se nikdy nenaimportuje
+          dvakrát. Změny se projeví ihned i v ostrém provozu.
+        </p>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Načítání…</p>
+        ) : (
+          <>
+            {source === "env" && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-300">
+                Příjem se nyní řídí proměnnými prostředí (IMAP_*). Vyplňte a aktivujte
+                nastavení níže, chcete-li je spravovat odtud.
+              </div>
+            )}
+
+            {data?.lastStatus && (
+              <div className="rounded-md border p-3 text-xs text-muted-foreground">
+                <div>
+                  Poslední kontrola:{" "}
+                  {data.lastPolledAt
+                    ? new Date(data.lastPolledAt).toLocaleString("cs-CZ")
+                    : "—"}
+                </div>
+                {data.lastError ? (
+                  <div className="text-destructive mt-1">Chyba: {data.lastError}</div>
+                ) : (
+                  <div className="mt-1">{data.lastStatus}</div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label className="font-medium">Automaticky stahovat doklady</Label>
+                <p className="text-xs text-muted-foreground">
+                  Když je vypnuto, použijí se proměnné prostředí (pokud existují).
+                </p>
+              </div>
+              <Switch checked={form.enabled} onCheckedChange={(v) => set("enabled", v)} />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Rychlé předvyplnění:</span>
+              <Button type="button" variant="outline" size="sm" onClick={applyGmailPreset} className="gap-2">
+                <Mail className="h-4 w-4" /> Gmail
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="imap-host">IMAP server</Label>
+                <Input
+                  id="imap-host"
+                  value={form.host}
+                  onChange={(e) => set("host", e.target.value)}
+                  placeholder="imap.gmail.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="imap-port">Port</Label>
+                <Input
+                  id="imap-port"
+                  type="number"
+                  value={form.port}
+                  onChange={(e) => set("port", e.target.value)}
+                  placeholder="993"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label className="font-medium">Zabezpečené spojení (SSL/TLS)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Zapněte pro port 993 (Gmail). Vypněte pro STARTTLS na portu 143.
+                </p>
+              </div>
+              <Switch checked={form.secure} onCheckedChange={(v) => set("secure", v)} />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="imap-user">Uživatelské jméno (e-mail)</Label>
+              <Input
+                id="imap-user"
+                value={form.username}
+                onChange={(e) => set("username", e.target.value)}
+                placeholder="doklady@vasefirma.cz"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="imap-pass">Heslo {form.host.includes("gmail") ? "(heslo aplikace)" : ""}</Label>
+              <Input
+                id="imap-pass"
+                type="password"
+                value={form.password}
+                onChange={(e) => {
+                  set("password", e.target.value);
+                  setPasswordTouched(true);
+                }}
+                placeholder={passwordSet ? "•••••••• (uloženo – ponechte prázdné pro zachování)" : "Zadejte heslo"}
+                autoComplete="new-password"
+              />
+              <p className="text-xs text-muted-foreground">
+                Pro Gmail s dvoufázovým ověřením vytvořte „Heslo aplikace“ (16 znaků) v
+                nastavení účtu Google a vložte je sem.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="imap-folder">Složka</Label>
+                <Input
+                  id="imap-folder"
+                  value={form.folder}
+                  onChange={(e) => set("folder", e.target.value)}
+                  placeholder="INBOX"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="imap-poll">Interval (min)</Label>
+                <Input
+                  id="imap-poll"
+                  type="number"
+                  value={form.pollMinutes}
+                  onChange={(e) => set("pollMinutes", e.target.value)}
+                  placeholder="15"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3 sm:col-span-1">
+                <Label className="font-medium text-sm">Označit jako přečtené</Label>
+                <Switch checked={form.markSeen} onCheckedChange={(v) => set("markSeen", v)} />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 border-t pt-4">
+              <Button onClick={handleSave} disabled={updateMutation.isPending} className="gap-2">
+                <Save className="h-4 w-4" />
+                {updateMutation.isPending ? "Ukládání…" : "Uložit nastavení"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTest}
+                disabled={testMutation.isPending}
+                className="gap-2"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {testMutation.isPending ? "Testování…" : "Otestovat připojení"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePoll}
+                disabled={pollMutation.isPending}
+                className="gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                {pollMutation.isPending ? "Načítání…" : "Načíst nyní"}
+              </Button>
+            </div>
+
+            <div className="space-y-2 border-t pt-4">
+              <Label>Historie importů</Label>
+              {!log || log.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Zatím žádné zpracované zprávy.</p>
+              ) : (
+                <div className="space-y-2">
+                  {log.map((entry: EmailImportLogEntry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-md border p-2 text-xs flex flex-col gap-0.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium truncate">
+                          {entry.subject || "(bez předmětu)"}
+                        </span>
+                        <span
+                          className={
+                            entry.status === "failed"
+                              ? "text-destructive shrink-0"
+                              : entry.status === "imported"
+                                ? "text-emerald-600 dark:text-emerald-400 shrink-0"
+                                : "text-muted-foreground shrink-0"
+                          }
+                        >
+                          {IMPORT_STATUS_LABELS[entry.status] ?? entry.status}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground truncate">
+                        {entry.sender || "neznámý odesílatel"}
+                        {" · "}
+                        {new Date(entry.createdAt).toLocaleString("cs-CZ")}
+                        {entry.status === "imported" &&
+                          ` · ${entry.attachmentsImported}/${entry.attachmentsTotal} příloh`}
+                      </div>
+                      {entry.error && (
+                        <div className="text-destructive">{entry.error}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SecurityQuestionsCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1095,6 +1477,8 @@ export default function Settings() {
       </Card>
 
       {can("manageUsers") && <EmailSettingsCard />}
+
+      {can("manageUsers") && <EmailImportCard />}
 
       {can("manageUsers") && <BackupCard />}
 

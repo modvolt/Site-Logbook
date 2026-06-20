@@ -5,7 +5,6 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
-import { randomUUID } from "node:crypto";
 import {
   UpdateCostDocumentBody,
   SetCostDocumentStatusBody,
@@ -13,12 +12,9 @@ import {
   SplitCostDocumentLineBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
-import { ObjectStorageService } from "../lib/objectStorage";
 import { contentMatchesType } from "../lib/fileSignature";
 import {
-  sha256Of,
-  findDuplicates,
-  createDocument,
+  ingestFile,
   listDocuments,
   getDocument,
   updateDocument,
@@ -39,7 +35,6 @@ import {
 } from "../lib/openai-extraction";
 
 const router: IRouter = Router();
-const objectStorage = new ObjectStorageService();
 
 // Received cost documents (přijaté nákladové doklady) live under /billing and are
 // admin-only. Path-scoped so the gate never leaks to downstream pathless routers.
@@ -200,51 +195,35 @@ router.post(
       return;
     }
 
-    const hash = sha256Of(body);
-
-    // Pre-create duplicate check on exact content hash. The admin can re-submit
-    // with ?force=true to import anyway (near-duplicates are surfaced after
-    // creation via the document's `duplicates` list).
-    if (!force) {
-      const duplicates = await findDuplicates({ sha256: hash });
-      if (duplicates.length) {
-        res.status(409).json({
-          message:
-            "Tento soubor už pravděpodobně byl nahrán. Zkontrolujte duplicity níže.",
-          duplicates,
-        });
-        return;
-      }
-    }
-
-    const objectPath = `/objects/cost-documents/${randomUUID()}`;
     try {
-      await objectStorage.putPrivateObject(objectPath, body, contentType);
-    } catch (error) {
-      req.log.error({ err: error }, "Error uploading cost document");
-      res.status(500).json({ error: "Nepodařilo se uložit soubor do úložiště." });
-      return;
-    }
-
-    try {
-      const created = await createDocument(
+      // Pre-create duplicate check on exact content hash. The admin can re-submit
+      // with ?force=true to import anyway (near-duplicates are surfaced after
+      // creation via the document's `duplicates` list).
+      const result = await ingestFile(
+        body,
         {
-          objectPath,
           fileName: name || "doklad",
           contentType,
-          fileSize: body.length,
-          sha256: hash,
           source: "manual",
           docType,
           jobId,
           customerId,
         },
-        body,
         actorOf(req),
+        force,
       );
-      const detail = await getDocument(created.id);
+      if (result.status === "duplicate") {
+        res.status(409).json({
+          message:
+            "Tento soubor už pravděpodobně byl nahrán. Zkontrolujte duplicity níže.",
+          duplicates: result.duplicates,
+        });
+        return;
+      }
+      const detail = await getDocument(result.document.id);
       res.json(detail);
     } catch (error) {
+      req.log.error({ err: error }, "Error uploading cost document");
       handleError(error, "Doklad se nepodařilo vytvořit.", res);
     }
   },

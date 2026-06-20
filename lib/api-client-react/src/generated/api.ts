@@ -69,6 +69,11 @@ import type {
   DeviceCredentialUpdate,
   DocumentExtractionStatus,
   DocumentExtractionTestResult,
+  EmailImportLogEntry,
+  EmailImportPollResult,
+  EmailImportSettings,
+  EmailImportSettingsInput,
+  EmailImportTestResult,
   EmailSettings,
   EmailSettingsInput,
   EmailTestInput,
@@ -5510,6 +5515,371 @@ export const useSendTestEmail = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getSendTestEmailMutationOptions(options));
     }
+
+export const getGetEmailImportSettingsUrl = () => {
+
+
+
+
+  return `/api/email-import-settings`
+}
+
+/**
+ * @summary Get the incoming-mail (IMAP) import configuration (admin only)
+ */
+export const getEmailImportSettings = async ( options?: RequestInit): Promise<EmailImportSettings> => {
+
+  return customFetch<EmailImportSettings>(getGetEmailImportSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEmailImportSettingsQueryKey = () => {
+    return [
+    `/api/email-import-settings`
+    ] as const;
+    }
+
+
+export const getGetEmailImportSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getEmailImportSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmailImportSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEmailImportSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEmailImportSettings>>> = ({ signal }) => getEmailImportSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEmailImportSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEmailImportSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getEmailImportSettings>>>
+export type GetEmailImportSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the incoming-mail (IMAP) import configuration (admin only)
+ */
+
+export function useGetEmailImportSettings<TData = Awaited<ReturnType<typeof getEmailImportSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmailImportSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEmailImportSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateEmailImportSettingsUrl = () => {
+
+
+
+
+  return `/api/email-import-settings`
+}
+
+/**
+ * @summary Update the incoming-mail import configuration (admin only)
+ */
+export const updateEmailImportSettings = async (emailImportSettingsInput: EmailImportSettingsInput, options?: RequestInit): Promise<EmailImportSettings> => {
+
+  return customFetch<EmailImportSettings>(getUpdateEmailImportSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      emailImportSettingsInput,)
+  }
+);}
+
+
+
+
+export const getUpdateEmailImportSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEmailImportSettings>>, TError,{data: BodyType<EmailImportSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateEmailImportSettings>>, TError,{data: BodyType<EmailImportSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateEmailImportSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateEmailImportSettings>>, {data: BodyType<EmailImportSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateEmailImportSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateEmailImportSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateEmailImportSettings>>>
+    export type UpdateEmailImportSettingsMutationBody = BodyType<EmailImportSettingsInput>
+    export type UpdateEmailImportSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the incoming-mail import configuration (admin only)
+ */
+export const useUpdateEmailImportSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEmailImportSettings>>, TError,{data: BodyType<EmailImportSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateEmailImportSettings>>,
+        TError,
+        {data: BodyType<EmailImportSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateEmailImportSettingsMutationOptions(options));
+    }
+
+export const getTestEmailImportConnectionUrl = () => {
+
+
+
+
+  return `/api/email-import-settings/test`
+}
+
+/**
+ * @summary Test the IMAP connection using the saved configuration (admin only)
+ */
+export const testEmailImportConnection = async ( options?: RequestInit): Promise<EmailImportTestResult> => {
+
+  return customFetch<EmailImportTestResult>(getTestEmailImportConnectionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestEmailImportConnectionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testEmailImportConnection>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testEmailImportConnection>>, TError,void, TContext> => {
+
+const mutationKey = ['testEmailImportConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testEmailImportConnection>>, void> = () => {
+
+
+          return  testEmailImportConnection(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestEmailImportConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof testEmailImportConnection>>>
+
+    export type TestEmailImportConnectionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Test the IMAP connection using the saved configuration (admin only)
+ */
+export const useTestEmailImportConnection = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testEmailImportConnection>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testEmailImportConnection>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTestEmailImportConnectionMutationOptions(options));
+    }
+
+export const getPollEmailImportUrl = () => {
+
+
+
+
+  return `/api/email-import/poll`
+}
+
+/**
+ * @summary Trigger an immediate mailbox poll (admin only)
+ */
+export const pollEmailImport = async ( options?: RequestInit): Promise<EmailImportPollResult> => {
+
+  return customFetch<EmailImportPollResult>(getPollEmailImportUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getPollEmailImportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pollEmailImport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof pollEmailImport>>, TError,void, TContext> => {
+
+const mutationKey = ['pollEmailImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof pollEmailImport>>, void> = () => {
+
+
+          return  pollEmailImport(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PollEmailImportMutationResult = NonNullable<Awaited<ReturnType<typeof pollEmailImport>>>
+
+    export type PollEmailImportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Trigger an immediate mailbox poll (admin only)
+ */
+export const usePollEmailImport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof pollEmailImport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof pollEmailImport>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getPollEmailImportMutationOptions(options));
+    }
+
+export const getListEmailImportLogUrl = () => {
+
+
+
+
+  return `/api/email-import-log`
+}
+
+/**
+ * @summary List recent incoming-mail import outcomes (admin only)
+ */
+export const listEmailImportLog = async ( options?: RequestInit): Promise<EmailImportLogEntry[]> => {
+
+  return customFetch<EmailImportLogEntry[]>(getListEmailImportLogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListEmailImportLogQueryKey = () => {
+    return [
+    `/api/email-import-log`
+    ] as const;
+    }
+
+
+export const getListEmailImportLogQueryOptions = <TData = Awaited<ReturnType<typeof listEmailImportLog>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEmailImportLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListEmailImportLogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEmailImportLog>>> = ({ signal }) => listEmailImportLog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listEmailImportLog>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListEmailImportLogQueryResult = NonNullable<Awaited<ReturnType<typeof listEmailImportLog>>>
+export type ListEmailImportLogQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List recent incoming-mail import outcomes (admin only)
+ */
+
+export function useListEmailImportLog<TData = Awaited<ReturnType<typeof listEmailImportLog>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEmailImportLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListEmailImportLogQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListUsersUrl = () => {
 

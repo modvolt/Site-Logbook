@@ -1591,6 +1591,125 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /email-import-settings:
+    get:
+      operationId: getEmailImportSettings
+      tags: [email-import]
+      summary: Get the incoming-mail (IMAP) import configuration (admin only)
+      responses:
+        "200":
+          description: Current import configuration (password is never returned)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateEmailImportSettings
+      tags: [email-import]
+      summary: Update the incoming-mail import configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailImportSettingsInput"
+      responses:
+        "200":
+          description: Updated import configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /email-import-settings/test:
+    post:
+      operationId: testEmailImportConnection
+      tags: [email-import]
+      summary: Test the IMAP connection using the saved configuration (admin only)
+      responses:
+        "200":
+          description: Connection succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportTestResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Connection failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /email-import/poll:
+    post:
+      operationId: pollEmailImport
+      tags: [email-import]
+      summary: Trigger an immediate mailbox poll (admin only)
+      responses:
+        "200":
+          description: Poll completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportPollResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Poll failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /email-import-log:
+    get:
+      operationId: listEmailImportLog
+      tags: [email-import]
+      summary: List recent incoming-mail import outcomes (admin only)
+      responses:
+        "200":
+          description: Recent import log entries (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailImportLogEntry"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users:
     get:
       operationId: listUsers
@@ -5041,6 +5160,154 @@ components:
         sent:
           type: boolean
         to:
+          type: string
+
+    EmailImportSettings:
+      type: object
+      required:
+        [
+          enabled,
+          host,
+          port,
+          secure,
+          username,
+          folder,
+          markSeen,
+          pollMinutes,
+          passwordSet,
+          lastPolledAt,
+          lastStatus,
+          lastError,
+          source,
+        ]
+      properties:
+        enabled:
+          type: boolean
+        host:
+          type: ["string", "null"]
+        port:
+          type: integer
+        secure:
+          type: boolean
+        username:
+          type: ["string", "null"]
+        folder:
+          type: string
+        markSeen:
+          type: boolean
+        pollMinutes:
+          type: integer
+        passwordSet:
+          type: boolean
+          description: Whether a password / app password is stored.
+        lastPolledAt:
+          type: ["string", "null"]
+        lastStatus:
+          type: ["string", "null"]
+        lastError:
+          type: ["string", "null"]
+        source:
+          type: string
+          enum: [db, env, none]
+          description: >-
+            Which configuration is active: "db" (this saved config), "env"
+            (IMAP_* environment fallback), or "none".
+
+    EmailImportSettingsInput:
+      type: object
+      required: [enabled, host, port, secure, username, folder, markSeen, pollMinutes]
+      properties:
+        enabled:
+          type: boolean
+        host:
+          type: ["string", "null"]
+        port:
+          type: integer
+        secure:
+          type: boolean
+        username:
+          type: ["string", "null"]
+        folder:
+          type: string
+        markSeen:
+          type: boolean
+        pollMinutes:
+          type: integer
+        password:
+          type: ["string", "null"]
+          description: >-
+            Write-only. Provide a non-empty string to set the password, an empty
+            string to clear it, or omit / null to keep the existing password.
+
+    EmailImportTestResult:
+      type: object
+      required: [ok, folder, messages]
+      properties:
+        ok:
+          type: boolean
+        folder:
+          type: string
+        messages:
+          type: integer
+          description: Total messages present in the opened folder.
+
+    EmailImportPollResult:
+      type: object
+      required: [ok, processed, imported, skipped, failed, noAttachments]
+      properties:
+        ok:
+          type: boolean
+        processed:
+          type: integer
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        failed:
+          type: integer
+        noAttachments:
+          type: integer
+
+    EmailImportLogEntry:
+      type: object
+      required:
+        [
+          id,
+          messageId,
+          sender,
+          subject,
+          receivedAt,
+          status,
+          attachmentsTotal,
+          attachmentsImported,
+          documentIds,
+          error,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: integer
+        messageId:
+          type: string
+        sender:
+          type: ["string", "null"]
+        subject:
+          type: ["string", "null"]
+        receivedAt:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [imported, no_attachments, skipped, failed]
+        attachmentsTotal:
+          type: integer
+        attachmentsImported:
+          type: integer
+        documentIds:
+          type: ["string", "null"]
+          description: Comma-separated billing_documents ids created from this message.
+        error:
+          type: ["string", "null"]
+        createdAt:
           type: string
 
     Activity:

@@ -1545,6 +1545,100 @@ export const SendTestEmailResponse = zod.object({
 
 
 /**
+ * @summary Get the incoming-mail (IMAP) import configuration (admin only)
+ */
+export const GetEmailImportSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "host": zod.string().nullable(),
+  "port": zod.number(),
+  "secure": zod.boolean(),
+  "username": zod.string().nullable(),
+  "folder": zod.string(),
+  "markSeen": zod.boolean(),
+  "pollMinutes": zod.number(),
+  "passwordSet": zod.boolean().describe('Whether a password \/ app password is stored.'),
+  "lastPolledAt": zod.string().nullable(),
+  "lastStatus": zod.string().nullable(),
+  "lastError": zod.string().nullable(),
+  "source": zod.enum(['db', 'env', 'none']).describe('Which configuration is active: \"db\" (this saved config), \"env\" (IMAP_\* environment fallback), or \"none\".')
+})
+
+
+/**
+ * @summary Update the incoming-mail import configuration (admin only)
+ */
+export const UpdateEmailImportSettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "host": zod.string().nullable(),
+  "port": zod.number(),
+  "secure": zod.boolean(),
+  "username": zod.string().nullable(),
+  "folder": zod.string(),
+  "markSeen": zod.boolean(),
+  "pollMinutes": zod.number(),
+  "password": zod.string().nullish().describe('Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit \/ null to keep the existing password.')
+})
+
+export const UpdateEmailImportSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "host": zod.string().nullable(),
+  "port": zod.number(),
+  "secure": zod.boolean(),
+  "username": zod.string().nullable(),
+  "folder": zod.string(),
+  "markSeen": zod.boolean(),
+  "pollMinutes": zod.number(),
+  "passwordSet": zod.boolean().describe('Whether a password \/ app password is stored.'),
+  "lastPolledAt": zod.string().nullable(),
+  "lastStatus": zod.string().nullable(),
+  "lastError": zod.string().nullable(),
+  "source": zod.enum(['db', 'env', 'none']).describe('Which configuration is active: \"db\" (this saved config), \"env\" (IMAP_\* environment fallback), or \"none\".')
+})
+
+
+/**
+ * @summary Test the IMAP connection using the saved configuration (admin only)
+ */
+export const TestEmailImportConnectionResponse = zod.object({
+  "ok": zod.boolean(),
+  "folder": zod.string(),
+  "messages": zod.number().describe('Total messages present in the opened folder.')
+})
+
+
+/**
+ * @summary Trigger an immediate mailbox poll (admin only)
+ */
+export const PollEmailImportResponse = zod.object({
+  "ok": zod.boolean(),
+  "processed": zod.number(),
+  "imported": zod.number(),
+  "skipped": zod.number(),
+  "failed": zod.number(),
+  "noAttachments": zod.number()
+})
+
+
+/**
+ * @summary List recent incoming-mail import outcomes (admin only)
+ */
+export const ListEmailImportLogResponseItem = zod.object({
+  "id": zod.number(),
+  "messageId": zod.string(),
+  "sender": zod.string().nullable(),
+  "subject": zod.string().nullable(),
+  "receivedAt": zod.string().nullable(),
+  "status": zod.enum(['imported', 'no_attachments', 'skipped', 'failed']),
+  "attachmentsTotal": zod.number(),
+  "attachmentsImported": zod.number(),
+  "documentIds": zod.string().nullable().describe('Comma-separated billing_documents ids created from this message.'),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string()
+})
+export const ListEmailImportLogResponse = zod.array(ListEmailImportLogResponseItem)
+
+
+/**
  * @summary List all users (admin only)
  */
 export const ListUsersResponseItem = zod.object({
