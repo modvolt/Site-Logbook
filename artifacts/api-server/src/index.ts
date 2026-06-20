@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startBackupScheduler } from "./lib/backup";
 import { startReminderScheduler } from "./lib/invoice-reminders";
+import { startExtractionWorker } from "./lib/extraction-worker";
 import { describeObjectStorageConfig } from "./lib/objectStorage";
 
 const rawPort = process.env["PORT"];
@@ -28,4 +29,5 @@ app.listen(port, (err) => {
   logger.info(describeObjectStorageConfig(), "Object storage configuration");
   startBackupScheduler();
   startReminderScheduler();
+  startExtractionWorker();
 });

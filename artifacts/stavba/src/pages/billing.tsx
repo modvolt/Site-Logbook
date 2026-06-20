@@ -13,6 +13,7 @@ import {
   Briefcase,
   ChevronRight,
   Building2,
+  Inbox,
   Settings as SettingsIcon,
   AlertTriangle,
   Banknote,
@@ -177,6 +178,13 @@ export default function Billing() {
           title="Nevyfakturované zakázky"
           subtitle="Vytvořte fakturu z hotových zakázek podle zákazníka"
           onClick={() => setLocation("/billing/unbilled")}
+        />
+        <NavCard
+          icon={Inbox}
+          color="text-emerald-500"
+          title="Přijaté doklady"
+          subtitle="Účtenky, dodací listy a přijaté faktury k přefakturaci"
+          onClick={() => setLocation("/billing/documents")}
         />
         <NavCard
           icon={FileText}

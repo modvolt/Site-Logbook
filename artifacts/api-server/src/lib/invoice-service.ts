@@ -26,6 +26,7 @@ import { generateInvoicePdf, type InvoicePdfData } from "./invoice-pdf";
 import { resolveIban, buildSpayd, generatePaymentQrDataUrl } from "./invoice-qr";
 import { ObjectStorageService } from "./objectStorage";
 import { parseBankStatement, type StatementFormat } from "./bank-statement-parser";
+import { markLinesInvoiced, releaseInvoicedLines } from "./cost-document-service";
 
 const objectStorage = new ObjectStorageService();
 
@@ -724,6 +725,13 @@ export interface InvoiceLineInput {
   activityId?: number | null;
 }
 
+/** Cost-document line ids referenced by a set of invoice line inputs. */
+function billingDocLineIds(lines: RawLine[]): number[] {
+  return lines
+    .filter((l) => l.sourceType === "billing_document_line" && l.sourceId != null)
+    .map((l) => l.sourceId as number);
+}
+
 export interface InvoiceCreateInput {
   customerId: number;
   jobIds?: number[];
@@ -764,6 +772,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
 
     const manual: RawLine[] = (input.lines ?? []).map((l) => ({
       sourceType: l.sourceType ?? "manual",
+      sourceId: l.sourceId ?? null,
       description: l.description,
       quantity: l.quantity ?? 1,
       unit: l.unit ?? null,
@@ -800,6 +809,9 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
 
     const computed = await persistLines(tx, invoice.id, allLines, vatModeDefault);
     await writeTotals(tx, invoice.id, computed);
+
+    // Reserve any re-billed cost-document lines so they aren't offered twice.
+    await markLinesInvoiced(tx, invoice.id, billingDocLineIds(allLines));
 
     // Source links — one per job, with the billed amount (without VAT).
     if (jobAmounts.size) {
@@ -863,6 +875,9 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
       // its source link, returning the job to the unbilled pool (instead of being
       // silently marked "vyfakturováno" with nothing on the invoice for it).
       await tx.delete(invoiceLinesTable).where(eq(invoiceLinesTable.invoiceId, id));
+      // Release previously-reserved cost-document lines; re-reserve below from
+      // the new line set, so removing a doc line frees it for re-billing.
+      await releaseInvoicedLines(tx, id);
       const lines: RawLine[] = input.lines.map((l) => ({
         sourceType: l.sourceType ?? "manual",
         sourceId: l.sourceId ?? null,
@@ -894,6 +909,7 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
           })),
         );
       }
+      await markLinesInvoiced(tx, id, billingDocLineIds(lines));
     } else {
       // VAT mode may have changed — recompute existing lines under the new mode.
       await recalcWithin(tx, id, vatModeDefault);
@@ -955,7 +971,11 @@ export async function deleteDraft(id: number) {
   if (invoice.status !== "draft") {
     throw appError(409, "Smazat lze pouze koncept faktury.");
   }
-  await db.delete(invoicesTable).where(eq(invoicesTable.id, id));
+  await db.transaction(async (tx) => {
+    // Free any reserved cost-document lines before the invoice row is removed.
+    await releaseInvoicedLines(tx, id);
+    await tx.delete(invoicesTable).where(eq(invoicesTable.id, id));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1236,6 +1256,9 @@ export async function cancelInvoice(
       .update(invoicesTable)
       .set({ status: "cancelled", cancelledAt: new Date(), updatedAt: new Date() })
       .where(eq(invoicesTable.id, id));
+
+    // Storno frees any re-billed cost-document lines for future invoicing.
+    await releaseInvoicedLines(tx, id);
 
     const links = await tx
       .select({ jobId: invoiceSourceLinksTable.jobId })

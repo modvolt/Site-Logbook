@@ -27,6 +27,7 @@ import statsRouter from "./stats";
 import emailSettingsRouter from "./email-settings";
 import backupsRouter from "./backups";
 import billingRouter from "./billing";
+import billingDocumentsRouter from "./billing-documents";
 
 const router: IRouter = Router();
 
@@ -58,5 +59,6 @@ router.use(statsRouter);
 router.use(emailSettingsRouter);
 router.use(backupsRouter);
 router.use(billingRouter);
+router.use(billingDocumentsRouter);
 
 export default router;

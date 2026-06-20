@@ -24,3 +24,4 @@ export * from "./backup-log";
 export * from "./invoices";
 export * from "./invoice-reminders";
 export * from "./billing-settings";
+export * from "./billing-documents";

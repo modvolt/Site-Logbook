@@ -9,6 +9,8 @@ import {
   getListUnbilledCustomersQueryKey,
   getGetBillingSummaryQueryKey,
   getListInvoicesQueryKey,
+  useListApprovedCostLines,
+  getListApprovedCostLinesQueryKey,
   type UnbilledJob,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge } from "@/components/badges";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Building2, FileEdit, Receipt } from "lucide-react";
+import { ArrowLeft, Building2, FileEdit, Inbox, Receipt } from "lucide-react";
 
 function jobOrientationalTotal(job: UnbilledJob, billFine: boolean): number {
   let total = (job.price ?? 0) + (job.transportCost ?? 0) + (job.parking ?? 0);
@@ -45,10 +47,25 @@ export default function BillingUnbilledDetail() {
   });
   const createInvoice = useCreateInvoice();
 
+  const { data: approvedLines } = useListApprovedCostLines(
+    { customerId },
+    {
+      query: {
+        queryKey: getListApprovedCostLinesQueryKey({ customerId }),
+        enabled: !!customerId,
+      },
+    },
+  );
+
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [fines, setFines] = useState<Record<number, boolean>>({});
 
   const jobs = data?.jobs ?? [];
+  const costLines = approvedLines ?? [];
+  const costLinesTotal = useMemo(
+    () => costLines.reduce((sum, l) => sum + (l.totalWithoutVat ?? 0), 0),
+    [costLines],
+  );
 
   // Default: all jobs selected once data loads.
   const allSelected = jobs.length > 0 && jobs.every((j) => selected[j.id] ?? true);
@@ -74,10 +91,19 @@ export default function BillingUnbilledDetail() {
   );
 
   const handleCreate = () => {
-    if (chosenJobIds.length === 0) return;
+    if (chosenJobIds.length === 0 && costLines.length === 0) return;
     const billFineJobIds = jobs
       .filter((j) => isChecked(j.id) && fines[j.id] && (j.fines ?? 0) > 0)
       .map((j) => j.id);
+    const costLineInputs = costLines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity ?? undefined,
+      unit: line.unit ?? undefined,
+      unitPriceWithoutVat: line.unitPriceWithoutVat ?? undefined,
+      vatRate: line.vatRate ?? undefined,
+      sourceType: "billing_document_line" as const,
+      sourceId: line.id,
+    }));
     createInvoice.mutate(
       {
         data: {
@@ -85,6 +111,7 @@ export default function BillingUnbilledDetail() {
           jobIds: chosenJobIds,
           billFineJobIds,
           vatModeDefault: settings?.vatModeDefault ?? "standard",
+          ...(costLineInputs.length > 0 ? { lines: costLineInputs } : {}),
         },
       },
       {
@@ -230,17 +257,64 @@ export default function BillingUnbilledDetail() {
         })}
       </div>
 
+      {costLines.length > 0 && (
+        <Card className="mb-6 border-emerald-300 bg-emerald-50/60 dark:bg-emerald-900/15">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+              <Inbox className="h-4 w-4" />
+              Schválené nákladové položky k přefakturaci
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Tyto položky ze schválených přijatých dokladů se automaticky přidají
+              do nového konceptu faktury.
+            </p>
+            <div className="space-y-2">
+              {costLines.map((line) => (
+                <div
+                  key={line.id}
+                  className="flex items-start justify-between gap-3 text-sm border-b border-emerald-200/50 dark:border-emerald-800/40 pb-2 last:border-0 last:pb-0"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{line.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {line.supplierName || "Neznámý dodavatel"}
+                      {line.documentNumber ? ` · ${line.documentNumber}` : ""}
+                      {" · "}
+                      {line.quantity}
+                      {line.unit ? ` ${line.unit}` : ""} ×{" "}
+                      {fmtKc(line.unitPriceWithoutVat, 2)}
+                    </p>
+                  </div>
+                  <div className="font-semibold shrink-0">
+                    {fmtKc(line.totalWithoutVat, 2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between items-center mt-3 pt-2 border-t border-emerald-200/60 dark:border-emerald-800/50 text-sm">
+              <span className="text-muted-foreground">Náklady celkem bez DPH</span>
+              <span className="font-bold">{fmtKc(costLinesTotal, 2)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="sticky bottom-4 border-primary/30 bg-primary/5 backdrop-blur">
         <CardContent className="p-4 flex items-center justify-between gap-3">
           <div>
             <div className="text-xs text-muted-foreground flex items-center gap-1">
               <Receipt className="h-3.5 w-3.5" /> Orientační celkem bez DPH
             </div>
-            <div className="text-xl font-bold">{fmtKc(estimatedTotal, 0)}</div>
+            <div className="text-xl font-bold">
+              {fmtKc(estimatedTotal + costLinesTotal, 0)}
+            </div>
           </div>
           <Button
             onClick={handleCreate}
-            disabled={chosenJobIds.length === 0 || createInvoice.isPending}
+            disabled={
+              (chosenJobIds.length === 0 && costLines.length === 0) ||
+              createInvoice.isPending
+            }
             className="h-11"
           >
             <FileEdit className="h-4 w-4 mr-2" />

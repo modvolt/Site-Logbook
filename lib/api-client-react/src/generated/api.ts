@@ -31,6 +31,8 @@ import type {
   ActivityMaterialInput,
   ActivityMaterialUpdate,
   ActivityUpdate,
+  AnalyzeJobDocumentsResult,
+  ApprovedCostLine,
   Attachment,
   AttachmentInput,
   AuditLogPage,
@@ -45,6 +47,12 @@ import type {
   BillingSettingsInput,
   BillingSummary,
   CancelInvoiceInput,
+  CostDocument,
+  CostDocumentDetail,
+  CostDocumentLineSplitInput,
+  CostDocumentLineUpdateInput,
+  CostDocumentStatusInput,
+  CostDocumentUpdateInput,
   Customer,
   CustomerContact,
   CustomerContactInput,
@@ -85,7 +93,9 @@ import type {
   JobStatusUpdate,
   JobUpdate,
   ListActivitiesParams,
+  ListApprovedCostLinesParams,
   ListAuditLogsParams,
+  ListCostDocumentsParams,
   ListInvoicesParams,
   ListJobsParams,
   LoginInput,
@@ -10239,4 +10249,821 @@ export function useGetInvoiceReminderPreview<TData = Awaited<ReturnType<typeof g
 
 
 
+
+export const getListCostDocumentsUrl = (params?: ListCostDocumentsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/documents?${stringifiedParams}` : `/api/billing/documents`
+}
+
+/**
+ * @summary List received cost documents (admin only)
+ */
+export const listCostDocuments = async (params?: ListCostDocumentsParams, options?: RequestInit): Promise<CostDocument[]> => {
+
+  return customFetch<CostDocument[]>(getListCostDocumentsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCostDocumentsQueryKey = (params?: ListCostDocumentsParams,) => {
+    return [
+    `/api/billing/documents`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListCostDocumentsQueryOptions = <TData = Awaited<ReturnType<typeof listCostDocuments>>, TError = ErrorType<ErrorEnvelope>>(params?: ListCostDocumentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCostDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCostDocumentsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCostDocuments>>> = ({ signal }) => listCostDocuments(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCostDocuments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCostDocumentsQueryResult = NonNullable<Awaited<ReturnType<typeof listCostDocuments>>>
+export type ListCostDocumentsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List received cost documents (admin only)
+ */
+
+export function useListCostDocuments<TData = Awaited<ReturnType<typeof listCostDocuments>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListCostDocumentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCostDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCostDocumentsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetCostDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}`
+}
+
+/**
+ * @summary Get a cost document with its lines (admin only)
+ */
+export const getCostDocument = async (id: number, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getGetCostDocumentUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCostDocumentQueryKey = (id: number,) => {
+    return [
+    `/api/billing/documents/${id}`
+    ] as const;
+    }
+
+
+export const getGetCostDocumentQueryOptions = <TData = Awaited<ReturnType<typeof getCostDocument>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCostDocument>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCostDocumentQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCostDocument>>> = ({ signal }) => getCostDocument(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCostDocument>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCostDocumentQueryResult = NonNullable<Awaited<ReturnType<typeof getCostDocument>>>
+export type GetCostDocumentQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get a cost document with its lines (admin only)
+ */
+
+export function useGetCostDocument<TData = Awaited<ReturnType<typeof getCostDocument>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCostDocument>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCostDocumentQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateCostDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}`
+}
+
+/**
+ * @summary Update a cost document header (admin only)
+ */
+export const updateCostDocument = async (id: number,
+    costDocumentUpdateInput: CostDocumentUpdateInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getUpdateCostDocumentUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      costDocumentUpdateInput,)
+  }
+);}
+
+
+
+
+export const getUpdateCostDocumentMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCostDocument>>, TError,{id: number;data: BodyType<CostDocumentUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCostDocument>>, TError,{id: number;data: BodyType<CostDocumentUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateCostDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCostDocument>>, {id: number;data: BodyType<CostDocumentUpdateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateCostDocument(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCostDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof updateCostDocument>>>
+    export type UpdateCostDocumentMutationBody = BodyType<CostDocumentUpdateInput>
+    export type UpdateCostDocumentMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update a cost document header (admin only)
+ */
+export const useUpdateCostDocument = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCostDocument>>, TError,{id: number;data: BodyType<CostDocumentUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCostDocument>>,
+        TError,
+        {id: number;data: BodyType<CostDocumentUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateCostDocumentMutationOptions(options));
+    }
+
+export const getDeleteCostDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}`
+}
+
+/**
+ * @summary Delete a cost document (admin only)
+ */
+export const deleteCostDocument = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCostDocumentUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCostDocumentMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCostDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCostDocument>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteCostDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCostDocument>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteCostDocument(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCostDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCostDocument>>>
+
+    export type DeleteCostDocumentMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a cost document (admin only)
+ */
+export const useDeleteCostDocument = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCostDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCostDocument>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCostDocumentMutationOptions(options));
+    }
+
+export const getApproveCostDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/approve`
+}
+
+/**
+ * @summary Approve a cost document for re-billing (admin only)
+ */
+export const approveCostDocument = async (id: number, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getApproveCostDocumentUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApproveCostDocumentMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveCostDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveCostDocument>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['approveCostDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveCostDocument>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  approveCostDocument(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveCostDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof approveCostDocument>>>
+
+    export type ApproveCostDocumentMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Approve a cost document for re-billing (admin only)
+ */
+export const useApproveCostDocument = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveCostDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveCostDocument>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getApproveCostDocumentMutationOptions(options));
+    }
+
+export const getSetCostDocumentStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/status`
+}
+
+/**
+ * @summary Set a cost document's review status (admin only)
+ */
+export const setCostDocumentStatus = async (id: number,
+    costDocumentStatusInput: CostDocumentStatusInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getSetCostDocumentStatusUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      costDocumentStatusInput,)
+  }
+);}
+
+
+
+
+export const getSetCostDocumentStatusMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setCostDocumentStatus>>, TError,{id: number;data: BodyType<CostDocumentStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setCostDocumentStatus>>, TError,{id: number;data: BodyType<CostDocumentStatusInput>}, TContext> => {
+
+const mutationKey = ['setCostDocumentStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setCostDocumentStatus>>, {id: number;data: BodyType<CostDocumentStatusInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setCostDocumentStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetCostDocumentStatusMutationResult = NonNullable<Awaited<ReturnType<typeof setCostDocumentStatus>>>
+    export type SetCostDocumentStatusMutationBody = BodyType<CostDocumentStatusInput>
+    export type SetCostDocumentStatusMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set a cost document's review status (admin only)
+ */
+export const useSetCostDocumentStatus = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setCostDocumentStatus>>, TError,{id: number;data: BodyType<CostDocumentStatusInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setCostDocumentStatus>>,
+        TError,
+        {id: number;data: BodyType<CostDocumentStatusInput>},
+        TContext
+      > => {
+      return useMutation(getSetCostDocumentStatusMutationOptions(options));
+    }
+
+export const getRequeueCostDocumentExtractionUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/extract`
+}
+
+/**
+ * @summary Re-queue extraction for a cost document (admin only)
+ */
+export const requeueCostDocumentExtraction = async (id: number, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getRequeueCostDocumentExtractionUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRequeueCostDocumentExtractionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requeueCostDocumentExtraction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requeueCostDocumentExtraction>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['requeueCostDocumentExtraction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requeueCostDocumentExtraction>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  requeueCostDocumentExtraction(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequeueCostDocumentExtractionMutationResult = NonNullable<Awaited<ReturnType<typeof requeueCostDocumentExtraction>>>
+
+    export type RequeueCostDocumentExtractionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-queue extraction for a cost document (admin only)
+ */
+export const useRequeueCostDocumentExtraction = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requeueCostDocumentExtraction>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requeueCostDocumentExtraction>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRequeueCostDocumentExtractionMutationOptions(options));
+    }
+
+export const getUpdateCostDocumentLineUrl = (id: number,
+    lineId: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/lines/${lineId}`
+}
+
+/**
+ * @summary Update / match a cost document line (admin only)
+ */
+export const updateCostDocumentLine = async (id: number,
+    lineId: number,
+    costDocumentLineUpdateInput: CostDocumentLineUpdateInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getUpdateCostDocumentLineUrl(id,lineId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      costDocumentLineUpdateInput,)
+  }
+);}
+
+
+
+
+export const getUpdateCostDocumentLineMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCostDocumentLine>>, TError,{id: number;lineId: number;data: BodyType<CostDocumentLineUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCostDocumentLine>>, TError,{id: number;lineId: number;data: BodyType<CostDocumentLineUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateCostDocumentLine'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCostDocumentLine>>, {id: number;lineId: number;data: BodyType<CostDocumentLineUpdateInput>}> = (props) => {
+          const {id,lineId,data} = props ?? {};
+
+          return  updateCostDocumentLine(id,lineId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCostDocumentLineMutationResult = NonNullable<Awaited<ReturnType<typeof updateCostDocumentLine>>>
+    export type UpdateCostDocumentLineMutationBody = BodyType<CostDocumentLineUpdateInput>
+    export type UpdateCostDocumentLineMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update / match a cost document line (admin only)
+ */
+export const useUpdateCostDocumentLine = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCostDocumentLine>>, TError,{id: number;lineId: number;data: BodyType<CostDocumentLineUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCostDocumentLine>>,
+        TError,
+        {id: number;lineId: number;data: BodyType<CostDocumentLineUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateCostDocumentLineMutationOptions(options));
+    }
+
+export const getSplitCostDocumentLineUrl = (id: number,
+    lineId: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/lines/${lineId}/split`
+}
+
+/**
+ * @summary Split a cost document line across jobs (admin only)
+ */
+export const splitCostDocumentLine = async (id: number,
+    lineId: number,
+    costDocumentLineSplitInput: CostDocumentLineSplitInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getSplitCostDocumentLineUrl(id,lineId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      costDocumentLineSplitInput,)
+  }
+);}
+
+
+
+
+export const getSplitCostDocumentLineMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof splitCostDocumentLine>>, TError,{id: number;lineId: number;data: BodyType<CostDocumentLineSplitInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof splitCostDocumentLine>>, TError,{id: number;lineId: number;data: BodyType<CostDocumentLineSplitInput>}, TContext> => {
+
+const mutationKey = ['splitCostDocumentLine'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof splitCostDocumentLine>>, {id: number;lineId: number;data: BodyType<CostDocumentLineSplitInput>}> = (props) => {
+          const {id,lineId,data} = props ?? {};
+
+          return  splitCostDocumentLine(id,lineId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SplitCostDocumentLineMutationResult = NonNullable<Awaited<ReturnType<typeof splitCostDocumentLine>>>
+    export type SplitCostDocumentLineMutationBody = BodyType<CostDocumentLineSplitInput>
+    export type SplitCostDocumentLineMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Split a cost document line across jobs (admin only)
+ */
+export const useSplitCostDocumentLine = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof splitCostDocumentLine>>, TError,{id: number;lineId: number;data: BodyType<CostDocumentLineSplitInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof splitCostDocumentLine>>,
+        TError,
+        {id: number;lineId: number;data: BodyType<CostDocumentLineSplitInput>},
+        TContext
+      > => {
+      return useMutation(getSplitCostDocumentLineMutationOptions(options));
+    }
+
+export const getListApprovedCostLinesUrl = (params: ListApprovedCostLinesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/approved-lines?${stringifiedParams}` : `/api/billing/approved-lines`
+}
+
+/**
+ * @summary Approved, un-invoiced cost lines for a customer (admin only)
+ */
+export const listApprovedCostLines = async (params: ListApprovedCostLinesParams, options?: RequestInit): Promise<ApprovedCostLine[]> => {
+
+  return customFetch<ApprovedCostLine[]>(getListApprovedCostLinesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListApprovedCostLinesQueryKey = (params?: ListApprovedCostLinesParams,) => {
+    return [
+    `/api/billing/approved-lines`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListApprovedCostLinesQueryOptions = <TData = Awaited<ReturnType<typeof listApprovedCostLines>>, TError = ErrorType<ErrorEnvelope>>(params: ListApprovedCostLinesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listApprovedCostLines>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListApprovedCostLinesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listApprovedCostLines>>> = ({ signal }) => listApprovedCostLines(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listApprovedCostLines>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListApprovedCostLinesQueryResult = NonNullable<Awaited<ReturnType<typeof listApprovedCostLines>>>
+export type ListApprovedCostLinesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Approved, un-invoiced cost lines for a customer (admin only)
+ */
+
+export function useListApprovedCostLines<TData = Awaited<ReturnType<typeof listApprovedCostLines>>, TError = ErrorType<ErrorEnvelope>>(
+ params: ListApprovedCostLinesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listApprovedCostLines>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListApprovedCostLinesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getAnalyzeJobDocumentsUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/analyze-documents`
+}
+
+/**
+ * @summary Import a job's doklady attachments as cost documents (admin only)
+ */
+export const analyzeJobDocuments = async (id: number, options?: RequestInit): Promise<AnalyzeJobDocumentsResult> => {
+
+  return customFetch<AnalyzeJobDocumentsResult>(getAnalyzeJobDocumentsUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAnalyzeJobDocumentsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeJobDocuments>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof analyzeJobDocuments>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['analyzeJobDocuments'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeJobDocuments>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  analyzeJobDocuments(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnalyzeJobDocumentsMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeJobDocuments>>>
+
+    export type AnalyzeJobDocumentsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import a job's doklady attachments as cost documents (admin only)
+ */
+export const useAnalyzeJobDocuments = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeJobDocuments>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof analyzeJobDocuments>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getAnalyzeJobDocumentsMutationOptions(options));
+    }
 

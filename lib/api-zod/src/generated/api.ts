@@ -3143,3 +3143,757 @@ export const DownloadInvoicePdfParams = zod.object({
 })
 
 
+/**
+ * @summary List received cost documents (admin only)
+ */
+export const ListCostDocumentsQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "supplierIc": zod.coerce.string().optional(),
+  "jobId": zod.coerce.number().optional(),
+  "customerId": zod.coerce.number().optional()
+})
+
+export const ListCostDocumentsResponseItem = zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListCostDocumentsResponse = zod.array(ListCostDocumentsResponseItem)
+
+
+/**
+ * Raw file bytes in the body; metadata as query params. The server hashes,
+de-duplicates and (for ISDOC/XML) parses the document, then enqueues an
+extraction job. Returns 409 with the matching documents when a probable
+duplicate is found, unless `force=true`.
+
+ * @summary Upload a received cost document's bytes (admin only)
+ */
+
+
+
+
+export const UploadCostDocumentQueryParams = zod.object({
+  "name": zod.coerce.string().min(1),
+  "contentType": zod.coerce.string().min(1),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']).optional(),
+  "jobId": zod.coerce.number().optional(),
+  "customerId": zod.coerce.number().optional(),
+  "force": zod.coerce.boolean().optional()
+})
+
+export const UploadCostDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Get a cost document with its lines (admin only)
+ */
+export const GetCostDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCostDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Update a cost document header (admin only)
+ */
+export const UpdateCostDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateCostDocumentBody = zod.object({
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']).nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string().nullish(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdateCostDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Delete a cost document (admin only)
+ */
+export const DeleteCostDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Approve a cost document for re-billing (admin only)
+ */
+export const ApproveCostDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ApproveCostDocumentResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Set a cost document's review status (admin only)
+ */
+export const SetCostDocumentStatusParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SetCostDocumentStatusBody = zod.object({
+  "status": zod.enum(['needs_review', 'reviewed', 'ignored', 'duplicate'])
+})
+
+export const SetCostDocumentStatusResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Re-queue extraction for a cost document (admin only)
+ */
+export const RequeueCostDocumentExtractionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RequeueCostDocumentExtractionResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Update / match a cost document line (admin only)
+ */
+export const UpdateCostDocumentLineParams = zod.object({
+  "id": zod.coerce.number(),
+  "lineId": zod.coerce.number()
+})
+
+export const UpdateCostDocumentLineBody = zod.object({
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']).nullish(),
+  "description": zod.string().nullish(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']).nullish(),
+  "matchConfirmed": zod.boolean().nullish(),
+  "approved": zod.boolean().nullish()
+})
+
+export const UpdateCostDocumentLineResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Split a cost document line across jobs (admin only)
+ */
+export const SplitCostDocumentLineParams = zod.object({
+  "id": zod.coerce.number(),
+  "lineId": zod.coerce.number()
+})
+
+export const SplitCostDocumentLineBody = zod.object({
+  "parts": zod.array(zod.object({
+  "quantity": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']).nullish()
+}))
+})
+
+export const SplitCostDocumentLineResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Approved, un-invoiced cost lines for a customer (admin only)
+ */
+export const ListApprovedCostLinesQueryParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const ListApprovedCostLinesResponseItem = zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "jobId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "totalWithoutVat": zod.number()
+})
+export const ListApprovedCostLinesResponse = zod.array(ListApprovedCostLinesResponseItem)
+
+
+/**
+ * @summary Import a job's doklady attachments as cost documents (admin only)
+ */
+export const AnalyzeJobDocumentsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AnalyzeJobDocumentsResponse = zod.object({
+  "created": zod.array(zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "createdCount": zod.number(),
+  "skipped": zod.number()
+})
+
+

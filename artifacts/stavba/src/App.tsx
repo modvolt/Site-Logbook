@@ -44,6 +44,8 @@ import BillingInvoiceDetail from "@/pages/billing-invoice-detail";
 import BillingInvoiceEdit from "@/pages/billing-invoice-edit";
 import BillingSettings from "@/pages/billing-settings";
 import BillingBankImport from "@/pages/billing-bank-import";
+import BillingDocuments from "@/pages/billing-documents";
+import BillingDocumentDetail from "@/pages/billing-document-detail";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 
 const queryClient = new QueryClient({
@@ -110,6 +112,8 @@ function AuthenticatedApp() {
         <Route path="/statistika">{() => <AdminOnly component={Statistika} />}</Route>
         <Route path="/billing/bank-import">{() => <AdminOnly component={BillingBankImport} />}</Route>
         <Route path="/billing/settings">{() => <AdminOnly component={BillingSettings} />}</Route>
+        <Route path="/billing/documents/:id">{() => <AdminOnly component={BillingDocumentDetail} />}</Route>
+        <Route path="/billing/documents">{() => <AdminOnly component={BillingDocuments} />}</Route>
         <Route path="/billing/unbilled/:customerId">{() => <AdminOnly component={BillingUnbilledDetail} />}</Route>
         <Route path="/billing/unbilled">{() => <AdminOnly component={BillingUnbilled} />}</Route>
         <Route path="/billing/invoices/:id/edit">{() => <AdminOnly component={BillingInvoiceEdit} />}</Route>

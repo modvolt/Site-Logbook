@@ -3364,6 +3364,517 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/documents:
+    get:
+      operationId: listCostDocuments
+      tags: [billing]
+      summary: List received cost documents (admin only)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: supplierIc
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: jobId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: customerId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cost documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CostDocument"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/upload:
+    post:
+      operationId: uploadCostDocument
+      tags: [CostDocumentUpload]
+      summary: Upload a received cost document's bytes (admin only)
+      description: |
+        Raw file bytes in the body; metadata as query params. The server hashes,
+        de-duplicates and (for ISDOC/XML) parses the document, then enqueues an
+        extraction job. Returns 409 with the matching documents when a probable
+        duplicate is found, unless `force=true`.
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: contentType
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: docType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [receipt, delivery_note, invoice, credit_note]
+        - name: jobId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: customerId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: force
+          in: query
+          required: false
+          schema:
+            type: boolean
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Document stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "409":
+          description: Probable duplicate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDuplicateConflict"
+        "400":
+          description: Missing file content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "413":
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "415":
+          description: File type not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}:
+    get:
+      operationId: getCostDocument
+      tags: [billing]
+      summary: Get a cost document with its lines (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cost document detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateCostDocument
+      tags: [billing]
+      summary: Update a cost document header (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentUpdateInput"
+      responses:
+        "200":
+          description: Updated cost document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Document is approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteCostDocument
+      tags: [billing]
+      summary: Delete a cost document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Has invoiced lines
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/approve:
+    post:
+      operationId: approveCostDocument
+      tags: [billing]
+      summary: Approve a cost document for re-billing (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/status:
+    post:
+      operationId: setCostDocumentStatus
+      tags: [billing]
+      summary: Set a cost document's review status (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentStatusInput"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/extract:
+    post:
+      operationId: requeueCostDocumentExtraction
+      tags: [billing]
+      summary: Re-queue extraction for a cost document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Re-queued document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/lines/{lineId}:
+    patch:
+      operationId: updateCostDocumentLine
+      tags: [billing]
+      summary: Update / match a cost document line (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentLineUpdateInput"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Line already invoiced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/lines/{lineId}/split:
+    post:
+      operationId: splitCostDocumentLine
+      tags: [billing]
+      summary: Split a cost document line across jobs (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentLineSplitInput"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid split
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Line already invoiced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/approved-lines:
+    get:
+      operationId: listApprovedCostLines
+      tags: [billing]
+      summary: Approved, un-invoiced cost lines for a customer (admin only)
+      parameters:
+        - name: customerId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved cost lines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApprovedCostLine"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /jobs/{id}/analyze-documents:
+    post:
+      operationId: analyzeJobDocuments
+      tags: [billing]
+      summary: Import a job's doklady attachments as cost documents (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeJobDocumentsResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   schemas:
     HealthStatus:
@@ -5862,4 +6373,322 @@ components:
         to:
           type: ["string", "null"]
         daysOverdue:
+          type: integer
+
+    CostDocument:
+      type: object
+      required:
+        - id
+        - status
+        - docType
+        - source
+        - currency
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [uploaded, needs_review, reviewed, approved, ignored, duplicate]
+        docType:
+          type: string
+          enum: [receipt, delivery_note, invoice, credit_note]
+        source:
+          type: string
+          enum: [manual, job_attachment, isdoc, email]
+        objectPath:
+          type: ["string", "null"]
+        fileName:
+          type: ["string", "null"]
+        contentType:
+          type: ["string", "null"]
+        fileSize:
+          type: ["integer", "null"]
+        supplierName:
+          type: ["string", "null"]
+        supplierIc:
+          type: ["string", "null"]
+        supplierDic:
+          type: ["string", "null"]
+        supplierAddress:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        currency:
+          type: string
+        subtotalWithoutVat:
+          type: ["number", "null"]
+        totalVat:
+          type: ["number", "null"]
+        totalWithVat:
+          type: ["number", "null"]
+        customerId:
+          type: ["integer", "null"]
+        jobId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        warnings:
+          type: ["string", "null"]
+        reviewedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CostDocumentLine:
+      type: object
+      required:
+        - id
+        - documentId
+        - lineType
+        - description
+        - quantity
+        - unitPriceWithoutVat
+        - vatMode
+        - totalWithoutVat
+        - totalVat
+        - totalWithVat
+        - allocationType
+        - matchConfirmed
+        - approved
+        - sortOrder
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        parentLineId:
+          type: ["integer", "null"]
+        lineType:
+          type: string
+          enum: [material, work, transport, other]
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: number
+        vatRate:
+          type: ["number", "null"]
+        vatMode:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        totalWithoutVat:
+          type: number
+        totalVat:
+          type: number
+        totalWithVat:
+          type: number
+        jobId:
+          type: ["integer", "null"]
+        allocationType:
+          type: string
+          enum: [rebill, internal, stock, not_rebilled]
+        matchConfidence:
+          type: ["number", "null"]
+        matchConfirmed:
+          type: boolean
+        approved:
+          type: boolean
+        invoicedInvoiceId:
+          type: ["integer", "null"]
+        sortOrder:
+          type: integer
+
+    CostDocumentDuplicate:
+      type: object
+      required: [id, reason, status, createdAt]
+      properties:
+        id:
+          type: integer
+        reason:
+          type: string
+        documentNumber:
+          type: ["string", "null"]
+        supplierName:
+          type: ["string", "null"]
+        totalWithVat:
+          type: ["string", "null"]
+        status:
+          type: string
+        createdAt:
+          type: string
+
+    CostDocumentDetail:
+      type: object
+      required: [document, lines, duplicates]
+      properties:
+        document:
+          $ref: "#/components/schemas/CostDocument"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentLine"
+        duplicates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentDuplicate"
+
+    CostDocumentDuplicateConflict:
+      type: object
+      required: [message, duplicates]
+      properties:
+        message:
+          type: string
+        duplicates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentDuplicate"
+
+    CostDocumentUpdateInput:
+      type: object
+      properties:
+        docType:
+          type: ["string", "null"]
+          enum: [receipt, delivery_note, invoice, credit_note]
+        supplierName:
+          type: ["string", "null"]
+        supplierIc:
+          type: ["string", "null"]
+        supplierDic:
+          type: ["string", "null"]
+        supplierAddress:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        currency:
+          type: ["string", "null"]
+        subtotalWithoutVat:
+          type: ["number", "null"]
+        totalVat:
+          type: ["number", "null"]
+        totalWithVat:
+          type: ["number", "null"]
+        customerId:
+          type: ["integer", "null"]
+        jobId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+
+    CostDocumentLineUpdateInput:
+      type: object
+      properties:
+        lineType:
+          type: ["string", "null"]
+          enum: [material, work, transport, other]
+        description:
+          type: ["string", "null"]
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: ["number", "null"]
+        vatRate:
+          type: ["number", "null"]
+        jobId:
+          type: ["integer", "null"]
+        allocationType:
+          type: ["string", "null"]
+          enum: [rebill, internal, stock, not_rebilled]
+        matchConfirmed:
+          type: ["boolean", "null"]
+        approved:
+          type: ["boolean", "null"]
+
+    CostDocumentLineSplitPart:
+      type: object
+      required: [quantity]
+      properties:
+        quantity:
+          type: number
+        jobId:
+          type: ["integer", "null"]
+        allocationType:
+          type: ["string", "null"]
+          enum: [rebill, internal, stock, not_rebilled]
+
+    CostDocumentLineSplitInput:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentLineSplitPart"
+
+    CostDocumentStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [needs_review, reviewed, ignored, duplicate]
+
+    ApprovedCostLine:
+      type: object
+      required:
+        - id
+        - documentId
+        - description
+        - quantity
+        - unitPriceWithoutVat
+        - totalWithoutVat
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        documentNumber:
+          type: ["string", "null"]
+        supplierName:
+          type: ["string", "null"]
+        jobId:
+          type: ["integer", "null"]
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: number
+        vatRate:
+          type: ["number", "null"]
+        totalWithoutVat:
+          type: number
+
+    AnalyzeJobDocumentsResult:
+      type: object
+      required: [created, createdCount, skipped]
+      properties:
+        created:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocument"
+        createdCount:
+          type: integer
+        skipped:
           type: integer

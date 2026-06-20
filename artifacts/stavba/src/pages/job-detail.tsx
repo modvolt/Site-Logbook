@@ -14,6 +14,7 @@ import {
   useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
   useUpdateJobTimeEntry, useDeleteJobTimeEntry,
   useListPeople, getListPeopleQueryKey,
+  useAnalyzeJobDocuments,
 } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useAuth } from "@/hooks/use-auth";
@@ -1117,11 +1118,34 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
   
   const createAttachment = useCreateAttachment();
   const deleteAttachment = useDeleteAttachment();
+  const analyzeDocuments = useAnalyzeJobDocuments();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
+
+  const handleAnalyze = () => {
+    analyzeDocuments.mutate({ id: jobId }, {
+      onSuccess: (res) => {
+        const created = res?.createdCount ?? 0;
+        const skipped = res?.skipped ?? 0;
+        toast({
+          title: created > 0
+            ? `Zařazeno ke zpracování: ${created}`
+            : "Žádné nové doklady k analýze",
+          description: skipped > 0
+            ? `Přeskočeno ${skipped} již zpracovaných. Doklady najdete ve Fakturace → Přijaté doklady.`
+            : "Doklady najdete ve Fakturace → Přijaté doklady.",
+        });
+      },
+      onError: (err) => toast({
+        title: "Analýza se nezdařila",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      }),
+    });
+  };
 
   const {
     uploadFile: uploadDoklad,
@@ -1203,6 +1227,18 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
           label="Sem přetáhněte doklady (PDF nebo foto)"
         />
         <UploadProgressBar isUploading={isUploadingDoklad} progress={dokladProgress} />
+
+        {doklady.length > 0 && (
+          <Button
+            onClick={handleAnalyze}
+            disabled={analyzeDocuments.isPending}
+            variant="outline"
+            className="w-full"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            {analyzeDocuments.isPending ? "Analyzuji…" : "Analyzovat doklady"}
+          </Button>
+        )}
 
         {doklady.length > 0 && (
           <div className="space-y-2">

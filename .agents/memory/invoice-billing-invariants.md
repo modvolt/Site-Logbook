@@ -57,3 +57,21 @@ are also explicit allowlists. Adding a field to the OpenAPI/contract alone is a
 interface → `assign()` together, or the UI will appear to save while the server drops it.
 `numberNextSeq`/`numberYear` are now wired through (guarded `numberNextSeq >= 1`);
 the unique invoice-number index is the backstop against bad manual sequence values.
+
+## 4. Cost-document line reservation needs full `sourceType`+`sourceId` round-trip
+Approved cost-document lines are re-billed by including them as invoice lines with
+`sourceType:"billing_document_line"` + `sourceId:<lineId>`. `markLinesInvoiced` /
+`releaseInvoicedLines` key off `billingDocLineIds(lines)`, which filters
+`sourceType==="billing_document_line" && sourceId!=null`. The reservation
+(`billing_document_lines.invoicedInvoiceId`) is what keeps a line out of
+`/billing/approved-lines` so it can't be billed twice.
+**Why:** the passthrough is fragile across three layers and fails silently. Two real
+bugs once coexisted: the create/update route's `mapLineInput` carried `sourceType`
+but dropped `sourceId` (so `billingDocLineIds` was always empty → nothing reserved),
+and the unbilled-detail "auto-add" UI never put the cost lines in the create payload
+at all. Either alone means the line stays re-billable forever (double-bill risk).
+**How to apply:** any invoice line-input mapper (server route mappers, the
+invoice-edit row→input map, any new builder) MUST preserve BOTH `sourceType` and
+`sourceId`, and any UI that claims to feed approved cost lines must actually send
+them as `lines`. Verify by reserving on create (line leaves approved-lines) and
+releasing on draft delete/storno (line returns).

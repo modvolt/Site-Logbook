@@ -1946,6 +1946,331 @@ export interface InvoiceReminderPreview {
   daysOverdue: number;
 }
 
+export type CostDocumentStatus = typeof CostDocumentStatus[keyof typeof CostDocumentStatus];
+
+
+export const CostDocumentStatus = {
+  uploaded: 'uploaded',
+  needs_review: 'needs_review',
+  reviewed: 'reviewed',
+  approved: 'approved',
+  ignored: 'ignored',
+  duplicate: 'duplicate',
+} as const;
+
+export type CostDocumentDocType = typeof CostDocumentDocType[keyof typeof CostDocumentDocType];
+
+
+export const CostDocumentDocType = {
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
+
+export type CostDocumentSource = typeof CostDocumentSource[keyof typeof CostDocumentSource];
+
+
+export const CostDocumentSource = {
+  manual: 'manual',
+  job_attachment: 'job_attachment',
+  isdoc: 'isdoc',
+  email: 'email',
+} as const;
+
+export interface CostDocument {
+  id: number;
+  status: CostDocumentStatus;
+  docType: CostDocumentDocType;
+  source: CostDocumentSource;
+  /** @nullable */
+  objectPath?: string | null;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+  /** @nullable */
+  fileSize?: number | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /** @nullable */
+  supplierDic?: string | null;
+  /** @nullable */
+  supplierAddress?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  currency: string;
+  /** @nullable */
+  subtotalWithoutVat?: number | null;
+  /** @nullable */
+  totalVat?: number | null;
+  /** @nullable */
+  totalWithVat?: number | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  warnings?: string | null;
+  /** @nullable */
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CostDocumentLineLineType = typeof CostDocumentLineLineType[keyof typeof CostDocumentLineLineType];
+
+
+export const CostDocumentLineLineType = {
+  material: 'material',
+  work: 'work',
+  transport: 'transport',
+  other: 'other',
+} as const;
+
+export type CostDocumentLineVatMode = typeof CostDocumentLineVatMode[keyof typeof CostDocumentLineVatMode];
+
+
+export const CostDocumentLineVatMode = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export type CostDocumentLineAllocationType = typeof CostDocumentLineAllocationType[keyof typeof CostDocumentLineAllocationType];
+
+
+export const CostDocumentLineAllocationType = {
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
+} as const;
+
+export interface CostDocumentLine {
+  id: number;
+  documentId: number;
+  /** @nullable */
+  parentLineId?: number | null;
+  lineType: CostDocumentLineLineType;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  vatRate?: number | null;
+  vatMode: CostDocumentLineVatMode;
+  totalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  /** @nullable */
+  jobId?: number | null;
+  allocationType: CostDocumentLineAllocationType;
+  /** @nullable */
+  matchConfidence?: number | null;
+  matchConfirmed: boolean;
+  approved: boolean;
+  /** @nullable */
+  invoicedInvoiceId?: number | null;
+  sortOrder: number;
+}
+
+export interface CostDocumentDuplicate {
+  id: number;
+  reason: string;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  totalWithVat?: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface CostDocumentDetail {
+  document: CostDocument;
+  lines: CostDocumentLine[];
+  duplicates: CostDocumentDuplicate[];
+}
+
+/**
+ * @nullable
+ */
+export type CostDocumentUpdateInputDocType = typeof CostDocumentUpdateInputDocType[keyof typeof CostDocumentUpdateInputDocType] | null;
+
+
+export const CostDocumentUpdateInputDocType = {
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
+
+export interface CostDocumentUpdateInput {
+  /** @nullable */
+  docType?: CostDocumentUpdateInputDocType;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /** @nullable */
+  supplierDic?: string | null;
+  /** @nullable */
+  supplierAddress?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  currency?: string | null;
+  /** @nullable */
+  subtotalWithoutVat?: number | null;
+  /** @nullable */
+  totalVat?: number | null;
+  /** @nullable */
+  totalWithVat?: number | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type CostDocumentStatusInputStatus = typeof CostDocumentStatusInputStatus[keyof typeof CostDocumentStatusInputStatus];
+
+
+export const CostDocumentStatusInputStatus = {
+  needs_review: 'needs_review',
+  reviewed: 'reviewed',
+  ignored: 'ignored',
+  duplicate: 'duplicate',
+} as const;
+
+export interface CostDocumentStatusInput {
+  status: CostDocumentStatusInputStatus;
+}
+
+/**
+ * @nullable
+ */
+export type CostDocumentLineUpdateInputLineType = typeof CostDocumentLineUpdateInputLineType[keyof typeof CostDocumentLineUpdateInputLineType] | null;
+
+
+export const CostDocumentLineUpdateInputLineType = {
+  material: 'material',
+  work: 'work',
+  transport: 'transport',
+  other: 'other',
+} as const;
+
+/**
+ * @nullable
+ */
+export type CostDocumentLineUpdateInputAllocationType = typeof CostDocumentLineUpdateInputAllocationType[keyof typeof CostDocumentLineUpdateInputAllocationType] | null;
+
+
+export const CostDocumentLineUpdateInputAllocationType = {
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
+} as const;
+
+export interface CostDocumentLineUpdateInput {
+  /** @nullable */
+  lineType?: CostDocumentLineUpdateInputLineType;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  unitPriceWithoutVat?: number | null;
+  /** @nullable */
+  vatRate?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  allocationType?: CostDocumentLineUpdateInputAllocationType;
+  /** @nullable */
+  matchConfirmed?: boolean | null;
+  /** @nullable */
+  approved?: boolean | null;
+}
+
+/**
+ * @nullable
+ */
+export type CostDocumentLineSplitPartAllocationType = typeof CostDocumentLineSplitPartAllocationType[keyof typeof CostDocumentLineSplitPartAllocationType] | null;
+
+
+export const CostDocumentLineSplitPartAllocationType = {
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
+} as const;
+
+export interface CostDocumentLineSplitPart {
+  quantity: number;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  allocationType?: CostDocumentLineSplitPartAllocationType;
+}
+
+export interface CostDocumentLineSplitInput {
+  parts: CostDocumentLineSplitPart[];
+}
+
+export interface ApprovedCostLine {
+  id: number;
+  documentId: number;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  jobId?: number | null;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  vatRate?: number | null;
+  totalWithoutVat: number;
+}
+
+export interface AnalyzeJobDocumentsResult {
+  created: CostDocument[];
+  createdCount: number;
+  skipped: number;
+}
+
 export type ListJobsParams = {
 /**
  * ISO date string (YYYY-MM-DD)
@@ -2011,5 +2336,16 @@ status?: string;
  * @nullable
  */
 customerId?: number | null;
+};
+
+export type ListCostDocumentsParams = {
+status?: string;
+supplierIc?: string;
+jobId?: number;
+customerId?: number;
+};
+
+export type ListApprovedCostLinesParams = {
+customerId: number;
 };
 
