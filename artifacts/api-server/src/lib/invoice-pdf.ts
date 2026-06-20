@@ -46,6 +46,8 @@ export interface InvoicePdfData {
   totalVat: number;
   totalWithVat: number;
   supplier: InvoicePdfSupplier;
+  /** PNG data URL of the Czech "QR Platba" payment code (omitted when no usable IBAN). */
+  paymentQrDataUrl?: string | null;
 }
 
 function registerFonts(doc: jsPDF): void {
@@ -234,8 +236,19 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   const afterTable = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
   y = (afterTable?.finalY ?? y + 20) + 8;
 
+  // ---- Page-break guard: keep the totals + payment-QR + amount-due block whole.
+  // On long invoices the line table can end near the page bottom; without this the
+  // QR (left column) and totals (right column) would clip off the page.
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const totalsBlockHeight = data.paymentQrDataUrl ? 60 : 50;
+  if (y + totalsBlockHeight > pageHeight - marginX) {
+    doc.addPage();
+    y = 20;
+  }
+
   // ---- Totals ----
   const totalsX = pageWidth - marginX - 70;
+  const totalsTop = y;
   doc.setFontSize(10);
   if (showVat) {
     const breakdown = vatBreakdown(data.lines as ReadonlyArray<ComputedLine>);
@@ -285,6 +298,21 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     align: "right",
   });
   y += 10;
+
+  // ---- Payment QR (left column, aligned with the totals block) ----
+  if (data.paymentQrDataUrl) {
+    const qrSize = 30;
+    const qrX = marginX;
+    doc.setFont(PDF_FONT, "bold");
+    doc.setFontSize(9);
+    doc.text("QR platba", qrX, totalsTop);
+    doc.addImage(data.paymentQrDataUrl, "PNG", qrX, totalsTop + 2, qrSize, qrSize);
+    doc.setFont(PDF_FONT, "normal");
+    doc.setFontSize(7.5);
+    doc.text("Naskenujte v bankovní aplikaci", qrX, totalsTop + qrSize + 6);
+    const qrBottom = totalsTop + qrSize + 9;
+    if (qrBottom > y) y = qrBottom;
+  }
 
   // ---- Reverse-charge (PDP) legal notice ----
   if (isReverseCharge) {

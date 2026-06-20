@@ -23,6 +23,7 @@ import {
   type VatMode,
 } from "./invoice-calc";
 import { generateInvoicePdf, type InvoicePdfData } from "./invoice-pdf";
+import { resolveIban, buildSpayd, generatePaymentQrDataUrl } from "./invoice-qr";
 import { ObjectStorageService } from "./objectStorage";
 
 const objectStorage = new ObjectStorageService();
@@ -942,11 +943,43 @@ function buildInvoiceNumber(
 // Issue (one transaction)
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the Czech "QR Platba" payment-code data URL for an invoice, or null when
+ * no usable IBAN / positive amount is available, or the payment method isn't a
+ * bank transfer (cash/card invoices get no transfer QR).
+ */
+async function buildPaymentQrDataUrl(
+  invoice: Invoice,
+  settings: BillingSettings,
+): Promise<string | null> {
+  if (invoice.paymentMethod === "cash" || invoice.paymentMethod === "card") return null;
+  const iban = resolveIban(settings.iban, settings.bankAccount);
+  if (!iban) return null;
+  const amount = num(invoice.totalWithVat);
+  if (!(amount > 0)) return null;
+
+  const payload = buildSpayd({
+    iban,
+    bic: settings.bic,
+    amount,
+    currency: invoice.currency || "CZK",
+    variableSymbol: invoice.variableSymbol,
+    message: invoice.invoiceNumber ? `Faktura ${invoice.invoiceNumber}` : null,
+    dueDateIso: invoice.dueDate,
+  });
+  try {
+    return await generatePaymentQrDataUrl(payload);
+  } catch {
+    return null;
+  }
+}
+
 async function buildPdfData(
   invoice: Invoice,
   lines: InvoiceLine[],
   settings: BillingSettings,
 ): Promise<InvoicePdfData> {
+  const paymentQrDataUrl = await buildPaymentQrDataUrl(invoice, settings);
   return {
     invoiceNumber: invoice.invoiceNumber ?? "—",
     status: invoice.status,
@@ -993,6 +1026,7 @@ async function buildPdfData(
       footerNote: settings.invoiceFooterNote,
       vatPayer: settings.vatPayer,
     },
+    paymentQrDataUrl,
   };
 }
 
