@@ -1,4 +1,4 @@
-import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck, Receipt } from "lucide-react";
+import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck, Receipt, FileEdit, FileText, Send, CircleDollarSign } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export const JOB_STATUSES = {
@@ -21,6 +21,25 @@ export const JOB_TYPES = {
 
 export function StatusBadge({ status, className = "" }: { status: string; className?: string }) {
   const config = JOB_STATUSES[status as keyof typeof JOB_STATUSES] || JOB_STATUSES.planned;
+  const Icon = config.icon;
+  return (
+    <Badge variant="outline" className={`font-medium ${config.color} ${className}`}>
+      <Icon className="w-3 h-3 mr-1" />
+      {config.label}
+    </Badge>
+  );
+}
+
+export const INVOICE_STATUSES = {
+  draft: { label: "Koncept", color: "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700", icon: FileEdit },
+  issued: { label: "Vystaveno", color: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800", icon: FileText },
+  sent: { label: "Odesláno", color: "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800", icon: Send },
+  paid: { label: "Zaplaceno", color: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800", icon: CircleDollarSign },
+  cancelled: { label: "Stornováno", color: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800", icon: XCircle },
+};
+
+export function InvoiceStatusBadge({ status, className = "" }: { status: string; className?: string }) {
+  const config = INVOICE_STATUSES[status as keyof typeof INVOICE_STATUSES] || INVOICE_STATUSES.draft;
   const Icon = config.icon;
   return (
     <Badge variant="outline" className={`font-medium ${config.color} ${className}`}>

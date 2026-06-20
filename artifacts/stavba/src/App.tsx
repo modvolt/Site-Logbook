@@ -36,6 +36,13 @@ import StrojDetail from "@/pages/stroj-detail";
 import AuditLog from "@/pages/audit-log";
 import Gdpr from "@/pages/gdpr";
 import Statistika from "@/pages/statistika";
+import Billing from "@/pages/billing";
+import BillingUnbilled from "@/pages/billing-unbilled";
+import BillingUnbilledDetail from "@/pages/billing-unbilled-detail";
+import BillingInvoices from "@/pages/billing-invoices";
+import BillingInvoiceDetail from "@/pages/billing-invoice-detail";
+import BillingInvoiceEdit from "@/pages/billing-invoice-edit";
+import BillingSettings from "@/pages/billing-settings";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 
 const queryClient = new QueryClient({
@@ -100,6 +107,13 @@ function AuthenticatedApp() {
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />
         <Route path="/statistika">{() => <AdminOnly component={Statistika} />}</Route>
+        <Route path="/billing/settings">{() => <AdminOnly component={BillingSettings} />}</Route>
+        <Route path="/billing/unbilled/:customerId">{() => <AdminOnly component={BillingUnbilledDetail} />}</Route>
+        <Route path="/billing/unbilled">{() => <AdminOnly component={BillingUnbilled} />}</Route>
+        <Route path="/billing/invoices/:id/edit">{() => <AdminOnly component={BillingInvoiceEdit} />}</Route>
+        <Route path="/billing/invoices/:id">{() => <AdminOnly component={BillingInvoiceDetail} />}</Route>
+        <Route path="/billing/invoices">{() => <AdminOnly component={BillingInvoices} />}</Route>
+        <Route path="/billing">{() => <AdminOnly component={Billing} />}</Route>
         <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
         <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>

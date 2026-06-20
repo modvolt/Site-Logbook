@@ -1,0 +1,647 @@
+Navazujeme na předchozí implementaci modulů:
+
+* Fakturace
+* Import nákladových dokladů
+* OpenAI vytěžování dokladů
+* Gmail/e-mail import
+* Skladová evidence
+* Import ceníků dodavatelů
+
+TENTO FOLLOW-UP EDIT:
+Uprav vytěžování a párování nákladových faktur podle reálných vzorků českých dodavatelských dokladů.
+
+Máme reálné typy dokladů od dodavatelů:
+
+* DEK / Stavebniny DEK
+* Schrack Technik
+* Varnet
+* K&V Elektro
+* K&V Elektro PDF + ISDOC
+
+Zjištění:
+
+1. Faktury často obsahují číslo dodacího listu.
+2. Dodací list bývá už vložený jako příloha v zakázce.
+3. Jedna faktura se může vázat na jeden nebo více dodacích listů.
+4. Některé faktury nahrazují dodací list, záruční list i kupní smlouvu.
+5. Položky obsahují slevy/rabaty.
+6. Položky mohou obsahovat recyklační/eko poplatky.
+7. Některé ceny jsou za 100 m nebo 100 ks.
+8. Některé doklady obsahují číslo zakázky dodavatele, číslo objednávky, projekt, dodávku nebo souhrnný dodací list.
+9. U K&V Elektro může existovat PDF i ISDOC ke stejné faktuře, přičemž ISDOC je strojově přesnější a má být primární zdroj dat.
+10. Faktury často obsahují položky typu doprava, platba, eko poplatek, recyklační příspěvek, zaokrouhlení.
+11. Systém musí umět párovat e-mailem importovanou fakturu s dodacími listy už uloženými v zakázkách.
+
+CÍL:
+Vylepši datový model, parser, OpenAI extrakci, UI a workflow tak, aby systém uměl:
+
+* vytěžit čísla dodacích listů z faktur,
+* najít odpovídající dodací listy v přílohách zakázek,
+* spárovat přijatou fakturu s již uloženým dodacím listem,
+* použít dodací list jako silný signál pro přiřazení faktury k zakázce,
+* rozlišit fakturu, dodací list, souhrnný dodací list, dodávku, objednávku a zakázku dodavatele,
+* pracovat s PDF i ISDOC verzí stejného dokladu,
+* vytěžit a správně zařadit eko/recyklační poplatky,
+* vytěžit slevy/rabaty,
+* rozpoznat jednotkové ceny za 100 m / 100 ks,
+* udržovat skladové ceny a nákupní ceny podle potvrzených faktur/dodacích listů.
+
+ROZŠÍŘENÍ DATOVÉHO MODELU:
+
+Přidej tabulku billing_document_references:
+
+Pole:
+
+* id
+* billingDocumentId
+* referenceType:
+
+  * delivery_note
+  * summary_delivery_note
+  * supplier_order
+  * supplier_job
+  * customer_order
+  * project
+  * shipment
+  * invoice
+  * credit_note
+  * other
+* referenceNumber
+* referenceDate nullable
+* supplierId nullable
+* matchedBillingDocumentId nullable
+* matchedJobId nullable
+* matchedActivityId nullable
+* confidence nullable
+* source:
+
+  * ai
+  * isdoc
+  * pdf_text
+  * manual
+  * email
+* createdAt
+* updatedAt
+
+Účel:
+Tahle tabulka ukládá čísla typu:
+
+* „za dodací list DL-096-26-004917“
+* „Číslo dodacího listu: 464069578“
+* „Souhrnný dodací list: 7026037547“
+* „Dodávka: 7130608743“
+* „Číslo zakázky: 464116000“
+* „Číslo objednávky: Balabenka“
+* „Zakázka číslo: 2154196364 / CC0031143286_1040“
+
+Rozšiř billing_documents o pole:
+
+* parentDocumentId nullable
+* primaryDocumentId nullable
+* duplicateGroupId nullable
+* supplierDocumentNumber nullable
+* deliveryNoteNumber nullable
+* supplierOrderNumber nullable
+* supplierJobNumber nullable
+* shipmentNumber nullable
+* sourcePriority:
+
+  * isdoc
+  * xml
+  * pdf
+  * image
+  * manual
+* parsedBy:
+
+  * isdoc_parser
+  * openai
+  * pdf_text
+  * manual
+* extractionVersion nullable
+
+Vysvětlení:
+Pokud existuje PDF i ISDOC ke stejné faktuře, systém je musí umět sloučit do jedné logické skupiny.
+ISDOC má vyšší prioritu než PDF.
+PDF slouží jako vizuální doklad a fallback.
+ISDOC slouží jako primární strukturovaný zdroj položek, částek, DPH, splatnosti a platebních údajů.
+
+Rozšiř billing_document_lines o pole:
+
+* supplierSku nullable
+* ean nullable
+* manufacturer nullable
+* discountPercent nullable
+* listUnitPriceWithoutVat nullable
+* unitPriceBeforeDiscountWithoutVat nullable
+* unitPriceAfterDiscountWithoutVat nullable
+* priceBaseQuantity nullable
+* priceBaseUnit nullable
+* environmentalFeeWithoutVat nullable
+* recyclingFeeWithoutVat nullable
+* isEnvironmentalFee boolean default false
+* relatedLineId nullable
+* deliveryNoteNumber nullable
+* supplierOrderNumber nullable
+* supplierJobNumber nullable
+* sourceLineNumber nullable
+* confidence nullable
+
+Účel:
+Umět správně uložit:
+
+* Kód položky
+* Kód zboží dodavatele
+* EAN
+* Obj. kód
+* objednací číslo
+* sleva %
+* RAB. %
+* RP/MJ bez DPH
+* ekologický poplatek
+* recyklační příspěvek
+* cenu před slevou
+* cenu po slevě
+* cenu za 100 m / 100 ks
+
+DODACÍ LISTY V ZAKÁZKÁCH:
+
+Do detailu zakázky uživatel běžně vkládá doklady/dodací listy.
+Proto musí systém umět:
+
+1. Při nahrání přílohy do zakázky:
+
+* automaticky nabídnout typ přílohy:
+
+  * dodací list
+  * faktura
+  * účtenka
+  * fotka materiálu
+  * jiný doklad
+* pokud jde o dodací list, založit nebo aktualizovat billing_document typu delivery_note se source = job_attachment
+* vytěžit číslo dodacího listu a dodavatele
+* uložit vazbu na jobId
+* vytvořit billing_document_references
+
+2. Při importu nákladové faktury z e-mailu:
+
+* vytěžit všechna čísla dodacích listů a referencí
+* vyhledat, zda už v systému existuje dodací list se stejným číslem
+* pokud ano, navrhnout spárování faktury se zakázkou, kde je dodací list uložen
+* pokud existuje více kandidátů, zobrazit výběr
+* pokud není shoda jistá, nechat rozhodnutí na adminovi
+
+3. Při ručním importu faktury:
+
+* stejné chování jako u e-mail importu
+
+MATCHING LOGIKA FAKTURA ↔ DODACÍ LIST ↔ ZAKÁZKA:
+
+Implementuj scoring:
+
+Silné shody:
+
+* stejné číslo dodacího listu
+* stejný dodavatel
+* stejné číslo faktury v PDF a ISDOC
+* stejné IČO dodavatele
+* stejný EAN/kód položky
+* stejné datum nebo rozdíl do 7 dní
+* faktura obsahuje přesný text čísla dodacího listu uloženého u zakázky
+
+Střední shody:
+
+* podobné položky materiálu
+* podobná částka
+* stejný zákazník/odběratel Modvolt
+* číslo objednávky odpovídá názvu zakázky nebo poznámce
+* dodací adresa odpovídá adrese zakázky
+
+Slabé shody:
+
+* časová blízkost
+* stejný dodavatel
+* podobný název materiálu
+
+Příklad:
+Faktura obsahuje:
+„za dodací list DL-096-26-004917 ze dne 10.6.2026“
+Systém najde v přílohách zakázky dodací list DL-096-26-004917.
+Výsledek:
+
+* automatický návrh přiřazení k této zakázce s vysokou jistotou
+* admin musí potvrdit
+* po potvrzení se nákladové položky faktury přiřadí k zakázce a případně ke skladu
+
+DODAVATELSKÉ PROFILY PARSOVÁNÍ:
+
+Přidej supplier_parser_profiles.
+
+Pole:
+
+* id
+* supplierId
+* supplierNamePattern
+* ico
+* parserType:
+
+  * generic_ai
+  * generic_pdf_text
+  * isdoc
+  * dek
+  * schrack
+  * varnet
+  * kv_elektro
+* rulesJson
+* isActive
+* createdAt
+* updatedAt
+
+Pro první verzi přidej profily:
+
+1. DEK:
+
+* rozpoznání podle názvu „Stavebniny DEK“
+* číslo faktury v hlavičce
+* číslo dodacího listu ve vzoru „za dodací list ...“
+* položky mohou obsahovat dopravu a platbu
+* doprava může být samostatný řádek
+* faktura může odkazovat na online dodací list
+
+2. Schrack:
+
+* rozpoznání podle „Schrack Technik“
+* číslo dodacího listu v hlavičce
+* číslo zakázky / zákazníka / objednávky
+* položky bývají na druhé straně faktury
+* pole RAB. % je sleva/rabat
+* poznámka: cena označená * může být uvedena za 100 m nebo 100 ks
+* objednací číslo je důležité pro skladové párování
+
+3. Varnet:
+
+* rozpoznání podle „VARNET“
+* faktura může nahrazovat dodací list, záruční list i kupní smlouvu
+* položky obsahují Obj. kód
+* může obsahovat recyklační příspěvek RP
+* může obsahovat zaokrouhlení
+* finální částka k úhradě může být zaokrouhlená
+
+4. K&V Elektro:
+
+* rozpoznání podle „K & V ELEKTRO“
+* číslo faktury je i variabilní symbol
+* obsahuje číslo zakázky dodavatele
+* obsahuje souhrnný dodací list
+* obsahuje dodávku
+* obsahuje EAN / kód zboží dodavatele
+* obsahuje RP/MJ bez DPH
+* ekologický poplatek se má uložit jako samostatný fee řádek nebo jako poplatek navázaný na položku
+* pokud existuje ISDOC, použít ISDOC jako primární zdroj dat
+
+ISDOC PARSER:
+
+Vylepši ISDOC parser pro K&V a obecné ISDOC faktury.
+
+Parser musí vytěžit:
+
+* číslo faktury
+* UUID
+* issueDate
+* taxPointDate / DUZP
+* dueDate
+* dodavatele
+* odběratele
+* IČO
+* DIČ
+* bankovní účet
+* IBAN
+* BIC
+* variabilní symbol
+* konstantní symbol
+* měnu
+* celkové částky
+* souhrn DPH
+* řádky faktury
+* EAN / sellers item identification / catalogue identification
+* interní číslo řádku
+* množství
+* jednotku
+* cenu
+* DPH
+* ekologické/recyklační poplatky jako samostatné fee řádky
+* vazbu fee řádku na původní materiálovou položku, pokud je v textu poplatku uvedena
+
+Pokud existuje PDF i ISDOC stejného čísla faktury:
+
+* vytvoř jeden billing_document jako primární
+* oba soubory ulož jako attachments k dokumentu nebo do document_files
+* ISDOC nastav jako primary structured source
+* PDF nastav jako visual source
+* duplicitu detekuj podle čísla faktury, dodavatele, částky a hashe
+
+Přidej tabulku billing_document_files:
+
+Pole:
+
+* id
+* billingDocumentId
+* fileRole:
+
+  * primary
+  * visual_pdf
+  * structured_isdoc
+  * attachment
+  * original_email_attachment
+* originalFileName
+* mimeType
+* objectPath
+* sha256Hash
+* sizeBytes
+* createdAt
+
+OPENAI EXTRAKCE - ROZŠÍŘENÍ SCHÉMATU:
+
+Rozšiř OpenAI extraction JSON schema o:
+
+relatedDocuments:
+[
+{
+"type": "delivery_note | summary_delivery_note | shipment | supplier_order | supplier_job | project | invoice | other",
+"number": string,
+"date": "YYYY-MM-DD" | null,
+"confidence": number
+}
+]
+
+supplierContext:
+{
+"detectedSupplierProfile": "dek | schrack | varnet | kv_elektro | generic" | null,
+"supplierDocumentLayout": string | null
+}
+
+lineItems:
+[
+{
+"sourceLineNumber": string | null,
+"supplierSku": string | null,
+"ean": string | null,
+"manufacturer": string | null,
+"description": string,
+"quantity": number | null,
+"unit": string | null,
+"priceBaseQuantity": number | null,
+"priceBaseUnit": string | null,
+"listUnitPriceWithoutVat": number | null,
+"discountPercent": number | null,
+"unitPriceBeforeDiscountWithoutVat": number | null,
+"unitPriceAfterDiscountWithoutVat": number | null,
+"environmentalFeeWithoutVat": number | null,
+"recyclingFeeWithoutVat": number | null,
+"vatRate": 21 | 12 | 0 | null,
+"vatMode": "standard | reverse_charge | zero | non_vat",
+"totalWithoutVat": number | null,
+"totalVat": number | null,
+"totalWithVat": number | null,
+"lineType": "material | work | transport | parking | fine | fee | payment | rounding | other",
+"relatedDocumentNumber": string | null,
+"confidence": number
+}
+]
+
+totals:
+{
+"itemsWithoutVat": number | null,
+"feesWithoutVat": number | null,
+"rounding": number | null,
+"totalWithoutVat": number | null,
+"totalVat": number | null,
+"totalWithVat": number | null,
+"amountToPay": number | null
+}
+
+AI PROMPT PRO ČESKÉ NÁKLADOVÉ DOKLADY:
+
+Uprav prompt documentExtractionService takto:
+
+Jsi parser českých nákladových dokladů pro elektro/stavební firmu Modvolt.
+Vytěžuj hlavně faktury, dodací listy, účtenky, ISDOC/XML a PDF od dodavatelů elektro materiálu.
+Vždy hledej:
+
+* číslo faktury,
+* variabilní symbol,
+* číslo dodacího listu,
+* číslo souhrnného dodacího listu,
+* číslo dodávky,
+* číslo objednávky,
+* číslo zakázky dodavatele,
+* projekt,
+* dodavatele,
+* odběratele,
+* DUZP,
+* datum vystavení,
+* splatnost,
+* položky,
+* kódy položek,
+* EAN,
+* slevy/rabaty,
+* recyklační/eko poplatky,
+* dopravu,
+* zaokrouhlení,
+* DPH,
+* celkem k úhradě.
+
+Dodavatelské poznámky:
+
+* U DEK hledej text „za dodací list ...“.
+* U Schrack hledej „Číslo dodacího listu“, „Číslo zakázky“, „Číslo objednávky“ a položky často na straně 2.
+* U Varnet ber v potaz, že faktura může nahrazovat dodací list, záruční list i kupní smlouvu.
+* U K&V Elektro hledej „Souhrnný dodací list“, „Dodávka“, „Zakázka číslo“, EAN a RP/MJ.
+* Pokud je v dokladu uvedeno, že cena je za 100 m nebo 100 ks, nastav priceBaseQuantity = 100 a jednotku odpovídajícím způsobem.
+* Nehádej neviditelné údaje.
+* Pokud si nejsi jistý, nastav confidence nízko a přidej warning.
+* Výstup vrať pouze jako validní JSON podle schématu.
+
+UI PRO KONTROLU DOKLADU:
+
+V detailu billing_document přidej sekci „Vazby na dodací listy a zakázky“.
+
+Zobraz:
+
+* nalezená čísla dodacích listů,
+* nalezená čísla objednávek,
+* nalezená čísla zakázek dodavatele,
+* nalezené dodávky,
+* odpovídající doklady v systému,
+* odpovídající zakázky,
+* confidence,
+* tlačítko „Potvrdit vazbu“,
+* tlačítko „Změnit zakázku“,
+* tlačítko „Rozdělit mezi více zakázek“,
+* tlačítko „Toto není správná vazba“.
+
+Příklad UI:
+Faktura K&V Elektro 9113831509
+Nalezené reference:
+
+* Souhrnný dodací list: 7026037547
+* Dodávka: 7130608743
+* Zakázka dodavatele: 2154196364 / CC0031143286_1040
+
+Nalezená shoda:
+
+* Zakázka: Hotel Michael
+* Příloha v zakázce: Dodací list 7026037547.pdf
+* Jistota: 94 %
+
+Akce:
+[Potvrdit] [Změnit] [Rozdělit] [Ignorovat]
+
+PRAVIDLA PRO SKLAD A CENY:
+
+Při schválení faktury:
+
+* pokud existuje spárovaný dodací list u zakázky, použij fakturu pro ceny a dodací list pro potvrzení, kam materiál patří
+* pokud je faktura ve formátu ISDOC, použij ISDOC pro ceny a položky
+* pokud existuje pouze PDF, použij PDF text + AI extrakci
+* pokud existuje pouze dodací list bez ceny, založ materiálový pohyb bez ceny nebo s cenou čekající na fakturu
+* jakmile dorazí faktura, doplň ceny k dřívějšímu dodacímu listu
+
+Přidej stavy skladových položek z dokladů:
+
+* delivery_note_received_no_price
+* invoice_received_with_price
+* matched_delivery_note_and_invoice
+* assigned_to_job
+* assigned_to_stock
+* split_between_jobs
+* needs_review
+
+Důležitá logika:
+Dodací list v zakázce = důkaz, kam materiál patřil.
+Faktura = důkaz ceny.
+ISDOC = preferovaný zdroj strukturovaných cen.
+PDF = vizuální a fallback zdroj.
+AI = návrhový nástroj, ne finální autorita.
+
+EKOLOGICKÉ A RECYKLAČNÍ POPLATKY:
+
+Implementuj:
+
+* lineType = fee
+* feeType:
+
+  * environmental
+  * recycling
+  * payment
+  * transport
+  * rounding
+  * other
+* fee může být:
+
+  * samostatný náklad faktury,
+  * navázaný na konkrétní materiálový řádek,
+  * přefakturovatelný zákazníkovi,
+  * interní náklad.
+
+U K&V:
+
+* RP/MJ bez DPH může být součást ceny nebo samostatný řádek podle ISDOC.
+* Pokud ISDOC obsahuje ekologický poplatek jako samostatný InvoiceLine, ulož ho jako fee řádek a navrhni vazbu na materiálovou položku.
+
+U Varnet:
+
+* RP může být uveden v řádku nebo poznámce.
+* Zaokrouhlení ukládej samostatně jako rounding, ne jako materiál.
+
+U DEK:
+
+* doprava může být samostatná položka, i když má 0 Kč.
+* platba na fakturu může být samostatná servisní položka s 0 Kč.
+* nulové položky neimportuj do skladu, ale ponech je v dokladu pro audit.
+
+U Schrack:
+
+* RAB. % ukládej jako discountPercent.
+* Pokud je cena označená za 100 m / 100 ks, normalizuj jednotkovou cenu a ulož původní údaj.
+
+NORMALIZACE JEDNOTEK:
+Přidej helper pro jednotky:
+
+* ks / KS → ks
+* m / M → m
+* x → ks, pokud jde o kusovou službu/položku
+* bal / balení → bal
+* sada → sada
+
+Zachovej původní jednotku v poli originalUnit.
+
+CENY A SLEVY:
+Ukládej:
+
+* ceníková cena,
+* sleva/rabat,
+* cena po slevě,
+* cena bez DPH,
+* cena s DPH,
+* celkem bez DPH,
+* DPH,
+* celkem s DPH.
+
+Pokud dodavatel uvádí cenu za 100 m nebo 100 ks:
+
+* ulož priceBaseQuantity = 100
+* zobraz varování v UI
+* pro sklad přepočítej na cenu za 1 m nebo 1 ks
+* zachovej původní dodavatelský údaj pro audit
+
+DUPLICITY PDF + ISDOC:
+Pokud se importuje PDF i ISDOC stejné faktury:
+
+* nesmí vzniknout dvě nákladové faktury
+* vytvoř jeden billing_document
+* připoj oba soubory přes billing_document_files
+* nastav ISDOC jako primary structured source
+* nastav PDF jako visual_pdf
+* porovnej součty PDF a ISDOC
+* pokud se liší, nastav needs_review a zobraz varování
+
+AKCEPTAČNÍ KRITÉRIA:
+
+* DEK faktura vytěží číslo dodacího listu z textu „za dodací list“.
+* Schrack faktura vytěží číslo dodacího listu z hlavičky a položky ze strany 2.
+* Varnet faktura se umí označit jako doklad, který nahrazuje dodací list.
+* K&V PDF vytěží souhrnný dodací list, dodávku, EAN, RP/MJ a eko poplatek.
+* K&V ISDOC se použije jako primární zdroj položek a částek.
+* PDF + ISDOC stejné faktury se sloučí pod jeden billing_document.
+* Faktura importovaná z e-mailu najde dodací list uložený v zakázce podle čísla.
+* Dodací list v zakázce se použije jako silný návrh přiřazení faktury k zakázce.
+* Admin musí vazbu potvrdit.
+* Materiál z faktury lze přiřadit na sklad, zakázku nebo rozdělit.
+* Ceny z faktury aktualizují skladové ceny až po potvrzení adminem.
+* Eko/recyklační poplatky nejsou zaměněny za materiál.
+* Zaokrouhlení není zaměněno za materiál.
+* Doprava není zaměněna za materiál.
+* Slevy/rabaty se ukládají a zobrazují.
+* Ceny za 100 m / 100 ks jsou správně normalizované.
+* Všechny změny jsou auditované.
+
+IMPLEMENTAČNÍ POŘADÍ:
+
+1. Přidej billing_document_references.
+2. Přidej billing_document_files.
+3. Rozšiř billing_document_lines o dodavatelské kódy, EAN, slevy, RP, eko poplatky a dodací listy.
+4. Vylepši ISDOC parser.
+5. Vylepši OpenAI JSON schema a prompt.
+6. Přidej supplier_parser_profiles pro DEK, Schrack, Varnet, K&V Elektro.
+7. Přidej matching faktura ↔ dodací list ↔ zakázka.
+8. Uprav UI detailu dokladu.
+9. Uprav workflow schvalování dokladů.
+10. Uprav skladové pohyby podle dodacího listu a faktury.
+11. Přidej testovací parser příklady podle vzorků.
+12. Spusť typecheck, build, migrace a smoke testy.
+
+NEJDŮLEŽITĚJŠÍ PRAVIDLO:
+Dodací list uložený v zakázce určuje, kam materiál pravděpodobně patří.
+Faktura určuje cenu.
+ISDOC má prioritu před PDF.
+AI pouze navrhuje, admin potvrzuje.

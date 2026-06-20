@@ -24,7 +24,11 @@ export default defineConfig({
       // The zod target (below) still generates the response schema.
       filters: {
         mode: "exclude",
-        tags: ["StorageUpload"],
+        // StorageUpload: raw octet-stream upload (hand-written useUpload hook).
+        // billing-pdf: binary PDF download streamed by the server; the frontend
+        // opens it via a direct admin link, so no generated hook is needed.
+        // The zod target (below) still generates schemas for both.
+        tags: ["StorageUpload", "billing-pdf"],
       },
       override: {
         transformer: titleTransformer,

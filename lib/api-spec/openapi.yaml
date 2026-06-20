@@ -2668,6 +2668,554 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/summary:
+    get:
+      operationId: getBillingSummary
+      tags: [billing]
+      summary: Billing dashboard summary cards (admin only)
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSummary"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/settings:
+    get:
+      operationId: getBillingSettings
+      tags: [billing]
+      summary: Get invoicing settings (admin only)
+      responses:
+        "200":
+          description: Billing settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSettings"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateBillingSettings
+      tags: [billing]
+      summary: Update invoicing settings (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingSettingsInput"
+      responses:
+        "200":
+          description: Updated billing settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/unbilled:
+    get:
+      operationId: listUnbilledCustomers
+      tags: [billing]
+      summary: Customers with at least one done, not-yet-billed job (admin only)
+      responses:
+        "200":
+          description: Unbilled customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UnbilledCustomer"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/unbilled/{customerId}:
+    get:
+      operationId: getUnbilledCustomerDetail
+      tags: [billing]
+      summary: Billable done jobs for a customer (admin only)
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Customer with billable jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnbilledCustomerDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices:
+    get:
+      operationId: listInvoices
+      tags: [billing]
+      summary: List invoices (admin only)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: customerId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invoice"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createInvoice
+      tags: [billing]
+      summary: Create a draft invoice (admin only); does not change job status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceCreateInput"
+      responses:
+        "201":
+          description: Created draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}:
+    get:
+      operationId: getInvoice
+      tags: [billing]
+      summary: Get an invoice with its lines (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Invoice detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateInvoice
+      tags: [billing]
+      summary: Update a draft invoice (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceUpdateInput"
+      responses:
+        "200":
+          description: Updated invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice is not a draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteInvoice
+      tags: [billing]
+      summary: Delete a draft invoice (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice is not a draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/recalculate:
+    post:
+      operationId: recalculateInvoice
+      tags: [billing]
+      summary: Recompute totals/VAT for a draft invoice (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Recalculated invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice is not a draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/issue:
+    post:
+      operationId: issueInvoice
+      tags: [billing]
+      summary: Issue a draft invoice in one transaction (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Issued invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Not a draft or a linked job is no longer done
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Issue failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/cancel:
+    post:
+      operationId: cancelInvoice
+      tags: [billing]
+      summary: Cancel (storno) an invoice, optionally returning jobs to done (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelInvoiceInput"
+      responses:
+        "200":
+          description: Cancelled invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice already cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/status:
+    patch:
+      operationId: updateInvoiceStatus
+      tags: [billing]
+      summary: Mark an issued invoice as sent or paid (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceStatusUpdate"
+      responses:
+        "200":
+          description: Updated invoice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invalid status transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/send-email:
+    post:
+      operationId: sendInvoiceEmail
+      tags: [billing]
+      summary: Email the invoice PDF to the customer (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendInvoiceEmailInput"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendInvoiceEmailResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Invoice must be issued first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Sending failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/invoices/{id}/pdf:
+    get:
+      operationId: downloadInvoicePdf
+      tags: [billing-pdf]
+      summary: Download the invoice PDF (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Invoice PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   schemas:
     HealthStatus:
@@ -4397,3 +4945,566 @@ components:
       properties:
         error:
           type: string
+
+    BillingSummary:
+      type: object
+      required:
+        - unbilledDoneJobs
+        - draftInvoices
+        - issuedInvoices
+        - totalToInvoiceWithoutVat
+        - issuedThisMonthWithVat
+      properties:
+        unbilledDoneJobs:
+          type: integer
+          description: Count of jobs in state "done" not yet on a non-cancelled invoice
+        draftInvoices:
+          type: integer
+        issuedInvoices:
+          type: integer
+        totalToInvoiceWithoutVat:
+          type: number
+          description: Orientational sum (price+transportCost+parking) of unbilled done jobs
+        issuedThisMonthWithVat:
+          type: number
+
+    BillingSettings:
+      type: object
+      required:
+        - id
+        - supplierName
+        - defaultDueDays
+        - defaultPaymentMethod
+        - vatPayer
+        - vatModeDefault
+        - numberPrefix
+        - numberFormat
+        - numberNextSeq
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        supplierName:
+          type: string
+        supplierIc:
+          type: ["string", "null"]
+        supplierDic:
+          type: ["string", "null"]
+        supplierAddress:
+          type: ["string", "null"]
+        supplierEmail:
+          type: ["string", "null"]
+        supplierPhone:
+          type: ["string", "null"]
+        bankAccount:
+          type: ["string", "null"]
+        iban:
+          type: ["string", "null"]
+        bic:
+          type: ["string", "null"]
+        defaultDueDays:
+          type: integer
+        defaultPaymentMethod:
+          type: string
+        vatPayer:
+          type: boolean
+        vatModeDefault:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        invoiceFooterNote:
+          type: ["string", "null"]
+        numberPrefix:
+          type: string
+        numberFormat:
+          type: string
+        numberYear:
+          type: ["integer", "null"]
+        numberNextSeq:
+          type: integer
+        updatedAt:
+          type: string
+
+    BillingSettingsInput:
+      type: object
+      properties:
+        supplierName:
+          type: ["string", "null"]
+        supplierIc:
+          type: ["string", "null"]
+        supplierDic:
+          type: ["string", "null"]
+        supplierAddress:
+          type: ["string", "null"]
+        supplierEmail:
+          type: ["string", "null"]
+        supplierPhone:
+          type: ["string", "null"]
+        bankAccount:
+          type: ["string", "null"]
+        iban:
+          type: ["string", "null"]
+        bic:
+          type: ["string", "null"]
+        defaultDueDays:
+          type: ["integer", "null"]
+        defaultPaymentMethod:
+          type: ["string", "null"]
+        vatPayer:
+          type: ["boolean", "null"]
+        vatModeDefault:
+          type: ["string", "null"]
+        invoiceFooterNote:
+          type: ["string", "null"]
+        numberPrefix:
+          type: ["string", "null"]
+        numberFormat:
+          type: ["string", "null"]
+        numberYear:
+          type: ["integer", "null"]
+        numberNextSeq:
+          type: ["integer", "null"]
+
+    Invoice:
+      type: object
+      required:
+        - id
+        - status
+        - currency
+        - vatModeDefault
+        - subtotalWithoutVat
+        - totalVat
+        - totalWithVat
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        invoiceNumber:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [draft, issued, sent, paid, cancelled]
+        customerId:
+          type: ["integer", "null"]
+        customerName:
+          type: ["string", "null"]
+        customerIc:
+          type: ["string", "null"]
+        customerDic:
+          type: ["string", "null"]
+        customerAddress:
+          type: ["string", "null"]
+        customerEmail:
+          type: ["string", "null"]
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        currency:
+          type: string
+        paymentMethod:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        constantSymbol:
+          type: ["string", "null"]
+        specificSymbol:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        subtotalWithoutVat:
+          type: number
+        totalVat:
+          type: number
+        totalWithVat:
+          type: number
+        notes:
+          type: ["string", "null"]
+        pdfObjectPath:
+          type: ["string", "null"]
+        isdocObjectPath:
+          type: ["string", "null"]
+        createdByUserId:
+          type: ["integer", "null"]
+        issuedByUserId:
+          type: ["integer", "null"]
+        issuedAt:
+          type: ["string", "null"]
+        cancelledAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    InvoiceLine:
+      type: object
+      required:
+        - id
+        - invoiceId
+        - sourceType
+        - description
+        - quantity
+        - unitPriceWithoutVat
+        - vatMode
+        - totalWithoutVat
+        - totalVat
+        - totalWithVat
+        - sortOrder
+      properties:
+        id:
+          type: integer
+        invoiceId:
+          type: integer
+        sourceType:
+          type: string
+          enum: [job, activity, material, billing_document_line, transport, parking, fine, manual]
+        sourceId:
+          type: ["integer", "null"]
+        jobId:
+          type: ["integer", "null"]
+        activityId:
+          type: ["integer", "null"]
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: number
+        discountPercent:
+          type: ["number", "null"]
+        vatRate:
+          type: ["number", "null"]
+        vatMode:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        totalWithoutVat:
+          type: number
+        totalVat:
+          type: number
+        totalWithVat:
+          type: number
+        sortOrder:
+          type: integer
+
+    InvoiceDetail:
+      type: object
+      required:
+        - id
+        - status
+        - currency
+        - vatModeDefault
+        - subtotalWithoutVat
+        - totalVat
+        - totalWithVat
+        - createdAt
+        - updatedAt
+        - lines
+        - sourceJobIds
+      properties:
+        id:
+          type: integer
+        invoiceNumber:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [draft, issued, sent, paid, cancelled]
+        customerId:
+          type: ["integer", "null"]
+        customerName:
+          type: ["string", "null"]
+        customerIc:
+          type: ["string", "null"]
+        customerDic:
+          type: ["string", "null"]
+        customerAddress:
+          type: ["string", "null"]
+        customerEmail:
+          type: ["string", "null"]
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        currency:
+          type: string
+        paymentMethod:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        constantSymbol:
+          type: ["string", "null"]
+        specificSymbol:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        subtotalWithoutVat:
+          type: number
+        totalVat:
+          type: number
+        totalWithVat:
+          type: number
+        notes:
+          type: ["string", "null"]
+        pdfObjectPath:
+          type: ["string", "null"]
+        isdocObjectPath:
+          type: ["string", "null"]
+        createdByUserId:
+          type: ["integer", "null"]
+        issuedByUserId:
+          type: ["integer", "null"]
+        issuedAt:
+          type: ["string", "null"]
+        cancelledAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceLine"
+        sourceJobIds:
+          type: array
+          items:
+            type: integer
+
+    InvoiceLineInput:
+      type: object
+      required: [description]
+      properties:
+        sourceType:
+          type: string
+          enum: [job, activity, material, billing_document_line, transport, parking, fine, manual]
+        sourceId:
+          type: ["integer", "null"]
+        jobId:
+          type: ["integer", "null"]
+        activityId:
+          type: ["integer", "null"]
+        description:
+          type: string
+          minLength: 1
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: ["number", "null"]
+        discountPercent:
+          type: ["number", "null"]
+        vatRate:
+          type: ["number", "null"]
+        vatMode:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        sortOrder:
+          type: ["integer", "null"]
+
+    InvoiceCreateInput:
+      type: object
+      required: [customerId]
+      properties:
+        customerId:
+          type: integer
+        jobIds:
+          type: array
+          items:
+            type: integer
+          description: Done jobs to auto-propose lines from (práce/doprava/parkování/materiál)
+        billFineJobIds:
+          type: array
+          items:
+            type: integer
+          description: Subset of jobIds whose fines should also be billed (explicit opt-in)
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceLineInput"
+          description: Extra manual lines appended after the auto-proposed ones
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        paymentMethod:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        constantSymbol:
+          type: ["string", "null"]
+        specificSymbol:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        notes:
+          type: ["string", "null"]
+
+    InvoiceUpdateInput:
+      type: object
+      properties:
+        customerId:
+          type: ["integer", "null"]
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        paymentMethod:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        constantSymbol:
+          type: ["string", "null"]
+        specificSymbol:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        notes:
+          type: ["string", "null"]
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceLineInput"
+          description: If provided, replaces ALL lines of the draft
+
+    InvoiceStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [sent, paid]
+
+    CancelInvoiceInput:
+      type: object
+      properties:
+        returnJobsToDone:
+          type: boolean
+          description: If true, linked jobs are returned to "done"
+
+    UnbilledCustomer:
+      type: object
+      required:
+        - customerId
+        - companyName
+        - jobCount
+        - totalPrice
+        - totalTransportCost
+        - totalParking
+        - totalFines
+        - orientationalTotal
+      properties:
+        customerId:
+          type: integer
+        companyName:
+          type: string
+        jobCount:
+          type: integer
+        totalPrice:
+          type: number
+        totalTransportCost:
+          type: number
+        totalParking:
+          type: number
+        totalFines:
+          type: number
+        orientationalTotal:
+          type: number
+
+    UnbilledJobMaterial:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+
+    UnbilledJob:
+      type: object
+      required: [id, title, status, materials]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        date:
+          type: ["string", "null"]
+        type:
+          type: ["string", "null"]
+        status:
+          type: string
+        price:
+          type: ["number", "null"]
+        transportKm:
+          type: ["number", "null"]
+        transportCost:
+          type: ["number", "null"]
+        parking:
+          type: ["number", "null"]
+        fines:
+          type: ["number", "null"]
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnbilledJobMaterial"
+
+    UnbilledCustomerDetail:
+      type: object
+      required: [customerId, companyName, jobs]
+      properties:
+        customerId:
+          type: integer
+        companyName:
+          type: string
+        ic:
+          type: ["string", "null"]
+        dic:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnbilledJob"
+
+    SendInvoiceEmailInput:
+      type: object
+      properties:
+        to:
+          type: ["string", "null"]
+        subject:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+
+    SendInvoiceEmailResult:
+      type: object
+      required: [sent]
+      properties:
+        sent:
+          type: boolean
+        to:
+          type: ["string", "null"]

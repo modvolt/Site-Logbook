@@ -1,7 +1,7 @@
 import {
   Home, Calendar, Briefcase, Users, Settings, Building2, ShieldAlert,
   UserCog, Hammer, User as UserIcon, Package, Wrench, ScrollText,
-  ShieldCheck, KeyRound, BarChart3,
+  ShieldCheck, KeyRound, BarChart3, Receipt,
 } from "lucide-react";
 
 export type NavItem = {
@@ -34,6 +34,7 @@ export const mainNavItems: NavItem[] = [
 /** Secondary / admin destinations — desktop footer section and mobile menu. */
 export const adminNavItems: NavItem[] = [
   { href: "/admin", icon: ShieldAlert, label: "Správa zakázek", shortLabel: "Správa", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "write" },
+  { href: "/billing", icon: Receipt, label: "Fakturace", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers", match: (l) => l === "/billing" || l.startsWith("/billing/") },
   { href: "/statistika", icon: BarChart3, label: "Statistika", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers" },
   { href: "/admin/users", icon: UserCog, label: "Uživatelé", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers" },
   { href: "/admin/audit", icon: ScrollText, label: "Záznam změn", shortLabel: "Záznam", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers" },

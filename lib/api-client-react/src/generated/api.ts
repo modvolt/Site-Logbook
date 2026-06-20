@@ -37,6 +37,10 @@ import type {
   AuthUser,
   Backup,
   BackupListResponse,
+  BillingSettings,
+  BillingSettingsInput,
+  BillingSummary,
+  CancelInvoiceInput,
   Customer,
   CustomerContact,
   CustomerContactInput,
@@ -65,6 +69,11 @@ import type {
   GetMyDoneJobsParams,
   GetStatsOverviewParams,
   HealthStatus,
+  Invoice,
+  InvoiceCreateInput,
+  InvoiceDetail,
+  InvoiceStatusUpdate,
+  InvoiceUpdateInput,
   Job,
   JobInput,
   JobReorderInput,
@@ -72,6 +81,7 @@ import type {
   JobUpdate,
   ListActivitiesParams,
   ListAuditLogsParams,
+  ListInvoicesParams,
   ListJobsParams,
   LoginInput,
   Machine,
@@ -90,6 +100,8 @@ import type {
   SaveJobSheetInput,
   SecurityQuestionsStatus,
   SendCredentialsEmailInput,
+  SendInvoiceEmailInput,
+  SendInvoiceEmailResult,
   SendJobEmailInput,
   SendJobEmailResult,
   SetSecurityQuestionsInput,
@@ -101,6 +113,8 @@ import type {
   TimeEntry,
   TimeEntryInput,
   TimeEntryUpdate,
+  UnbilledCustomer,
+  UnbilledCustomerDetail,
   UserInput,
   UserPreferences,
   UserPreferencesInput,
@@ -8817,5 +8831,1114 @@ export const useRestoreBackup = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getRestoreBackupMutationOptions(options));
+    }
+
+export const getGetBillingSummaryUrl = () => {
+
+
+
+
+  return `/api/billing/summary`
+}
+
+/**
+ * @summary Billing dashboard summary cards (admin only)
+ */
+export const getBillingSummary = async ( options?: RequestInit): Promise<BillingSummary> => {
+
+  return customFetch<BillingSummary>(getGetBillingSummaryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBillingSummaryQueryKey = () => {
+    return [
+    `/api/billing/summary`
+    ] as const;
+    }
+
+
+export const getGetBillingSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getBillingSummary>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBillingSummaryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBillingSummary>>> = ({ signal }) => getBillingSummary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBillingSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBillingSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getBillingSummary>>>
+export type GetBillingSummaryQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Billing dashboard summary cards (admin only)
+ */
+
+export function useGetBillingSummary<TData = Awaited<ReturnType<typeof getBillingSummary>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBillingSummaryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetBillingSettingsUrl = () => {
+
+
+
+
+  return `/api/billing/settings`
+}
+
+/**
+ * @summary Get invoicing settings (admin only)
+ */
+export const getBillingSettings = async ( options?: RequestInit): Promise<BillingSettings> => {
+
+  return customFetch<BillingSettings>(getGetBillingSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBillingSettingsQueryKey = () => {
+    return [
+    `/api/billing/settings`
+    ] as const;
+    }
+
+
+export const getGetBillingSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getBillingSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBillingSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBillingSettings>>> = ({ signal }) => getBillingSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBillingSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBillingSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getBillingSettings>>>
+export type GetBillingSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get invoicing settings (admin only)
+ */
+
+export function useGetBillingSettings<TData = Awaited<ReturnType<typeof getBillingSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBillingSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateBillingSettingsUrl = () => {
+
+
+
+
+  return `/api/billing/settings`
+}
+
+/**
+ * @summary Update invoicing settings (admin only)
+ */
+export const updateBillingSettings = async (billingSettingsInput: BillingSettingsInput, options?: RequestInit): Promise<BillingSettings> => {
+
+  return customFetch<BillingSettings>(getUpdateBillingSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      billingSettingsInput,)
+  }
+);}
+
+
+
+
+export const getUpdateBillingSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBillingSettings>>, TError,{data: BodyType<BillingSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBillingSettings>>, TError,{data: BodyType<BillingSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateBillingSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBillingSettings>>, {data: BodyType<BillingSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateBillingSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateBillingSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateBillingSettings>>>
+    export type UpdateBillingSettingsMutationBody = BodyType<BillingSettingsInput>
+    export type UpdateBillingSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update invoicing settings (admin only)
+ */
+export const useUpdateBillingSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBillingSettings>>, TError,{data: BodyType<BillingSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateBillingSettings>>,
+        TError,
+        {data: BodyType<BillingSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateBillingSettingsMutationOptions(options));
+    }
+
+export const getListUnbilledCustomersUrl = () => {
+
+
+
+
+  return `/api/billing/unbilled`
+}
+
+/**
+ * @summary Customers with at least one done, not-yet-billed job (admin only)
+ */
+export const listUnbilledCustomers = async ( options?: RequestInit): Promise<UnbilledCustomer[]> => {
+
+  return customFetch<UnbilledCustomer[]>(getListUnbilledCustomersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListUnbilledCustomersQueryKey = () => {
+    return [
+    `/api/billing/unbilled`
+    ] as const;
+    }
+
+
+export const getListUnbilledCustomersQueryOptions = <TData = Awaited<ReturnType<typeof listUnbilledCustomers>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUnbilledCustomers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListUnbilledCustomersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUnbilledCustomers>>> = ({ signal }) => listUnbilledCustomers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUnbilledCustomers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListUnbilledCustomersQueryResult = NonNullable<Awaited<ReturnType<typeof listUnbilledCustomers>>>
+export type ListUnbilledCustomersQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Customers with at least one done, not-yet-billed job (admin only)
+ */
+
+export function useListUnbilledCustomers<TData = Awaited<ReturnType<typeof listUnbilledCustomers>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUnbilledCustomers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListUnbilledCustomersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetUnbilledCustomerDetailUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/billing/unbilled/${customerId}`
+}
+
+/**
+ * @summary Billable done jobs for a customer (admin only)
+ */
+export const getUnbilledCustomerDetail = async (customerId: number, options?: RequestInit): Promise<UnbilledCustomerDetail> => {
+
+  return customFetch<UnbilledCustomerDetail>(getGetUnbilledCustomerDetailUrl(customerId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetUnbilledCustomerDetailQueryKey = (customerId: number,) => {
+    return [
+    `/api/billing/unbilled/${customerId}`
+    ] as const;
+    }
+
+
+export const getGetUnbilledCustomerDetailQueryOptions = <TData = Awaited<ReturnType<typeof getUnbilledCustomerDetail>>, TError = ErrorType<ErrorEnvelope>>(customerId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUnbilledCustomerDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetUnbilledCustomerDetailQueryKey(customerId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUnbilledCustomerDetail>>> = ({ signal }) => getUnbilledCustomerDetail(customerId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(customerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUnbilledCustomerDetail>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetUnbilledCustomerDetailQueryResult = NonNullable<Awaited<ReturnType<typeof getUnbilledCustomerDetail>>>
+export type GetUnbilledCustomerDetailQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Billable done jobs for a customer (admin only)
+ */
+
+export function useGetUnbilledCustomerDetail<TData = Awaited<ReturnType<typeof getUnbilledCustomerDetail>>, TError = ErrorType<ErrorEnvelope>>(
+ customerId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUnbilledCustomerDetail>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetUnbilledCustomerDetailQueryOptions(customerId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListInvoicesUrl = (params?: ListInvoicesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/invoices?${stringifiedParams}` : `/api/billing/invoices`
+}
+
+/**
+ * @summary List invoices (admin only)
+ */
+export const listInvoices = async (params?: ListInvoicesParams, options?: RequestInit): Promise<Invoice[]> => {
+
+  return customFetch<Invoice[]>(getListInvoicesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListInvoicesQueryKey = (params?: ListInvoicesParams,) => {
+    return [
+    `/api/billing/invoices`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListInvoicesQueryOptions = <TData = Awaited<ReturnType<typeof listInvoices>>, TError = ErrorType<ErrorEnvelope>>(params?: ListInvoicesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listInvoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListInvoicesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listInvoices>>> = ({ signal }) => listInvoices(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listInvoices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListInvoicesQueryResult = NonNullable<Awaited<ReturnType<typeof listInvoices>>>
+export type ListInvoicesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List invoices (admin only)
+ */
+
+export function useListInvoices<TData = Awaited<ReturnType<typeof listInvoices>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListInvoicesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listInvoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListInvoicesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateInvoiceUrl = () => {
+
+
+
+
+  return `/api/billing/invoices`
+}
+
+/**
+ * @summary Create a draft invoice (admin only); does not change job status
+ */
+export const createInvoice = async (invoiceCreateInput: InvoiceCreateInput, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getCreateInvoiceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      invoiceCreateInput,)
+  }
+);}
+
+
+
+
+export const getCreateInvoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createInvoice>>, TError,{data: BodyType<InvoiceCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createInvoice>>, TError,{data: BodyType<InvoiceCreateInput>}, TContext> => {
+
+const mutationKey = ['createInvoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createInvoice>>, {data: BodyType<InvoiceCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createInvoice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof createInvoice>>>
+    export type CreateInvoiceMutationBody = BodyType<InvoiceCreateInput>
+    export type CreateInvoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a draft invoice (admin only); does not change job status
+ */
+export const useCreateInvoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createInvoice>>, TError,{data: BodyType<InvoiceCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createInvoice>>,
+        TError,
+        {data: BodyType<InvoiceCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateInvoiceMutationOptions(options));
+    }
+
+export const getGetInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}`
+}
+
+/**
+ * @summary Get an invoice with its lines (admin only)
+ */
+export const getInvoice = async (id: number, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getGetInvoiceUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetInvoiceQueryKey = (id: number,) => {
+    return [
+    `/api/billing/invoices/${id}`
+    ] as const;
+    }
+
+
+export const getGetInvoiceQueryOptions = <TData = Awaited<ReturnType<typeof getInvoice>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInvoice>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetInvoiceQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getInvoice>>> = ({ signal }) => getInvoice(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getInvoice>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetInvoiceQueryResult = NonNullable<Awaited<ReturnType<typeof getInvoice>>>
+export type GetInvoiceQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get an invoice with its lines (admin only)
+ */
+
+export function useGetInvoice<TData = Awaited<ReturnType<typeof getInvoice>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInvoice>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetInvoiceQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}`
+}
+
+/**
+ * @summary Update a draft invoice (admin only)
+ */
+export const updateInvoice = async (id: number,
+    invoiceUpdateInput: InvoiceUpdateInput, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getUpdateInvoiceUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      invoiceUpdateInput,)
+  }
+);}
+
+
+
+
+export const getUpdateInvoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateInvoice>>, TError,{id: number;data: BodyType<InvoiceUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateInvoice>>, TError,{id: number;data: BodyType<InvoiceUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateInvoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateInvoice>>, {id: number;data: BodyType<InvoiceUpdateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateInvoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof updateInvoice>>>
+    export type UpdateInvoiceMutationBody = BodyType<InvoiceUpdateInput>
+    export type UpdateInvoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update a draft invoice (admin only)
+ */
+export const useUpdateInvoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateInvoice>>, TError,{id: number;data: BodyType<InvoiceUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateInvoice>>,
+        TError,
+        {id: number;data: BodyType<InvoiceUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateInvoiceMutationOptions(options));
+    }
+
+export const getDeleteInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}`
+}
+
+/**
+ * @summary Delete a draft invoice (admin only)
+ */
+export const deleteInvoice = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteInvoiceUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteInvoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteInvoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteInvoice>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteInvoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteInvoice>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteInvoice(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof deleteInvoice>>>
+
+    export type DeleteInvoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a draft invoice (admin only)
+ */
+export const useDeleteInvoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteInvoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteInvoice>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteInvoiceMutationOptions(options));
+    }
+
+export const getRecalculateInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/recalculate`
+}
+
+/**
+ * @summary Recompute totals/VAT for a draft invoice (admin only)
+ */
+export const recalculateInvoice = async (id: number, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getRecalculateInvoiceUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRecalculateInvoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recalculateInvoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recalculateInvoice>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['recalculateInvoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recalculateInvoice>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  recalculateInvoice(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecalculateInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof recalculateInvoice>>>
+
+    export type RecalculateInvoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Recompute totals/VAT for a draft invoice (admin only)
+ */
+export const useRecalculateInvoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recalculateInvoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recalculateInvoice>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRecalculateInvoiceMutationOptions(options));
+    }
+
+export const getIssueInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/issue`
+}
+
+/**
+ * @summary Issue a draft invoice in one transaction (admin only)
+ */
+export const issueInvoice = async (id: number, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getIssueInvoiceUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getIssueInvoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof issueInvoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof issueInvoice>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['issueInvoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof issueInvoice>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  issueInvoice(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type IssueInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof issueInvoice>>>
+
+    export type IssueInvoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Issue a draft invoice in one transaction (admin only)
+ */
+export const useIssueInvoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof issueInvoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof issueInvoice>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getIssueInvoiceMutationOptions(options));
+    }
+
+export const getCancelInvoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/cancel`
+}
+
+/**
+ * @summary Cancel (storno) an invoice, optionally returning jobs to done (admin only)
+ */
+export const cancelInvoice = async (id: number,
+    cancelInvoiceInput: CancelInvoiceInput, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getCancelInvoiceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      cancelInvoiceInput,)
+  }
+);}
+
+
+
+
+export const getCancelInvoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelInvoice>>, TError,{id: number;data: BodyType<CancelInvoiceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelInvoice>>, TError,{id: number;data: BodyType<CancelInvoiceInput>}, TContext> => {
+
+const mutationKey = ['cancelInvoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelInvoice>>, {id: number;data: BodyType<CancelInvoiceInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  cancelInvoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelInvoiceMutationResult = NonNullable<Awaited<ReturnType<typeof cancelInvoice>>>
+    export type CancelInvoiceMutationBody = BodyType<CancelInvoiceInput>
+    export type CancelInvoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Cancel (storno) an invoice, optionally returning jobs to done (admin only)
+ */
+export const useCancelInvoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelInvoice>>, TError,{id: number;data: BodyType<CancelInvoiceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelInvoice>>,
+        TError,
+        {id: number;data: BodyType<CancelInvoiceInput>},
+        TContext
+      > => {
+      return useMutation(getCancelInvoiceMutationOptions(options));
+    }
+
+export const getUpdateInvoiceStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/status`
+}
+
+/**
+ * @summary Mark an issued invoice as sent or paid (admin only)
+ */
+export const updateInvoiceStatus = async (id: number,
+    invoiceStatusUpdate: InvoiceStatusUpdate, options?: RequestInit): Promise<Invoice> => {
+
+  return customFetch<Invoice>(getUpdateInvoiceStatusUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      invoiceStatusUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateInvoiceStatusMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateInvoiceStatus>>, TError,{id: number;data: BodyType<InvoiceStatusUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateInvoiceStatus>>, TError,{id: number;data: BodyType<InvoiceStatusUpdate>}, TContext> => {
+
+const mutationKey = ['updateInvoiceStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateInvoiceStatus>>, {id: number;data: BodyType<InvoiceStatusUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateInvoiceStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateInvoiceStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateInvoiceStatus>>>
+    export type UpdateInvoiceStatusMutationBody = BodyType<InvoiceStatusUpdate>
+    export type UpdateInvoiceStatusMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Mark an issued invoice as sent or paid (admin only)
+ */
+export const useUpdateInvoiceStatus = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateInvoiceStatus>>, TError,{id: number;data: BodyType<InvoiceStatusUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateInvoiceStatus>>,
+        TError,
+        {id: number;data: BodyType<InvoiceStatusUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateInvoiceStatusMutationOptions(options));
+    }
+
+export const getSendInvoiceEmailUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/invoices/${id}/send-email`
+}
+
+/**
+ * @summary Email the invoice PDF to the customer (admin only)
+ */
+export const sendInvoiceEmail = async (id: number,
+    sendInvoiceEmailInput: SendInvoiceEmailInput, options?: RequestInit): Promise<SendInvoiceEmailResult> => {
+
+  return customFetch<SendInvoiceEmailResult>(getSendInvoiceEmailUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      sendInvoiceEmailInput,)
+  }
+);}
+
+
+
+
+export const getSendInvoiceEmailMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendInvoiceEmail>>, TError,{id: number;data: BodyType<SendInvoiceEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendInvoiceEmail>>, TError,{id: number;data: BodyType<SendInvoiceEmailInput>}, TContext> => {
+
+const mutationKey = ['sendInvoiceEmail'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendInvoiceEmail>>, {id: number;data: BodyType<SendInvoiceEmailInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  sendInvoiceEmail(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendInvoiceEmailMutationResult = NonNullable<Awaited<ReturnType<typeof sendInvoiceEmail>>>
+    export type SendInvoiceEmailMutationBody = BodyType<SendInvoiceEmailInput>
+    export type SendInvoiceEmailMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Email the invoice PDF to the customer (admin only)
+ */
+export const useSendInvoiceEmail = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendInvoiceEmail>>, TError,{id: number;data: BodyType<SendInvoiceEmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendInvoiceEmail>>,
+        TError,
+        {id: number;data: BodyType<SendInvoiceEmailInput>},
+        TContext
+      > => {
+      return useMutation(getSendInvoiceEmailMutationOptions(options));
     }
 

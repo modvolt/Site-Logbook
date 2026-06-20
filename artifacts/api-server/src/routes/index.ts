@@ -26,6 +26,7 @@ import timeEntriesRouter from "./time-entries";
 import statsRouter from "./stats";
 import emailSettingsRouter from "./email-settings";
 import backupsRouter from "./backups";
+import billingRouter from "./billing";
 
 const router: IRouter = Router();
 
@@ -56,5 +57,6 @@ router.use(timeEntriesRouter);
 router.use(statsRouter);
 router.use(emailSettingsRouter);
 router.use(backupsRouter);
+router.use(billingRouter);
 
 export default router;

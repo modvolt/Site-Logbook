@@ -14,6 +14,10 @@ export const activitiesTable = pgTable("activities", {
   hoursSpent: numeric("hours_spent", { precision: 7, scale: 2 }),
   completedAt: timestamp("completed_at"),
   isArchived: boolean("is_archived").notNull().default(false),
+  // Additive scaffold for future activity (long-term action) invoicing. Nullable
+  // and unused by existing flows; the Fakturace core bills jobs, not activities.
+  // null = not tracked; future values e.g. "billable" | "billed".
+  billingStatus: text("billing_status"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

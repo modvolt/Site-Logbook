@@ -1276,6 +1276,509 @@ export interface RestoreResult {
   message: string;
 }
 
+export interface BillingSummary {
+  /** Count of jobs in state "done" not yet on a non-cancelled invoice */
+  unbilledDoneJobs: number;
+  draftInvoices: number;
+  issuedInvoices: number;
+  /** Orientational sum (price+transportCost+parking) of unbilled done jobs */
+  totalToInvoiceWithoutVat: number;
+  issuedThisMonthWithVat: number;
+}
+
+export type BillingSettingsVatModeDefault = typeof BillingSettingsVatModeDefault[keyof typeof BillingSettingsVatModeDefault];
+
+
+export const BillingSettingsVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export interface BillingSettings {
+  id: number;
+  supplierName: string;
+  /** @nullable */
+  supplierIc?: string | null;
+  /** @nullable */
+  supplierDic?: string | null;
+  /** @nullable */
+  supplierAddress?: string | null;
+  /** @nullable */
+  supplierEmail?: string | null;
+  /** @nullable */
+  supplierPhone?: string | null;
+  /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  defaultDueDays: number;
+  defaultPaymentMethod: string;
+  vatPayer: boolean;
+  vatModeDefault: BillingSettingsVatModeDefault;
+  /** @nullable */
+  invoiceFooterNote?: string | null;
+  numberPrefix: string;
+  numberFormat: string;
+  /** @nullable */
+  numberYear?: number | null;
+  numberNextSeq: number;
+  updatedAt: string;
+}
+
+export interface BillingSettingsInput {
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /** @nullable */
+  supplierDic?: string | null;
+  /** @nullable */
+  supplierAddress?: string | null;
+  /** @nullable */
+  supplierEmail?: string | null;
+  /** @nullable */
+  supplierPhone?: string | null;
+  /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
+  defaultDueDays?: number | null;
+  /** @nullable */
+  defaultPaymentMethod?: string | null;
+  /** @nullable */
+  vatPayer?: boolean | null;
+  /** @nullable */
+  vatModeDefault?: string | null;
+  /** @nullable */
+  invoiceFooterNote?: string | null;
+  /** @nullable */
+  numberPrefix?: string | null;
+  /** @nullable */
+  numberFormat?: string | null;
+  /** @nullable */
+  numberYear?: number | null;
+  /** @nullable */
+  numberNextSeq?: number | null;
+}
+
+export interface UnbilledCustomer {
+  customerId: number;
+  companyName: string;
+  jobCount: number;
+  totalPrice: number;
+  totalTransportCost: number;
+  totalParking: number;
+  totalFines: number;
+  orientationalTotal: number;
+}
+
+export interface UnbilledJobMaterial {
+  id: number;
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+}
+
+export interface UnbilledJob {
+  id: number;
+  title: string;
+  /** @nullable */
+  date?: string | null;
+  /** @nullable */
+  type?: string | null;
+  status: string;
+  /** @nullable */
+  price?: number | null;
+  /** @nullable */
+  transportKm?: number | null;
+  /** @nullable */
+  transportCost?: number | null;
+  /** @nullable */
+  parking?: number | null;
+  /** @nullable */
+  fines?: number | null;
+  materials: UnbilledJobMaterial[];
+}
+
+export interface UnbilledCustomerDetail {
+  customerId: number;
+  companyName: string;
+  /** @nullable */
+  ic?: string | null;
+  /** @nullable */
+  dic?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
+  jobs: UnbilledJob[];
+}
+
+export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
+
+
+export const InvoiceStatus = {
+  draft: 'draft',
+  issued: 'issued',
+  sent: 'sent',
+  paid: 'paid',
+  cancelled: 'cancelled',
+} as const;
+
+export type InvoiceVatModeDefault = typeof InvoiceVatModeDefault[keyof typeof InvoiceVatModeDefault];
+
+
+export const InvoiceVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export interface Invoice {
+  id: number;
+  /** @nullable */
+  invoiceNumber?: string | null;
+  status: InvoiceStatus;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  currency: string;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  vatModeDefault: InvoiceVatModeDefault;
+  subtotalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  pdfObjectPath?: string | null;
+  /** @nullable */
+  isdocObjectPath?: string | null;
+  /** @nullable */
+  createdByUserId?: number | null;
+  /** @nullable */
+  issuedByUserId?: number | null;
+  /** @nullable */
+  issuedAt?: string | null;
+  /** @nullable */
+  cancelledAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type InvoiceCreateInputVatModeDefault = typeof InvoiceCreateInputVatModeDefault[keyof typeof InvoiceCreateInputVatModeDefault];
+
+
+export const InvoiceCreateInputVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof typeof InvoiceLineInputSourceType];
+
+
+export const InvoiceLineInputSourceType = {
+  job: 'job',
+  activity: 'activity',
+  material: 'material',
+  billing_document_line: 'billing_document_line',
+  transport: 'transport',
+  parking: 'parking',
+  fine: 'fine',
+  manual: 'manual',
+} as const;
+
+export type InvoiceLineInputVatMode = typeof InvoiceLineInputVatMode[keyof typeof InvoiceLineInputVatMode];
+
+
+export const InvoiceLineInputVatMode = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export interface InvoiceLineInput {
+  sourceType?: InvoiceLineInputSourceType;
+  /** @nullable */
+  sourceId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
+  /** @minLength 1 */
+  description: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  unitPriceWithoutVat?: number | null;
+  /** @nullable */
+  discountPercent?: number | null;
+  /** @nullable */
+  vatRate?: number | null;
+  vatMode?: InvoiceLineInputVatMode;
+  /** @nullable */
+  sortOrder?: number | null;
+}
+
+export interface InvoiceCreateInput {
+  customerId: number;
+  /** Done jobs to auto-propose lines from (práce/doprava/parkování/materiál) */
+  jobIds?: number[];
+  /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
+  billFineJobIds?: number[];
+  /** Extra manual lines appended after the auto-proposed ones */
+  lines?: InvoiceLineInput[];
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  vatModeDefault?: InvoiceCreateInputVatModeDefault;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type InvoiceDetailStatus = typeof InvoiceDetailStatus[keyof typeof InvoiceDetailStatus];
+
+
+export const InvoiceDetailStatus = {
+  draft: 'draft',
+  issued: 'issued',
+  sent: 'sent',
+  paid: 'paid',
+  cancelled: 'cancelled',
+} as const;
+
+export type InvoiceDetailVatModeDefault = typeof InvoiceDetailVatModeDefault[keyof typeof InvoiceDetailVatModeDefault];
+
+
+export const InvoiceDetailVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof InvoiceLineSourceType];
+
+
+export const InvoiceLineSourceType = {
+  job: 'job',
+  activity: 'activity',
+  material: 'material',
+  billing_document_line: 'billing_document_line',
+  transport: 'transport',
+  parking: 'parking',
+  fine: 'fine',
+  manual: 'manual',
+} as const;
+
+export type InvoiceLineVatMode = typeof InvoiceLineVatMode[keyof typeof InvoiceLineVatMode];
+
+
+export const InvoiceLineVatMode = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export interface InvoiceLine {
+  id: number;
+  invoiceId: number;
+  sourceType: InvoiceLineSourceType;
+  /** @nullable */
+  sourceId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  discountPercent?: number | null;
+  /** @nullable */
+  vatRate?: number | null;
+  vatMode: InvoiceLineVatMode;
+  totalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  sortOrder: number;
+}
+
+export interface InvoiceDetail {
+  id: number;
+  /** @nullable */
+  invoiceNumber?: string | null;
+  status: InvoiceDetailStatus;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  currency: string;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  vatModeDefault: InvoiceDetailVatModeDefault;
+  subtotalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  pdfObjectPath?: string | null;
+  /** @nullable */
+  isdocObjectPath?: string | null;
+  /** @nullable */
+  createdByUserId?: number | null;
+  /** @nullable */
+  issuedByUserId?: number | null;
+  /** @nullable */
+  issuedAt?: string | null;
+  /** @nullable */
+  cancelledAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lines: InvoiceLine[];
+  sourceJobIds: number[];
+}
+
+export type InvoiceUpdateInputVatModeDefault = typeof InvoiceUpdateInputVatModeDefault[keyof typeof InvoiceUpdateInputVatModeDefault];
+
+
+export const InvoiceUpdateInputVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export interface InvoiceUpdateInput {
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  vatModeDefault?: InvoiceUpdateInputVatModeDefault;
+  /** @nullable */
+  notes?: string | null;
+  /** If provided, replaces ALL lines of the draft */
+  lines?: InvoiceLineInput[];
+}
+
+export interface CancelInvoiceInput {
+  /** If true, linked jobs are returned to "done" */
+  returnJobsToDone?: boolean;
+}
+
+export type InvoiceStatusUpdateStatus = typeof InvoiceStatusUpdateStatus[keyof typeof InvoiceStatusUpdateStatus];
+
+
+export const InvoiceStatusUpdateStatus = {
+  sent: 'sent',
+  paid: 'paid',
+} as const;
+
+export interface InvoiceStatusUpdate {
+  status: InvoiceStatusUpdateStatus;
+}
+
+export interface SendInvoiceEmailInput {
+  /** @nullable */
+  to?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  message?: string | null;
+}
+
+export interface SendInvoiceEmailResult {
+  sent: boolean;
+  /** @nullable */
+  to?: string | null;
+}
+
 export type ListJobsParams = {
 /**
  * ISO date string (YYYY-MM-DD)
@@ -1333,5 +1836,13 @@ mine?: boolean;
 
 export type GetMyDoneJobsParams = {
 limit?: number;
+};
+
+export type ListInvoicesParams = {
+status?: string;
+/**
+ * @nullable
+ */
+customerId?: number | null;
 };
 

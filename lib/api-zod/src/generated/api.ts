@@ -2383,3 +2383,640 @@ export const RestoreBackupResponse = zod.object({
 })
 
 
+/**
+ * @summary Billing dashboard summary cards (admin only)
+ */
+export const GetBillingSummaryResponse = zod.object({
+  "unbilledDoneJobs": zod.number().describe('Count of jobs in state \"done\" not yet on a non-cancelled invoice'),
+  "draftInvoices": zod.number(),
+  "issuedInvoices": zod.number(),
+  "totalToInvoiceWithoutVat": zod.number().describe('Orientational sum (price+transportCost+parking) of unbilled done jobs'),
+  "issuedThisMonthWithVat": zod.number()
+})
+
+
+/**
+ * @summary Get invoicing settings (admin only)
+ */
+export const GetBillingSettingsResponse = zod.object({
+  "id": zod.number(),
+  "supplierName": zod.string(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "supplierEmail": zod.string().nullish(),
+  "supplierPhone": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "defaultDueDays": zod.number(),
+  "defaultPaymentMethod": zod.string(),
+  "vatPayer": zod.boolean(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "invoiceFooterNote": zod.string().nullish(),
+  "numberPrefix": zod.string(),
+  "numberFormat": zod.string(),
+  "numberYear": zod.number().nullish(),
+  "numberNextSeq": zod.number(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update invoicing settings (admin only)
+ */
+export const UpdateBillingSettingsBody = zod.object({
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "supplierEmail": zod.string().nullish(),
+  "supplierPhone": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "defaultDueDays": zod.number().nullish(),
+  "defaultPaymentMethod": zod.string().nullish(),
+  "vatPayer": zod.boolean().nullish(),
+  "vatModeDefault": zod.string().nullish(),
+  "invoiceFooterNote": zod.string().nullish(),
+  "numberPrefix": zod.string().nullish(),
+  "numberFormat": zod.string().nullish(),
+  "numberYear": zod.number().nullish(),
+  "numberNextSeq": zod.number().nullish()
+})
+
+export const UpdateBillingSettingsResponse = zod.object({
+  "id": zod.number(),
+  "supplierName": zod.string(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "supplierEmail": zod.string().nullish(),
+  "supplierPhone": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "defaultDueDays": zod.number(),
+  "defaultPaymentMethod": zod.string(),
+  "vatPayer": zod.boolean(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "invoiceFooterNote": zod.string().nullish(),
+  "numberPrefix": zod.string(),
+  "numberFormat": zod.string(),
+  "numberYear": zod.number().nullish(),
+  "numberNextSeq": zod.number(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Customers with at least one done, not-yet-billed job (admin only)
+ */
+export const ListUnbilledCustomersResponseItem = zod.object({
+  "customerId": zod.number(),
+  "companyName": zod.string(),
+  "jobCount": zod.number(),
+  "totalPrice": zod.number(),
+  "totalTransportCost": zod.number(),
+  "totalParking": zod.number(),
+  "totalFines": zod.number(),
+  "orientationalTotal": zod.number()
+})
+export const ListUnbilledCustomersResponse = zod.array(ListUnbilledCustomersResponseItem)
+
+
+/**
+ * @summary Billable done jobs for a customer (admin only)
+ */
+export const GetUnbilledCustomerDetailParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const GetUnbilledCustomerDetailResponse = zod.object({
+  "customerId": zod.number(),
+  "companyName": zod.string(),
+  "ic": zod.string().nullish(),
+  "dic": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "jobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string().nullish(),
+  "type": zod.string().nullish(),
+  "status": zod.string(),
+  "price": zod.number().nullish(),
+  "transportKm": zod.number().nullish(),
+  "transportCost": zod.number().nullish(),
+  "parking": zod.number().nullish(),
+  "fines": zod.number().nullish(),
+  "materials": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish()
+}))
+}))
+})
+
+
+/**
+ * @summary List invoices (admin only)
+ */
+export const ListInvoicesQueryParams = zod.object({
+  "status": zod.coerce.string().optional(),
+  "customerId": zod.coerce.number().nullish()
+})
+
+export const ListInvoicesResponseItem = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
+
+
+/**
+ * @summary Create a draft invoice (admin only); does not change job status
+ */
+
+
+
+export const CreateInvoiceBody = zod.object({
+  "customerId": zod.number(),
+  "jobIds": zod.array(zod.number()).optional().describe('Done jobs to auto-propose lines from (práce\/doprava\/parkování\/materiál)'),
+  "billFineJobIds": zod.array(zod.number()).optional().describe('Subset of jobIds whose fines should also be billed (explicit opt-in)'),
+  "lines": zod.array(zod.object({
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
+  "sortOrder": zod.number().nullish()
+})).optional().describe('Extra manual lines appended after the auto-proposed ones'),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
+  "notes": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get an invoice with its lines (admin only)
+ */
+export const GetInvoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetInvoiceResponse = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "sourceJobIds": zod.array(zod.number())
+})
+
+
+/**
+ * @summary Update a draft invoice (admin only)
+ */
+export const UpdateInvoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateInvoiceBody = zod.object({
+  "customerId": zod.number().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
+  "notes": zod.string().nullish(),
+  "lines": zod.array(zod.object({
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
+  "sortOrder": zod.number().nullish()
+})).optional().describe('If provided, replaces ALL lines of the draft')
+})
+
+export const UpdateInvoiceResponse = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "sourceJobIds": zod.array(zod.number())
+})
+
+
+/**
+ * @summary Delete a draft invoice (admin only)
+ */
+export const DeleteInvoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Recompute totals/VAT for a draft invoice (admin only)
+ */
+export const RecalculateInvoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RecalculateInvoiceResponse = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "sourceJobIds": zod.array(zod.number())
+})
+
+
+/**
+ * @summary Issue a draft invoice in one transaction (admin only)
+ */
+export const IssueInvoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const IssueInvoiceResponse = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "sourceJobIds": zod.array(zod.number())
+})
+
+
+/**
+ * @summary Cancel (storno) an invoice, optionally returning jobs to done (admin only)
+ */
+export const CancelInvoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const CancelInvoiceBody = zod.object({
+  "returnJobsToDone": zod.boolean().optional().describe('If true, linked jobs are returned to \"done\"')
+})
+
+export const CancelInvoiceResponse = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "sourceJobIds": zod.array(zod.number())
+})
+
+
+/**
+ * @summary Mark an issued invoice as sent or paid (admin only)
+ */
+export const UpdateInvoiceStatusParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateInvoiceStatusBody = zod.object({
+  "status": zod.enum(['sent', 'paid'])
+})
+
+export const UpdateInvoiceStatusResponse = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "status": zod.enum(['draft', 'issued', 'sent', 'paid', 'cancelled']),
+  "customerId": zod.number().nullish(),
+  "customerName": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "paymentMethod": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "isdocObjectPath": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "issuedByUserId": zod.number().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "cancelledAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Email the invoice PDF to the customer (admin only)
+ */
+export const SendInvoiceEmailParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SendInvoiceEmailBody = zod.object({
+  "to": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "message": zod.string().nullish()
+})
+
+export const SendInvoiceEmailResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string().nullish()
+})
+
+
+/**
+ * @summary Download the invoice PDF (admin only)
+ */
+export const DownloadInvoicePdfParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+

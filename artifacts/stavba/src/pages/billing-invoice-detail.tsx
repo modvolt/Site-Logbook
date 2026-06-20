@@ -1,0 +1,553 @@
+import { useState } from "react";
+import { useLocation, useRoute } from "wouter";
+import {
+  useGetInvoice,
+  useRecalculateInvoice,
+  useIssueInvoice,
+  useCancelInvoice,
+  useDeleteInvoice,
+  useUpdateInvoiceStatus,
+  useSendInvoiceEmail,
+  downloadInvoicePdf,
+  getGetInvoiceQueryKey,
+  getListInvoicesQueryKey,
+  getGetBillingSummaryQueryKey,
+  getListUnbilledCustomersQueryKey,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { InvoiceStatusBadge } from "@/components/badges";
+import { fmtKc, fmtDate, vatModeLabel } from "@/lib/billing-format";
+import { useToast } from "@/hooks/use-toast";
+import {
+  ArrowLeft,
+  Pencil,
+  RefreshCw,
+  FileCheck2,
+  Trash2,
+  Download,
+  Mail,
+  Send,
+  CircleDollarSign,
+  Ban,
+  Loader2,
+} from "lucide-react";
+
+export default function BillingInvoiceDetail() {
+  const [, params] = useRoute("/billing/invoices/:id");
+  const id = Number(params?.id);
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: inv, isLoading } = useGetInvoice(id, {
+    query: { queryKey: getGetInvoiceQueryKey(id), enabled: !!id },
+  });
+
+  const recalc = useRecalculateInvoice();
+  const issue = useIssueInvoice();
+  const cancel = useCancelInvoice();
+  const remove = useDeleteInvoice();
+  const updateStatus = useUpdateInvoiceStatus();
+  const sendEmail = useSendInvoiceEmail();
+
+  const [downloading, setDownloading] = useState(false);
+  const [confirmIssue, setConfirmIssue] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [returnJobs, setReturnJobs] = useState(true);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailMessage, setEmailMessage] = useState("");
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: getGetInvoiceQueryKey(id) });
+    queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListUnbilledCustomersQueryKey() });
+  };
+
+  const handleRecalc = () =>
+    recalc.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          invalidateAll();
+          toast({ title: "Faktura přepočítána" });
+        },
+        onError: () => toast({ title: "Přepočet se nezdařil", variant: "destructive" }),
+      },
+    );
+
+  const handleIssue = () =>
+    issue.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          invalidateAll();
+          setConfirmIssue(false);
+          toast({ title: "Faktura vystavena" });
+        },
+        onError: (err: unknown) => {
+          setConfirmIssue(false);
+          toast({ title: "Vystavení se nezdařilo", description: errMsg(err), variant: "destructive" });
+        },
+      },
+    );
+
+  const handleDelete = () =>
+    remove.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListUnbilledCustomersQueryKey() });
+          toast({ title: "Koncept smazán" });
+          setLocation("/billing/invoices");
+        },
+        onError: () => {
+          setConfirmDelete(false);
+          toast({ title: "Smazání se nezdařilo", variant: "destructive" });
+        },
+      },
+    );
+
+  const handleCancel = () =>
+    cancel.mutate(
+      { id, data: { returnJobsToDone: returnJobs } },
+      {
+        onSuccess: () => {
+          invalidateAll();
+          setConfirmCancel(false);
+          toast({ title: "Faktura stornována" });
+        },
+        onError: () => {
+          setConfirmCancel(false);
+          toast({ title: "Storno se nezdařilo", variant: "destructive" });
+        },
+      },
+    );
+
+  const handleStatus = (status: "sent" | "paid") =>
+    updateStatus.mutate(
+      { id, data: { status } },
+      {
+        onSuccess: () => {
+          invalidateAll();
+          toast({ title: status === "paid" ? "Označeno jako zaplaceno" : "Označeno jako odesláno" });
+        },
+        onError: () => toast({ title: "Změna stavu se nezdařila", variant: "destructive" }),
+      },
+    );
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const blob = await downloadInvoicePdf(id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${inv?.invoiceNumber || "faktura"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Stažení PDF se nezdařilo", variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const openEmail = () => {
+    setEmailTo(inv?.customerEmail ?? "");
+    setEmailSubject(inv?.invoiceNumber ? `Faktura ${inv.invoiceNumber}` : "Faktura");
+    setEmailMessage("");
+    setEmailOpen(true);
+  };
+
+  const handleSendEmail = () =>
+    sendEmail.mutate(
+      {
+        id,
+        data: {
+          to: emailTo.trim() || null,
+          subject: emailSubject.trim() || null,
+          message: emailMessage.trim() || null,
+        },
+      },
+      {
+        onSuccess: (res) => {
+          invalidateAll();
+          setEmailOpen(false);
+          toast({
+            title: res.sent ? "E-mail odeslán" : "E-mail se nepodařilo odeslat",
+            description: res.to ? `Příjemce: ${res.to}` : undefined,
+            variant: res.sent ? undefined : "destructive",
+          });
+        },
+        onError: (err: unknown) =>
+          toast({ title: "Odeslání e-mailu se nezdařilo", description: errMsg(err), variant: "destructive" }),
+      },
+    );
+
+  if (isLoading) {
+    return (
+      <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!inv) {
+    return <div className="p-8 text-center text-muted-foreground">Faktura nenalezena.</div>;
+  }
+
+  const isDraft = inv.status === "draft";
+  const isActive = inv.status === "issued" || inv.status === "sent" || inv.status === "paid";
+  const showVat = inv.totalVat > 0;
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mb-3 -ml-2 text-muted-foreground"
+        onClick={() => setLocation("/billing/invoices")}
+      >
+        <ArrowLeft className="h-4 w-4 mr-1" /> Faktury
+      </Button>
+
+      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold">{inv.invoiceNumber || "Koncept faktury"}</h1>
+            <InvoiceStatusBadge status={inv.status} />
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">{inv.customerName || "—"}</p>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {isDraft && (
+          <>
+            <Button onClick={() => setLocation(`/billing/invoices/${id}/edit`)} className="h-10">
+              <Pencil className="h-4 w-4 mr-2" /> Upravit
+            </Button>
+            <Button variant="outline" onClick={handleRecalc} disabled={recalc.isPending} className="h-10">
+              <RefreshCw className={`h-4 w-4 mr-2 ${recalc.isPending ? "animate-spin" : ""}`} /> Přepočítat
+            </Button>
+            <Button variant="outline" onClick={() => setConfirmIssue(true)} className="h-10">
+              <FileCheck2 className="h-4 w-4 mr-2" /> Vystavit
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmDelete(true)}
+              className="h-10 text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="h-4 w-4 mr-2" /> Smazat
+            </Button>
+          </>
+        )}
+        {isActive && (
+          <>
+            <Button onClick={handleDownload} disabled={downloading} className="h-10">
+              {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+              Stáhnout PDF
+            </Button>
+            <Button variant="outline" onClick={openEmail} className="h-10">
+              <Mail className="h-4 w-4 mr-2" /> Odeslat e-mailem
+            </Button>
+            {inv.status === "issued" && (
+              <Button variant="outline" onClick={() => handleStatus("sent")} disabled={updateStatus.isPending} className="h-10">
+                <Send className="h-4 w-4 mr-2" /> Označit jako odesláno
+              </Button>
+            )}
+            {inv.status !== "paid" && (
+              <Button variant="outline" onClick={() => handleStatus("paid")} disabled={updateStatus.isPending} className="h-10">
+                <CircleDollarSign className="h-4 w-4 mr-2" /> Označit jako zaplaceno
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmCancel(true)}
+              className="h-10 text-destructive hover:bg-destructive/10"
+            >
+              <Ban className="h-4 w-4 mr-2" /> Stornovat
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Header info */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Odběratel</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-1">
+            <p className="font-semibold">{inv.customerName || "—"}</p>
+            {inv.customerAddress && <p className="text-muted-foreground">{inv.customerAddress}</p>}
+            <div className="flex gap-3 text-muted-foreground flex-wrap">
+              {inv.customerIc && <span>IČ: {inv.customerIc}</span>}
+              {inv.customerDic && <span>DIČ: {inv.customerDic}</span>}
+            </div>
+            {inv.customerEmail && <p className="text-muted-foreground">{inv.customerEmail}</p>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Údaje faktury</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-1.5">
+            <InfoRow label="Datum vystavení" value={fmtDate(inv.issueDate)} />
+            <InfoRow label="Datum zd. plnění" value={fmtDate(inv.taxableSupplyDate)} />
+            <InfoRow label="Splatnost" value={fmtDate(inv.dueDate)} />
+            <InfoRow label="Způsob platby" value={inv.paymentMethod || "—"} />
+            <InfoRow label="Variabilní symbol" value={inv.variableSymbol || "—"} />
+            <InfoRow label="Režim DPH" value={vatModeLabel(inv.vatModeDefault)} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Lines */}
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle className="text-base">Položky</CardTitle>
+        </CardHeader>
+        <CardContent className="px-0 sm:px-6">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[180px]">Popis</TableHead>
+                  <TableHead className="text-right">Množství</TableHead>
+                  <TableHead className="text-right">Cena/MJ</TableHead>
+                  {showVat && <TableHead className="text-right">DPH %</TableHead>}
+                  <TableHead className="text-right">Bez DPH</TableHead>
+                  {showVat && <TableHead className="text-right">S DPH</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {inv.lines.map((line) => (
+                  <TableRow key={line.id}>
+                    <TableCell className="font-medium">{line.description}</TableCell>
+                    <TableCell className="text-right">
+                      {line.quantity}
+                      {line.unit ? ` ${line.unit}` : ""}
+                    </TableCell>
+                    <TableCell className="text-right">{fmtKc(line.unitPriceWithoutVat)}</TableCell>
+                    {showVat && (
+                      <TableCell className="text-right">{line.vatRate != null ? `${line.vatRate} %` : "—"}</TableCell>
+                    )}
+                    <TableCell className="text-right">{fmtKc(line.totalWithoutVat)}</TableCell>
+                    {showVat && <TableCell className="text-right">{fmtKc(line.totalWithVat)}</TableCell>}
+                  </TableRow>
+                ))}
+                {inv.lines.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={showVat ? 6 : 4} className="text-center text-muted-foreground py-6">
+                      Žádné položky.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Totals */}
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <div className="ml-auto max-w-xs space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Základ bez DPH</span>
+              <span className="font-medium">{fmtKc(inv.subtotalWithoutVat)}</span>
+            </div>
+            {showVat && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">DPH</span>
+                <span className="font-medium">{fmtKc(inv.totalVat)}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t pt-1.5 text-base font-bold">
+              <span>Celkem</span>
+              <span>{fmtKc(inv.totalWithVat)}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {inv.notes && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Poznámka</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm whitespace-pre-wrap text-muted-foreground">{inv.notes}</CardContent>
+        </Card>
+      )}
+
+      {/* Issue confirm */}
+      <AlertDialog open={confirmIssue} onOpenChange={setConfirmIssue}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vystavit fakturu?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Faktuře bude přiřazeno číslo, vygeneruje se PDF a navázané zakázky se
+              označí jako „Vyfakturováno". Tuto akci nelze vrátit (lze pouze stornovat).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Zrušit</AlertDialogCancel>
+            <AlertDialogAction onClick={handleIssue} disabled={issue.isPending}>
+              {issue.isPending ? "Vystavuji…" : "Vystavit"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirm */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Smazat koncept?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Koncept faktury bude trvale odstraněn. Navázané zakázky zůstanou
+              nevyfakturované.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Zrušit</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={remove.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {remove.isPending ? "Mažu…" : "Smazat"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cancel confirm */}
+      <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Stornovat fakturu?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Faktura bude označena jako stornovaná. Tuto akci nelze vrátit.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-center gap-2 text-sm cursor-pointer py-1">
+            <Checkbox checked={returnJobs} onCheckedChange={(v) => setReturnJobs(v === true)} />
+            Vrátit navázané zakázky zpět do stavu „Hotovo"
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Zrušit</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleCancel}
+              disabled={cancel.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {cancel.isPending ? "Stornuji…" : "Stornovat"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Email dialog */}
+      <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Odeslat fakturu e-mailem</DialogTitle>
+            <DialogDescription>Faktura se odešle jako PDF příloha.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm mb-1 block">Příjemce</Label>
+              <Input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="email@firma.cz" />
+            </div>
+            <div>
+              <Label className="text-sm mb-1 block">Předmět</Label>
+              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-sm mb-1 block">Zpráva</Label>
+              <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={4} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEmailOpen(false)}>
+              Zrušit
+            </Button>
+            <Button onClick={handleSendEmail} disabled={sendEmail.isPending || !emailTo.trim()}>
+              {sendEmail.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+              Odeslat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+function errMsg(err: unknown): string | undefined {
+  if (err && typeof err === "object") {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const detail = (data as { detail?: unknown; title?: unknown }).detail ?? (data as { title?: unknown }).title;
+      if (typeof detail === "string") return detail;
+    }
+    if ("message" in err && typeof (err as { message?: unknown }).message === "string") {
+      return (err as { message: string }).message;
+    }
+  }
+  return undefined;
+}
