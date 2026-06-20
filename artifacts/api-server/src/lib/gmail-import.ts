@@ -341,7 +341,7 @@ interface GmailHeader {
   name: string;
   value: string;
 }
-interface GmailPart {
+export interface GmailPart {
   partId?: string;
   mimeType?: string;
   filename?: string;
@@ -407,7 +407,7 @@ export interface DiscoveredAttachment {
 }
 
 /** Walk the MIME tree and collect downloadable attachments (skip inline parts). */
-function collectAttachments(payload: GmailPart | undefined): DiscoveredAttachment[] {
+export function collectAttachments(payload: GmailPart | undefined): DiscoveredAttachment[] {
   const out: DiscoveredAttachment[] = [];
 
   const walk = (part: GmailPart | undefined): void => {
