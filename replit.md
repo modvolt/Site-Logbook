@@ -92,9 +92,9 @@ _Populate as you build — explicit user instructions worth remembering across s
   downstream routes. Always gate per-route.
 - `backup_log` in dev was created via direct `psql` (drizzle migrate replay can
   fail on `0000` in dev). Never blind `push --force` (can drop `user_sessions`).
-- Dev DB admin (`admin` / role admin) password was reset to `TestAdmin123!`
-  during this audit (the original dev hash could not be recovered). Change it in
-  Settings; this only affects the dev database, never production.
+- Dev DB admin (`admin` / role admin) password is `admin` (reset directly in the
+  dev Postgres for convenient local testing). Change it in Settings; this only
+  affects the dev database, never production.
 
 ## Pointers
 
