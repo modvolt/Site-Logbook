@@ -942,6 +942,11 @@ export async function issueInvoice(id: number, actor: Actor) {
       throw appError(409, "Vystavit lze pouze koncept faktury.");
     }
 
+    // Recompute every line + the invoice totals from the current line inputs
+    // inside this same transaction, so the issued (immutable) document and its
+    // PDF can never capture stale or tampered totals.
+    await recalcWithin(tx, id, invoice.vatModeDefault as VatMode);
+
     // Verify every linked job is still "done" (could have been reopened / billed
     // by a competing draft since this draft was built).
     const links = await tx

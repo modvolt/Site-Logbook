@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import robotoRegular from "../assets/fonts/Roboto-Regular.ttf";
 import robotoBold from "../assets/fonts/Roboto-Bold.ttf";
-import { formatCzk, num, vatBreakdown, type ComputedLine, type VatMode } from "./invoice-calc";
+import { formatCzk, num, round2, vatBreakdown, type ComputedLine, type VatMode } from "./invoice-calc";
 
 // jsPDF's built-in fonts are WinAnsi-only and cannot render Czech diacritics
 // (ř, š, ě, ů…). We embed Roboto (regular + bold) — bundled into the server as
@@ -176,7 +176,10 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   y = Math.max(mly, mry) + 4;
 
   // ---- Line items table ----
-  const showVat = taxDocument && !isReverseCharge;
+  // A VAT tax document always shows the VAT columns/recap. PDP (reverse-charge)
+  // lines are marked individually and carry no VAT — they must NOT suppress the
+  // VAT breakdown for standard-rated lines on a mixed invoice.
+  const showVat = taxDocument;
   const head = showVat
     ? [["Popis", "Množ.", "MJ", "Cena/MJ", "Bez DPH", "DPH %", "DPH", "Celkem"]]
     : [["Popis", "Množ.", "MJ", "Cena/MJ", "Celkem"]];
@@ -189,11 +192,12 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
       formatCzk(l.unitPriceWithoutVat, data.currency),
     ];
     if (showVat) {
+      const isPdp = l.vatMode === "reverse_charge";
       return [
         ...base,
         formatCzk(l.totalWithoutVat, data.currency),
-        l.vatRate != null ? `${num(l.vatRate)} %` : "—",
-        formatCzk(l.totalVat, data.currency),
+        isPdp ? "PDP" : l.vatRate != null ? `${num(l.vatRate)} %` : "—",
+        isPdp ? "PDP" : formatCzk(l.totalVat, data.currency),
         formatCzk(l.totalWithVat, data.currency),
       ];
     }
@@ -235,17 +239,33 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
   doc.setFontSize(10);
   if (showVat) {
     const breakdown = vatBreakdown(data.lines as ReadonlyArray<ComputedLine>);
+    const pdpBase = round2(
+      data.lines
+        .filter((l) => l.vatMode === "reverse_charge")
+        .reduce((acc, l) => acc + num(l.totalWithoutVat), 0),
+    );
     doc.setFont(PDF_FONT, "normal");
-    doc.text("Základ daně:", totalsX, y);
-    doc.text(formatCzk(data.subtotalWithoutVat, data.currency), pageWidth - marginX, y, {
-      align: "right",
-    });
-    y += 5;
     for (const b of breakdown) {
+      doc.text(`Základ DPH ${b.rate} %:`, totalsX, y);
+      doc.text(formatCzk(b.base, data.currency), pageWidth - marginX, y, { align: "right" });
+      y += 5;
       doc.text(`DPH ${b.rate} %:`, totalsX, y);
       doc.text(formatCzk(b.vat, data.currency), pageWidth - marginX, y, { align: "right" });
       y += 5;
     }
+    if (pdpBase > 0) {
+      doc.text("Základ – přenesení DPH:", totalsX, y);
+      doc.text(formatCzk(pdpBase, data.currency), pageWidth - marginX, y, { align: "right" });
+      y += 5;
+    }
+    doc.text("Celkem bez DPH:", totalsX, y);
+    doc.text(formatCzk(data.subtotalWithoutVat, data.currency), pageWidth - marginX, y, {
+      align: "right",
+    });
+    y += 5;
+    doc.text("DPH celkem:", totalsX, y);
+    doc.text(formatCzk(data.totalVat, data.currency), pageWidth - marginX, y, { align: "right" });
+    y += 5;
   } else {
     doc.setFont(PDF_FONT, "normal");
     doc.text("Mezisoučet:", totalsX, y);
