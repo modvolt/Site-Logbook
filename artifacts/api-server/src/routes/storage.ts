@@ -211,6 +211,29 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
 });
 
 /**
+ * Object key prefixes that must NEVER be served through the generic
+ * (any authenticated user, incl. guests on GET) `/storage/objects/*` route.
+ * They hold admin-only sensitive data and are reachable only via their own
+ * admin-gated endpoints:
+ *  - `backups/`  → full DB dumps; only via GET /api/backups/:id/download.
+ *  - `invoices/` → issued invoice PDFs/ISDOC; only via the admin-gated
+ *                  GET /api/billing/invoices/:id/pdf. The object path is
+ *                  guessable from the invoice number, so it must be blocked here
+ *                  to stop a non-admin from downloading invoices directly.
+ */
+const PROTECTED_OBJECT_PREFIXES = ["backups", "invoices"] as const;
+
+/**
+ * True when `wildcardPath` (the part after `/objects/`) falls under an
+ * admin-only prefix that the generic object route must treat as nonexistent.
+ */
+export function isProtectedObjectPath(wildcardPath: string): boolean {
+  return PROTECTED_OBJECT_PREFIXES.some(
+    (prefix) => wildcardPath === prefix || wildcardPath.startsWith(`${prefix}/`),
+  );
+}
+
+/**
  * GET /storage/objects/*
  *
  * Serve private object entities uploaded via the server-proxied upload flow
@@ -220,11 +243,10 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
-    // Database backups live under the "backups/" prefix and contain the entire
-    // database. They must NEVER be served through this generic (any authenticated
-    // user, incl. guests on GET) endpoint — only via the admin-gated
-    // GET /api/backups/:id/download route. Treat them as nonexistent here.
-    if (wildcardPath === "backups" || wildcardPath.startsWith("backups/")) {
+    // Some object prefixes hold admin-only sensitive data (DB backups, issued
+    // invoice PDFs). They must NEVER be served through this generic endpoint —
+    // only via their own admin-gated routes. Treat them as nonexistent here.
+    if (isProtectedObjectPath(wildcardPath)) {
       res.status(404).json({ error: "Object not found" });
       return;
     }
