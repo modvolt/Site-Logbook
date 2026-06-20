@@ -58,7 +58,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {/* Single scrollable region holds both the main nav and the admin
+            section, so on short screens every item stays reachable via scroll
+            and nothing is ever permanently hidden under the viewport edge. */}
+        <nav className="flex-1 min-h-0 p-4 space-y-1 overflow-y-auto">
           {mainNavItems
             .filter((item) => !item.requires || can(item.requires))
             .map((item) => {
@@ -76,26 +79,29 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {adminNavItems.filter((item) => !item.requires || can(item.requires))
+            .length > 0 && (
+            <div className="mt-2 pt-2 border-t space-y-1">
+              {adminNavItems
+                .filter((item) => !item.requires || can(item.requires))
+                .map((item) => {
+                  const active = isActive(item);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                        active ? item.activeBg : `text-muted-foreground ${item.hoverBg}`
+                      }`}
+                    >
+                      <item.icon className={`h-5 w-5 ${active ? "text-white" : item.color}`} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+            </div>
+          )}
         </nav>
-        <div className="p-4 border-t space-y-1">
-          {adminNavItems
-            .filter((item) => !item.requires || can(item.requires))
-            .map((item) => {
-              const active = isActive(item);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                    active ? item.activeBg : `text-muted-foreground ${item.hoverBg}`
-                  }`}
-                >
-                  <item.icon className={`h-5 w-5 ${active ? "text-white" : item.color}`} />
-                  {item.label}
-                </Link>
-              );
-            })}
-        </div>
       </aside>
 
       {/* Mobile Header */}

@@ -4,9 +4,22 @@ export type CompanySettings = {
   info: string;
   signatureDataUrl: string;
   textColor: string;
+  uiScale: number;
 };
 
 const STORAGE_KEY = "stavba.companySettings";
+
+/** Default UI scale (1 = 100%, matches the browser's base font size). */
+export const DEFAULT_UI_SCALE = 1;
+
+/** Preset zoom levels for the whole UI, ordered from smallest to largest. */
+export const UI_SCALE_OPTIONS: { value: number; label: string }[] = [
+  { value: 0.8, label: "Nejmenší" },
+  { value: 0.9, label: "Kompaktní" },
+  { value: 1, label: "Normální" },
+  { value: 1.1, label: "Velké" },
+  { value: 1.25, label: "Největší" },
+];
 
 export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   name: "",
@@ -14,6 +27,7 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   info: "",
   signatureDataUrl: "",
   textColor: "",
+  uiScale: DEFAULT_UI_SCALE,
 };
 
 export function loadCompanySettings(): CompanySettings {
@@ -32,6 +46,10 @@ export function loadCompanySettings(): CompanySettings {
           ? parsed.signatureDataUrl
           : "",
       textColor: typeof parsed.textColor === "string" ? parsed.textColor : "",
+      uiScale:
+        typeof parsed.uiScale === "number" && parsed.uiScale > 0
+          ? parsed.uiScale
+          : DEFAULT_UI_SCALE,
     };
   } catch {
     return DEFAULT_COMPANY_SETTINGS;
@@ -93,4 +111,18 @@ export function applyTextColor(color: string) {
     if (hsl) root.style.setProperty(v, hsl);
     else root.style.removeProperty(v);
   }
+}
+
+/**
+ * Apply the chosen UI scale by setting the document root font-size. Since the
+ * UI is largely sized in `rem` (via Tailwind), scaling the root font-size zooms
+ * both text and spacing globally. Pass the default (1) to revert to the
+ * browser's base font size.
+ */
+export function applyUiScale(scale: number) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const valid = typeof scale === "number" && scale > 0 ? scale : DEFAULT_UI_SCALE;
+  if (valid === DEFAULT_UI_SCALE) root.style.removeProperty("font-size");
+  else root.style.fontSize = `${Math.round(valid * 100)}%`;
 }

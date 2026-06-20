@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn } from "lucide-react";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,9 @@ import {
   loadCompanySettings,
   saveCompanySettings,
   applyTextColor,
+  applyUiScale,
+  UI_SCALE_OPTIONS,
+  DEFAULT_UI_SCALE,
   type CompanySettings,
 } from "@/lib/company-settings";
 import { hardRefreshApp } from "@/lib/pwa";
@@ -708,6 +711,7 @@ export default function Settings() {
   const [info, setInfo] = useState("");
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [textColor, setTextColor] = useState("");
+  const [uiScale, setUiScale] = useState<number>(DEFAULT_UI_SCALE);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [signatureError, setSignatureError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -721,6 +725,7 @@ export default function Settings() {
     setInfo(s.info);
     setSignatureDataUrl(s.signatureDataUrl);
     setTextColor(s.textColor);
+    setUiScale(s.uiScale);
   }, []);
 
   function persist(next: Partial<CompanySettings>) {
@@ -730,6 +735,7 @@ export default function Settings() {
       info: next.info ?? info,
       signatureDataUrl: next.signatureDataUrl ?? signatureDataUrl,
       textColor: next.textColor ?? textColor,
+      uiScale: next.uiScale ?? uiScale,
     };
     saveCompanySettings(merged);
     setSavedAt(Date.now());
@@ -807,6 +813,12 @@ export default function Settings() {
     persist({ textColor: "" });
   }
 
+  function onUiScaleChange(value: number) {
+    setUiScale(value);
+    applyUiScale(value);
+    persist({ uiScale: value });
+  }
+
   const themes = [
     { value: "light", label: "Světlý", icon: Sun },
     { value: "dark", label: "Tmavý", icon: Moon },
@@ -877,6 +889,39 @@ export default function Settings() {
               >
                 Výchozí
               </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 border-t pt-4">
+            <Label className="flex items-center gap-2">
+              <ZoomIn className="h-4 w-4" /> Velikost zobrazení
+            </Label>
+            <p className="text-sm text-muted-foreground">
+              Zvětší nebo zmenší celé rozhraní (text i rozestupy). Pomáhá, když se
+              na menších obrazovkách nevejde celé menu. Nastavení se uloží do
+              tohoto prohlížeče.
+            </p>
+            <div className="grid grid-cols-5 gap-2">
+              {UI_SCALE_OPTIONS.map(({ value, label }) => {
+                const active = uiScale === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onUiScaleChange(value)}
+                    className={`flex flex-col items-center justify-center gap-1 px-1 py-2 rounded-lg border-2 transition-all ${
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <span className="text-xs font-medium">{label}</span>
+                    <span className="text-[10px] opacity-70">
+                      {Math.round(value * 100)}%
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </CardContent>

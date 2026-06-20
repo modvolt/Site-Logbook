@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import { loadCompanySettings, applyTextColor } from "@/lib/company-settings";
+import { loadCompanySettings, applyTextColor, applyUiScale } from "@/lib/company-settings";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
@@ -139,7 +139,9 @@ function Router() {
 
 function App() {
   useEffect(() => {
-    applyTextColor(loadCompanySettings().textColor);
+    const s = loadCompanySettings();
+    applyTextColor(s.textColor);
+    applyUiScale(s.uiScale);
   }, []);
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
