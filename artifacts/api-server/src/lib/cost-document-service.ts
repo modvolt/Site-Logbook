@@ -208,6 +208,9 @@ function serializeDocument(row: BillingDocument) {
     jobId: row.jobId,
     notes: row.notes,
     warnings: row.warnings,
+    aiConfidence: row.aiConfidence == null ? null : num(row.aiConfidence),
+    aiModel: row.aiModel,
+    aiExtractedAt: row.aiExtractedAt ? row.aiExtractedAt.toISOString() : null,
     reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -991,6 +994,154 @@ export async function releaseInvoicedLines(
     .update(billingDocumentLinesTable)
     .set({ invoicedInvoiceId: null, updatedAt: new Date() })
     .where(eq(billingDocumentLinesTable.invoicedInvoiceId, invoiceId));
+}
+
+// ---------------------------------------------------------------------------
+// AI extraction suggestion (OpenAI)
+// ---------------------------------------------------------------------------
+
+export interface AiSuggestionLine {
+  description: string;
+  lineType?: string;
+  quantity?: number | null;
+  unit?: string | null;
+  unitPriceWithoutVat?: number | null;
+  vatRate?: number | null;
+}
+
+export interface AiSuggestionInput {
+  docType?: string | null;
+  supplierName?: string | null;
+  supplierIc?: string | null;
+  supplierDic?: string | null;
+  supplierAddress?: string | null;
+  documentNumber?: string | null;
+  variableSymbol?: string | null;
+  issueDate?: string | null;
+  taxableSupplyDate?: string | null;
+  dueDate?: string | null;
+  currency?: string | null;
+  subtotalWithoutVat?: number | null;
+  totalVat?: number | null;
+  totalWithVat?: number | null;
+  lines: AiSuggestionLine[];
+  confidence: number;
+  warnings: string[];
+  model: string;
+  rawJson: string;
+}
+
+/** Only fill a header field from AI when the document doesn't already have one. */
+function fillIfEmpty<T>(current: T | null, suggestion: T | null | undefined): T | null {
+  if (current != null && current !== ("" as unknown as T)) return current;
+  return suggestion ?? null;
+}
+
+/**
+ * Persist an AI extraction as a `needs_review` SUGGESTION. AI output is never
+ * auto-approved: the document is left for an admin to confirm. Header fields are
+ * only prefilled where empty (so a human edit / ISDOC value is never clobbered);
+ * suggested lines are appended only when the document has none yet. The raw model
+ * response, confidence and model name are stored for audit, and any warnings
+ * (incl. the low-confidence flag) are merged into the document's warnings.
+ */
+export async function applyAiSuggestion(
+  documentId: number,
+  suggestion: AiSuggestionInput,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, documentId));
+    if (!doc) throw appError(404, "Doklad nenalezen.");
+
+    const existingLines = await tx
+      .select({ id: billingDocumentLinesTable.id })
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, documentId));
+
+    const warnings = [
+      "Hlavička a položky předvyplněny pomocí AI (OpenAI). Před schválením pečlivě zkontrolujte.",
+      ...suggestion.warnings,
+    ].join("\n");
+
+    const docType =
+      suggestion.docType && VALID_DOC_TYPE.has(suggestion.docType)
+        ? suggestion.docType
+        : doc.docType;
+
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        // Never override a value a human / ISDOC already set.
+        docType,
+        supplierName: fillIfEmpty(doc.supplierName, suggestion.supplierName),
+        supplierIc: fillIfEmpty(doc.supplierIc, suggestion.supplierIc),
+        supplierDic: fillIfEmpty(doc.supplierDic, suggestion.supplierDic),
+        supplierAddress: fillIfEmpty(doc.supplierAddress, suggestion.supplierAddress),
+        documentNumber: fillIfEmpty(doc.documentNumber, suggestion.documentNumber),
+        variableSymbol: fillIfEmpty(doc.variableSymbol, suggestion.variableSymbol),
+        issueDate: fillIfEmpty(doc.issueDate, suggestion.issueDate),
+        taxableSupplyDate: fillIfEmpty(doc.taxableSupplyDate, suggestion.taxableSupplyDate),
+        dueDate: fillIfEmpty(doc.dueDate, suggestion.dueDate),
+        currency: doc.currency || suggestion.currency || "CZK",
+        subtotalWithoutVat:
+          doc.subtotalWithoutVat ??
+          (suggestion.subtotalWithoutVat != null
+            ? String(round2(suggestion.subtotalWithoutVat))
+            : null),
+        totalVat:
+          doc.totalVat ??
+          (suggestion.totalVat != null ? String(round2(suggestion.totalVat)) : null),
+        totalWithVat:
+          doc.totalWithVat ??
+          (suggestion.totalWithVat != null
+            ? String(round2(suggestion.totalWithVat))
+            : null),
+        warnings,
+        aiRawJson: suggestion.rawJson,
+        aiConfidence: String(round2(suggestion.confidence)),
+        aiModel: suggestion.model,
+        aiExtractedAt: new Date(),
+        // AI output is a suggestion — always leave it for human review.
+        status: "needs_review",
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, documentId));
+
+    if (!existingLines.length && suggestion.lines.length) {
+      await tx.insert(billingDocumentLinesTable).values(
+        suggestion.lines.map((l, idx) =>
+          lineValues(
+            documentId,
+            {
+              description: l.description,
+              quantity: l.quantity,
+              unit: l.unit,
+              unitPriceWithoutVat: l.unitPriceWithoutVat,
+              vatRate: l.vatRate,
+              lineType: l.lineType,
+            },
+            idx,
+          ),
+        ),
+      );
+    }
+  });
+}
+
+/** Fetch a document's stored file bytes (or null when it has no object). */
+export async function getDocumentFileBuffer(
+  documentId: number,
+): Promise<{ buffer: Buffer; contentType: string | null; fileName: string | null } | null> {
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc || !doc.objectPath) return null;
+  const buffer = await objectStorage.getPrivateObjectBuffer(doc.objectPath);
+  return { buffer, contentType: doc.contentType, fileName: doc.fileName };
 }
 
 void sql;

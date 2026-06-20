@@ -56,6 +56,12 @@ export interface CostDocument {
   /** @nullable */
   warnings?: string | null;
   /** @nullable */
+  aiConfidence?: number | null;
+  /** @nullable */
+  aiModel?: string | null;
+  /** @nullable */
+  aiExtractedAt?: string | null;
+  /** @nullable */
   reviewedAt?: string | null;
   createdAt: string;
   updatedAt: string;

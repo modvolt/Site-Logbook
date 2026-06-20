@@ -33,6 +33,10 @@ import {
   type AppError,
   type Actor,
 } from "../lib/cost-document-service";
+import {
+  getOpenAiConfig,
+  testConfiguration as testAiConfiguration,
+} from "../lib/openai-extraction";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -41,6 +45,33 @@ const objectStorage = new ObjectStorageService();
 // admin-only. Path-scoped so the gate never leaks to downstream pathless routers.
 router.use("/billing/documents", requireRole("admin"));
 router.use("/billing/approved-lines", requireRole("admin"));
+router.use("/billing/ai-extraction", requireRole("admin"));
+
+// --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
+
+router.get("/billing/ai-extraction", (_req, res): void => {
+  const cfg = getOpenAiConfig();
+  res.json({
+    configured: cfg.configured,
+    enabled: cfg.enabled,
+    ready: cfg.ready,
+    model: cfg.model,
+    maxFileMb: cfg.maxFileMb,
+  });
+});
+
+// Verifies the API key + model are reachable. Sends NO real document.
+router.post("/billing/ai-extraction/test", async (req, res): Promise<void> => {
+  try {
+    const result = await testAiConfiguration();
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "OpenAI configuration test failed");
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "Test konfigurace OpenAI selhal.",
+    });
+  }
+});
 
 // Same hard cap as the generic upload route (see routes/storage.ts). Keep nginx's
 // client_max_body_size at/above this or large files are rejected at the proxy.

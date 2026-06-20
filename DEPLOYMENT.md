@@ -114,6 +114,11 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `SMTP_SECURE`             | no       | auto          | `true` for implicit TLS (465).                                   |
 | `SMTP_USER/PASSWORD`      | no       | —             | Credentials (optional for open relays).                          |
 | `SMTP_FROM`               | no       | `SMTP_USER`   | From address.                                                    |
+| `OPENAI_API_KEY`          | no       | —             | Empty disables AI cost-document extraction (manual review still works). Your own OpenAI key. |
+| `OPENAI_DOCUMENT_EXTRACTION_ENABLED` | no | `false` | Master switch; extraction runs only when exactly `true`.         |
+| `OPENAI_DOCUMENT_MODEL`   | no       | `gpt-4o`      | Vision/file-capable model used for extraction.                   |
+| `OPENAI_MAX_FILE_MB`      | no       | `20`          | Max input file size sent to OpenAI.                              |
+| `OPENAI_REQUEST_TIMEOUT_MS` | no     | `60000`       | Per-request timeout to OpenAI (ms).                             |
 | `BACKUP_ENABLED`          | no       | `true`        | `false` disables scheduled backups (manual still works).         |
 | `BACKUP_INTERVAL_HOURS`   | no       | `24`          | Hours between scheduled backups.                                 |
 | `BACKUP_RETENTION`        | no       | `14`          | Most-recent successful backups to keep; older ones are pruned.    |

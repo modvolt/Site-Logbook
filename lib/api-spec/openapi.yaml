@@ -3844,6 +3844,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/ai-extraction:
+    get:
+      operationId: getDocumentExtractionStatus
+      tags: [billing]
+      summary: OpenAI document-extraction status (admin only)
+      responses:
+        "200":
+          description: AI extraction status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentExtractionStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/ai-extraction/test:
+    post:
+      operationId: testDocumentExtraction
+      tags: [billing]
+      summary: Test the OpenAI configuration without sending a document (admin only)
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentExtractionTestResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Test failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /jobs/{id}/analyze-documents:
     post:
       operationId: analyzeJobDocuments
@@ -6439,11 +6483,43 @@ components:
           type: ["string", "null"]
         warnings:
           type: ["string", "null"]
+        aiConfidence:
+          type: ["number", "null"]
+        aiModel:
+          type: ["string", "null"]
+        aiExtractedAt:
+          type: ["string", "null"]
         reviewedAt:
           type: ["string", "null"]
         createdAt:
           type: string
         updatedAt:
+          type: string
+
+    DocumentExtractionStatus:
+      type: object
+      required: [configured, enabled, ready, model, maxFileMb]
+      properties:
+        configured:
+          type: boolean
+        enabled:
+          type: boolean
+        ready:
+          type: boolean
+        model:
+          type: string
+        maxFileMb:
+          type: number
+
+    DocumentExtractionTestResult:
+      type: object
+      required: [ok, model, message]
+      properties:
+        ok:
+          type: boolean
+        model:
+          type: string
+        message:
           type: string
 
     CostDocumentLine:

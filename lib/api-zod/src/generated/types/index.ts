@@ -79,6 +79,8 @@ export * from './dashboardSummary';
 export * from './deviceCredential';
 export * from './deviceCredentialInput';
 export * from './deviceCredentialUpdate';
+export * from './documentExtractionStatus';
+export * from './documentExtractionTestResult';
 export * from './emailSettings';
 export * from './emailSettingsInput';
 export * from './emailSettingsSource';

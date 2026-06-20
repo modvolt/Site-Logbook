@@ -78,6 +78,16 @@ export const billingDocumentsTable = pgTable(
     notes: text("notes"),
     warnings: text("warnings"),
 
+    // AI extraction (OpenAI) — optional. Populated by the extraction worker when
+    // AI extraction is configured & enabled. The raw model response is stored
+    // verbatim for audit; ai_confidence is the model's overall 0..1 confidence
+    // (below 0.7 the document is flagged for closer human review). AI output is
+    // never auto-approved — it is only ever a needs_review suggestion.
+    aiRawJson: text("ai_raw_json"),
+    aiConfidence: numeric("ai_confidence", { precision: 3, scale: 2 }),
+    aiModel: text("ai_model"),
+    aiExtractedAt: timestamp("ai_extracted_at"),
+
     createdByUserId: integer("created_by_user_id").references(() => usersTable.id, {
       onDelete: "set null",
     }),

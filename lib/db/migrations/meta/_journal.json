@@ -64,6 +64,13 @@
       "when": 1781980280628,
       "tag": "0008_fixed_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781981354771,
+      "tag": "0009_chilly_magdalene",
+      "breakpoints": true
     }
   ]
 }

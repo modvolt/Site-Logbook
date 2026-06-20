@@ -67,6 +67,8 @@ import type {
   DeviceCredential,
   DeviceCredentialInput,
   DeviceCredentialUpdate,
+  DocumentExtractionStatus,
+  DocumentExtractionTestResult,
   EmailSettings,
   EmailSettingsInput,
   EmailTestInput,
@@ -10996,6 +10998,153 @@ export function useListApprovedCostLines<TData = Awaited<ReturnType<typeof listA
 
 
 
+
+export const getGetDocumentExtractionStatusUrl = () => {
+
+
+
+
+  return `/api/billing/ai-extraction`
+}
+
+/**
+ * @summary OpenAI document-extraction status (admin only)
+ */
+export const getDocumentExtractionStatus = async ( options?: RequestInit): Promise<DocumentExtractionStatus> => {
+
+  return customFetch<DocumentExtractionStatus>(getGetDocumentExtractionStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDocumentExtractionStatusQueryKey = () => {
+    return [
+    `/api/billing/ai-extraction`
+    ] as const;
+    }
+
+
+export const getGetDocumentExtractionStatusQueryOptions = <TData = Awaited<ReturnType<typeof getDocumentExtractionStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDocumentExtractionStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDocumentExtractionStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDocumentExtractionStatus>>> = ({ signal }) => getDocumentExtractionStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDocumentExtractionStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDocumentExtractionStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getDocumentExtractionStatus>>>
+export type GetDocumentExtractionStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary OpenAI document-extraction status (admin only)
+ */
+
+export function useGetDocumentExtractionStatus<TData = Awaited<ReturnType<typeof getDocumentExtractionStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDocumentExtractionStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDocumentExtractionStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getTestDocumentExtractionUrl = () => {
+
+
+
+
+  return `/api/billing/ai-extraction/test`
+}
+
+/**
+ * @summary Test the OpenAI configuration without sending a document (admin only)
+ */
+export const testDocumentExtraction = async ( options?: RequestInit): Promise<DocumentExtractionTestResult> => {
+
+  return customFetch<DocumentExtractionTestResult>(getTestDocumentExtractionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestDocumentExtractionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testDocumentExtraction>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testDocumentExtraction>>, TError,void, TContext> => {
+
+const mutationKey = ['testDocumentExtraction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testDocumentExtraction>>, void> = () => {
+
+
+          return  testDocumentExtraction(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestDocumentExtractionMutationResult = NonNullable<Awaited<ReturnType<typeof testDocumentExtraction>>>
+
+    export type TestDocumentExtractionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Test the OpenAI configuration without sending a document (admin only)
+ */
+export const useTestDocumentExtraction = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testDocumentExtraction>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testDocumentExtraction>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTestDocumentExtractionMutationOptions(options));
+    }
 
 export const getAnalyzeJobDocumentsUrl = (id: number,) => {
 

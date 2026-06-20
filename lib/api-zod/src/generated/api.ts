@@ -3179,6 +3179,9 @@ export const ListCostDocumentsResponseItem = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3234,6 +3237,9 @@ export const UploadCostDocumentResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3306,6 +3312,9 @@ export const GetCostDocumentResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3398,6 +3407,9 @@ export const UpdateCostDocumentResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3478,6 +3490,9 @@ export const ApproveCostDocumentResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3554,6 +3569,9 @@ export const SetCostDocumentStatusResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3626,6 +3644,9 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3712,6 +3733,9 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3793,6 +3817,9 @@ export const SplitCostDocumentLineResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
@@ -3855,6 +3882,28 @@ export const ListApprovedCostLinesResponse = zod.array(ListApprovedCostLinesResp
 
 
 /**
+ * @summary OpenAI document-extraction status (admin only)
+ */
+export const GetDocumentExtractionStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "enabled": zod.boolean(),
+  "ready": zod.boolean(),
+  "model": zod.string(),
+  "maxFileMb": zod.number()
+})
+
+
+/**
+ * @summary Test the OpenAI configuration without sending a document (admin only)
+ */
+export const TestDocumentExtractionResponse = zod.object({
+  "ok": zod.boolean(),
+  "model": zod.string(),
+  "message": zod.string()
+})
+
+
+/**
  * @summary Import a job's doklady attachments as cost documents (admin only)
  */
 export const AnalyzeJobDocumentsParams = zod.object({
@@ -3888,6 +3937,9 @@ export const AnalyzeJobDocumentsResponse = zod.object({
   "jobId": zod.number().nullish(),
   "notes": zod.string().nullish(),
   "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
   "reviewedAt": zod.string().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()

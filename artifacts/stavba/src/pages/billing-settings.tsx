@@ -4,6 +4,9 @@ import {
   useGetBillingSettings,
   useUpdateBillingSettings,
   getGetBillingSettingsQueryKey,
+  useGetDocumentExtractionStatus,
+  getGetDocumentExtractionStatusQueryKey,
+  useTestDocumentExtraction,
   type BillingSettings,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,7 +26,19 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Building2, Hash, Banknote, FileText, BellRing } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Building2,
+  Hash,
+  Banknote,
+  FileText,
+  BellRing,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 
 type Form = {
   supplierName: string;
@@ -82,6 +97,33 @@ export default function BillingSettings() {
     query: { queryKey: getGetBillingSettingsQueryKey() },
   });
   const update = useUpdateBillingSettings();
+
+  const { data: aiStatus, isLoading: aiLoading } = useGetDocumentExtractionStatus({
+    query: { queryKey: getGetDocumentExtractionStatusQueryKey() },
+  });
+  const testAi = useTestDocumentExtraction();
+  const [aiTestMsg, setAiTestMsg] = useState<{ ok: boolean; message: string } | null>(
+    null,
+  );
+
+  const handleTestAi = () => {
+    setAiTestMsg(null);
+    testAi.mutate(undefined, {
+      onSuccess: (res) => {
+        setAiTestMsg({ ok: res.ok, message: res.message });
+        toast({
+          title: res.ok ? "Test proběhl úspěšně" : "Test selhal",
+          variant: res.ok ? undefined : "destructive",
+        });
+      },
+      onError: (err) => {
+        const message =
+          err instanceof Error ? err.message : "Test konfigurace OpenAI selhal.";
+        setAiTestMsg({ ok: false, message });
+        toast({ title: "Test selhal", variant: "destructive" });
+      },
+    });
+  };
 
   const [form, setForm] = useState<Form | null>(null);
 
@@ -309,6 +351,106 @@ export default function BillingSettings() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-5 w-5" /> AI vytěžování dokladů (OpenAI)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Volitelné. Při nahrání PDF nebo fotografie dokladu se hlavička a
+              položky předvyplní pomocí OpenAI. Návrh se vždy uloží jen{" "}
+              <strong>ke kontrole</strong> – nikdy se neschválí automaticky.
+            </p>
+
+            {aiLoading || !aiStatus ? (
+              <Skeleton className="h-20 w-full" />
+            ) : (
+              <>
+                <div className="rounded-md border divide-y">
+                  <StatusRow
+                    label="Stav"
+                    value={
+                      aiStatus.ready
+                        ? "Aktivní – doklady se vytěžují automaticky"
+                        : aiStatus.configured
+                          ? "Nakonfigurováno, ale vypnuto"
+                          : "Není nakonfigurováno"
+                    }
+                    ok={aiStatus.ready}
+                    neutral={aiStatus.configured && !aiStatus.ready}
+                  />
+                  <StatusRow
+                    label="API klíč (OPENAI_API_KEY)"
+                    value={aiStatus.configured ? "Nastaven" : "Chybí"}
+                    ok={aiStatus.configured}
+                  />
+                  <div className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">Model</span>
+                    <span className="font-mono text-xs">{aiStatus.model}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className="text-muted-foreground">Max. velikost souboru</span>
+                    <span>{aiStatus.maxFileMb} MB</span>
+                  </div>
+                </div>
+
+                {!aiStatus.configured && (
+                  <p className="text-xs text-muted-foreground">
+                    Nastavte proměnnou prostředí <code>OPENAI_API_KEY</code> (a
+                    volitelně <code>OPENAI_DOCUMENT_MODEL</code>) a zapněte
+                    vytěžování pomocí{" "}
+                    <code>OPENAI_DOCUMENT_EXTRACTION_ENABLED=true</code>. Aplikace
+                    funguje i bez OpenAI – doklady se pak připraví k ruční kontrole.
+                  </p>
+                )}
+                {aiStatus.configured && !aiStatus.enabled && (
+                  <p className="text-xs text-muted-foreground">
+                    Vytěžování je vypnuté. Zapnete jej proměnnou prostředí{" "}
+                    <code>OPENAI_DOCUMENT_EXTRACTION_ENABLED=true</code>.
+                  </p>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={handleTestAi}
+                    disabled={!aiStatus.configured || testAi.isPending}
+                  >
+                    {testAi.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4 mr-2" />
+                    )}
+                    Otestovat konfiguraci
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Ověří spojení s OpenAI bez odeslání jakéhokoli dokladu.
+                  </span>
+                </div>
+
+                {aiTestMsg && (
+                  <div
+                    className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
+                      aiTestMsg.ok
+                        ? "border-green-600/30 text-green-700 dark:text-green-400"
+                        : "border-destructive/40 text-destructive"
+                    }`}
+                  >
+                    {aiTestMsg.ok ? (
+                      <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                    )}
+                    <span>{aiTestMsg.message}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
               <BellRing className="h-5 w-5" /> Automatické upomínky
             </CardTitle>
           </CardHeader>
@@ -355,6 +497,40 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <Label className="text-sm font-medium text-muted-foreground mb-1 block">{label}</Label>
       {children}
+    </div>
+  );
+}
+
+function StatusRow({
+  label,
+  value,
+  ok,
+  neutral,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+  neutral?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={`flex items-center gap-1.5 font-medium ${
+          neutral
+            ? "text-amber-600 dark:text-amber-400"
+            : ok
+              ? "text-green-700 dark:text-green-400"
+              : "text-muted-foreground"
+        }`}
+      >
+        {ok ? (
+          <CheckCircle2 className="h-4 w-4" />
+        ) : neutral ? null : (
+          <XCircle className="h-4 w-4" />
+        )}
+        {value}
+      </span>
     </div>
   );
 }

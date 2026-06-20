@@ -64,6 +64,7 @@ import {
   RefreshCw,
   Save,
   Scissors,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -298,6 +299,40 @@ export default function BillingDocumentDetail() {
           <Trash2 className="h-4 w-4 mr-1" /> Smazat
         </Button>
       </div>
+
+      {doc.aiConfidence != null && (
+        <Card
+          className={`mb-4 ${
+            doc.aiConfidence < 0.7
+              ? "border-amber-300 bg-amber-50 dark:bg-amber-900/20"
+              : "border-violet-300 bg-violet-50 dark:bg-violet-900/20"
+          }`}
+        >
+          <CardContent className="p-4 flex items-start gap-2 text-sm">
+            <Sparkles
+              className={`h-4 w-4 shrink-0 mt-0.5 ${
+                doc.aiConfidence < 0.7
+                  ? "text-amber-700 dark:text-amber-300"
+                  : "text-violet-700 dark:text-violet-300"
+              }`}
+            />
+            <div>
+              <p
+                className={
+                  doc.aiConfidence < 0.7
+                    ? "text-amber-800 dark:text-amber-200"
+                    : "text-violet-800 dark:text-violet-200"
+                }
+              >
+                Předvyplněno pomocí AI (OpenAI
+                {doc.aiModel ? `, ${doc.aiModel}` : ""}) — důvěryhodnost{" "}
+                <strong>{Math.round(doc.aiConfidence * 100)} %</strong>. Všechny
+                údaje před schválením zkontrolujte.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {warnings.length > 0 && (
         <Card className="mb-4 border-amber-300 bg-amber-50 dark:bg-amber-900/20">

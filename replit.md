@@ -49,6 +49,23 @@ The job-sheet PDF is emailed to the customer via SMTP. Configure:
 - `SMTP_USER` / `SMTP_PASSWORD` — credentials (optional for open relays)
 - `SMTP_FROM` — From address (falls back to `SMTP_USER`)
 
+### AI document extraction (OpenAI)
+
+Optional. When configured **and** enabled, uploaded cost-document PDFs/photos are
+extracted by OpenAI to **prefill** the header + lines. The result is **never**
+auto-approved — it is saved as a `needs_review` suggestion (`ai_raw_json`,
+`ai_confidence`, `ai_model`) for an admin to confirm; confidence < 0.7 is flagged.
+The app works fully without OpenAI (documents route to manual review). Self-hosted
+prod uses the operator's **own** OpenAI key (no Replit proxy off-Replit); the key
+is read from env only, never stored in the DB or logged. Status + a no-document
+"test configuration" action live on `/billing/settings` (admin-only). Configure:
+
+- `OPENAI_API_KEY` — operator's OpenAI key; empty disables extraction
+- `OPENAI_DOCUMENT_EXTRACTION_ENABLED` — master switch; runs only when exactly `true` (default `false`)
+- `OPENAI_DOCUMENT_MODEL` — vision/file-capable model (default `gpt-4o`)
+- `OPENAI_MAX_FILE_MB` — max input file size sent to OpenAI (default `20`)
+- `OPENAI_REQUEST_TIMEOUT_MS` — per-request timeout in ms (default `60000`)
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9

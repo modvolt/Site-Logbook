@@ -2025,6 +2025,12 @@ export interface CostDocument {
   /** @nullable */
   warnings?: string | null;
   /** @nullable */
+  aiConfidence?: number | null;
+  /** @nullable */
+  aiModel?: string | null;
+  /** @nullable */
+  aiExtractedAt?: string | null;
+  /** @nullable */
   reviewedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -2263,6 +2269,20 @@ export interface ApprovedCostLine {
   /** @nullable */
   vatRate?: number | null;
   totalWithoutVat: number;
+}
+
+export interface DocumentExtractionStatus {
+  configured: boolean;
+  enabled: boolean;
+  ready: boolean;
+  model: string;
+  maxFileMb: number;
+}
+
+export interface DocumentExtractionTestResult {
+  ok: boolean;
+  model: string;
+  message: string;
 }
 
 export interface AnalyzeJobDocumentsResult {
