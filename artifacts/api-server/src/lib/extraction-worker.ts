@@ -159,6 +159,7 @@ async function processOne(jobId: number): Promise<void> {
       totalVat: result.totalVat,
       totalWithVat: result.totalWithVat,
       lines: result.lines,
+      relatedDocuments: result.relatedDocuments,
       confidence: result.confidence,
       warnings: result.warnings,
       model,

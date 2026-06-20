@@ -2122,6 +2122,38 @@ export interface CostDocument {
   /** @nullable */
   jobId?: number | null;
   /** @nullable */
+  sourceRef?: string | null;
+  /** @nullable */
+  deliveryNoteNumber?: string | null;
+  /** @nullable */
+  summaryDeliveryNoteNumber?: string | null;
+  /** @nullable */
+  deliveryNumber?: string | null;
+  /** @nullable */
+  orderNumber?: string | null;
+  /** @nullable */
+  supplierOrderNumber?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
+  isdocUuid?: string | null;
+  /** @nullable */
+  mergeGroupId?: string | null;
+  /** @nullable */
+  primaryDocumentId?: number | null;
+  /** @nullable */
+  sourcePriority?: string | null;
+  /** @nullable */
+  parsedBy?: string | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   warnings?: string | null;
@@ -2193,6 +2225,41 @@ export interface CostDocumentLine {
   approved: boolean;
   /** @nullable */
   invoicedInvoiceId?: number | null;
+  /** @nullable */
+  originalUnit?: string | null;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  sourceLineNumber?: string | null;
+  /** @nullable */
+  listPriceWithoutVat?: number | null;
+  /** @nullable */
+  discountPercent?: number | null;
+  /** @nullable */
+  priceBaseQuantity?: number | null;
+  /** @nullable */
+  priceBaseUnit?: string | null;
+  /** @nullable */
+  feeType?: string | null;
+  isEnvironmentalFee?: boolean;
+  /** @nullable */
+  environmentalFee?: number | null;
+  /** @nullable */
+  recyclingFee?: number | null;
+  /** @nullable */
+  deliveryNoteNumber?: string | null;
+  /** @nullable */
+  orderNumber?: string | null;
+  /** @nullable */
+  supplierOrderNumber?: string | null;
+  /** @nullable */
+  warehouseState?: string | null;
+  /** @nullable */
+  confidence?: number | null;
   sortOrder: number;
 }
 
@@ -2209,10 +2276,50 @@ export interface CostDocumentDuplicate {
   createdAt: string;
 }
 
+export interface CostDocumentReference {
+  id: number;
+  documentId: number;
+  referenceType: string;
+  referenceNumber: string;
+  source: string;
+  /** @nullable */
+  confidence?: number | null;
+  /** @nullable */
+  matchedJobId?: number | null;
+  /** @nullable */
+  matchedDocumentId?: number | null;
+  /** @nullable */
+  matchedAttachmentId?: number | null;
+  /** @nullable */
+  matchConfidence?: number | null;
+  matchConfirmed: boolean;
+  rejected: boolean;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CostDocumentFile {
+  id: number;
+  documentId: number;
+  role: string;
+  /** @nullable */
+  originalFileName?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  objectPath: string;
+  /** @nullable */
+  sizeBytes?: number | null;
+  createdAt: string;
+}
+
 export interface CostDocumentDetail {
   document: CostDocument;
   lines: CostDocumentLine[];
   duplicates: CostDocumentDuplicate[];
+  references: CostDocumentReference[];
+  files: CostDocumentFile[];
 }
 
 /**
@@ -2351,6 +2458,120 @@ export interface CostDocumentLineSplitPart {
 
 export interface CostDocumentLineSplitInput {
   parts: CostDocumentLineSplitPart[];
+}
+
+export type CostDocumentReferenceCreateInputReferenceType = typeof CostDocumentReferenceCreateInputReferenceType[keyof typeof CostDocumentReferenceCreateInputReferenceType];
+
+
+export const CostDocumentReferenceCreateInputReferenceType = {
+  delivery_note: 'delivery_note',
+  summary_delivery_note: 'summary_delivery_note',
+  delivery: 'delivery',
+  order: 'order',
+  supplier_order: 'supplier_order',
+  project: 'project',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+  other: 'other',
+} as const;
+
+export interface CostDocumentReferenceCreateInput {
+  referenceType: CostDocumentReferenceCreateInputReferenceType;
+  referenceNumber: string;
+  /** @nullable */
+  source?: string | null;
+  /** @nullable */
+  confidence?: number | null;
+}
+
+/**
+ * @nullable
+ */
+export type CostDocumentReferenceUpdateInputReferenceType = typeof CostDocumentReferenceUpdateInputReferenceType[keyof typeof CostDocumentReferenceUpdateInputReferenceType] | null;
+
+
+export const CostDocumentReferenceUpdateInputReferenceType = {
+  delivery_note: 'delivery_note',
+  summary_delivery_note: 'summary_delivery_note',
+  delivery: 'delivery',
+  order: 'order',
+  supplier_order: 'supplier_order',
+  project: 'project',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+  other: 'other',
+} as const;
+
+export interface CostDocumentReferenceUpdateInput {
+  /** @nullable */
+  referenceType?: CostDocumentReferenceUpdateInputReferenceType;
+  /** @nullable */
+  referenceNumber?: string | null;
+  /** @nullable */
+  matchedJobId?: number | null;
+  /** @nullable */
+  matchedDocumentId?: number | null;
+  /** @nullable */
+  matchedAttachmentId?: number | null;
+  /** @nullable */
+  matchConfirmed?: boolean | null;
+  /** @nullable */
+  rejected?: boolean | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface CostDocumentReferenceJobCandidate {
+  jobId: number;
+  /** @nullable */
+  jobTitle?: string | null;
+  score: number;
+  strength: string;
+  reasons: string[];
+}
+
+export type CostDocumentMatchResultCandidatesByRef = {[key: string]: CostDocumentReferenceJobCandidate[]};
+
+export interface CostDocumentMatchResult {
+  document: CostDocument;
+  lines: CostDocumentLine[];
+  duplicates: CostDocumentDuplicate[];
+  references: CostDocumentReference[];
+  files: CostDocumentFile[];
+  candidatesByRef: CostDocumentMatchResultCandidatesByRef;
+}
+
+export interface CostDocumentSiblingMatch {
+  documentId: number;
+  /** @nullable */
+  documentNumber?: string | null;
+  docType: string;
+  score: number;
+  strength: string;
+  reasons: string[];
+}
+
+export type WarehousePriceUpdateItemMatchedBy = typeof WarehousePriceUpdateItemMatchedBy[keyof typeof WarehousePriceUpdateItemMatchedBy];
+
+
+export const WarehousePriceUpdateItemMatchedBy = {
+  code: 'code',
+  name: 'name',
+} as const;
+
+export interface WarehousePriceUpdateItem {
+  lineId: number;
+  warehouseItemId: number;
+  itemName: string;
+  /** @nullable */
+  oldPrice?: number | null;
+  newPrice: number;
+  matchedBy: WarehousePriceUpdateItemMatchedBy;
+}
+
+export interface WarehousePriceUpdateResult {
+  updated: WarehousePriceUpdateItem[];
+  skipped: number;
 }
 
 export interface ApprovedCostLine {

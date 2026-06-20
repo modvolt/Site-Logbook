@@ -13,16 +13,32 @@ import {
   db,
   billingDocumentsTable,
   billingDocumentLinesTable,
+  billingDocumentReferencesTable,
+  billingDocumentFilesTable,
+  supplierParserProfilesTable,
   extractionJobsTable,
   attachmentsTable,
   jobsTable,
+  warehouseItemsTable,
   auditLogTable,
   type BillingDocument,
   type BillingDocumentLine,
+  type BillingDocumentReference,
 } from "@workspace/db";
 import { computeLine, num, round2, type VatMode } from "./invoice-calc";
 import { parseIsdocBuffer, isParsableIsdoc, type ParsedDocument } from "./isdoc-parser";
 import { ObjectStorageService } from "./objectStorage";
+import { classifyFee, normalizeUnit, computeDiscountPercent } from "./fee-classifier";
+import {
+  recognizeSupplier,
+  type SupplierProfile,
+  type ParserType,
+} from "./supplier-profiles";
+import {
+  scoreDeliveryNoteToInvoice,
+  rankJobsForReference,
+  type MatchableDocument,
+} from "./document-matching";
 
 const objectStorage = new ObjectStorageService();
 
@@ -209,6 +225,21 @@ function serializeDocument(row: BillingDocument) {
     totalWithVat: row.totalWithVat == null ? null : num(row.totalWithVat),
     customerId: row.customerId,
     jobId: row.jobId,
+    deliveryNoteNumber: row.deliveryNoteNumber,
+    summaryDeliveryNoteNumber: row.summaryDeliveryNoteNumber,
+    deliveryNumber: row.deliveryNumber,
+    orderNumber: row.orderNumber,
+    supplierOrderNumber: row.supplierOrderNumber,
+    constantSymbol: row.constantSymbol,
+    specificSymbol: row.specificSymbol,
+    bankAccount: row.bankAccount,
+    iban: row.iban,
+    bic: row.bic,
+    isdocUuid: row.isdocUuid,
+    mergeGroupId: row.mergeGroupId,
+    primaryDocumentId: row.primaryDocumentId,
+    sourcePriority: row.sourcePriority,
+    parsedBy: row.parsedBy,
     notes: row.notes,
     warnings: row.warnings,
     aiConfidence: row.aiConfidence == null ? null : num(row.aiConfidence),
@@ -241,7 +272,45 @@ function serializeLine(row: BillingDocumentLine) {
     matchConfirmed: row.matchConfirmed === 1,
     approved: row.approved === 1,
     invoicedInvoiceId: row.invoicedInvoiceId,
+    originalUnit: row.originalUnit,
+    supplierSku: row.supplierSku,
+    ean: row.ean,
+    manufacturer: row.manufacturer,
+    sourceLineNumber: row.sourceLineNumber,
+    listPriceWithoutVat: row.listPriceWithoutVat == null ? null : num(row.listPriceWithoutVat),
+    discountPercent: row.discountPercent == null ? null : num(row.discountPercent),
+    priceBaseQuantity: row.priceBaseQuantity == null ? null : num(row.priceBaseQuantity),
+    priceBaseUnit: row.priceBaseUnit,
+    feeType: row.feeType,
+    isEnvironmentalFee: row.isEnvironmentalFee === 1,
+    environmentalFee: row.environmentalFee == null ? null : num(row.environmentalFee),
+    recyclingFee: row.recyclingFee == null ? null : num(row.recyclingFee),
+    deliveryNoteNumber: row.deliveryNoteNumber,
+    orderNumber: row.orderNumber,
+    supplierOrderNumber: row.supplierOrderNumber,
+    warehouseState: row.warehouseState,
+    confidence: row.confidence == null ? null : num(row.confidence),
     sortOrder: row.sortOrder,
+  };
+}
+
+function serializeReference(row: BillingDocumentReference) {
+  return {
+    id: row.id,
+    documentId: row.documentId,
+    referenceType: row.referenceType,
+    referenceNumber: row.referenceNumber,
+    source: row.source,
+    confidence: row.confidence == null ? null : num(row.confidence),
+    matchedJobId: row.matchedJobId,
+    matchedDocumentId: row.matchedDocumentId,
+    matchedAttachmentId: row.matchedAttachmentId,
+    matchConfidence: row.matchConfidence == null ? null : num(row.matchConfidence),
+    matchConfirmed: row.matchConfirmed === 1,
+    rejected: row.rejected === 1,
+    notes: row.notes,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -252,16 +321,32 @@ export type SerializedLine = ReturnType<typeof serializeLine>;
 // Line totals
 // ---------------------------------------------------------------------------
 
+interface ParsedLineInput {
+  description: string;
+  quantity?: number | null;
+  unit?: string | null;
+  unitPriceWithoutVat?: number | null;
+  vatRate?: number | null;
+  lineType?: string;
+  // Enriched fields (ISDOC / supplier-profile aware), all optional.
+  ean?: string | null;
+  supplierSku?: string | null;
+  manufacturer?: string | null;
+  sourceLineNumber?: string | null;
+  listPriceWithoutVat?: number | null;
+  discountPercent?: number | null;
+  priceBaseQuantity?: number | null;
+  priceBaseUnit?: string | null;
+  feeType?: string | null;
+  deliveryNoteNumber?: string | null;
+  orderNumber?: string | null;
+  supplierOrderNumber?: string | null;
+  confidence?: number | null;
+}
+
 function lineValues(
   documentId: number,
-  parsed: {
-    description: string;
-    quantity?: number | null;
-    unit?: string | null;
-    unitPriceWithoutVat?: number | null;
-    vatRate?: number | null;
-    lineType?: string;
-  },
+  parsed: ParsedLineInput,
   sortOrder: number,
 ) {
   const vatMode: VatMode = parsed.vatRate != null && parsed.vatRate > 0 ? "standard" : "zero";
@@ -274,20 +359,193 @@ function lineValues(
     },
     vatMode,
   );
+
+  // Classify fees and normalize the unit. The fee type can be supplied
+  // explicitly (e.g. from AI/profile) but otherwise we infer it from the text.
+  const fee = classifyFee(parsed.description);
+  const feeType = parsed.feeType ?? fee.feeType;
+  const isEnvironmentalFee =
+    feeType === "recycling" || feeType === "environmental" ? 1 : 0;
+  const originalUnit = parsed.unit ?? null;
+  const normalizedUnit = normalizeUnit(parsed.unit) ?? null;
+
+  const discountPercent =
+    parsed.discountPercent ??
+    computeDiscountPercent(parsed.listPriceWithoutVat, parsed.unitPriceWithoutVat);
+
+  // When the line itself IS an eco/recycling fee, record its amount in the
+  // matching column so totals can be audited per fee type.
+  const lineTotal = num(c.totalWithoutVat);
+  const recyclingFee = feeType === "recycling" ? String(lineTotal) : null;
+  const environmentalFee = feeType === "environmental" ? String(lineTotal) : null;
+
   return {
     documentId,
     lineType: parsed.lineType && VALID_LINE_TYPE.has(parsed.lineType) ? parsed.lineType : "material",
     description: parsed.description,
     quantity: String(c.quantity),
-    unit: parsed.unit ?? null,
+    unit: normalizedUnit ?? originalUnit,
+    originalUnit,
     unitPriceWithoutVat: String(c.unitPriceWithoutVat),
     vatRate: c.vatRate == null ? null : String(c.vatRate),
     vatMode: c.vatMode,
     totalWithoutVat: String(c.totalWithoutVat),
     totalVat: String(c.totalVat),
     totalWithVat: String(c.totalWithVat),
+    ean: parsed.ean ?? null,
+    supplierSku: parsed.supplierSku ?? null,
+    manufacturer: parsed.manufacturer ?? null,
+    sourceLineNumber: parsed.sourceLineNumber ?? null,
+    listPriceWithoutVat:
+      parsed.listPriceWithoutVat != null ? String(round2(parsed.listPriceWithoutVat)) : null,
+    discountPercent: discountPercent != null ? String(discountPercent) : null,
+    priceBaseQuantity:
+      parsed.priceBaseQuantity != null ? String(round2(parsed.priceBaseQuantity)) : null,
+    priceBaseUnit: parsed.priceBaseUnit ?? null,
+    feeType: feeType ?? null,
+    isEnvironmentalFee,
+    recyclingFee,
+    environmentalFee,
+    deliveryNoteNumber: parsed.deliveryNoteNumber ?? null,
+    orderNumber: parsed.orderNumber ?? null,
+    supplierOrderNumber: parsed.supplierOrderNumber ?? null,
+    confidence: parsed.confidence != null ? String(round2(parsed.confidence)) : null,
     sortOrder,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Merge of the same logical invoice arriving as both PDF and ISDOC
+// ---------------------------------------------------------------------------
+
+function isPdfLike(contentType: string | null | undefined): boolean {
+  return (contentType ?? "").toLowerCase().includes("pdf");
+}
+
+/**
+ * Load active supplier parser profiles from the DB and shape them for
+ * `recognizeSupplier`. DB profiles take precedence over the in-code seeds, so an
+ * admin can refine a supplier's rules without a code change.
+ */
+async function loadSupplierProfiles(): Promise<SupplierProfile[]> {
+  const rows = await db
+    .select()
+    .from(supplierParserProfilesTable)
+    .where(eq(supplierParserProfilesTable.isActive, 1));
+  return rows.map((r) => {
+    let parsedRules: Partial<SupplierProfile["rules"]> = {};
+    try {
+      parsedRules = r.rulesJson ? JSON.parse(r.rulesJson) : {};
+    } catch {
+      parsedRules = {};
+    }
+    return {
+      supplierName: r.supplierName ?? "",
+      supplierNamePattern: r.supplierNamePattern ?? "",
+      ico: r.ico,
+      parserType: (r.parserType as ParserType) ?? "generic",
+      rules: {
+        preferIsdoc: true,
+        defaultVatRate: null,
+        pricePerBaseQuantity: false,
+        usesDeliveryNotes: true,
+        feeKeywords: [],
+        ...parsedRules,
+      },
+    } satisfies SupplierProfile;
+  });
+}
+
+// isdoc > pdf > ai > manual (higher rank wins for header/lines).
+const SOURCE_PRIORITY_RANK: Record<string, number> = {
+  isdoc: 4,
+  pdf: 3,
+  ai: 2,
+  manual: 1,
+};
+function priorityRank(sourcePriority: string | null): number {
+  return SOURCE_PRIORITY_RANK[sourcePriority ?? "manual"] ?? 1;
+}
+
+/**
+ * Detect a sibling document that is the SAME logical invoice as `doc` (a PDF and
+ * its ISDOC, or two scans), and merge them into one group. The higher-priority
+ * source (ISDOC > PDF) becomes the primary; the other is re-pointed at it, its
+ * files are moved under the primary, and it is marked status="duplicate" so it
+ * drops out of the review queue. Identity is by ISDOC UUID, else supplier
+ * IČO + document number.
+ */
+async function mergeRelatedDocumentsTx(
+  tx: DbOrTx,
+  doc: BillingDocument,
+  parsed: ParsedDocument | null,
+): Promise<void> {
+  const identityConds = [];
+  if (doc.isdocUuid) {
+    identityConds.push(eq(billingDocumentsTable.isdocUuid, doc.isdocUuid));
+  }
+  if (doc.supplierIc && doc.documentNumber) {
+    identityConds.push(
+      and(
+        eq(billingDocumentsTable.supplierIc, doc.supplierIc),
+        eq(billingDocumentsTable.documentNumber, doc.documentNumber),
+      ),
+    );
+  }
+  if (!identityConds.length) return;
+
+  const candidates = await tx
+    .select()
+    .from(billingDocumentsTable)
+    .where(
+      and(
+        ne(billingDocumentsTable.id, doc.id),
+        isNull(billingDocumentsTable.primaryDocumentId),
+        or(...identityConds),
+      ),
+    );
+  // Prefer a candidate that differs in format (ISDOC vs PDF) — that's the pair
+  // we want to merge. Fall back to the first candidate otherwise.
+  const other =
+    candidates.find((c) => priorityRank(c.sourcePriority) !== priorityRank(doc.sourcePriority)) ??
+    candidates[0];
+  if (!other) return;
+
+  const primary = priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
+  const secondary = primary.id === doc.id ? other : doc;
+  const groupId = other.mergeGroupId ?? doc.mergeGroupId ?? randomUUID();
+
+  // Move the secondary's files under the primary so all files live in one place.
+  await tx
+    .update(billingDocumentFilesTable)
+    .set({ documentId: primary.id })
+    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
+
+  await tx
+    .update(billingDocumentsTable)
+    .set({ mergeGroupId: groupId, updatedAt: new Date() })
+    .where(eq(billingDocumentsTable.id, primary.id));
+
+  const secWarn = [
+    secondary.warnings,
+    `Sloučeno s dokladem #${primary.id} (stejná faktura ve formátu ${
+      priorityRank(primary.sourcePriority) >= 4 ? "ISDOC" : "PDF"
+    }).`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await tx
+    .update(billingDocumentsTable)
+    .set({
+      mergeGroupId: groupId,
+      primaryDocumentId: primary.id,
+      status: "duplicate",
+      warnings: secWarn,
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, secondary.id));
+
+  void parsed;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,20 +576,53 @@ export async function createDocument(
   actor: Actor,
 ): Promise<SerializedDocument> {
   let parsed: ParsedDocument | null = null;
-  let warnings: string | null = null;
-  if (buffer && isParsableIsdoc(input.contentType, input.fileName)) {
+  const warnLines: string[] = [];
+  const isIsdoc = buffer != null && isParsableIsdoc(input.contentType, input.fileName);
+  if (buffer && isIsdoc) {
     try {
       parsed = parseIsdocBuffer(buffer, input.fileName);
-      warnings = "Hlavička a položky předvyplněny z ISDOC. Zkontrolujte před schválením.";
+      warnLines.push(
+        "Hlavička a položky předvyplněny z ISDOC. Zkontrolujte před schválením.",
+      );
     } catch (err) {
-      warnings = `Automatické zpracování ISDOC selhalo: ${
-        err instanceof Error ? err.message : "neznámá chyba"
-      }`;
+      warnLines.push(
+        `Automatické zpracování ISDOC selhalo: ${
+          err instanceof Error ? err.message : "neznámá chyba"
+        }`,
+      );
     }
   }
 
   const docType =
     input.docType && VALID_DOC_TYPE.has(input.docType) ? input.docType : "invoice";
+
+  // Provenance: ISDOC wins over a visual PDF wins over AI wins over manual.
+  const parsedBy = parsed ? "isdoc" : null;
+  const sourcePriority = parsed ? "isdoc" : isPdfLike(input.contentType) ? "pdf" : "manual";
+
+  // Sum-of-lines vs. document total reconciliation (warn → stays needs_review).
+  if (parsed && parsed.lines.length && parsed.subtotalWithoutVat != null) {
+    const linesSum = round2(
+      parsed.lines.reduce((a, l) => a + (l.totalWithoutVat ?? 0), 0),
+    );
+    if (Math.abs(linesSum - round2(parsed.subtotalWithoutVat)) > 0.5) {
+      warnLines.push(
+        `Součet položek (${linesSum}) se liší od základu daně dokladu (${round2(
+          parsed.subtotalWithoutVat,
+        )}). Zkontrolujte položky.`,
+      );
+    }
+  }
+
+  // Recognize the supplier (DB profiles override the in-code seeds) so its rules
+  // — e.g. a default VAT rate — can fill gaps the raw document left blank.
+  const supplierProfiles = await loadSupplierProfiles();
+  const profile = recognizeSupplier(
+    parsed?.supplierName ?? null,
+    parsed?.supplierIc ?? null,
+    supplierProfiles,
+  );
+  const defaultVatRate = profile.rules.defaultVatRate;
 
   const id = await db.transaction(async (tx) => {
     const [doc] = await tx
@@ -360,9 +651,19 @@ export async function createDocument(
           parsed?.subtotalWithoutVat != null ? String(parsed.subtotalWithoutVat) : null,
         totalVat: parsed?.totalVat != null ? String(parsed.totalVat) : null,
         totalWithVat: parsed?.totalWithVat != null ? String(parsed.totalWithVat) : null,
+        deliveryNoteNumber: parsed?.deliveryNoteNumber ?? null,
+        orderNumber: parsed?.orderNumber ?? null,
+        constantSymbol: parsed?.constantSymbol ?? null,
+        specificSymbol: parsed?.specificSymbol ?? null,
+        bankAccount: parsed?.bankAccount ?? null,
+        iban: parsed?.iban ?? null,
+        bic: parsed?.bic ?? null,
+        isdocUuid: parsed?.isdocUuid ?? null,
+        sourcePriority,
+        parsedBy,
         jobId: input.jobId ?? null,
         customerId: input.customerId ?? null,
-        warnings,
+        warnings: warnLines.length ? warnLines.join("\n") : null,
         createdByUserId: actor.userId,
       })
       .returning();
@@ -377,13 +678,52 @@ export async function createDocument(
               quantity: l.quantity,
               unit: l.unit,
               unitPriceWithoutVat: l.unitPriceWithoutVat,
-              vatRate: l.vatRate,
+              vatRate: l.vatRate ?? defaultVatRate,
+              ean: l.ean,
+              supplierSku: l.supplierSku,
+              sourceLineNumber: l.sourceLineNumber,
             },
             idx,
           ),
         ),
       );
     }
+
+    // Record the original file in the per-document files table (object path only).
+    await tx.insert(billingDocumentFilesTable).values({
+      documentId: doc.id,
+      role: parsed ? "structured_isdoc" : "visual_pdf",
+      originalFileName: input.fileName,
+      mimeType: input.contentType,
+      objectPath: input.objectPath,
+      sha256Hash: input.sha256,
+      sizeBytes: input.fileSize,
+    });
+
+    // Persist references parsed from the ISDOC header (suggestions only).
+    const refRows: (typeof billingDocumentReferencesTable.$inferInsert)[] = [];
+    if (parsed?.deliveryNoteNumber) {
+      refRows.push({
+        documentId: doc.id,
+        referenceType: "delivery_note",
+        referenceNumber: parsed.deliveryNoteNumber,
+        source: "isdoc",
+        confidence: "1.00",
+      });
+    }
+    if (parsed?.orderNumber) {
+      refRows.push({
+        documentId: doc.id,
+        referenceType: "order",
+        referenceNumber: parsed.orderNumber,
+        source: "isdoc",
+        confidence: "1.00",
+      });
+    }
+    if (refRows.length) await tx.insert(billingDocumentReferencesTable).values(refRows);
+
+    // Merge a matching ISDOC↔PDF pair into one logical document.
+    await mergeRelatedDocumentsTx(tx, doc, parsed);
 
     await tx.insert(extractionJobsTable).values({ documentId: doc.id });
 
@@ -530,11 +870,297 @@ export async function getDocument(id: number) {
     excludeId: doc.id,
   });
 
+  const references = await db
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, id))
+    .orderBy(billingDocumentReferencesTable.id);
+
+  const files = await db
+    .select()
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, id))
+    .orderBy(billingDocumentFilesTable.id);
+
   return {
     document: serializeDocument(doc),
     lines: lines.map(serializeLine),
     duplicates,
+    references: references.map(serializeReference),
+    files: files.map((f) => ({
+      id: f.id,
+      documentId: f.documentId,
+      role: f.role,
+      originalFileName: f.originalFileName,
+      mimeType: f.mimeType,
+      objectPath: f.objectPath,
+      sizeBytes: f.sizeBytes,
+      createdAt: f.createdAt.toISOString(),
+    })),
   };
+}
+
+// ---------------------------------------------------------------------------
+// References: list / add / match / confirm / change / reject
+// ---------------------------------------------------------------------------
+
+const VALID_REFERENCE_TYPE = new Set([
+  "delivery_note",
+  "summary_delivery_note",
+  "delivery",
+  "order",
+  "supplier_order",
+  "project",
+  "invoice",
+  "credit_note",
+  "other",
+]);
+
+export interface AddReferenceInput {
+  referenceType: string;
+  referenceNumber: string;
+  source?: string;
+  confidence?: number | null;
+}
+
+export async function addReference(documentId: number, input: AddReferenceInput) {
+  const [doc] = await db
+    .select({ id: billingDocumentsTable.id })
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+  const referenceType = VALID_REFERENCE_TYPE.has(input.referenceType)
+    ? input.referenceType
+    : "other";
+  const refNum = input.referenceNumber.trim();
+  if (!refNum) throw appError(400, "Číslo reference je povinné.");
+  await db.insert(billingDocumentReferencesTable).values({
+    documentId,
+    referenceType,
+    referenceNumber: refNum,
+    source: input.source ?? "manual",
+    confidence: input.confidence != null ? String(round2(input.confidence)) : null,
+  });
+  return getDocument(documentId);
+}
+
+export interface ReferenceUpdateInput {
+  referenceType?: string | null;
+  referenceNumber?: string | null;
+  matchedJobId?: number | null;
+  matchedDocumentId?: number | null;
+  matchedAttachmentId?: number | null;
+  matchConfirmed?: boolean | null;
+  rejected?: boolean | null;
+  notes?: string | null;
+}
+
+/** Confirm / change / reject a reference link (admin action; never automatic). */
+export async function updateReference(
+  documentId: number,
+  referenceId: number,
+  input: ReferenceUpdateInput,
+) {
+  const [ref] = await db
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(
+      and(
+        eq(billingDocumentReferencesTable.id, referenceId),
+        eq(billingDocumentReferencesTable.documentId, documentId),
+      ),
+    );
+  if (!ref) throw appError(404, "Reference nenalezena.");
+
+  const patch: Partial<typeof billingDocumentReferencesTable.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (
+    input.referenceType !== undefined &&
+    input.referenceType &&
+    VALID_REFERENCE_TYPE.has(input.referenceType)
+  )
+    patch.referenceType = input.referenceType;
+  if (input.referenceNumber !== undefined && input.referenceNumber)
+    patch.referenceNumber = input.referenceNumber.trim();
+  if (input.matchedJobId !== undefined) patch.matchedJobId = input.matchedJobId;
+  if (input.matchedDocumentId !== undefined)
+    patch.matchedDocumentId = input.matchedDocumentId;
+  if (input.matchedAttachmentId !== undefined)
+    patch.matchedAttachmentId = input.matchedAttachmentId;
+  if (input.matchConfirmed !== undefined && input.matchConfirmed != null)
+    patch.matchConfirmed = input.matchConfirmed ? 1 : 0;
+  if (input.rejected !== undefined && input.rejected != null)
+    patch.rejected = input.rejected ? 1 : 0;
+  if (input.notes !== undefined) patch.notes = input.notes;
+
+  await db
+    .update(billingDocumentReferencesTable)
+    .set(patch)
+    .where(eq(billingDocumentReferencesTable.id, referenceId));
+  return getDocument(documentId);
+}
+
+export async function deleteReference(documentId: number, referenceId: number) {
+  const [ref] = await db
+    .select({ id: billingDocumentReferencesTable.id })
+    .from(billingDocumentReferencesTable)
+    .where(
+      and(
+        eq(billingDocumentReferencesTable.id, referenceId),
+        eq(billingDocumentReferencesTable.documentId, documentId),
+      ),
+    );
+  if (!ref) throw appError(404, "Reference nenalezena.");
+  await db
+    .delete(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.id, referenceId));
+  return getDocument(documentId);
+}
+
+/**
+ * Score every reference of a document against open jobs and sibling cost
+ * documents, writing the best job suggestion onto each reference (suggestion
+ * only — `matchConfirmed` stays 0). Returns the refreshed document. Also returns
+ * ranked candidates so the UI can offer alternatives.
+ */
+export async function matchDocumentReferences(documentId: number) {
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+
+  const refs = await db
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, documentId));
+
+  const jobs = await db
+    .select({
+      id: jobsTable.id,
+      title: jobsTable.title,
+      notes: jobsTable.notes,
+      address: jobsTable.address,
+      clientSite: jobsTable.clientSite,
+      customerId: jobsTable.customerId,
+    })
+    .from(jobsTable);
+
+  const candidatesByRef: Record<
+    number,
+    { jobId: number; jobTitle: string | null; score: number; strength: string; reasons: string[] }[]
+  > = {};
+
+  for (const ref of refs) {
+    if (ref.matchConfirmed === 1 || ref.rejected === 1) continue;
+    const ranked = rankJobsForReference(ref.referenceNumber, jobs, {
+      documentCustomerId: doc.customerId,
+    });
+    candidatesByRef[ref.id] = ranked.map((r) => ({
+      jobId: r.job.id,
+      jobTitle: r.job.title ?? null,
+      score: r.match.score,
+      strength: r.match.strength,
+      reasons: r.match.reasons,
+    }));
+    const best = ranked[0];
+    if (best && best.match.score > 0) {
+      await db
+        .update(billingDocumentReferencesTable)
+        .set({
+          matchedJobId: best.job.id,
+          matchConfidence: String(best.match.score),
+          updatedAt: new Date(),
+        })
+        .where(eq(billingDocumentReferencesTable.id, ref.id));
+    }
+  }
+
+  const detail = await getDocument(documentId);
+  return { ...detail, candidatesByRef };
+}
+
+/**
+ * Find sibling cost documents (delivery notes ↔ invoices) that score as a
+ * likely match for this document. Suggestion only — surfaced in the UI so an
+ * admin can link them. Never writes.
+ */
+export async function suggestDocumentMatches(documentId: number) {
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+
+  const refs = await db
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, documentId));
+
+  const others = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(
+      and(
+        ne(billingDocumentsTable.id, documentId),
+        isNull(billingDocumentsTable.primaryDocumentId),
+      ),
+    );
+
+  const toMatchable = (
+    d: BillingDocument,
+    docRefs: BillingDocumentReference[],
+  ): MatchableDocument => ({
+    id: d.id,
+    supplierIc: d.supplierIc,
+    documentNumber: d.documentNumber,
+    deliveryNoteNumber: d.deliveryNoteNumber,
+    orderNumber: d.orderNumber,
+    totalWithoutVat: d.subtotalWithoutVat == null ? null : num(d.subtotalWithoutVat),
+    totalWithVat: d.totalWithVat == null ? null : num(d.totalWithVat),
+    issueDate: d.issueDate,
+    references: docRefs.map((r) => ({
+      referenceType: r.referenceType,
+      referenceNumber: r.referenceNumber,
+    })),
+  });
+
+  const self = toMatchable(doc, refs);
+  const isInvoice = doc.docType === "invoice" || doc.docType === "credit_note";
+
+  const results: {
+    documentId: number;
+    documentNumber: string | null;
+    docType: string;
+    score: number;
+    strength: string;
+    reasons: string[];
+  }[] = [];
+
+  for (const other of others) {
+    const otherRefs = await db
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(eq(billingDocumentReferencesTable.documentId, other.id));
+    const otherM = toMatchable(other, otherRefs);
+    // Score delivery-note → invoice in the correct direction.
+    const scored = isInvoice
+      ? scoreDeliveryNoteToInvoice(otherM, self)
+      : scoreDeliveryNoteToInvoice(self, otherM);
+    if (scored.score > 0) {
+      results.push({
+        documentId: other.id,
+        documentNumber: other.documentNumber,
+        docType: other.docType,
+        score: scored.score,
+        strength: scored.strength,
+        reasons: scored.reasons,
+      });
+    }
+  }
+  results.sort((a, b) => b.score - a.score);
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -841,6 +1467,115 @@ export async function approveDocument(id: number, actor: Actor) {
   return getDocument(id);
 }
 
+// ---------------------------------------------------------------------------
+// Approval → warehouse purchase-price update (explicit admin action)
+// ---------------------------------------------------------------------------
+
+export interface WarehousePriceUpdate {
+  lineId: number;
+  warehouseItemId: number;
+  itemName: string;
+  oldPrice: number | null;
+  newPrice: number;
+  matchedBy: "code" | "name";
+}
+
+/**
+ * Push the purchase prices from an APPROVED document's product lines onto the
+ * matching warehouse items. Each line is matched to a warehouse item by code
+ * (supplier SKU / EAN) first, then by case-insensitive name. Fee/discount lines
+ * are skipped. This is an explicit admin action (not automatic on approve) so
+ * the operator stays in control of price history. Returns what was updated.
+ */
+export async function updateWarehousePricesFromDocument(
+  documentId: number,
+  actor: Actor,
+): Promise<{ updated: WarehousePriceUpdate[]; skipped: number }> {
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+  if (doc.status !== "approved") {
+    throw appError(409, "Ceny do skladu lze přenést až po schválení dokladu.");
+  }
+
+  const lines = await db
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, documentId));
+
+  const items = await db.select().from(warehouseItemsTable);
+  const byCode = new Map<string, (typeof items)[number]>();
+  const byName = new Map<string, (typeof items)[number]>();
+  for (const it of items) {
+    if (it.code) byCode.set(it.code.trim().toLowerCase(), it);
+    byName.set(it.name.trim().toLowerCase(), it);
+  }
+
+  const updated: WarehousePriceUpdate[] = [];
+  let skipped = 0;
+
+  await db.transaction(async (tx) => {
+    for (const line of lines) {
+      // Skip fees, discounts and non-material lines — they are not stock items.
+      if (line.feeType || line.lineType !== "material") {
+        skipped++;
+        continue;
+      }
+      const codeKeys = [line.supplierSku, line.ean]
+        .filter((c): c is string => !!c)
+        .map((c) => c.trim().toLowerCase());
+      let item = codeKeys.map((k) => byCode.get(k)).find(Boolean);
+      let matchedBy: "code" | "name" = "code";
+      if (!item) {
+        item = byName.get(line.description.trim().toLowerCase());
+        matchedBy = "name";
+      }
+      if (!item) {
+        skipped++;
+        continue;
+      }
+      const newPrice = round2(num(line.unitPriceWithoutVat));
+      const oldPrice = item.purchasePrice == null ? null : num(item.purchasePrice);
+      await tx
+        .update(warehouseItemsTable)
+        .set({ purchasePrice: String(newPrice) })
+        .where(eq(warehouseItemsTable.id, item.id));
+      // Mark the line as having flowed to stock for audit.
+      await tx
+        .update(billingDocumentLinesTable)
+        .set({ warehouseState: "assigned_to_stock", updatedAt: new Date() })
+        .where(eq(billingDocumentLinesTable.id, line.id));
+      updated.push({
+        lineId: line.id,
+        warehouseItemId: item.id,
+        itemName: item.name,
+        oldPrice,
+        newPrice,
+        matchedBy,
+      });
+    }
+
+    if (updated.length) {
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: "update",
+        entityType: "warehouse_items",
+        entityId: documentId,
+        summary: `Nákupní ceny aktualizovány z dokladu${
+          doc.documentNumber ? ` ${doc.documentNumber}` : ""
+        }: ${updated.length} položek`,
+        method: "POST",
+        path: `/billing/documents/${documentId}/apply-warehouse-prices`,
+      });
+    }
+  });
+
+  return { updated, skipped };
+}
+
 export async function setDocumentStatus(
   id: number,
   status: "needs_review" | "reviewed" | "ignored" | "duplicate",
@@ -1085,6 +1820,19 @@ export interface AiSuggestionLine {
   unit?: string | null;
   unitPriceWithoutVat?: number | null;
   vatRate?: number | null;
+  // Richer supplier-catalogue fields the AI may now return.
+  supplierSku?: string | null;
+  ean?: string | null;
+  manufacturer?: string | null;
+  discountPercent?: number | null;
+  listPrice?: number | null;
+  environmentalFee?: number | null;
+  isEnvironmentalFee?: boolean;
+}
+
+export interface AiSuggestionReference {
+  referenceType: string;
+  referenceNumber: string;
 }
 
 export interface AiSuggestionInput {
@@ -1103,6 +1851,7 @@ export interface AiSuggestionInput {
   totalVat?: number | null;
   totalWithVat?: number | null;
   lines: AiSuggestionLine[];
+  relatedDocuments?: AiSuggestionReference[];
   confidence: number;
   warnings: string[];
   model: string;
@@ -1200,11 +1949,59 @@ export async function applyAiSuggestion(
               unitPriceWithoutVat: l.unitPriceWithoutVat,
               vatRate: l.vatRate,
               lineType: l.lineType,
+              supplierSku: l.supplierSku,
+              ean: l.ean,
+              manufacturer: l.manufacturer,
+              discountPercent: l.discountPercent,
+              listPriceWithoutVat: l.listPrice,
+              // The AI may flag a line as a pure eco/recycling fee; map it onto
+              // the fee classifier so totals/columns line up.
+              feeType: l.isEnvironmentalFee ? "environmental" : undefined,
             },
             idx,
           ),
         ),
       );
+    }
+
+    // Persist AI-suggested document references (deduped against existing ones).
+    if (suggestion.relatedDocuments?.length) {
+      const existingRefs = await tx
+        .select({
+          referenceType: billingDocumentReferencesTable.referenceType,
+          referenceNumber: billingDocumentReferencesTable.referenceNumber,
+        })
+        .from(billingDocumentReferencesTable)
+        .where(eq(billingDocumentReferencesTable.documentId, documentId));
+      const seen = new Set(
+        existingRefs.map(
+          (r) => `${r.referenceType}::${r.referenceNumber.toLowerCase()}`,
+        ),
+      );
+      const toInsert = suggestion.relatedDocuments
+        .filter((r) => r.referenceNumber.trim())
+        .map((r) => ({
+          referenceType: VALID_REFERENCE_TYPE.has(r.referenceType)
+            ? r.referenceType
+            : "other",
+          referenceNumber: r.referenceNumber.trim(),
+        }))
+        .filter((r) => {
+          const key = `${r.referenceType}::${r.referenceNumber.toLowerCase()}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      if (toInsert.length) {
+        await tx.insert(billingDocumentReferencesTable).values(
+          toInsert.map((r) => ({
+            documentId,
+            referenceType: r.referenceType,
+            referenceNumber: r.referenceNumber,
+            source: "ai",
+          })),
+        );
+      }
     }
   });
 }

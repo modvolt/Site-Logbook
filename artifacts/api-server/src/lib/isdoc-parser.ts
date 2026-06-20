@@ -26,6 +26,12 @@ export interface ParsedLine {
   vatRate: number | null;
   totalWithoutVat: number | null;
   totalWithVat: number | null;
+  /** Line number/identifier as printed on the document (ISDOC <ID>). */
+  sourceLineNumber: string | null;
+  /** EAN / barcode of the catalogue item, when present. */
+  ean: string | null;
+  /** Supplier's own SKU / catalogue code (SellersItemIdentification). */
+  supplierSku: string | null;
 }
 
 export interface ParsedDocument {
@@ -35,6 +41,18 @@ export interface ParsedDocument {
   supplierDic: string | null;
   supplierAddress: string | null;
   variableSymbol: string | null;
+  /** Payment symbols / bank coordinates read from PaymentMeans. */
+  constantSymbol: string | null;
+  specificSymbol: string | null;
+  bankAccount: string | null;
+  iban: string | null;
+  bic: string | null;
+  /** Stable document UUID (ISDOC <UUID>), used to dedupe/merge PDF+ISDOC. */
+  isdocUuid: string | null;
+  /** Buyer order number (our order placed with the supplier). */
+  orderNumber: string | null;
+  /** Delivery note number referenced by the document, when present. */
+  deliveryNoteNumber: string | null;
   issueDate: string | null;
   taxableSupplyDate: string | null;
   dueDate: string | null;
@@ -157,6 +175,15 @@ function parseLines(invoice: Record<string, unknown>): ParsedLine[] {
         : null);
     const taxCat = findFirst(line, "ClassifiedTaxCategory");
     const vatRate = numberOf(findFirst(taxCat ?? line, "Percent"));
+    const sourceLineNumber = text(findFirst(line, "ID"));
+    const itemObj = (item ?? {}) as Record<string, unknown>;
+    const ean =
+      text(findFirst(findFirst(itemObj, "CatalogueItemIdentification") ?? {}, "ID")) ??
+      text(findFirst(itemObj, "EANCode")) ??
+      text(findFirst(itemObj, "BarCode"));
+    const supplierSku =
+      text(findFirst(findFirst(itemObj, "SellersItemIdentification") ?? {}, "ID")) ??
+      text(findFirst(itemObj, "SellersItemIdentification"));
     result.push({
       description,
       quantity,
@@ -165,6 +192,9 @@ function parseLines(invoice: Record<string, unknown>): ParsedLine[] {
       vatRate,
       totalWithoutVat,
       totalWithVat,
+      sourceLineNumber,
+      ean,
+      supplierSku,
     });
   }
   return result;
@@ -216,6 +246,27 @@ function mapInvoice(root: Record<string, unknown>): ParsedDocument {
     totalVat = round2(totalWithVat - subtotalWithoutVat);
   }
 
+  // Payment coordinates live under PaymentMeans/Payment/Details in ISDOC.
+  const paymentDetails = findFirst(invoice, "Details");
+  const detailsScope = paymentDetails ?? invoice;
+  const accountNumber = text(findFirst(detailsScope, "BankAccountNumber"));
+  const bankCode = text(findFirst(detailsScope, "BankCode"));
+  const bankAccount = accountNumber
+    ? bankCode
+      ? `${accountNumber}/${bankCode}`
+      : accountNumber
+    : null;
+
+  // OrderReference / DeliveryNoteReference may be at header or line scope.
+  const orderRef = findFirst(invoice, "OrderReference");
+  const orderNumber =
+    text(findFirst(orderRef ?? {}, "ID")) ??
+    text(findFirst(invoice, "BuyerOrderReference"));
+  const deliveryRef =
+    findFirst(invoice, "DeliveryNoteReference") ??
+    findFirst(invoice, "DespatchDocumentReference");
+  const deliveryNoteNumber = deliveryRef ? text(findFirst(deliveryRef, "ID")) : null;
+
   return {
     documentNumber: text(findFirst(invoice, "ID")),
     supplierName,
@@ -223,6 +274,14 @@ function mapInvoice(root: Record<string, unknown>): ParsedDocument {
     supplierDic,
     supplierAddress,
     variableSymbol: text(findFirst(invoice, "VariableSymbol")),
+    constantSymbol: text(findFirst(detailsScope, "ConstantSymbol")),
+    specificSymbol: text(findFirst(detailsScope, "SpecificSymbol")),
+    bankAccount,
+    iban: text(findFirst(detailsScope, "IBAN")),
+    bic: text(findFirst(detailsScope, "BIC")),
+    isdocUuid: text(findFirst(invoice, "UUID")),
+    orderNumber,
+    deliveryNoteNumber,
     issueDate: isoDate(findFirst(invoice, "IssueDate")),
     taxableSupplyDate: isoDate(
       findFirst(invoice, "TaxPointDate") ?? findFirst(invoice, "VATApplicableDate"),

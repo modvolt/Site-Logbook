@@ -52,6 +52,38 @@ export interface CostDocument {
   /** @nullable */
   jobId?: number | null;
   /** @nullable */
+  sourceRef?: string | null;
+  /** @nullable */
+  deliveryNoteNumber?: string | null;
+  /** @nullable */
+  summaryDeliveryNoteNumber?: string | null;
+  /** @nullable */
+  deliveryNumber?: string | null;
+  /** @nullable */
+  orderNumber?: string | null;
+  /** @nullable */
+  supplierOrderNumber?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
+  isdocUuid?: string | null;
+  /** @nullable */
+  mergeGroupId?: string | null;
+  /** @nullable */
+  primaryDocumentId?: number | null;
+  /** @nullable */
+  sourcePriority?: string | null;
+  /** @nullable */
+  parsedBy?: string | null;
+  /** @nullable */
   notes?: string | null;
   /** @nullable */
   warnings?: string | null;

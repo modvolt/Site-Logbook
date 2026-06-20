@@ -11,6 +11,11 @@ import {
   useRequeueCostDocumentExtraction,
   useUpdateCostDocumentLine,
   useSplitCostDocumentLine,
+  useAddCostDocumentReference,
+  useUpdateCostDocumentReference,
+  useDeleteCostDocumentReference,
+  useMatchCostDocumentReferences,
+  useApplyCostDocumentWarehousePrices,
   useListCustomers,
   getListCustomersQueryKey,
   useListJobs,
@@ -18,6 +23,9 @@ import {
   getGetBillingSummaryQueryKey,
   type CostDocument,
   type CostDocumentLine,
+  type CostDocumentReference,
+  type CostDocumentReferenceJobCandidate,
+  type CostDocumentMatchResult,
   type CostDocumentUpdateInput,
   type CostDocumentLineUpdateInput,
   type CostDocumentLineSplitInput,
@@ -52,6 +60,8 @@ import {
   COST_DOC_TYPE_LABELS,
   COST_DOC_LINE_TYPE_LABELS,
   COST_DOC_ALLOCATION_LABELS,
+  COST_DOC_REFERENCE_TYPE_LABELS,
+  COST_DOC_REFERENCE_SOURCE_LABELS,
   CostDocStatusBadge,
 } from "@/lib/cost-document-format";
 import {
@@ -61,11 +71,16 @@ import {
   CheckCircle2,
   EyeOff,
   FileText,
+  Link2,
+  PackageCheck,
+  Plus,
   RefreshCw,
   Save,
   Scissors,
   Sparkles,
   Trash2,
+  Wand2,
+  X,
 } from "lucide-react";
 
 const DOC_TYPE_OPTIONS = ["receipt", "delivery_note", "invoice", "credit_note"];
@@ -410,6 +425,19 @@ export default function BillingDocumentDetail() {
           ))}
         </div>
       )}
+
+      <ReferencesSection
+        documentId={id}
+        references={data.references}
+        jobs={jobs ?? []}
+        onChanged={invalidate}
+      />
+
+      <WarehousePricesCard
+        documentId={id}
+        approved={doc.status === "approved"}
+        onApplied={invalidate}
+      />
 
       {fileHref && viewerOpen && (
         <AttachmentViewer
@@ -1037,5 +1065,414 @@ function SplitDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// References: delivery notes / orders / jobs ("Vazby na dodací listy a zakázky")
+// ---------------------------------------------------------------------------
+
+const REFERENCE_TYPE_OPTIONS = [
+  "delivery_note",
+  "summary_delivery_note",
+  "delivery",
+  "order",
+  "supplier_order",
+  "project",
+  "invoice",
+  "credit_note",
+  "other",
+];
+
+function ReferencesSection({
+  documentId,
+  references,
+  jobs,
+  onChanged,
+}: {
+  documentId: number;
+  references: CostDocumentReference[];
+  jobs: Job[];
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const [adding, setAdding] = useState(false);
+  const [newType, setNewType] = useState("delivery_note");
+  const [newNumber, setNewNumber] = useState("");
+  // Job suggestions per reference, populated after running the matcher.
+  const [candidates, setCandidates] = useState<
+    Record<number, CostDocumentReferenceJobCandidate[]>
+  >({});
+
+  const addRef = useAddCostDocumentReference();
+  const matchRefs = useMatchCostDocumentReferences();
+
+  const jobTitle = (jobId: number | null) =>
+    jobId == null ? null : (jobs.find((j) => j.id === jobId)?.title ?? `#${jobId}`);
+
+  const handleAdd = () => {
+    if (!newNumber.trim()) return;
+    addRef.mutate(
+      {
+        id: documentId,
+        data: { referenceType: newType as never, referenceNumber: newNumber.trim() },
+      },
+      {
+        onSuccess: () => {
+          setNewNumber("");
+          setAdding(false);
+          onChanged();
+          toast({ title: "Reference přidána" });
+        },
+        onError: () =>
+          toast({ title: "Referenci se nepodařilo přidat", variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleMatch = () => {
+    matchRefs.mutate(
+      { id: documentId },
+      {
+        onSuccess: (result: CostDocumentMatchResult) => {
+          setCandidates(
+            (result.candidatesByRef ?? {}) as Record<
+              number,
+              CostDocumentReferenceJobCandidate[]
+            >,
+          );
+          onChanged();
+          toast({ title: "Návrhy párování připraveny" });
+        },
+        onError: () =>
+          toast({ title: "Párování selhalo", variant: "destructive" }),
+      },
+    );
+  };
+
+  return (
+    <section className="mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Link2 className="h-5 w-5" /> Vazby na dodací listy a zakázky
+        </h2>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleMatch}
+            disabled={matchRefs.isPending || references.length === 0}
+          >
+            <Wand2 className="h-4 w-4 mr-1" /> Navrhnout zakázky
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
+            <Plus className="h-4 w-4 mr-1" /> Přidat
+          </Button>
+        </div>
+      </div>
+
+      {adding && (
+        <Card className="mb-3">
+          <CardContent className="p-3 flex flex-col sm:flex-row gap-2 sm:items-end">
+            <div className="space-y-1 flex-1">
+              <Label className="text-xs text-muted-foreground">Typ</Label>
+              <Select value={newType} onValueChange={setNewType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REFERENCE_TYPE_OPTIONS.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {COST_DOC_REFERENCE_TYPE_LABELS[t] ?? t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1 flex-1">
+              <Label className="text-xs text-muted-foreground">Číslo</Label>
+              <Input
+                value={newNumber}
+                onChange={(e) => setNewNumber(e.target.value)}
+                placeholder="např. DL2024001"
+              />
+            </div>
+            <Button onClick={handleAdd} disabled={addRef.isPending || !newNumber.trim()}>
+              Uložit
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {references.length === 0 ? (
+        <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-xl border-muted text-sm">
+          Žádné vazby. Reference z ISDOC se načtou automaticky, další můžete
+          přidat ručně.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {references.map((ref) => (
+            <ReferenceCard
+              key={ref.id}
+              documentId={documentId}
+              reference={ref}
+              jobs={jobs}
+              jobTitle={jobTitle}
+              candidates={candidates[ref.id] ?? []}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReferenceCard({
+  documentId,
+  reference,
+  jobs,
+  jobTitle,
+  candidates,
+  onChanged,
+}: {
+  documentId: number;
+  reference: CostDocumentReference;
+  jobs: Job[];
+  jobTitle: (jobId: number | null) => string | null;
+  candidates: CostDocumentReferenceJobCandidate[];
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const updateRef = useUpdateCostDocumentReference();
+  const deleteRef = useDeleteCostDocumentReference();
+
+  const patch = (
+    data: Parameters<typeof updateRef.mutate>[0]["data"],
+    okTitle: string,
+  ) =>
+    updateRef.mutate(
+      { id: documentId, referenceId: reference.id, data },
+      {
+        onSuccess: () => {
+          onChanged();
+          toast({ title: okTitle });
+        },
+        onError: () =>
+          toast({ title: "Akce selhala", variant: "destructive" }),
+      },
+    );
+
+  const handleDelete = () =>
+    deleteRef.mutate(
+      { id: documentId, referenceId: reference.id },
+      {
+        onSuccess: () => {
+          onChanged();
+          toast({ title: "Reference odstraněna" });
+        },
+        onError: () =>
+          toast({ title: "Odstranění selhalo", variant: "destructive" }),
+      },
+    );
+
+  const linkedJob = jobTitle(reference.matchedJobId ?? null);
+  const confirmed = reference.matchConfirmed;
+  const rejected = reference.rejected;
+
+  return (
+    <Card
+      className={
+        rejected
+          ? "opacity-60"
+          : confirmed
+            ? "border-emerald-400/50"
+            : ""
+      }
+    >
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                {COST_DOC_REFERENCE_TYPE_LABELS[reference.referenceType] ??
+                  reference.referenceType}
+              </span>
+              <span className="font-medium">{reference.referenceNumber}</span>
+              <span className="text-xs text-muted-foreground">
+                {COST_DOC_REFERENCE_SOURCE_LABELS[reference.source] ??
+                  reference.source}
+              </span>
+              {confirmed && (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                  <CheckCircle2 className="h-3 w-3" /> Potvrzeno
+                </span>
+              )}
+              {rejected && (
+                <span className="text-xs text-muted-foreground">Zamítnuto</span>
+              )}
+            </div>
+            {linkedJob && (
+              <p className="text-sm text-muted-foreground mt-1">
+                Zakázka: <span className="text-foreground">{linkedJob}</span>
+                {reference.matchConfidence != null &&
+                  ` · shoda ${Math.round(reference.matchConfidence * 100)} %`}
+              </p>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground shrink-0"
+            onClick={handleDelete}
+            title="Odstranit referenci"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Manual job link */}
+        <div className="flex items-center gap-2">
+          <Select
+            value={reference.matchedJobId != null ? String(reference.matchedJobId) : NONE}
+            onValueChange={(v) =>
+              patch(
+                { matchedJobId: v === NONE ? null : Number(v) },
+                "Zakázka přiřazena",
+              )
+            }
+          >
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue placeholder="Přiřadit zakázku" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Žádná zakázka</SelectItem>
+              {jobs.map((j) => (
+                <SelectItem key={j.id} value={String(j.id)}>
+                  {j.title} ({fmtDate(j.date)})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {reference.matchedJobId != null && !confirmed && !rejected && (
+            <Button
+              size="sm"
+              className="h-8"
+              onClick={() => patch({ matchConfirmed: true }, "Vazba potvrzena")}
+            >
+              <Check className="h-4 w-4 mr-1" /> Potvrdit
+            </Button>
+          )}
+          {!rejected && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-muted-foreground"
+              onClick={() => patch({ rejected: true }, "Vazba zamítnuta")}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+          {rejected && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              onClick={() => patch({ rejected: false }, "Vazba obnovena")}
+            >
+              Obnovit
+            </Button>
+          )}
+        </div>
+
+        {/* Ranked job suggestions from the matcher */}
+        {candidates.length > 0 && !confirmed && (
+          <div className="rounded-lg bg-muted/40 p-2 space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">
+              Návrhy zakázek
+            </p>
+            {candidates.slice(0, 3).map((c) => (
+              <button
+                key={c.jobId}
+                className="flex w-full items-center justify-between text-left text-sm hover:underline"
+                onClick={() =>
+                  patch({ matchedJobId: c.jobId }, "Zakázka přiřazena")
+                }
+              >
+                <span className="truncate">{c.jobTitle ?? `#${c.jobId}`}</span>
+                <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                  {Math.round(c.score * 100)} % · {c.reasons[0] ?? ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Approval → warehouse purchase-price update
+// ---------------------------------------------------------------------------
+
+function WarehousePricesCard({
+  documentId,
+  approved,
+  onApplied,
+}: {
+  documentId: number;
+  approved: boolean;
+  onApplied: () => void;
+}) {
+  const { toast } = useToast();
+  const apply = useApplyCostDocumentWarehousePrices();
+
+  if (!approved) return null;
+
+  const handleApply = () => {
+    if (
+      !confirm(
+        "Přenést nákupní ceny z položek tohoto dokladu do skladu? Aktualizují se ceny odpovídajících skladových položek.",
+      )
+    )
+      return;
+    apply.mutate(
+      { id: documentId },
+      {
+        onSuccess: (res) => {
+          onApplied();
+          toast({
+            title: "Ceny přeneseny do skladu",
+            description: `Aktualizováno ${res.updated.length} položek, přeskočeno ${res.skipped}.`,
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Přenos cen selhal",
+            description: err instanceof Error ? err.message : undefined,
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  return (
+    <Card className="mt-6">
+      <CardContent className="p-4 flex items-center justify-between gap-3">
+        <div className="text-sm">
+          <p className="font-medium flex items-center gap-2">
+            <PackageCheck className="h-4 w-4" /> Sklad
+          </p>
+          <p className="text-muted-foreground">
+            Přenést nákupní ceny materiálových položek do odpovídajících
+            skladových karet.
+          </p>
+        </div>
+        <Button variant="outline" onClick={handleApply} disabled={apply.isPending}>
+          Aktualizovat ceny
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

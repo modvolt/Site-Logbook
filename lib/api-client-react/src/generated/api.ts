@@ -51,6 +51,10 @@ import type {
   CostDocumentDetail,
   CostDocumentLineSplitInput,
   CostDocumentLineUpdateInput,
+  CostDocumentMatchResult,
+  CostDocumentReferenceCreateInput,
+  CostDocumentReferenceUpdateInput,
+  CostDocumentSiblingMatch,
   CostDocumentStatusInput,
   CostDocumentUpdateInput,
   Customer,
@@ -156,7 +160,8 @@ import type {
   WarehouseImportInput,
   WarehouseImportResult,
   WarehouseItem,
-  WarehouseItemInput
+  WarehouseItemInput,
+  WarehousePriceUpdateResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -11293,6 +11298,441 @@ export const useSplitCostDocumentLine = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSplitCostDocumentLineMutationOptions(options));
+    }
+
+export const getAddCostDocumentReferenceUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/references`
+}
+
+/**
+ * @summary Add a manual reference (delivery note / order / …) to a cost document (admin only)
+ */
+export const addCostDocumentReference = async (id: number,
+    costDocumentReferenceCreateInput: CostDocumentReferenceCreateInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getAddCostDocumentReferenceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      costDocumentReferenceCreateInput,)
+  }
+);}
+
+
+
+
+export const getAddCostDocumentReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addCostDocumentReference>>, TError,{id: number;data: BodyType<CostDocumentReferenceCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addCostDocumentReference>>, TError,{id: number;data: BodyType<CostDocumentReferenceCreateInput>}, TContext> => {
+
+const mutationKey = ['addCostDocumentReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addCostDocumentReference>>, {id: number;data: BodyType<CostDocumentReferenceCreateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  addCostDocumentReference(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddCostDocumentReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof addCostDocumentReference>>>
+    export type AddCostDocumentReferenceMutationBody = BodyType<CostDocumentReferenceCreateInput>
+    export type AddCostDocumentReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add a manual reference (delivery note / order / …) to a cost document (admin only)
+ */
+export const useAddCostDocumentReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addCostDocumentReference>>, TError,{id: number;data: BodyType<CostDocumentReferenceCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addCostDocumentReference>>,
+        TError,
+        {id: number;data: BodyType<CostDocumentReferenceCreateInput>},
+        TContext
+      > => {
+      return useMutation(getAddCostDocumentReferenceMutationOptions(options));
+    }
+
+export const getUpdateCostDocumentReferenceUrl = (id: number,
+    referenceId: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/references/${referenceId}`
+}
+
+/**
+ * @summary Confirm / change / reject a cost document reference link (admin only)
+ */
+export const updateCostDocumentReference = async (id: number,
+    referenceId: number,
+    costDocumentReferenceUpdateInput: CostDocumentReferenceUpdateInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getUpdateCostDocumentReferenceUrl(id,referenceId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      costDocumentReferenceUpdateInput,)
+  }
+);}
+
+
+
+
+export const getUpdateCostDocumentReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCostDocumentReference>>, TError,{id: number;referenceId: number;data: BodyType<CostDocumentReferenceUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCostDocumentReference>>, TError,{id: number;referenceId: number;data: BodyType<CostDocumentReferenceUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateCostDocumentReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCostDocumentReference>>, {id: number;referenceId: number;data: BodyType<CostDocumentReferenceUpdateInput>}> = (props) => {
+          const {id,referenceId,data} = props ?? {};
+
+          return  updateCostDocumentReference(id,referenceId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCostDocumentReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof updateCostDocumentReference>>>
+    export type UpdateCostDocumentReferenceMutationBody = BodyType<CostDocumentReferenceUpdateInput>
+    export type UpdateCostDocumentReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Confirm / change / reject a cost document reference link (admin only)
+ */
+export const useUpdateCostDocumentReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCostDocumentReference>>, TError,{id: number;referenceId: number;data: BodyType<CostDocumentReferenceUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCostDocumentReference>>,
+        TError,
+        {id: number;referenceId: number;data: BodyType<CostDocumentReferenceUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateCostDocumentReferenceMutationOptions(options));
+    }
+
+export const getDeleteCostDocumentReferenceUrl = (id: number,
+    referenceId: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/references/${referenceId}`
+}
+
+/**
+ * @summary Remove a cost document reference (admin only)
+ */
+export const deleteCostDocumentReference = async (id: number,
+    referenceId: number, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getDeleteCostDocumentReferenceUrl(id,referenceId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCostDocumentReferenceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCostDocumentReference>>, TError,{id: number;referenceId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCostDocumentReference>>, TError,{id: number;referenceId: number}, TContext> => {
+
+const mutationKey = ['deleteCostDocumentReference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCostDocumentReference>>, {id: number;referenceId: number}> = (props) => {
+          const {id,referenceId} = props ?? {};
+
+          return  deleteCostDocumentReference(id,referenceId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCostDocumentReferenceMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCostDocumentReference>>>
+
+    export type DeleteCostDocumentReferenceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a cost document reference (admin only)
+ */
+export const useDeleteCostDocumentReference = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCostDocumentReference>>, TError,{id: number;referenceId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCostDocumentReference>>,
+        TError,
+        {id: number;referenceId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCostDocumentReferenceMutationOptions(options));
+    }
+
+export const getMatchCostDocumentReferencesUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/match-references`
+}
+
+/**
+ * @summary Score a document's references against jobs (suggestions only, admin only)
+ */
+export const matchCostDocumentReferences = async (id: number, options?: RequestInit): Promise<CostDocumentMatchResult> => {
+
+  return customFetch<CostDocumentMatchResult>(getMatchCostDocumentReferencesUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getMatchCostDocumentReferencesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof matchCostDocumentReferences>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof matchCostDocumentReferences>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['matchCostDocumentReferences'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof matchCostDocumentReferences>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  matchCostDocumentReferences(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MatchCostDocumentReferencesMutationResult = NonNullable<Awaited<ReturnType<typeof matchCostDocumentReferences>>>
+
+    export type MatchCostDocumentReferencesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Score a document's references against jobs (suggestions only, admin only)
+ */
+export const useMatchCostDocumentReferences = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof matchCostDocumentReferences>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof matchCostDocumentReferences>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getMatchCostDocumentReferencesMutationOptions(options));
+    }
+
+export const getGetCostDocumentSuggestedMatchesUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/suggested-matches`
+}
+
+/**
+ * @summary Sibling documents (delivery notes ↔ invoices) likely to match (admin only)
+ */
+export const getCostDocumentSuggestedMatches = async (id: number, options?: RequestInit): Promise<CostDocumentSiblingMatch[]> => {
+
+  return customFetch<CostDocumentSiblingMatch[]>(getGetCostDocumentSuggestedMatchesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCostDocumentSuggestedMatchesQueryKey = (id: number,) => {
+    return [
+    `/api/billing/documents/${id}/suggested-matches`
+    ] as const;
+    }
+
+
+export const getGetCostDocumentSuggestedMatchesQueryOptions = <TData = Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCostDocumentSuggestedMatchesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>> = ({ signal }) => getCostDocumentSuggestedMatches(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCostDocumentSuggestedMatchesQueryResult = NonNullable<Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>>
+export type GetCostDocumentSuggestedMatchesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Sibling documents (delivery notes ↔ invoices) likely to match (admin only)
+ */
+
+export function useGetCostDocumentSuggestedMatches<TData = Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCostDocumentSuggestedMatches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCostDocumentSuggestedMatchesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getApplyCostDocumentWarehousePricesUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/apply-warehouse-prices`
+}
+
+/**
+ * @summary Push an approved document's purchase prices into warehouse items (admin only)
+ */
+export const applyCostDocumentWarehousePrices = async (id: number, options?: RequestInit): Promise<WarehousePriceUpdateResult> => {
+
+  return customFetch<WarehousePriceUpdateResult>(getApplyCostDocumentWarehousePricesUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getApplyCostDocumentWarehousePricesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyCostDocumentWarehousePrices>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof applyCostDocumentWarehousePrices>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['applyCostDocumentWarehousePrices'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof applyCostDocumentWarehousePrices>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  applyCostDocumentWarehousePrices(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApplyCostDocumentWarehousePricesMutationResult = NonNullable<Awaited<ReturnType<typeof applyCostDocumentWarehousePrices>>>
+
+    export type ApplyCostDocumentWarehousePricesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Push an approved document's purchase prices into warehouse items (admin only)
+ */
+export const useApplyCostDocumentWarehousePrices = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof applyCostDocumentWarehousePrices>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof applyCostDocumentWarehousePrices>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getApplyCostDocumentWarehousePricesMutationOptions(options));
     }
 
 export const getListApprovedCostLinesUrl = (params: ListApprovedCostLinesParams,) => {

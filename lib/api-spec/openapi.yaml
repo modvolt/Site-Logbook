@@ -3951,6 +3951,232 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/documents/{id}/references:
+    post:
+      operationId: addCostDocumentReference
+      tags: [billing]
+      summary: Add a manual reference (delivery note / order / …) to a cost document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentReferenceCreateInput"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/references/{referenceId}:
+    patch:
+      operationId: updateCostDocumentReference
+      tags: [billing]
+      summary: Confirm / change / reject a cost document reference link (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: referenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CostDocumentReferenceUpdateInput"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteCostDocumentReference
+      tags: [billing]
+      summary: Remove a cost document reference (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: referenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/match-references:
+    post:
+      operationId: matchCostDocumentReferences
+      tags: [billing]
+      summary: Score a document's references against jobs (suggestions only, admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated document with ranked job candidates per reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentMatchResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/suggested-matches:
+    get:
+      operationId: getCostDocumentSuggestedMatches
+      tags: [billing]
+      summary: Sibling documents (delivery notes ↔ invoices) likely to match (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Ranked sibling document matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CostDocumentSiblingMatch"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/apply-warehouse-prices:
+    post:
+      operationId: applyCostDocumentWarehousePrices
+      tags: [billing]
+      summary: Push an approved document's purchase prices into warehouse items (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Summary of updated warehouse items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehousePriceUpdateResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Document not approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/approved-lines:
     get:
       operationId: listApprovedCostLines
@@ -7050,6 +7276,38 @@ components:
           type: ["integer", "null"]
         jobId:
           type: ["integer", "null"]
+        sourceRef:
+          type: ["string", "null"]
+        deliveryNoteNumber:
+          type: ["string", "null"]
+        summaryDeliveryNoteNumber:
+          type: ["string", "null"]
+        deliveryNumber:
+          type: ["string", "null"]
+        orderNumber:
+          type: ["string", "null"]
+        supplierOrderNumber:
+          type: ["string", "null"]
+        constantSymbol:
+          type: ["string", "null"]
+        specificSymbol:
+          type: ["string", "null"]
+        bankAccount:
+          type: ["string", "null"]
+        iban:
+          type: ["string", "null"]
+        bic:
+          type: ["string", "null"]
+        isdocUuid:
+          type: ["string", "null"]
+        mergeGroupId:
+          type: ["string", "null"]
+        primaryDocumentId:
+          type: ["integer", "null"]
+        sourcePriority:
+          type: ["string", "null"]
+        parsedBy:
+          type: ["string", "null"]
         notes:
           type: ["string", "null"]
         warnings:
@@ -7152,8 +7410,114 @@ components:
           type: boolean
         invoicedInvoiceId:
           type: ["integer", "null"]
+        originalUnit:
+          type: ["string", "null"]
+        supplierSku:
+          type: ["string", "null"]
+        ean:
+          type: ["string", "null"]
+        manufacturer:
+          type: ["string", "null"]
+        sourceLineNumber:
+          type: ["string", "null"]
+        listPriceWithoutVat:
+          type: ["number", "null"]
+        discountPercent:
+          type: ["number", "null"]
+        priceBaseQuantity:
+          type: ["number", "null"]
+        priceBaseUnit:
+          type: ["string", "null"]
+        feeType:
+          type: ["string", "null"]
+        isEnvironmentalFee:
+          type: boolean
+        environmentalFee:
+          type: ["number", "null"]
+        recyclingFee:
+          type: ["number", "null"]
+        deliveryNoteNumber:
+          type: ["string", "null"]
+        orderNumber:
+          type: ["string", "null"]
+        supplierOrderNumber:
+          type: ["string", "null"]
+        warehouseState:
+          type: ["string", "null"]
+        confidence:
+          type: ["number", "null"]
         sortOrder:
           type: integer
+
+    CostDocumentReference:
+      type: object
+      required:
+        - id
+        - documentId
+        - referenceType
+        - referenceNumber
+        - source
+        - matchConfirmed
+        - rejected
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        referenceType:
+          type: string
+        referenceNumber:
+          type: string
+        source:
+          type: string
+        confidence:
+          type: ["number", "null"]
+        matchedJobId:
+          type: ["integer", "null"]
+        matchedDocumentId:
+          type: ["integer", "null"]
+        matchedAttachmentId:
+          type: ["integer", "null"]
+        matchConfidence:
+          type: ["number", "null"]
+        matchConfirmed:
+          type: boolean
+        rejected:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CostDocumentFile:
+      type: object
+      required:
+        - id
+        - documentId
+        - role
+        - objectPath
+        - createdAt
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        role:
+          type: string
+        originalFileName:
+          type: ["string", "null"]
+        mimeType:
+          type: ["string", "null"]
+        objectPath:
+          type: string
+        sizeBytes:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
 
     CostDocumentDuplicate:
       type: object
@@ -7176,7 +7540,7 @@ components:
 
     CostDocumentDetail:
       type: object
-      required: [document, lines, duplicates]
+      required: [document, lines, duplicates, references, files]
       properties:
         document:
           $ref: "#/components/schemas/CostDocument"
@@ -7188,6 +7552,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CostDocumentDuplicate"
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentReference"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentFile"
 
     CostDocumentDuplicateConflict:
       type: object
@@ -7293,6 +7665,153 @@ components:
         status:
           type: string
           enum: [needs_review, reviewed, ignored, duplicate]
+
+    CostDocumentReferenceCreateInput:
+      type: object
+      required: [referenceType, referenceNumber]
+      properties:
+        referenceType:
+          type: string
+          enum:
+            - delivery_note
+            - summary_delivery_note
+            - delivery
+            - order
+            - supplier_order
+            - project
+            - invoice
+            - credit_note
+            - other
+        referenceNumber:
+          type: string
+        source:
+          type: ["string", "null"]
+        confidence:
+          type: ["number", "null"]
+
+    CostDocumentReferenceUpdateInput:
+      type: object
+      properties:
+        referenceType:
+          type: ["string", "null"]
+          enum:
+            - delivery_note
+            - summary_delivery_note
+            - delivery
+            - order
+            - supplier_order
+            - project
+            - invoice
+            - credit_note
+            - other
+        referenceNumber:
+          type: ["string", "null"]
+        matchedJobId:
+          type: ["integer", "null"]
+        matchedDocumentId:
+          type: ["integer", "null"]
+        matchedAttachmentId:
+          type: ["integer", "null"]
+        matchConfirmed:
+          type: ["boolean", "null"]
+        rejected:
+          type: ["boolean", "null"]
+        notes:
+          type: ["string", "null"]
+
+    CostDocumentReferenceJobCandidate:
+      type: object
+      required: [jobId, score, strength, reasons]
+      properties:
+        jobId:
+          type: integer
+        jobTitle:
+          type: ["string", "null"]
+        score:
+          type: number
+        strength:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: string
+
+    CostDocumentMatchResult:
+      type: object
+      required: [document, lines, duplicates, references, files, candidatesByRef]
+      properties:
+        document:
+          $ref: "#/components/schemas/CostDocument"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentLine"
+        duplicates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentDuplicate"
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentReference"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentFile"
+        candidatesByRef:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/CostDocumentReferenceJobCandidate"
+
+    CostDocumentSiblingMatch:
+      type: object
+      required: [documentId, docType, score, strength, reasons]
+      properties:
+        documentId:
+          type: integer
+        documentNumber:
+          type: ["string", "null"]
+        docType:
+          type: string
+        score:
+          type: number
+        strength:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: string
+
+    WarehousePriceUpdateItem:
+      type: object
+      required: [lineId, warehouseItemId, itemName, newPrice, matchedBy]
+      properties:
+        lineId:
+          type: integer
+        warehouseItemId:
+          type: integer
+        itemName:
+          type: string
+        oldPrice:
+          type: ["number", "null"]
+        newPrice:
+          type: number
+        matchedBy:
+          type: string
+          enum: [code, name]
+
+    WarehousePriceUpdateResult:
+      type: object
+      required: [updated, skipped]
+      properties:
+        updated:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehousePriceUpdateItem"
+        skipped:
+          type: integer
 
     ApprovedCostLine:
       type: object

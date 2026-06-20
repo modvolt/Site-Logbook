@@ -9,12 +9,14 @@ import type { CostDocument } from './costDocument';
 import type { CostDocumentDuplicate } from './costDocumentDuplicate';
 import type { CostDocumentFile } from './costDocumentFile';
 import type { CostDocumentLine } from './costDocumentLine';
+import type { CostDocumentMatchResultCandidatesByRef } from './costDocumentMatchResultCandidatesByRef';
 import type { CostDocumentReference } from './costDocumentReference';
 
-export interface CostDocumentDetail {
+export interface CostDocumentMatchResult {
   document: CostDocument;
   lines: CostDocumentLine[];
   duplicates: CostDocumentDuplicate[];
   references: CostDocumentReference[];
   files: CostDocumentFile[];
+  candidatesByRef: CostDocumentMatchResultCandidatesByRef;
 }

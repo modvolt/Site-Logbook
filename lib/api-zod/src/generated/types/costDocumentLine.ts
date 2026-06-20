@@ -35,5 +35,40 @@ export interface CostDocumentLine {
   approved: boolean;
   /** @nullable */
   invoicedInvoiceId?: number | null;
+  /** @nullable */
+  originalUnit?: string | null;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  sourceLineNumber?: string | null;
+  /** @nullable */
+  listPriceWithoutVat?: number | null;
+  /** @nullable */
+  discountPercent?: number | null;
+  /** @nullable */
+  priceBaseQuantity?: number | null;
+  /** @nullable */
+  priceBaseUnit?: string | null;
+  /** @nullable */
+  feeType?: string | null;
+  isEnvironmentalFee?: boolean;
+  /** @nullable */
+  environmentalFee?: number | null;
+  /** @nullable */
+  recyclingFee?: number | null;
+  /** @nullable */
+  deliveryNoteNumber?: string | null;
+  /** @nullable */
+  orderNumber?: string | null;
+  /** @nullable */
+  supplierOrderNumber?: string | null;
+  /** @nullable */
+  warehouseState?: string | null;
+  /** @nullable */
+  confidence?: number | null;
   sortOrder: number;
 }

@@ -10,6 +10,8 @@ import {
   SetCostDocumentStatusBody,
   UpdateCostDocumentLineBody,
   SplitCostDocumentLineBody,
+  AddCostDocumentReferenceBody,
+  UpdateCostDocumentReferenceBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import { contentMatchesType } from "../lib/fileSignature";
@@ -26,6 +28,12 @@ import {
   deleteDocument,
   analyzeJobDocuments,
   getApprovedLinesForCustomer,
+  addReference,
+  updateReference,
+  deleteReference,
+  matchDocumentReferences,
+  suggestDocumentMatches,
+  updateWarehousePricesFromDocument,
   type AppError,
   type Actor,
 } from "../lib/cost-document-service";
@@ -424,6 +432,132 @@ router.post(
       res.json(detail);
     } catch (error) {
       handleError(error, "Položku se nepodařilo rozdělit.", res);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// References (delivery notes / orders / sibling documents)
+//
+// Admin only via the path-scoped gate on /billing/documents above. The matcher
+// only produces SUGGESTIONS — an admin confirms/changes/rejects each link.
+// ---------------------------------------------------------------------------
+
+router.post(
+  "/billing/documents/:id/references",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    const parsed = AddCostDocumentReferenceBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const detail = await addReference(id, {
+        referenceType: parsed.data.referenceType,
+        referenceNumber: parsed.data.referenceNumber,
+        source: parsed.data.source ?? undefined,
+        confidence: parsed.data.confidence,
+      });
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Referenci se nepodařilo přidat.", res);
+    }
+  },
+);
+
+router.patch(
+  "/billing/documents/:id/references/:referenceId",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    const referenceId = parseId(req.params.referenceId);
+    if (id == null || referenceId == null) {
+      res.status(404).json({ error: "Reference nenalezena." });
+      return;
+    }
+    const parsed = UpdateCostDocumentReferenceBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const detail = await updateReference(id, referenceId, parsed.data);
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Referenci se nepodařilo upravit.", res);
+    }
+  },
+);
+
+router.delete(
+  "/billing/documents/:id/references/:referenceId",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    const referenceId = parseId(req.params.referenceId);
+    if (id == null || referenceId == null) {
+      res.status(404).json({ error: "Reference nenalezena." });
+      return;
+    }
+    try {
+      const detail = await deleteReference(id, referenceId);
+      res.json(detail);
+    } catch (error) {
+      handleError(error, "Referenci se nepodařilo odstranit.", res);
+    }
+  },
+);
+
+router.post(
+  "/billing/documents/:id/match-references",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    try {
+      const result = await matchDocumentReferences(id);
+      res.json(result);
+    } catch (error) {
+      handleError(error, "Párování se nepodařilo provést.", res);
+    }
+  },
+);
+
+router.get(
+  "/billing/documents/:id/suggested-matches",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    try {
+      const result = await suggestDocumentMatches(id);
+      res.json(result);
+    } catch (error) {
+      handleError(error, "Návrhy párování se nepodařilo načíst.", res);
+    }
+  },
+);
+
+router.post(
+  "/billing/documents/:id/apply-warehouse-prices",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id == null) {
+      res.status(404).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    try {
+      const result = await updateWarehousePricesFromDocument(id, actorOf(req));
+      res.json(result);
+    } catch (error) {
+      handleError(error, "Ceny do skladu se nepodařilo přenést.", res);
     }
   },
 );

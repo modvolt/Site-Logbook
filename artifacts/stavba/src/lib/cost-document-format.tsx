@@ -49,6 +49,26 @@ export const COST_DOC_ALLOCATION_LABELS: Record<string, string> = {
   not_rebilled: "Nepřefakturovat",
 };
 
+export const COST_DOC_REFERENCE_TYPE_LABELS: Record<string, string> = {
+  delivery_note: "Dodací list",
+  summary_delivery_note: "Souhrnný dodací list",
+  delivery: "Dodávka",
+  order: "Objednávka",
+  supplier_order: "Objednávka dodavatele",
+  project: "Projekt / zakázka",
+  invoice: "Faktura",
+  credit_note: "Dobropis",
+  other: "Jiná reference",
+};
+
+export const COST_DOC_REFERENCE_SOURCE_LABELS: Record<string, string> = {
+  isdoc: "ISDOC",
+  pdf: "PDF",
+  ai: "AI",
+  manual: "Ručně",
+  email: "E-mail",
+};
+
 export function CostDocStatusBadge({ status }: { status: string }) {
   const cls =
     COST_DOC_STATUS_CLASSES[status] ?? "bg-muted text-muted-foreground";

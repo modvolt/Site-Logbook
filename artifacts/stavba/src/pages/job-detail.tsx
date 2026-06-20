@@ -29,11 +29,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Autocomplete } from "@/components/autocomplete";
 import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { COST_DOC_TYPE_LABELS } from "@/lib/cost-document-format";
 import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
 import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
@@ -1122,8 +1131,10 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note"].includes(a.type)) || [];
+  const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note", "credit_note"].includes(a.type)) || [];
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
+  // Document type to assign to uploads; "auto" infers from file kind (photo→receipt, PDF→invoice).
+  const [dokladType, setDokladType] = useState<string>("auto");
 
   const handleAnalyze = () => {
     analyzeDocuments.mutate({ id: jobId }, {
@@ -1161,7 +1172,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
     const { succeeded, failed, errors } = await uploadDoklady(files, async (file) => {
       const isPhoto = file.type.startsWith("image/") ||
         file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
-      const type = isPhoto ? "receipt" : "invoice";
+      const type = dokladType === "auto" ? (isPhoto ? "receipt" : "invoice") : dokladType;
       const toUpload = isPhoto ? await prepareImageFile(file) : file;
       const result = await uploadDoklad(toUpload);
       await createAttachment.mutateAsync({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } });
@@ -1210,6 +1221,21 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
           onChange={handleFileUpload} 
           className="hidden" 
         />
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Typ dokladu</Label>
+          <Select value={dokladType} onValueChange={setDokladType}>
+            <SelectTrigger className="h-10">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Automaticky (foto → účtenka, PDF → faktura)</SelectItem>
+              <SelectItem value="invoice">{COST_DOC_TYPE_LABELS.invoice}</SelectItem>
+              <SelectItem value="receipt">{COST_DOC_TYPE_LABELS.receipt}</SelectItem>
+              <SelectItem value="delivery_note">{COST_DOC_TYPE_LABELS.delivery_note}</SelectItem>
+              <SelectItem value="credit_note">{COST_DOC_TYPE_LABELS.credit_note}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <div className="flex gap-2">
           <Button 
             onClick={() => fileInputRef.current?.click()} 
