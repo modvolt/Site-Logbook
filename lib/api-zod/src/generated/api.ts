@@ -2392,6 +2392,8 @@ export const GetBillingSummaryResponse = zod.object({
   "issuedInvoices": zod.number(),
   "totalToInvoiceWithoutVat": zod.number().describe('Orientational sum (price+transportCost+parking) of unbilled done jobs'),
   "issuedThisMonthWithVat": zod.number(),
+  "paidThisMonthCount": zod.number().describe('Count of non-cancelled invoices whose payment date (paidDate) is this month'),
+  "paidThisMonthWithVat": zod.number().describe('Cash received this month by payment date (paidAmount, else invoice total)'),
   "unpaidCount": zod.number().describe('Count of issued\/sent (not paid, not cancelled) invoices'),
   "unpaidTotalWithVat": zod.number().describe('Sum with VAT of issued\/sent invoices not yet paid'),
   "overdueCount": zod.number().describe('Count of unpaid invoices whose dueDate is before today'),
@@ -2557,6 +2559,8 @@ export const ListInvoicesResponseItem = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),
@@ -2635,6 +2639,8 @@ export const GetInvoiceResponse = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),
@@ -2726,6 +2732,8 @@ export const UpdateInvoiceResponse = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),
@@ -2795,6 +2803,8 @@ export const RecalculateInvoiceResponse = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),
@@ -2856,6 +2866,8 @@ export const IssueInvoiceResponse = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),
@@ -2921,6 +2933,8 @@ export const CancelInvoiceResponse = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),
@@ -2960,7 +2974,9 @@ export const UpdateInvoiceStatusParams = zod.object({
 })
 
 export const UpdateInvoiceStatusBody = zod.object({
-  "status": zod.enum(['sent', 'paid'])
+  "status": zod.enum(['sent', 'paid']),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when marking paid; defaults to today'),
+  "paidAmount": zod.number().nullish().describe('Amount received when marking paid; defaults to the invoice total (with VAT)')
 })
 
 export const UpdateInvoiceStatusResponse = zod.object({
@@ -2986,6 +3002,8 @@ export const UpdateInvoiceStatusResponse = zod.object({
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
   "notes": zod.string().nullish(),
+  "paidDate": zod.string().nullish().describe('Payment date (ISO YYYY-MM-DD) when the invoice was paid'),
+  "paidAmount": zod.number().nullish().describe('Amount actually received (supports partial payments)'),
   "pdfObjectPath": zod.string().nullish(),
   "isdocObjectPath": zod.string().nullish(),
   "createdByUserId": zod.number().nullish(),

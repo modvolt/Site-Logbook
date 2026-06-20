@@ -98,6 +98,24 @@ export default function Billing() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">
+              Zaplaceno tento měsíc (s DPH)
+            </div>
+            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+              {isLoading ? "—" : fmtKc(data?.paidThisMonthWithVat, 0)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {isLoading
+                ? ""
+                : `${data?.paidThisMonthCount ?? 0} ${invoiceNoun(data?.paidThisMonthCount ?? 0)}`}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
         <Card>
           <CardContent className="p-4">

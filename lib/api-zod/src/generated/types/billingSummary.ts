@@ -14,6 +14,10 @@ export interface BillingSummary {
   /** Orientational sum (price+transportCost+parking) of unbilled done jobs */
   totalToInvoiceWithoutVat: number;
   issuedThisMonthWithVat: number;
+  /** Count of non-cancelled invoices whose payment date (paidDate) is this month */
+  paidThisMonthCount: number;
+  /** Cash received this month by payment date (paidAmount, else invoice total) */
+  paidThisMonthWithVat: number;
   /** Count of issued/sent (not paid, not cancelled) invoices */
   unpaidCount: number;
   /** Sum with VAT of issued/sent invoices not yet paid */

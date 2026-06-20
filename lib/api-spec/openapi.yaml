@@ -4954,6 +4954,8 @@ components:
         - issuedInvoices
         - totalToInvoiceWithoutVat
         - issuedThisMonthWithVat
+        - paidThisMonthCount
+        - paidThisMonthWithVat
         - unpaidCount
         - unpaidTotalWithVat
         - overdueCount
@@ -4971,6 +4973,12 @@ components:
           description: Orientational sum (price+transportCost+parking) of unbilled done jobs
         issuedThisMonthWithVat:
           type: number
+        paidThisMonthCount:
+          type: integer
+          description: Count of non-cancelled invoices whose payment date (paidDate) is this month
+        paidThisMonthWithVat:
+          type: number
+          description: Cash received this month by payment date (paidAmount, else invoice total)
         unpaidCount:
           type: integer
           description: Count of issued/sent (not paid, not cancelled) invoices
@@ -5139,6 +5147,12 @@ components:
           type: number
         notes:
           type: ["string", "null"]
+        paidDate:
+          type: ["string", "null"]
+          description: Payment date (ISO YYYY-MM-DD) when the invoice was paid
+        paidAmount:
+          type: ["number", "null"]
+          description: Amount actually received (supports partial payments)
         pdfObjectPath:
           type: ["string", "null"]
         isdocObjectPath:
@@ -5269,6 +5283,12 @@ components:
           type: number
         notes:
           type: ["string", "null"]
+        paidDate:
+          type: ["string", "null"]
+          description: Payment date (ISO YYYY-MM-DD) when the invoice was paid
+        paidAmount:
+          type: ["number", "null"]
+          description: Amount actually received (supports partial payments)
         pdfObjectPath:
           type: ["string", "null"]
         isdocObjectPath:
@@ -5404,6 +5424,12 @@ components:
         status:
           type: string
           enum: [sent, paid]
+        paidDate:
+          type: ["string", "null"]
+          description: Payment date (ISO YYYY-MM-DD) when marking paid; defaults to today
+        paidAmount:
+          type: ["number", "null"]
+          description: Amount received when marking paid; defaults to the invoice total (with VAT)
 
     CancelInvoiceInput:
       type: object

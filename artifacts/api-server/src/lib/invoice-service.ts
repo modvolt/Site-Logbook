@@ -214,6 +214,8 @@ export async function getBillingSummary() {
       totalWithVat: invoicesTable.totalWithVat,
       issueDate: invoicesTable.issueDate,
       dueDate: invoicesTable.dueDate,
+      paidDate: invoicesTable.paidDate,
+      paidAmount: invoicesTable.paidAmount,
     })
     .from(invoicesTable);
 
@@ -251,12 +253,29 @@ export async function getBillingSummary() {
     overdueInvoices.reduce((acc, i) => acc + num(i.totalWithVat), 0),
   );
 
+  // Cash actually received this calendar month, by payment date (paidDate) —
+  // not by issue date. Uses paidAmount when recorded, else the invoice total.
+  const paidThisMonthInvoices = allInvoices.filter(
+    (i) =>
+      i.status !== "cancelled" &&
+      typeof i.paidDate === "string" &&
+      i.paidDate.startsWith(month),
+  );
+  const paidThisMonthWithVat = round2(
+    paidThisMonthInvoices.reduce(
+      (acc, i) => acc + (i.paidAmount != null ? num(i.paidAmount) : num(i.totalWithVat)),
+      0,
+    ),
+  );
+
   return {
     unbilledDoneJobs: unbilled.length,
     draftInvoices: draftCount,
     issuedInvoices: issuedCount,
     totalToInvoiceWithoutVat: unbilledTotal,
     issuedThisMonthWithVat,
+    paidThisMonthCount: paidThisMonthInvoices.length,
+    paidThisMonthWithVat,
     unpaidCount: unpaidInvoices.length,
     unpaidTotalWithVat,
     overdueCount: overdueInvoices.length,
@@ -395,6 +414,8 @@ export function serializeInvoice(row: Invoice) {
     totalVat: num(row.totalVat),
     totalWithVat: num(row.totalWithVat),
     notes: row.notes,
+    paidDate: row.paidDate,
+    paidAmount: row.paidAmount == null ? null : num(row.paidAmount),
     pdfObjectPath: row.pdfObjectPath,
     isdocObjectPath: row.isdocObjectPath,
     createdByUserId: row.createdByUserId,
@@ -1178,7 +1199,14 @@ export async function cancelInvoice(
   return getInvoiceDetail(id);
 }
 
-export async function updateInvoiceStatus(id: number, status: "sent" | "paid") {
+export interface InvoiceStatusInput {
+  status: "sent" | "paid";
+  paidDate?: string | null;
+  paidAmount?: number | null;
+}
+
+export async function updateInvoiceStatus(id: number, input: InvoiceStatusInput) {
+  const { status } = input;
   const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
   if (!invoice) throw appError(404, "Faktura nenalezena.");
   if (invoice.status === "draft" || invoice.status === "cancelled") {
@@ -1191,10 +1219,23 @@ export async function updateInvoiceStatus(id: number, status: "sent" | "paid") {
   if (!allowed[status].includes(invoice.status)) {
     throw appError(409, `Přechod ${invoice.status} → ${status} není povolen.`);
   }
-  await db
-    .update(invoicesTable)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(invoicesTable.id, id));
+  const set: Record<string, unknown> = { status, updatedAt: new Date() };
+  if (status === "paid") {
+    // Default to today and the full invoice total when not explicitly supplied.
+    set.paidDate = input.paidDate ?? invoice.paidDate ?? todayIso();
+    const amount =
+      input.paidAmount != null
+        ? input.paidAmount
+        : invoice.paidAmount != null
+          ? num(invoice.paidAmount)
+          : num(invoice.totalWithVat);
+    set.paidAmount = String(round2(amount));
+  } else {
+    // Reverting a paid invoice back to "sent" clears the recorded payment.
+    set.paidDate = null;
+    set.paidAmount = null;
+  }
+  await db.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
   return getInvoiceDetail(id);
 }
 

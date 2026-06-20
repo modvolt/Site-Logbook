@@ -320,7 +320,13 @@ router.patch("/billing/invoices/:id/status", async (req, res): Promise<void> => 
     return;
   }
   try {
-    res.json(await updateInvoiceStatus(id, parsed.data.status));
+    res.json(
+      await updateInvoiceStatus(id, {
+        status: parsed.data.status,
+        paidDate: parsed.data.paidDate ?? null,
+        paidAmount: parsed.data.paidAmount ?? null,
+      }),
+    );
   } catch (err) {
     handleError(err, "Změna stavu faktury selhala.", res);
   }

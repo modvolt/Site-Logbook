@@ -1284,6 +1284,10 @@ export interface BillingSummary {
   /** Orientational sum (price+transportCost+parking) of unbilled done jobs */
   totalToInvoiceWithoutVat: number;
   issuedThisMonthWithVat: number;
+  /** Count of non-cancelled invoices whose payment date (paidDate) is this month */
+  paidThisMonthCount: number;
+  /** Cash received this month by payment date (paidAmount, else invoice total) */
+  paidThisMonthWithVat: number;
   /** Count of issued/sent (not paid, not cancelled) invoices */
   unpaidCount: number;
   /** Sum with VAT of issued/sent invoices not yet paid */
@@ -1492,6 +1496,16 @@ export interface Invoice {
   totalWithVat: number;
   /** @nullable */
   notes?: string | null;
+  /**
+     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
+     * @nullable
+     */
+  paidDate?: string | null;
+  /**
+     * Amount actually received (supports partial payments)
+     * @nullable
+     */
+  paidAmount?: number | null;
   /** @nullable */
   pdfObjectPath?: string | null;
   /** @nullable */
@@ -1703,6 +1717,16 @@ export interface InvoiceDetail {
   totalWithVat: number;
   /** @nullable */
   notes?: string | null;
+  /**
+     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
+     * @nullable
+     */
+  paidDate?: string | null;
+  /**
+     * Amount actually received (supports partial payments)
+     * @nullable
+     */
+  paidAmount?: number | null;
   /** @nullable */
   pdfObjectPath?: string | null;
   /** @nullable */
@@ -1770,6 +1794,16 @@ export const InvoiceStatusUpdateStatus = {
 
 export interface InvoiceStatusUpdate {
   status: InvoiceStatusUpdateStatus;
+  /**
+     * Payment date (ISO YYYY-MM-DD) when marking paid; defaults to today
+     * @nullable
+     */
+  paidDate?: string | null;
+  /**
+     * Amount received when marking paid; defaults to the invoice total (with VAT)
+     * @nullable
+     */
+  paidAmount?: number | null;
 }
 
 export interface SendInvoiceEmailInput {

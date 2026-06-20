@@ -46,6 +46,16 @@ export interface Invoice {
   totalWithVat: number;
   /** @nullable */
   notes?: string | null;
+  /**
+     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
+     * @nullable
+     */
+  paidDate?: string | null;
+  /**
+     * Amount actually received (supports partial payments)
+     * @nullable
+     */
+  paidAmount?: number | null;
   /** @nullable */
   pdfObjectPath?: string | null;
   /** @nullable */

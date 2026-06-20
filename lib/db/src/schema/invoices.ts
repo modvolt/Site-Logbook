@@ -62,6 +62,12 @@ export const invoicesTable = pgTable(
       .notNull()
       .default("0"),
     notes: text("notes"),
+    // Payment record: when the customer actually paid (ISO "YYYY-MM-DD" calendar
+    // day) and how much arrived. paidAmount supports partial payments and is
+    // independent of status; both are filled on manual "mark paid" and (later)
+    // by automatic bank-payment matching.
+    paidDate: text("paid_date"),
+    paidAmount: numeric("paid_amount", { precision: 12, scale: 2 }),
     pdfObjectPath: text("pdf_object_path"),
     isdocObjectPath: text("isdoc_object_path"),
     createdByUserId: integer("created_by_user_id").references(() => usersTable.id, {

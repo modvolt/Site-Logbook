@@ -9,4 +9,14 @@ import type { InvoiceStatusUpdateStatus } from './invoiceStatusUpdateStatus';
 
 export interface InvoiceStatusUpdate {
   status: InvoiceStatusUpdateStatus;
+  /**
+     * Payment date (ISO YYYY-MM-DD) when marking paid; defaults to today
+     * @nullable
+     */
+  paidDate?: string | null;
+  /**
+     * Amount received when marking paid; defaults to the invoice total (with VAT)
+     * @nullable
+     */
+  paidAmount?: number | null;
 }

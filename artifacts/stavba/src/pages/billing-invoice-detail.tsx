@@ -92,6 +92,9 @@ export default function BillingInvoiceDetail() {
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
+  const [paidOpen, setPaidOpen] = useState(false);
+  const [paidDate, setPaidDate] = useState("");
+  const [paidAmount, setPaidAmount] = useState("");
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: getGetInvoiceQueryKey(id) });
@@ -173,6 +176,44 @@ export default function BillingInvoiceDetail() {
         onError: () => toast({ title: "Změna stavu se nezdařila", variant: "destructive" }),
       },
     );
+
+  const openPaid = () => {
+    setPaidDate(inv?.paidDate ?? new Date().toISOString().slice(0, 10));
+    setPaidAmount(
+      inv?.paidAmount != null
+        ? String(inv.paidAmount)
+        : inv?.totalWithVat != null
+          ? String(inv.totalWithVat)
+          : "",
+    );
+    setPaidOpen(true);
+  };
+
+  const handleMarkPaid = () => {
+    const amountNum = paidAmount.trim() === "" ? null : Number(paidAmount.replace(",", "."));
+    if (amountNum != null && (Number.isNaN(amountNum) || amountNum < 0)) {
+      toast({ title: "Zadejte platnou částku", variant: "destructive" });
+      return;
+    }
+    updateStatus.mutate(
+      {
+        id,
+        data: {
+          status: "paid",
+          paidDate: paidDate || null,
+          paidAmount: amountNum,
+        },
+      },
+      {
+        onSuccess: () => {
+          invalidateAll();
+          setPaidOpen(false);
+          toast({ title: "Označeno jako zaplaceno" });
+        },
+        onError: () => toast({ title: "Změna stavu se nezdařila", variant: "destructive" }),
+      },
+    );
+  };
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -300,11 +341,10 @@ export default function BillingInvoiceDetail() {
                 <Send className="h-4 w-4 mr-2" /> Označit jako odesláno
               </Button>
             )}
-            {inv.status !== "paid" && (
-              <Button variant="outline" onClick={() => handleStatus("paid")} disabled={updateStatus.isPending} className="h-10">
-                <CircleDollarSign className="h-4 w-4 mr-2" /> Označit jako zaplaceno
-              </Button>
-            )}
+            <Button variant="outline" onClick={openPaid} disabled={updateStatus.isPending} className="h-10">
+              <CircleDollarSign className="h-4 w-4 mr-2" />
+              {inv.status === "paid" ? "Upravit úhradu" : "Označit jako zaplaceno"}
+            </Button>
             <Button
               variant="ghost"
               onClick={() => setConfirmCancel(true)}
@@ -343,6 +383,12 @@ export default function BillingInvoiceDetail() {
             <InfoRow label="Způsob platby" value={inv.paymentMethod || "—"} />
             <InfoRow label="Variabilní symbol" value={inv.variableSymbol || "—"} />
             <InfoRow label="Režim DPH" value={vatModeLabel(inv.vatModeDefault)} />
+            {inv.paidDate && (
+              <InfoRow label="Datum úhrady" value={fmtDate(inv.paidDate)} />
+            )}
+            {inv.paidAmount != null && (
+              <InfoRow label="Uhrazeno" value={fmtKc(inv.paidAmount)} />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -492,6 +538,46 @@ export default function BillingInvoiceDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Payment dialog */}
+      <Dialog open={paidOpen} onOpenChange={setPaidOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Úhrada faktury</DialogTitle>
+            <DialogDescription>
+              Zadejte datum a uhrazenou částku. Pro částečnou platbu zadejte
+              skutečně přijatou částku.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm mb-1 block">Datum úhrady</Label>
+              <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-sm mb-1 block">Uhrazená částka (Kč)</Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={paidAmount}
+                onChange={(e) => setPaidAmount(e.target.value)}
+                placeholder={inv.totalWithVat != null ? String(inv.totalWithVat) : ""}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPaidOpen(false)}>
+              Zrušit
+            </Button>
+            <Button onClick={handleMarkPaid} disabled={updateStatus.isPending}>
+              {updateStatus.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CircleDollarSign className="h-4 w-4 mr-2" />}
+              Uložit úhradu
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Email dialog */}
       <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
