@@ -415,6 +415,9 @@ function mapLineInput(line: {
   vatRate?: number | null;
   vatMode?: InvoiceLineInput["vatMode"];
   sourceType?: string | null;
+  sourceId?: number | null;
+  jobId?: number | null;
+  activityId?: number | null;
 }): InvoiceLineInput {
   return {
     description: line.description,
@@ -425,6 +428,9 @@ function mapLineInput(line: {
     vatRate: line.vatRate ?? undefined,
     vatMode: line.vatMode ?? undefined,
     sourceType: line.sourceType ?? undefined,
+    sourceId: line.sourceId ?? undefined,
+    jobId: line.jobId ?? undefined,
+    activityId: line.activityId ?? undefined,
   };
 }
 

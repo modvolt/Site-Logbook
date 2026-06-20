@@ -133,6 +133,32 @@ export function vatBreakdown(
     .sort((a, b) => b.rate - a.rate);
 }
 
+/**
+ * Derive invoice→job source links from the current set of lines. A job is only
+ * billed (flipped to "vyfakturováno" on issue) when it still has at least one
+ * line on the invoice. Deleting every line of a job in the edit UI therefore
+ * drops its source link, so the job returns to the unbilled pool instead of
+ * being silently marked as invoiced with nothing on the invoice for it.
+ *
+ * `lines[i]` and `computed[i]` must be index-aligned (same order as persisted).
+ * The returned amount is the sum of each job's line `totalWithoutVat`.
+ */
+export function deriveJobSourceLinks(
+  lines: ReadonlyArray<{ jobId?: number | null }>,
+  computed: ReadonlyArray<Pick<ComputedLine, "totalWithoutVat">>,
+): Array<{ jobId: number; amountWithoutVat: number }> {
+  const jobAmounts = new Map<number, number>();
+  lines.forEach((line, i) => {
+    if (line.jobId == null) return;
+    const prev = jobAmounts.get(line.jobId) ?? 0;
+    jobAmounts.set(line.jobId, prev + num(computed[i]?.totalWithoutVat));
+  });
+  return Array.from(jobAmounts.entries()).map(([jobId, amount]) => ({
+    jobId,
+    amountWithoutVat: round2(amount),
+  }));
+}
+
 /** Czech money formatting: "12 500,00 Kč" (NBSP thousands, comma decimal). */
 export function formatCzk(value: number, currency = "CZK"): string {
   const n = round2(num(value));

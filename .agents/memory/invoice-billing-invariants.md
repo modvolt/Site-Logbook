@@ -19,20 +19,23 @@ future status-transition flow that flips shared rows.
 **How to apply:** any new billing/issue/cancel path that mutates `jobs.status` based
 on a prior read must lock those rows in the same tx.
 
-## 2. `invoice_source_links` — not lines — decides which jobs get billed
-`invoice_source_links` is written ONCE at draft creation (one row per job + amount).
-On issue, every source-linked job is flipped to `vyfakturovano`. Editing a draft
-REPLACES all lines but deliberately preserves source links, and edited lines lose
-their `jobId` (they become `sourceType:"manual"`). So:
-- Deleting all of a job's lines in the edit UI still bills that job on issue
-  (job marked `vyfakturovano` with nothing on the invoice for it).
-- The unbilled list excludes jobs already linked to a non-cancelled invoice, so you
-  cannot normally create a second draft for the same job.
-- Recovery for a wrongly-billed job is **storno (cancel)**, which returns linked jobs
-  to `done`.
-**Why:** "which jobs this invoice bills" is a creation-time decision, intentionally
-decoupled from free-form line editing. Do not try to re-derive job billing from line
-`jobId` — edited lines don't carry it.
+## 2. `invoice_source_links` decides which jobs get billed — recomputed on every edit
+`invoice_source_links` (one row per job + amount) is what `issueInvoice` flips to
+`vyfakturovano`. It is written at draft creation AND **recomputed on every draft edit**
+(`updateDraft` when `input.lines` is provided): one link per job that still has >=1 line,
+amount = sum of that job's line `totalWithoutVat` via `deriveJobSourceLinks()` in
+`invoice-calc.ts`. For this to work, edited lines must carry `jobId` end-to-end:
+the edit UI sends it, `mapLineInput` (routes/billing.ts) passes it through, and the
+service `InvoiceLineInput` + `updateDraft` preserve it on persist.
+- Deleting all of a job's lines in the edit UI now **drops its source link**, so the job
+  returns to the unbilled pool (stays `done`) instead of being billed with nothing on it.
+- The unbilled list excludes jobs already linked to a non-cancelled invoice.
+- Recovery for a wrongly-billed *issued* invoice is still **storno (cancel)**.
+**Why:** prior behavior preserved links across edits and stripped `jobId`, so deleting a
+job's lines still billed it (job "lost" from fakturace). Job billing now tracks the
+surviving lines. `createDraft` source links still come from the selected `jobIds`.
+**Watch:** legacy drafts edited *before* this change have lines with null `jobId`; only a
+fresh save recomputes them correctly.
 
 ## 3. `/billing/settings` PUT enumerates fields explicitly
 `routes/billing.ts` PUT `/billing/settings` lists each field by hand when calling

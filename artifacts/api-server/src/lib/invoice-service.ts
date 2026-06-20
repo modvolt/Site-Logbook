@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import {
   computeLine,
+  deriveJobSourceLinks,
   num,
   round2,
   sumTotals,
@@ -638,6 +639,9 @@ export interface InvoiceLineInput {
   vatRate?: number | null;
   vatMode?: VatMode | null;
   sourceType?: string | null;
+  sourceId?: number | null;
+  jobId?: number | null;
+  activityId?: number | null;
 }
 
 export interface InvoiceCreateInput {
@@ -774,11 +778,16 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
     await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
 
     if (input.lines !== undefined) {
-      // Manual edit replaces ALL lines; source links are preserved (job billing
-      // is decided at draft creation, not re-derived from manual line edits).
+      // Manual edit replaces ALL lines. Lines keep their `jobId` so job billing
+      // tracks the lines that actually remain: removing every line of a job drops
+      // its source link, returning the job to the unbilled pool (instead of being
+      // silently marked "vyfakturováno" with nothing on the invoice for it).
       await tx.delete(invoiceLinesTable).where(eq(invoiceLinesTable.invoiceId, id));
-      const manual: RawLine[] = input.lines.map((l) => ({
+      const lines: RawLine[] = input.lines.map((l) => ({
         sourceType: l.sourceType ?? "manual",
+        sourceId: l.sourceId ?? null,
+        jobId: l.jobId ?? null,
+        activityId: l.activityId ?? null,
         description: l.description,
         quantity: l.quantity ?? 1,
         unit: l.unit ?? null,
@@ -787,8 +796,24 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
         vatRate: l.vatRate ?? null,
         vatMode: l.vatMode ?? vatModeDefault,
       }));
-      const computed = await persistLines(tx, id, manual, vatModeDefault);
+      const computed = await persistLines(tx, id, lines, vatModeDefault);
       await writeTotals(tx, id, computed);
+
+      // Recompute source links from the surviving lines' jobIds so that billing
+      // provenance stays in sync with the edited line set.
+      await tx
+        .delete(invoiceSourceLinksTable)
+        .where(eq(invoiceSourceLinksTable.invoiceId, id));
+      const sourceLinks = deriveJobSourceLinks(lines, computed);
+      if (sourceLinks.length) {
+        await tx.insert(invoiceSourceLinksTable).values(
+          sourceLinks.map((l) => ({
+            invoiceId: id,
+            jobId: l.jobId,
+            amountWithoutVat: String(l.amountWithoutVat),
+          })),
+        );
+      }
     } else {
       // VAT mode may have changed — recompute existing lines under the new mode.
       await recalcWithin(tx, id, vatModeDefault);
