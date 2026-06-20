@@ -29,6 +29,7 @@ import emailImportSettingsRouter from "./email-import-settings";
 import backupsRouter from "./backups";
 import billingRouter from "./billing";
 import billingDocumentsRouter from "./billing-documents";
+import emailImportRouter from "./email-import";
 
 const router: IRouter = Router();
 
@@ -62,5 +63,6 @@ router.use(emailImportSettingsRouter);
 router.use(backupsRouter);
 router.use(billingRouter);
 router.use(billingDocumentsRouter);
+router.use(emailImportRouter);
 
 export default router;

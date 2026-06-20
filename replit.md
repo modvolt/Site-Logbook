@@ -66,6 +66,29 @@ is read from env only, never stored in the DB or logged. Status + a no-document
 - `OPENAI_MAX_FILE_MB` — max input file size sent to OpenAI (default `20`)
 - `OPENAI_REQUEST_TIMEOUT_MS` — per-request timeout in ms (default `60000`)
 
+### Gmail / Google Workspace import (OAuth)
+
+Optional + fully modular. When configured **and** an admin connects a Google
+account, supplier cost-document attachments (PDFs/photos) are imported from Gmail
+into Fakturace as `billing_documents` (`source="email"`) for review — never
+auto-approved. Off by default; the app works fully without it (manual upload
+always available). OAuth refresh tokens are encrypted at rest (AES-256-GCM) with
+`TOKEN_ENCRYPTION_KEY`; only the encrypted token is stored, never logged.
+Attachments are deduped by SHA-256 and stored in the private object bucket (only
+the object path is stored in the DB). Connect/disconnect/sync are audited.
+Admin-only UI at `/billing/email-import`. The redirect URI must point at
+`/api/billing/email-import/callback`. Labels are configured in the UI (multi-label)
+and stored per-account; the `GMAIL_*` env vars are only defaults. Configure:
+
+- `GOOGLE_CLIENT_ID` — OAuth web-client id; empty disables the feature
+- `GOOGLE_CLIENT_SECRET` — OAuth web-client secret
+- `GOOGLE_REDIRECT_URI` — full callback URL (`…/api/billing/email-import/callback`)
+- `TOKEN_ENCRYPTION_KEY` — required; AES-256-GCM key (e.g. `openssl rand -base64 32`)
+- `GMAIL_LABEL` — default label(s), comma-separated; empty = whole mailbox
+- `GMAIL_QUERY` — extra Gmail search query (e.g. `has:attachment`)
+- `GMAIL_MAX_MESSAGES` — max messages fetched per sync (default `50`)
+- `GMAIL_LABEL_AFTER_IMPORT` — `true` to label processed emails so they aren't re-fetched (default `false`)
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9

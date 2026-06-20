@@ -4022,6 +4022,295 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/email-import/status:
+    get:
+      operationId: getEmailImportStatus
+      tags: [billing]
+      summary: Gmail import status + connected account (admin only)
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/disconnect:
+    post:
+      operationId: disconnectEmailImport
+      tags: [billing]
+      summary: Disconnect the connected mailbox (admin only)
+      responses:
+        "200":
+          description: Disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/labels:
+    get:
+      operationId: listEmailImportLabels
+      tags: [billing]
+      summary: List the connected mailbox's Gmail labels (admin only)
+      responses:
+        "200":
+          description: Labels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportLabelList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/settings:
+    put:
+      operationId: updateEmailImportLabelSettings
+      tags: [billing]
+      summary: Update label filter + label-after-import (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailImportLabelSettingsInput"
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportAccount"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/sync:
+    post:
+      operationId: syncEmailImport
+      tags: [billing]
+      summary: Fetch new messages from the connected mailbox (admin only)
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportSyncResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Sync failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/messages:
+    get:
+      operationId: listEmailImportMessages
+      tags: [billing]
+      summary: List imported e-mail messages (admin only)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [new, imported, ignored, error]
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailImportMessage"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/messages/{id}:
+    get:
+      operationId: getEmailImportMessage
+      tags: [billing]
+      summary: Get one e-mail message with its attachments (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Message detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportMessageDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/messages/{id}/import:
+    post:
+      operationId: importEmailImportMessage
+      tags: [billing]
+      summary: Import a message's supported attachments as cost documents (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailImportImportResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/messages/{id}/ignore:
+    post:
+      operationId: ignoreEmailImportMessage
+      tags: [billing]
+      summary: Mark a message as ignored (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Ignored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/email-import/messages/{id}/reprocess:
+    post:
+      operationId: reprocessEmailImportMessage
+      tags: [billing]
+      summary: Reset a message back to "new" so it can be re-imported (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /jobs/{id}/analyze-documents:
     post:
       operationId: analyzeJobDocuments
@@ -7050,3 +7339,187 @@ components:
           type: integer
         skipped:
           type: integer
+
+    OkResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    EmailImportAccount:
+      type: object
+      required: [id, provider, status, labels, labelAfterImport]
+      properties:
+        id:
+          type: integer
+        provider:
+          type: string
+        status:
+          type: string
+        emailAddress:
+          type: ["string", "null"]
+        labels:
+          type: array
+          items:
+            type: string
+        labelAfterImport:
+          type: boolean
+        lastSyncAt:
+          type: ["string", "null"]
+        lastSyncStatus:
+          type: ["string", "null"]
+        lastSyncError:
+          type: ["string", "null"]
+        connectedAt:
+          type: ["string", "null"]
+
+    EmailImportStatus:
+      type: object
+      required: [configured, missing, connected]
+      properties:
+        configured:
+          type: boolean
+        missing:
+          type: array
+          items:
+            type: string
+        connected:
+          type: boolean
+        account:
+          oneOf:
+            - $ref: "#/components/schemas/EmailImportAccount"
+            - type: "null"
+
+    EmailImportLabel:
+      type: object
+      required: [id, name, type]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+
+    EmailImportLabelList:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailImportLabel"
+
+    EmailImportLabelSettingsInput:
+      type: object
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
+        labelAfterImport:
+          type: boolean
+
+    EmailImportSyncResult:
+      type: object
+      required: [fetched, newMessages]
+      properties:
+        fetched:
+          type: integer
+        newMessages:
+          type: integer
+
+    EmailImportImportResult:
+      type: object
+      required: [imported, skipped, duplicates]
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        duplicates:
+          type: integer
+
+    EmailImportAttachment:
+      type: object
+      required: [id, skipped]
+      properties:
+        id:
+          type: integer
+        fileName:
+          type: ["string", "null"]
+        contentType:
+          type: ["string", "null"]
+        size:
+          type: ["integer", "null"]
+        sha256:
+          type: ["string", "null"]
+        skipped:
+          type: boolean
+        skipReason:
+          type: ["string", "null"]
+        billingDocumentId:
+          type: ["integer", "null"]
+
+    EmailImportMessage:
+      type: object
+      required: [id, status, attachmentCount, importedCount, labeled]
+      properties:
+        id:
+          type: integer
+        fromAddress:
+          type: ["string", "null"]
+        fromName:
+          type: ["string", "null"]
+        subject:
+          type: ["string", "null"]
+        snippet:
+          type: ["string", "null"]
+        sentAt:
+          type: ["string", "null"]
+        status:
+          type: string
+        error:
+          type: ["string", "null"]
+        attachmentCount:
+          type: integer
+        importedCount:
+          type: integer
+        labeled:
+          type: boolean
+        processedAt:
+          type: ["string", "null"]
+
+    EmailImportMessageDetail:
+      type: object
+      required: [id, status, attachmentCount, importedCount, labeled, attachments]
+      properties:
+        id:
+          type: integer
+        fromAddress:
+          type: ["string", "null"]
+        fromName:
+          type: ["string", "null"]
+        subject:
+          type: ["string", "null"]
+        snippet:
+          type: ["string", "null"]
+        sentAt:
+          type: ["string", "null"]
+        status:
+          type: string
+        error:
+          type: ["string", "null"]
+        attachmentCount:
+          type: integer
+        importedCount:
+          type: integer
+        labeled:
+          type: boolean
+        processedAt:
+          type: ["string", "null"]
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailImportAttachment"

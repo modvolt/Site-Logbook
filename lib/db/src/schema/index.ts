@@ -27,3 +27,4 @@ export * from "./invoices";
 export * from "./invoice-reminders";
 export * from "./billing-settings";
 export * from "./billing-documents";
+export * from "./email-import";

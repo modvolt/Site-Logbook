@@ -7,6 +7,9 @@ declare module "express-session" {
     username?: string;
     role?: UserRole;
     name?: string;
+    // Anti-CSRF state for the Gmail OAuth connect flow (set on /connect,
+    // verified on /callback).
+    gmailOAuthState?: string;
   }
 }
 

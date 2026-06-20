@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Banknote,
   Sparkles,
+  Mail,
 } from "lucide-react";
 
 const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
@@ -206,6 +207,13 @@ export default function Billing() {
           subtitle="Doklady předvyplněné AI čekající na potvrzení, nejnižší důvěryhodnost první"
           badge={aiReviewCount}
           onClick={() => setLocation("/billing/documents/review")}
+        />
+        <NavCard
+          icon={Mail}
+          color="text-emerald-500"
+          title="Import dokladů z e-mailu"
+          subtitle="Stahování příloh z Gmailu / Google Workspace ke kontrole"
+          onClick={() => setLocation("/billing/email-import")}
         />
         <NavCard
           icon={FileText}

@@ -69,10 +69,18 @@ import type {
   DeviceCredentialUpdate,
   DocumentExtractionStatus,
   DocumentExtractionTestResult,
+  EmailImportAccount,
+  EmailImportImportResult,
+  EmailImportLabelList,
+  EmailImportLabelSettingsInput,
   EmailImportLogEntry,
+  EmailImportMessage,
+  EmailImportMessageDetail,
   EmailImportPollResult,
   EmailImportSettings,
   EmailImportSettingsInput,
+  EmailImportStatus,
+  EmailImportSyncResult,
   EmailImportTestResult,
   EmailSettings,
   EmailSettingsInput,
@@ -103,6 +111,7 @@ import type {
   ListApprovedCostLinesParams,
   ListAuditLogsParams,
   ListCostDocumentsParams,
+  ListEmailImportMessagesParams,
   ListInvoicesParams,
   ListJobsParams,
   LoginInput,
@@ -115,6 +124,7 @@ import type {
   MeResponse,
   MyJobSummary,
   MyStats,
+  OkResult,
   Person,
   PersonInput,
   ResetPasswordWithAnswersInput,
@@ -11514,6 +11524,742 @@ export const useTestDocumentExtraction = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getTestDocumentExtractionMutationOptions(options));
+    }
+
+export const getGetEmailImportStatusUrl = () => {
+
+
+
+
+  return `/api/billing/email-import/status`
+}
+
+/**
+ * @summary Gmail import status + connected account (admin only)
+ */
+export const getEmailImportStatus = async ( options?: RequestInit): Promise<EmailImportStatus> => {
+
+  return customFetch<EmailImportStatus>(getGetEmailImportStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEmailImportStatusQueryKey = () => {
+    return [
+    `/api/billing/email-import/status`
+    ] as const;
+    }
+
+
+export const getGetEmailImportStatusQueryOptions = <TData = Awaited<ReturnType<typeof getEmailImportStatus>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmailImportStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEmailImportStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEmailImportStatus>>> = ({ signal }) => getEmailImportStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEmailImportStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEmailImportStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getEmailImportStatus>>>
+export type GetEmailImportStatusQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Gmail import status + connected account (admin only)
+ */
+
+export function useGetEmailImportStatus<TData = Awaited<ReturnType<typeof getEmailImportStatus>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmailImportStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEmailImportStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getDisconnectEmailImportUrl = () => {
+
+
+
+
+  return `/api/billing/email-import/disconnect`
+}
+
+/**
+ * @summary Disconnect the connected mailbox (admin only)
+ */
+export const disconnectEmailImport = async ( options?: RequestInit): Promise<OkResult> => {
+
+  return customFetch<OkResult>(getDisconnectEmailImportUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDisconnectEmailImportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectEmailImport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof disconnectEmailImport>>, TError,void, TContext> => {
+
+const mutationKey = ['disconnectEmailImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof disconnectEmailImport>>, void> = () => {
+
+
+          return  disconnectEmailImport(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DisconnectEmailImportMutationResult = NonNullable<Awaited<ReturnType<typeof disconnectEmailImport>>>
+
+    export type DisconnectEmailImportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Disconnect the connected mailbox (admin only)
+ */
+export const useDisconnectEmailImport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disconnectEmailImport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof disconnectEmailImport>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDisconnectEmailImportMutationOptions(options));
+    }
+
+export const getListEmailImportLabelsUrl = () => {
+
+
+
+
+  return `/api/billing/email-import/labels`
+}
+
+/**
+ * @summary List the connected mailbox's Gmail labels (admin only)
+ */
+export const listEmailImportLabels = async ( options?: RequestInit): Promise<EmailImportLabelList> => {
+
+  return customFetch<EmailImportLabelList>(getListEmailImportLabelsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListEmailImportLabelsQueryKey = () => {
+    return [
+    `/api/billing/email-import/labels`
+    ] as const;
+    }
+
+
+export const getListEmailImportLabelsQueryOptions = <TData = Awaited<ReturnType<typeof listEmailImportLabels>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEmailImportLabels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListEmailImportLabelsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEmailImportLabels>>> = ({ signal }) => listEmailImportLabels({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listEmailImportLabels>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListEmailImportLabelsQueryResult = NonNullable<Awaited<ReturnType<typeof listEmailImportLabels>>>
+export type ListEmailImportLabelsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the connected mailbox's Gmail labels (admin only)
+ */
+
+export function useListEmailImportLabels<TData = Awaited<ReturnType<typeof listEmailImportLabels>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEmailImportLabels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListEmailImportLabelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateEmailImportLabelSettingsUrl = () => {
+
+
+
+
+  return `/api/billing/email-import/settings`
+}
+
+/**
+ * @summary Update label filter + label-after-import (admin only)
+ */
+export const updateEmailImportLabelSettings = async (emailImportLabelSettingsInput: EmailImportLabelSettingsInput, options?: RequestInit): Promise<EmailImportAccount> => {
+
+  return customFetch<EmailImportAccount>(getUpdateEmailImportLabelSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      emailImportLabelSettingsInput,)
+  }
+);}
+
+
+
+
+export const getUpdateEmailImportLabelSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEmailImportLabelSettings>>, TError,{data: BodyType<EmailImportLabelSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateEmailImportLabelSettings>>, TError,{data: BodyType<EmailImportLabelSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateEmailImportLabelSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateEmailImportLabelSettings>>, {data: BodyType<EmailImportLabelSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateEmailImportLabelSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateEmailImportLabelSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateEmailImportLabelSettings>>>
+    export type UpdateEmailImportLabelSettingsMutationBody = BodyType<EmailImportLabelSettingsInput>
+    export type UpdateEmailImportLabelSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update label filter + label-after-import (admin only)
+ */
+export const useUpdateEmailImportLabelSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateEmailImportLabelSettings>>, TError,{data: BodyType<EmailImportLabelSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateEmailImportLabelSettings>>,
+        TError,
+        {data: BodyType<EmailImportLabelSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateEmailImportLabelSettingsMutationOptions(options));
+    }
+
+export const getSyncEmailImportUrl = () => {
+
+
+
+
+  return `/api/billing/email-import/sync`
+}
+
+/**
+ * @summary Fetch new messages from the connected mailbox (admin only)
+ */
+export const syncEmailImport = async ( options?: RequestInit): Promise<EmailImportSyncResult> => {
+
+  return customFetch<EmailImportSyncResult>(getSyncEmailImportUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getSyncEmailImportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncEmailImport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncEmailImport>>, TError,void, TContext> => {
+
+const mutationKey = ['syncEmailImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncEmailImport>>, void> = () => {
+
+
+          return  syncEmailImport(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncEmailImportMutationResult = NonNullable<Awaited<ReturnType<typeof syncEmailImport>>>
+
+    export type SyncEmailImportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Fetch new messages from the connected mailbox (admin only)
+ */
+export const useSyncEmailImport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncEmailImport>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncEmailImport>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getSyncEmailImportMutationOptions(options));
+    }
+
+export const getListEmailImportMessagesUrl = (params?: ListEmailImportMessagesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/email-import/messages?${stringifiedParams}` : `/api/billing/email-import/messages`
+}
+
+/**
+ * @summary List imported e-mail messages (admin only)
+ */
+export const listEmailImportMessages = async (params?: ListEmailImportMessagesParams, options?: RequestInit): Promise<EmailImportMessage[]> => {
+
+  return customFetch<EmailImportMessage[]>(getListEmailImportMessagesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListEmailImportMessagesQueryKey = (params?: ListEmailImportMessagesParams,) => {
+    return [
+    `/api/billing/email-import/messages`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListEmailImportMessagesQueryOptions = <TData = Awaited<ReturnType<typeof listEmailImportMessages>>, TError = ErrorType<ErrorEnvelope>>(params?: ListEmailImportMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEmailImportMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListEmailImportMessagesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEmailImportMessages>>> = ({ signal }) => listEmailImportMessages(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listEmailImportMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListEmailImportMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof listEmailImportMessages>>>
+export type ListEmailImportMessagesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List imported e-mail messages (admin only)
+ */
+
+export function useListEmailImportMessages<TData = Awaited<ReturnType<typeof listEmailImportMessages>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListEmailImportMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listEmailImportMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListEmailImportMessagesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetEmailImportMessageUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/email-import/messages/${id}`
+}
+
+/**
+ * @summary Get one e-mail message with its attachments (admin only)
+ */
+export const getEmailImportMessage = async (id: number, options?: RequestInit): Promise<EmailImportMessageDetail> => {
+
+  return customFetch<EmailImportMessageDetail>(getGetEmailImportMessageUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEmailImportMessageQueryKey = (id: number,) => {
+    return [
+    `/api/billing/email-import/messages/${id}`
+    ] as const;
+    }
+
+
+export const getGetEmailImportMessageQueryOptions = <TData = Awaited<ReturnType<typeof getEmailImportMessage>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmailImportMessage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEmailImportMessageQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEmailImportMessage>>> = ({ signal }) => getEmailImportMessage(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEmailImportMessage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEmailImportMessageQueryResult = NonNullable<Awaited<ReturnType<typeof getEmailImportMessage>>>
+export type GetEmailImportMessageQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get one e-mail message with its attachments (admin only)
+ */
+
+export function useGetEmailImportMessage<TData = Awaited<ReturnType<typeof getEmailImportMessage>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEmailImportMessage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEmailImportMessageQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getImportEmailImportMessageUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/email-import/messages/${id}/import`
+}
+
+/**
+ * @summary Import a message's supported attachments as cost documents (admin only)
+ */
+export const importEmailImportMessage = async (id: number, options?: RequestInit): Promise<EmailImportImportResult> => {
+
+  return customFetch<EmailImportImportResult>(getImportEmailImportMessageUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getImportEmailImportMessageMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importEmailImportMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importEmailImportMessage>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['importEmailImportMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importEmailImportMessage>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  importEmailImportMessage(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportEmailImportMessageMutationResult = NonNullable<Awaited<ReturnType<typeof importEmailImportMessage>>>
+
+    export type ImportEmailImportMessageMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import a message's supported attachments as cost documents (admin only)
+ */
+export const useImportEmailImportMessage = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importEmailImportMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importEmailImportMessage>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getImportEmailImportMessageMutationOptions(options));
+    }
+
+export const getIgnoreEmailImportMessageUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/email-import/messages/${id}/ignore`
+}
+
+/**
+ * @summary Mark a message as ignored (admin only)
+ */
+export const ignoreEmailImportMessage = async (id: number, options?: RequestInit): Promise<OkResult> => {
+
+  return customFetch<OkResult>(getIgnoreEmailImportMessageUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getIgnoreEmailImportMessageMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof ignoreEmailImportMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof ignoreEmailImportMessage>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['ignoreEmailImportMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof ignoreEmailImportMessage>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  ignoreEmailImportMessage(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type IgnoreEmailImportMessageMutationResult = NonNullable<Awaited<ReturnType<typeof ignoreEmailImportMessage>>>
+
+    export type IgnoreEmailImportMessageMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Mark a message as ignored (admin only)
+ */
+export const useIgnoreEmailImportMessage = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof ignoreEmailImportMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof ignoreEmailImportMessage>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getIgnoreEmailImportMessageMutationOptions(options));
+    }
+
+export const getReprocessEmailImportMessageUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/email-import/messages/${id}/reprocess`
+}
+
+/**
+ * @summary Reset a message back to "new" so it can be re-imported (admin only)
+ */
+export const reprocessEmailImportMessage = async (id: number, options?: RequestInit): Promise<OkResult> => {
+
+  return customFetch<OkResult>(getReprocessEmailImportMessageUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getReprocessEmailImportMessageMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reprocessEmailImportMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reprocessEmailImportMessage>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['reprocessEmailImportMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reprocessEmailImportMessage>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  reprocessEmailImportMessage(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReprocessEmailImportMessageMutationResult = NonNullable<Awaited<ReturnType<typeof reprocessEmailImportMessage>>>
+
+    export type ReprocessEmailImportMessageMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Reset a message back to "new" so it can be re-imported (admin only)
+ */
+export const useReprocessEmailImportMessage = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reprocessEmailImportMessage>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reprocessEmailImportMessage>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getReprocessEmailImportMessageMutationOptions(options));
     }
 
 export const getAnalyzeJobDocumentsUrl = (id: number,) => {

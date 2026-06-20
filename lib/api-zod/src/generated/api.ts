@@ -4000,6 +4000,174 @@ export const TestDocumentExtractionResponse = zod.object({
 
 
 /**
+ * @summary Gmail import status + connected account (admin only)
+ */
+export const GetEmailImportStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "missing": zod.array(zod.string()),
+  "connected": zod.boolean(),
+  "account": zod.union([zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "status": zod.string(),
+  "emailAddress": zod.string().nullish(),
+  "labels": zod.array(zod.string()),
+  "labelAfterImport": zod.boolean(),
+  "lastSyncAt": zod.string().nullish(),
+  "lastSyncStatus": zod.string().nullish(),
+  "lastSyncError": zod.string().nullish(),
+  "connectedAt": zod.string().nullish()
+}),zod.null()]).optional()
+})
+
+
+/**
+ * @summary Disconnect the connected mailbox (admin only)
+ */
+export const DisconnectEmailImportResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
+ * @summary List the connected mailbox's Gmail labels (admin only)
+ */
+export const ListEmailImportLabelsResponse = zod.object({
+  "labels": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "type": zod.string()
+}))
+})
+
+
+/**
+ * @summary Update label filter + label-after-import (admin only)
+ */
+export const UpdateEmailImportLabelSettingsBody = zod.object({
+  "labels": zod.array(zod.string()).optional(),
+  "labelAfterImport": zod.boolean().optional()
+})
+
+export const UpdateEmailImportLabelSettingsResponse = zod.object({
+  "id": zod.number(),
+  "provider": zod.string(),
+  "status": zod.string(),
+  "emailAddress": zod.string().nullish(),
+  "labels": zod.array(zod.string()),
+  "labelAfterImport": zod.boolean(),
+  "lastSyncAt": zod.string().nullish(),
+  "lastSyncStatus": zod.string().nullish(),
+  "lastSyncError": zod.string().nullish(),
+  "connectedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Fetch new messages from the connected mailbox (admin only)
+ */
+export const SyncEmailImportResponse = zod.object({
+  "fetched": zod.number(),
+  "newMessages": zod.number()
+})
+
+
+/**
+ * @summary List imported e-mail messages (admin only)
+ */
+export const ListEmailImportMessagesQueryParams = zod.object({
+  "status": zod.enum(['new', 'imported', 'ignored', 'error']).optional()
+})
+
+export const ListEmailImportMessagesResponseItem = zod.object({
+  "id": zod.number(),
+  "fromAddress": zod.string().nullish(),
+  "fromName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "snippet": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "status": zod.string(),
+  "error": zod.string().nullish(),
+  "attachmentCount": zod.number(),
+  "importedCount": zod.number(),
+  "labeled": zod.boolean(),
+  "processedAt": zod.string().nullish()
+})
+export const ListEmailImportMessagesResponse = zod.array(ListEmailImportMessagesResponseItem)
+
+
+/**
+ * @summary Get one e-mail message with its attachments (admin only)
+ */
+export const GetEmailImportMessageParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetEmailImportMessageResponse = zod.object({
+  "id": zod.number(),
+  "fromAddress": zod.string().nullish(),
+  "fromName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "snippet": zod.string().nullish(),
+  "sentAt": zod.string().nullish(),
+  "status": zod.string(),
+  "error": zod.string().nullish(),
+  "attachmentCount": zod.number(),
+  "importedCount": zod.number(),
+  "labeled": zod.boolean(),
+  "processedAt": zod.string().nullish(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "size": zod.number().nullish(),
+  "sha256": zod.string().nullish(),
+  "skipped": zod.boolean(),
+  "skipReason": zod.string().nullish(),
+  "billingDocumentId": zod.number().nullish()
+}))
+})
+
+
+/**
+ * @summary Import a message's supported attachments as cost documents (admin only)
+ */
+export const ImportEmailImportMessageParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ImportEmailImportMessageResponse = zod.object({
+  "imported": zod.number(),
+  "skipped": zod.number(),
+  "duplicates": zod.number()
+})
+
+
+/**
+ * @summary Mark a message as ignored (admin only)
+ */
+export const IgnoreEmailImportMessageParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const IgnoreEmailImportMessageResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
+ * @summary Reset a message back to "new" so it can be re-imported (admin only)
+ */
+export const ReprocessEmailImportMessageParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ReprocessEmailImportMessageResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
  * @summary Import a job's doklady attachments as cost documents (admin only)
  */
 export const AnalyzeJobDocumentsParams = zod.object({

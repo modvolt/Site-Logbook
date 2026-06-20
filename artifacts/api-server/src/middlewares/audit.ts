@@ -9,11 +9,14 @@ const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 // - gdpr: the erase route writes its own, richer audit entry
 // - billing/bank-statements: parse is read-only (huge base64 body); confirm
 //   writes its own per-invoice audit entries
+// - billing/email-import: connect/disconnect/sync write their own richer audit
+//   entries (and import/ignore/reprocess are not domain mutations worth a generic log)
 const SKIP_PREFIXES = [
   "/auth/",
   "/storage/",
   "/gdpr/",
   "/billing/bank-statements/",
+  "/billing/email-import/",
 ];
 
 const REDACT_KEYS = new Set(["password", "passwordHash", "currentPassword", "newPassword"]);

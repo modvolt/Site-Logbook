@@ -2386,6 +2386,123 @@ export interface DocumentExtractionTestResult {
   message: string;
 }
 
+export interface EmailImportAccount {
+  id: number;
+  provider: string;
+  status: string;
+  /** @nullable */
+  emailAddress?: string | null;
+  labels: string[];
+  labelAfterImport: boolean;
+  /** @nullable */
+  lastSyncAt?: string | null;
+  /** @nullable */
+  lastSyncStatus?: string | null;
+  /** @nullable */
+  lastSyncError?: string | null;
+  /** @nullable */
+  connectedAt?: string | null;
+}
+
+export interface EmailImportStatus {
+  configured: boolean;
+  missing: string[];
+  connected: boolean;
+  account?: EmailImportAccount | null;
+}
+
+export interface OkResult {
+  ok: boolean;
+}
+
+export interface EmailImportLabel {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface EmailImportLabelList {
+  labels: EmailImportLabel[];
+}
+
+export interface EmailImportLabelSettingsInput {
+  labels?: string[];
+  labelAfterImport?: boolean;
+}
+
+export interface EmailImportSyncResult {
+  fetched: number;
+  newMessages: number;
+}
+
+export interface EmailImportMessage {
+  id: number;
+  /** @nullable */
+  fromAddress?: string | null;
+  /** @nullable */
+  fromName?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  snippet?: string | null;
+  /** @nullable */
+  sentAt?: string | null;
+  status: string;
+  /** @nullable */
+  error?: string | null;
+  attachmentCount: number;
+  importedCount: number;
+  labeled: boolean;
+  /** @nullable */
+  processedAt?: string | null;
+}
+
+export interface EmailImportAttachment {
+  id: number;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+  /** @nullable */
+  size?: number | null;
+  /** @nullable */
+  sha256?: string | null;
+  skipped: boolean;
+  /** @nullable */
+  skipReason?: string | null;
+  /** @nullable */
+  billingDocumentId?: number | null;
+}
+
+export interface EmailImportMessageDetail {
+  id: number;
+  /** @nullable */
+  fromAddress?: string | null;
+  /** @nullable */
+  fromName?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  snippet?: string | null;
+  /** @nullable */
+  sentAt?: string | null;
+  status: string;
+  /** @nullable */
+  error?: string | null;
+  attachmentCount: number;
+  importedCount: number;
+  labeled: boolean;
+  /** @nullable */
+  processedAt?: string | null;
+  attachments: EmailImportAttachment[];
+}
+
+export interface EmailImportImportResult {
+  imported: number;
+  skipped: number;
+  duplicates: number;
+}
+
 export interface AnalyzeJobDocumentsResult {
   created: CostDocument[];
   createdCount: number;
@@ -2486,4 +2603,18 @@ export const ListCostDocumentsSort = {
 export type ListApprovedCostLinesParams = {
 customerId: number;
 };
+
+export type ListEmailImportMessagesParams = {
+status?: ListEmailImportMessagesStatus;
+};
+
+export type ListEmailImportMessagesStatus = typeof ListEmailImportMessagesStatus[keyof typeof ListEmailImportMessagesStatus];
+
+
+export const ListEmailImportMessagesStatus = {
+  new: 'new',
+  imported: 'imported',
+  ignored: 'ignored',
+  error: 'error',
+} as const;
 
