@@ -1298,6 +1298,102 @@ export interface BillingSummary {
   overdueTotalWithVat: number;
 }
 
+export interface BankStatementParseInput {
+  filename: string;
+  /** Base64-encoded raw statement file (GPC/ABO text or CAMT.053 XML) */
+  contentBase64: string;
+}
+
+export type BankStatementPreviewFormat = typeof BankStatementPreviewFormat[keyof typeof BankStatementPreviewFormat];
+
+
+export const BankStatementPreviewFormat = {
+  gpc: 'gpc',
+  camt: 'camt',
+} as const;
+
+export type BankMatchTransactionMatchStatus = typeof BankMatchTransactionMatchStatus[keyof typeof BankMatchTransactionMatchStatus];
+
+
+export const BankMatchTransactionMatchStatus = {
+  matched: 'matched',
+  amount_mismatch: 'amount_mismatch',
+  ambiguous: 'ambiguous',
+  already_paid: 'already_paid',
+  unmatched: 'unmatched',
+} as const;
+
+export interface BankMatchCandidate {
+  invoiceId: number;
+  /** @nullable */
+  invoiceNumber?: string | null;
+  /** @nullable */
+  customerName?: string | null;
+  totalWithVat: number;
+  status: string;
+  amountMatches: boolean;
+}
+
+export interface BankMatchTransaction {
+  amount: number;
+  currency: string;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  /** @nullable */
+  counterparty?: string | null;
+  /** @nullable */
+  counterpartyAccount?: string | null;
+  /** @nullable */
+  message?: string | null;
+  /** @nullable */
+  date?: string | null;
+  matchStatus: BankMatchTransactionMatchStatus;
+  /** @nullable */
+  recommendedInvoiceId?: number | null;
+  candidates: BankMatchCandidate[];
+}
+
+export interface BankStatementPreview {
+  format: BankStatementPreviewFormat;
+  /** @nullable */
+  account?: string | null;
+  /** @nullable */
+  statementDate?: string | null;
+  creditCount: number;
+  matchedCount: number;
+  transactions: BankMatchTransaction[];
+}
+
+export interface BankPaymentConfirmItem {
+  invoiceId: number;
+  /** @nullable */
+  amount?: number | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  counterparty?: string | null;
+  /** @nullable */
+  paymentDate?: string | null;
+}
+
+export interface BankPaymentsConfirmInput {
+  payments: BankPaymentConfirmItem[];
+}
+
+export interface BankPaymentSkipped {
+  invoiceId: number;
+  reason: string;
+}
+
+export interface BankPaymentsConfirmResult {
+  paidCount: number;
+  skipped: BankPaymentSkipped[];
+}
+
 export type BillingSettingsVatModeDefault = typeof BillingSettingsVatModeDefault[keyof typeof BillingSettingsVatModeDefault];
 
 

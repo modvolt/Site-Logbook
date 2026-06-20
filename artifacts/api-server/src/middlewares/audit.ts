@@ -7,7 +7,14 @@ const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 // - auth: login/logout/setup are session events, not domain mutations
 // - storage: file upload/serve requests are not domain mutations
 // - gdpr: the erase route writes its own, richer audit entry
-const SKIP_PREFIXES = ["/auth/", "/storage/", "/gdpr/"];
+// - billing/bank-statements: parse is read-only (huge base64 body); confirm
+//   writes its own per-invoice audit entries
+const SKIP_PREFIXES = [
+  "/auth/",
+  "/storage/",
+  "/gdpr/",
+  "/billing/bank-statements/",
+];
 
 const REDACT_KEYS = new Set(["password", "passwordHash", "currentPassword", "newPassword"]);
 

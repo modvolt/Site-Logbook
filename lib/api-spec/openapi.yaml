@@ -2687,6 +2687,68 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/bank-statements/parse:
+    post:
+      operationId: parseBankStatement
+      tags: [billing]
+      summary: Parse a KB bank statement and propose invoice matches (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankStatementParseInput"
+      responses:
+        "200":
+          description: Matching proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankStatementPreview"
+        "400":
+          description: Invalid or unrecognized statement file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/bank-statements/confirm:
+    post:
+      operationId: confirmBankPayments
+      tags: [billing]
+      summary: Mark matched invoices as paid from a bank statement (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankPaymentsConfirmInput"
+      responses:
+        "200":
+          description: Confirmation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankPaymentsConfirmResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/settings:
     get:
       operationId: getBillingSettings
@@ -5524,6 +5586,129 @@ components:
         paidAmount:
           type: ["number", "null"]
           description: Amount received when marking paid; defaults to the invoice total (with VAT)
+
+    BankStatementParseInput:
+      type: object
+      required: [filename, contentBase64]
+      properties:
+        filename:
+          type: string
+        contentBase64:
+          type: string
+          description: Base64-encoded raw statement file (GPC/ABO text or CAMT.053 XML)
+
+    BankMatchCandidate:
+      type: object
+      required: [invoiceId, totalWithVat, status, amountMatches]
+      properties:
+        invoiceId:
+          type: integer
+        invoiceNumber:
+          type: ["string", "null"]
+        customerName:
+          type: ["string", "null"]
+        totalWithVat:
+          type: number
+        status:
+          type: string
+        amountMatches:
+          type: boolean
+
+    BankMatchTransaction:
+      type: object
+      required: [amount, currency, matchStatus, candidates]
+      properties:
+        amount:
+          type: number
+        currency:
+          type: string
+        variableSymbol:
+          type: ["string", "null"]
+        constantSymbol:
+          type: ["string", "null"]
+        specificSymbol:
+          type: ["string", "null"]
+        counterparty:
+          type: ["string", "null"]
+        counterpartyAccount:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+        date:
+          type: ["string", "null"]
+        matchStatus:
+          type: string
+          enum: [matched, amount_mismatch, ambiguous, already_paid, unmatched]
+        recommendedInvoiceId:
+          type: ["integer", "null"]
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankMatchCandidate"
+
+    BankStatementPreview:
+      type: object
+      required: [format, creditCount, matchedCount, transactions]
+      properties:
+        format:
+          type: string
+          enum: [gpc, camt]
+        account:
+          type: ["string", "null"]
+        statementDate:
+          type: ["string", "null"]
+        creditCount:
+          type: integer
+        matchedCount:
+          type: integer
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankMatchTransaction"
+
+    BankPaymentConfirmItem:
+      type: object
+      required: [invoiceId]
+      properties:
+        invoiceId:
+          type: integer
+        amount:
+          type: ["number", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        counterparty:
+          type: ["string", "null"]
+        paymentDate:
+          type: ["string", "null"]
+
+    BankPaymentsConfirmInput:
+      type: object
+      required: [payments]
+      properties:
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankPaymentConfirmItem"
+
+    BankPaymentSkipped:
+      type: object
+      required: [invoiceId, reason]
+      properties:
+        invoiceId:
+          type: integer
+        reason:
+          type: string
+
+    BankPaymentsConfirmResult:
+      type: object
+      required: [paidCount, skipped]
+      properties:
+        paidCount:
+          type: integer
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankPaymentSkipped"
 
     CancelInvoiceInput:
       type: object

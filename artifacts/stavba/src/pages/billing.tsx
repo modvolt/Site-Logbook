@@ -15,6 +15,7 @@ import {
   Building2,
   Settings as SettingsIcon,
   AlertTriangle,
+  Banknote,
 } from "lucide-react";
 
 export default function Billing() {
@@ -183,6 +184,13 @@ export default function Billing() {
           title="Faktury"
           subtitle="Přehled konceptů a vystavených faktur"
           onClick={() => setLocation("/billing/invoices")}
+        />
+        <NavCard
+          icon={Banknote}
+          color="text-emerald-500"
+          title="Párování plateb z banky"
+          subtitle="Nahrajte výpis (KB) a spárujte platby s fakturami"
+          onClick={() => setLocation("/billing/bank-import")}
         />
         <NavCard
           icon={SettingsIcon}

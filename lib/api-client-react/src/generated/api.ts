@@ -37,6 +37,10 @@ import type {
   AuthUser,
   Backup,
   BackupListResponse,
+  BankPaymentsConfirmInput,
+  BankPaymentsConfirmResult,
+  BankStatementParseInput,
+  BankStatementPreview,
   BillingSettings,
   BillingSettingsInput,
   BillingSummary,
@@ -8912,6 +8916,148 @@ export function useGetBillingSummary<TData = Awaited<ReturnType<typeof getBillin
 
 
 
+
+export const getParseBankStatementUrl = () => {
+
+
+
+
+  return `/api/billing/bank-statements/parse`
+}
+
+/**
+ * @summary Parse a KB bank statement and propose invoice matches (admin only)
+ */
+export const parseBankStatement = async (bankStatementParseInput: BankStatementParseInput, options?: RequestInit): Promise<BankStatementPreview> => {
+
+  return customFetch<BankStatementPreview>(getParseBankStatementUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bankStatementParseInput,)
+  }
+);}
+
+
+
+
+export const getParseBankStatementMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof parseBankStatement>>, TError,{data: BodyType<BankStatementParseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof parseBankStatement>>, TError,{data: BodyType<BankStatementParseInput>}, TContext> => {
+
+const mutationKey = ['parseBankStatement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof parseBankStatement>>, {data: BodyType<BankStatementParseInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  parseBankStatement(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ParseBankStatementMutationResult = NonNullable<Awaited<ReturnType<typeof parseBankStatement>>>
+    export type ParseBankStatementMutationBody = BodyType<BankStatementParseInput>
+    export type ParseBankStatementMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Parse a KB bank statement and propose invoice matches (admin only)
+ */
+export const useParseBankStatement = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof parseBankStatement>>, TError,{data: BodyType<BankStatementParseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof parseBankStatement>>,
+        TError,
+        {data: BodyType<BankStatementParseInput>},
+        TContext
+      > => {
+      return useMutation(getParseBankStatementMutationOptions(options));
+    }
+
+export const getConfirmBankPaymentsUrl = () => {
+
+
+
+
+  return `/api/billing/bank-statements/confirm`
+}
+
+/**
+ * @summary Mark matched invoices as paid from a bank statement (admin only)
+ */
+export const confirmBankPayments = async (bankPaymentsConfirmInput: BankPaymentsConfirmInput, options?: RequestInit): Promise<BankPaymentsConfirmResult> => {
+
+  return customFetch<BankPaymentsConfirmResult>(getConfirmBankPaymentsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bankPaymentsConfirmInput,)
+  }
+);}
+
+
+
+
+export const getConfirmBankPaymentsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmBankPayments>>, TError,{data: BodyType<BankPaymentsConfirmInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmBankPayments>>, TError,{data: BodyType<BankPaymentsConfirmInput>}, TContext> => {
+
+const mutationKey = ['confirmBankPayments'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmBankPayments>>, {data: BodyType<BankPaymentsConfirmInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  confirmBankPayments(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmBankPaymentsMutationResult = NonNullable<Awaited<ReturnType<typeof confirmBankPayments>>>
+    export type ConfirmBankPaymentsMutationBody = BodyType<BankPaymentsConfirmInput>
+    export type ConfirmBankPaymentsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Mark matched invoices as paid from a bank statement (admin only)
+ */
+export const useConfirmBankPayments = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmBankPayments>>, TError,{data: BodyType<BankPaymentsConfirmInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmBankPayments>>,
+        TError,
+        {data: BodyType<BankPaymentsConfirmInput>},
+        TContext
+      > => {
+      return useMutation(getConfirmBankPaymentsMutationOptions(options));
+    }
 
 export const getGetBillingSettingsUrl = () => {
 

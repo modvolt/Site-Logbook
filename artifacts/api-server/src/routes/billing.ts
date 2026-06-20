@@ -7,6 +7,8 @@ import {
   UpdateInvoiceStatusBody,
   SendInvoiceEmailBody,
   SendInvoiceReminderBody,
+  ParseBankStatementBody,
+  ConfirmBankPaymentsBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import {
@@ -37,6 +39,8 @@ import {
   updateInvoiceStatus,
   getInvoiceForPdf,
   daysOverdue,
+  previewBankStatementMatches,
+  confirmBankPayments,
   type AppError,
   type Actor,
   type InvoiceCreateInput,
@@ -342,6 +346,51 @@ router.patch("/billing/invoices/:id/status", async (req, res): Promise<void> => 
     handleError(err, "Změna stavu faktury selhala.", res);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Bank statement payment matching (Komerční banka GPC / CAMT.053)
+// ---------------------------------------------------------------------------
+
+router.post(
+  "/billing/bank-statements/parse",
+  async (req, res): Promise<void> => {
+    const parsed = ParseBankStatementBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(parsed.data.contentBase64, "base64");
+    } catch {
+      res.status(400).json({ error: "Obsah souboru se nepodařilo dekódovat." });
+      return;
+    }
+    try {
+      res.json(await previewBankStatementMatches(buf));
+    } catch (err) {
+      handleError(err, "Zpracování bankovního výpisu selhalo.", res);
+    }
+  },
+);
+
+router.post(
+  "/billing/bank-statements/confirm",
+  async (req, res): Promise<void> => {
+    const parsed = ConfirmBankPaymentsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      res.json(
+        await confirmBankPayments(parsed.data.payments, actorOf(req)),
+      );
+    } catch (err) {
+      handleError(err, "Označení faktur jako zaplacené selhalo.", res);
+    }
+  },
+);
 
 router.post("/billing/invoices/:id/send-email", async (req, res): Promise<void> => {
   const id = parseId(req.params.id);

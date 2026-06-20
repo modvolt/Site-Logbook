@@ -25,6 +25,7 @@ import {
 import { generateInvoicePdf, type InvoicePdfData } from "./invoice-pdf";
 import { resolveIban, buildSpayd, generatePaymentQrDataUrl } from "./invoice-qr";
 import { ObjectStorageService } from "./objectStorage";
+import { parseBankStatement, type StatementFormat } from "./bank-statement-parser";
 
 const objectStorage = new ObjectStorageService();
 
@@ -1274,6 +1275,28 @@ export interface InvoiceStatusInput {
   paidAmount?: number | null;
 }
 
+/**
+ * Compute the `paidDate` / `paidAmount` columns for a "paid" transition. Shared
+ * by the manual status update and the bank-statement confirm flow so both record
+ * payment metadata identically: explicit input wins, then any value already on
+ * the invoice, then sensible defaults (today / full invoice total).
+ */
+export function paidTransitionFields(
+  invoice: typeof invoicesTable.$inferSelect,
+  input: { paidDate?: string | null; paidAmount?: number | null },
+): { paidDate: string; paidAmount: string } {
+  const amount =
+    input.paidAmount != null
+      ? input.paidAmount
+      : invoice.paidAmount != null
+        ? num(invoice.paidAmount)
+        : num(invoice.totalWithVat);
+  return {
+    paidDate: input.paidDate ?? invoice.paidDate ?? todayIso(),
+    paidAmount: String(round2(amount)),
+  };
+}
+
 export async function updateInvoiceStatus(id: number, input: InvoiceStatusInput) {
   const { status } = input;
   const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
@@ -1291,14 +1314,7 @@ export async function updateInvoiceStatus(id: number, input: InvoiceStatusInput)
   const set: Record<string, unknown> = { status, updatedAt: new Date() };
   if (status === "paid") {
     // Default to today and the full invoice total when not explicitly supplied.
-    set.paidDate = input.paidDate ?? invoice.paidDate ?? todayIso();
-    const amount =
-      input.paidAmount != null
-        ? input.paidAmount
-        : invoice.paidAmount != null
-          ? num(invoice.paidAmount)
-          : num(invoice.totalWithVat);
-    set.paidAmount = String(round2(amount));
+    Object.assign(set, paidTransitionFields(invoice, input));
   } else {
     // Reverting a paid invoice back to "sent" clears the recorded payment.
     set.paidDate = null;
@@ -1315,4 +1331,263 @@ export async function updateInvoiceStatus(id: number, input: InvoiceStatusInput)
 export async function getInvoiceForPdf(id: number): Promise<Invoice | null> {
   const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
   return invoice ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Bank statement payment matching (Komerční banka GPC / CAMT.053)
+//
+// Matching is decoupled from the file format: the parser turns raw bytes into
+// normalized credit transactions, and this layer pairs them with issued/sent
+// invoices by variable symbol (+ amount, with a haléř tolerance). A future live
+// bank-API feed can reuse confirmBankPayments() by producing the same shape.
+// ---------------------------------------------------------------------------
+
+/** CZK tolerance when comparing a payment to an invoice total (haléř rounding). */
+const PAYMENT_AMOUNT_TOLERANCE = 0.5;
+
+/** Strip leading zeros / whitespace so "0001234" and "1234" compare equal. */
+function normVs(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const t = String(raw).trim().replace(/^0+/, "");
+  return t.length > 0 ? t : null;
+}
+
+export type BankMatchStatus =
+  | "matched"
+  | "amount_mismatch"
+  | "ambiguous"
+  | "already_paid"
+  | "unmatched";
+
+export interface BankMatchCandidate {
+  invoiceId: number;
+  invoiceNumber: string | null;
+  customerName: string | null;
+  totalWithVat: number;
+  status: string;
+  amountMatches: boolean;
+}
+
+export interface BankMatchTransaction {
+  amount: number;
+  currency: string;
+  variableSymbol: string | null;
+  constantSymbol: string | null;
+  specificSymbol: string | null;
+  counterparty: string | null;
+  counterpartyAccount: string | null;
+  message: string | null;
+  date: string | null;
+  matchStatus: BankMatchStatus;
+  recommendedInvoiceId: number | null;
+  candidates: BankMatchCandidate[];
+}
+
+export interface BankStatementPreview {
+  format: StatementFormat;
+  account: string | null;
+  statementDate: string | null;
+  creditCount: number;
+  matchedCount: number;
+  transactions: BankMatchTransaction[];
+}
+
+/**
+ * Parse a bank statement and build a matching proposal. Read-only: it never
+ * changes any invoice. Only incoming (credit) transactions are returned — those
+ * are the ones that can settle a receivable.
+ */
+export async function previewBankStatementMatches(
+  buf: Buffer,
+): Promise<BankStatementPreview> {
+  const parsed = parseBankStatement(buf);
+  const credits = parsed.transactions.filter((t) => t.direction === "credit");
+
+  const invoices = await db
+    .select({
+      id: invoicesTable.id,
+      invoiceNumber: invoicesTable.invoiceNumber,
+      customerName: invoicesTable.customerName,
+      totalWithVat: invoicesTable.totalWithVat,
+      status: invoicesTable.status,
+      variableSymbol: invoicesTable.variableSymbol,
+    })
+    .from(invoicesTable)
+    .where(isNotNull(invoicesTable.variableSymbol));
+
+  type Row = (typeof invoices)[number];
+  const byVs = new Map<string, Row[]>();
+  for (const inv of invoices) {
+    const vs = normVs(inv.variableSymbol);
+    if (!vs) continue;
+    const arr = byVs.get(vs);
+    if (arr) arr.push(inv);
+    else byVs.set(vs, [inv]);
+  }
+
+  let matchedCount = 0;
+  const transactions: BankMatchTransaction[] = credits.map((t) => {
+    const vs = normVs(t.variableSymbol);
+    const all = vs ? (byVs.get(vs) ?? []) : [];
+    const payable = all.filter(
+      (i) => i.status === "issued" || i.status === "sent",
+    );
+    const paid = all.filter((i) => i.status === "paid");
+
+    const toCandidate = (i: Row): BankMatchCandidate => ({
+      invoiceId: i.id,
+      invoiceNumber: i.invoiceNumber,
+      customerName: i.customerName,
+      totalWithVat: num(i.totalWithVat),
+      status: i.status,
+      amountMatches:
+        Math.abs(num(i.totalWithVat) - t.amount) <= PAYMENT_AMOUNT_TOLERANCE,
+    });
+
+    let matchStatus: BankMatchStatus;
+    let recommendedInvoiceId: number | null = null;
+    let candidates: BankMatchCandidate[] = [];
+
+    if (!vs || all.length === 0) {
+      matchStatus = "unmatched";
+    } else if (payable.length === 0) {
+      matchStatus = paid.length > 0 ? "already_paid" : "unmatched";
+      candidates = paid.map(toCandidate);
+    } else {
+      candidates = payable.map(toCandidate);
+      const amountHits = candidates.filter((c) => c.amountMatches);
+      if (payable.length === 1) {
+        recommendedInvoiceId = payable[0].id;
+        matchStatus = amountHits.length === 1 ? "matched" : "amount_mismatch";
+      } else if (amountHits.length === 1) {
+        recommendedInvoiceId = amountHits[0].invoiceId;
+        matchStatus = "matched";
+      } else {
+        matchStatus = "ambiguous";
+      }
+    }
+    if (matchStatus === "matched") matchedCount += 1;
+
+    return {
+      amount: t.amount,
+      currency: t.currency,
+      variableSymbol: t.variableSymbol,
+      constantSymbol: t.constantSymbol,
+      specificSymbol: t.specificSymbol,
+      counterparty: t.counterparty,
+      counterpartyAccount: t.counterpartyAccount,
+      message: t.message,
+      date: t.date,
+      matchStatus,
+      recommendedInvoiceId,
+      candidates,
+    };
+  });
+
+  return {
+    format: parsed.format,
+    account: parsed.account,
+    statementDate: parsed.statementDate,
+    creditCount: credits.length,
+    matchedCount,
+    transactions,
+  };
+}
+
+export interface BankPaymentConfirmInput {
+  invoiceId: number;
+  amount?: number | null;
+  variableSymbol?: string | null;
+  counterparty?: string | null;
+  paymentDate?: string | null;
+}
+
+export interface BankPaymentConfirmResult {
+  paidCount: number;
+  skipped: { invoiceId: number; reason: string }[];
+}
+
+/**
+ * Mark the confirmed invoices as paid. Each row is locked FOR UPDATE and only
+ * issued/sent invoices transition (same rule as updateInvoiceStatus); anything
+ * else is reported in `skipped` instead of failing the whole batch. Each paid
+ * invoice gets its own audit entry recording the bank-statement origin.
+ */
+export async function confirmBankPayments(
+  payments: BankPaymentConfirmInput[],
+  actor: Actor,
+): Promise<BankPaymentConfirmResult> {
+  // Dedupe by invoiceId (a statement could list two credits to one invoice).
+  const seen = new Set<number>();
+  const unique = payments.filter((p) => {
+    if (seen.has(p.invoiceId)) return false;
+    seen.add(p.invoiceId);
+    return true;
+  });
+
+  const skipped: { invoiceId: number; reason: string }[] = [];
+  let paidCount = 0;
+
+  await db.transaction(async (tx) => {
+    for (const p of unique) {
+      const [invoice] = await tx
+        .select()
+        .from(invoicesTable)
+        .where(eq(invoicesTable.id, p.invoiceId))
+        .for("update");
+      if (!invoice) {
+        skipped.push({ invoiceId: p.invoiceId, reason: "Faktura nenalezena." });
+        continue;
+      }
+      if (invoice.status === "paid") {
+        skipped.push({ invoiceId: p.invoiceId, reason: "Faktura je již zaplacená." });
+        continue;
+      }
+      if (invoice.status !== "issued" && invoice.status !== "sent") {
+        skipped.push({
+          invoiceId: p.invoiceId,
+          reason: `Stav „${invoice.status}" nelze označit jako zaplaceno.`,
+        });
+        continue;
+      }
+
+      // Reuse the same transition fields as updateInvoiceStatus so a
+      // bank-confirmed payment records paidDate/paidAmount identically to a
+      // manual status change. The bank transaction's actual amount/date win,
+      // falling back to today / the invoice total.
+      const paid = paidTransitionFields(invoice, {
+        paidDate: p.paymentDate ?? null,
+        paidAmount: p.amount ?? null,
+      });
+      await tx
+        .update(invoicesTable)
+        .set({ status: "paid", updatedAt: new Date(), ...paid })
+        .where(eq(invoicesTable.id, p.invoiceId));
+
+      const parts: string[] = [];
+      if (p.amount != null && Number.isFinite(p.amount)) {
+        parts.push(`částka ${p.amount.toFixed(2)} Kč`);
+      }
+      if (p.variableSymbol) parts.push(`VS ${p.variableSymbol}`);
+      if (p.counterparty) parts.push(p.counterparty);
+      if (p.paymentDate) parts.push(p.paymentDate);
+      const detail = parts.length ? ` (${parts.join(", ")})` : "";
+
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: "update",
+        entityType: "invoices",
+        entityId: p.invoiceId,
+        summary: `Faktura ${
+          invoice.invoiceNumber ?? `#${p.invoiceId}`
+        } označena jako zaplacená – párování z bankovního výpisu${detail}`,
+        method: "POST",
+        path: "/billing/bank-statements/confirm",
+      });
+      paidCount += 1;
+    }
+  });
+
+  return { paidCount, skipped };
 }

@@ -2402,6 +2402,66 @@ export const GetBillingSummaryResponse = zod.object({
 
 
 /**
+ * @summary Parse a KB bank statement and propose invoice matches (admin only)
+ */
+export const ParseBankStatementBody = zod.object({
+  "filename": zod.string(),
+  "contentBase64": zod.string().describe('Base64-encoded raw statement file (GPC\/ABO text or CAMT.053 XML)')
+})
+
+export const ParseBankStatementResponse = zod.object({
+  "format": zod.enum(['gpc', 'camt']),
+  "account": zod.string().nullish(),
+  "statementDate": zod.string().nullish(),
+  "creditCount": zod.number(),
+  "matchedCount": zod.number(),
+  "transactions": zod.array(zod.object({
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "variableSymbol": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "counterparty": zod.string().nullish(),
+  "counterpartyAccount": zod.string().nullish(),
+  "message": zod.string().nullish(),
+  "date": zod.string().nullish(),
+  "matchStatus": zod.enum(['matched', 'amount_mismatch', 'ambiguous', 'already_paid', 'unmatched']),
+  "recommendedInvoiceId": zod.number().nullish(),
+  "candidates": zod.array(zod.object({
+  "invoiceId": zod.number(),
+  "invoiceNumber": zod.string().nullish(),
+  "customerName": zod.string().nullish(),
+  "totalWithVat": zod.number(),
+  "status": zod.string(),
+  "amountMatches": zod.boolean()
+}))
+}))
+})
+
+
+/**
+ * @summary Mark matched invoices as paid from a bank statement (admin only)
+ */
+export const ConfirmBankPaymentsBody = zod.object({
+  "payments": zod.array(zod.object({
+  "invoiceId": zod.number(),
+  "amount": zod.number().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "counterparty": zod.string().nullish(),
+  "paymentDate": zod.string().nullish()
+}))
+})
+
+export const ConfirmBankPaymentsResponse = zod.object({
+  "paidCount": zod.number(),
+  "skipped": zod.array(zod.object({
+  "invoiceId": zod.number(),
+  "reason": zod.string()
+}))
+})
+
+
+/**
  * @summary Get invoicing settings (admin only)
  */
 export const GetBillingSettingsResponse = zod.object({
