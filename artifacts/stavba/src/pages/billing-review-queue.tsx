@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
@@ -23,6 +25,7 @@ import {
   ArrowLeft,
   AlertTriangle,
   CheckCircle2,
+  Loader2,
   Pencil,
   Sparkles,
 } from "lucide-react";
@@ -41,6 +44,10 @@ function docWarnings(doc: CostDocument): string[] {
     .filter(Boolean);
 }
 
+function isHighConfidence(doc: CostDocument): boolean {
+  return doc.aiConfidence != null && doc.aiConfidence >= AI_CONFIDENCE_LOW;
+}
+
 export default function BillingReviewQueue() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -51,11 +58,27 @@ export default function BillingReviewQueue() {
   });
   const approveDoc = useApproveCostDocument();
 
+  // Ids picked via the per-card checkboxes for "Schválit vybrané".
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // True while a batch (selected or all-high-confidence) is running.
+  const [bulkRunning, setBulkRunning] = useState(false);
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/billing/documents"] });
     queryClient.invalidateQueries({ queryKey: ["/api/billing/approved-lines"] });
     queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
   };
+
+  const toggleSelected = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const busy = approveDoc.isPending || bulkRunning;
 
   const handleApprove = (doc: CostDocument) => {
     approveDoc.mutate(
@@ -77,6 +100,59 @@ export default function BillingReviewQueue() {
       },
     );
   };
+
+  // Approve a batch of documents sequentially, reusing the per-document approve
+  // path so every business rule stays identical. Failures don't abort the rest.
+  const runBatch = async (targets: CostDocument[], emptyMessage: string) => {
+    if (targets.length === 0) {
+      toast({ title: emptyMessage });
+      return;
+    }
+    setBulkRunning(true);
+    const targetIds = new Set(targets.map((d) => d.id));
+    let ok = 0;
+    let failed = 0;
+    for (const doc of targets) {
+      try {
+        await approveDoc.mutateAsync({ id: doc.id });
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    refresh();
+    // Drop the just-processed ids from the selection regardless of outcome.
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of targetIds) next.delete(id);
+      return next;
+    });
+    setBulkRunning(false);
+    if (failed === 0) {
+      toast({
+        title:
+          ok === 1 ? "Doklad schválen" : `Schváleno ${ok} dokladů`,
+      });
+    } else {
+      toast({
+        title: ok > 0 ? `Schváleno ${ok}, ${failed} selhalo` : "Schválení selhalo",
+        description:
+          failed > 0
+            ? `${failed} ${failed === 1 ? "doklad se nepodařilo" : "dokladů se nepodařilo"} schválit.`
+            : undefined,
+        variant: failed > 0 && ok === 0 ? "destructive" : undefined,
+      });
+    }
+  };
+
+  const selectedDocs = useMemo(
+    () => (docs ?? []).filter((d) => selected.has(d.id)),
+    [docs, selected],
+  );
+  const highConfidenceDocs = useMemo(
+    () => (docs ?? []).filter(isHighConfidence),
+    [docs],
+  );
 
   const lowCount =
     docs?.filter((d) => d.aiConfidence != null && d.aiConfidence < AI_CONFIDENCE_LOW)
@@ -120,6 +196,41 @@ export default function BillingReviewQueue() {
         </div>
       )}
 
+      {!isLoading && docs && docs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <Button
+            size="sm"
+            onClick={() =>
+              runBatch(selectedDocs, "Nejsou vybrané žádné doklady.")
+            }
+            disabled={busy || selectedDocs.length === 0}
+          >
+            {bulkRunning ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+            )}
+            Schválit vybrané
+            {selectedDocs.length > 0 ? ` (${selectedDocs.length})` : ""}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              runBatch(
+                highConfidenceDocs,
+                "Žádné doklady s vysokou důvěryhodností.",
+              )
+            }
+            disabled={busy || highConfidenceDocs.length === 0}
+          >
+            <Sparkles className="h-4 w-4 mr-1" />
+            Schválit vše s vysokou důvěryhodností
+            {highConfidenceDocs.length > 0 ? ` (${highConfidenceDocs.length})` : ""}
+          </Button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
@@ -139,7 +250,9 @@ export default function BillingReviewQueue() {
             <ReviewCard
               key={doc.id}
               doc={doc}
-              approving={approveDoc.isPending}
+              busy={busy}
+              selected={selected.has(doc.id)}
+              onToggleSelected={() => toggleSelected(doc.id)}
               onApprove={() => handleApprove(doc)}
               onCorrect={() => setLocation(`/billing/documents/${doc.id}`)}
             />
@@ -152,12 +265,16 @@ export default function BillingReviewQueue() {
 
 function ReviewCard({
   doc,
-  approving,
+  busy,
+  selected,
+  onToggleSelected,
   onApprove,
   onCorrect,
 }: {
   doc: CostDocument;
-  approving: boolean;
+  busy: boolean;
+  selected: boolean;
+  onToggleSelected: () => void;
   onApprove: () => void;
   onCorrect: () => void;
 }) {
@@ -171,54 +288,70 @@ function ReviewCard({
       }
     >
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <button
-            className="min-w-0 text-left"
-            onClick={onCorrect}
-            aria-label="Otevřít doklad"
-          >
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold truncate hover:underline">
-                {doc.supplierName || doc.fileName || "Doklad bez dodavatele"}
-              </p>
-              {doc.aiConfidence != null && (
-                <AiConfidenceBadge confidence={doc.aiConfidence} />
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
-              {doc.documentNumber ? ` · ${doc.documentNumber}` : ""}
-              {doc.issueDate ? ` · ${fmtDate(doc.issueDate)}` : ""}
-            </p>
-          </button>
-          <div className="text-right shrink-0">
-            <div className="font-bold">{fmtKc(doc.totalWithVat ?? null, 0)}</div>
-            {doc.variableSymbol && (
-              <div className="text-xs text-muted-foreground">
-                VS {doc.variableSymbol}
+        <div className="flex items-start gap-3">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onToggleSelected}
+            disabled={busy}
+            className="mt-1 shrink-0"
+            aria-label="Vybrat doklad"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <button
+                className="min-w-0 text-left"
+                onClick={onCorrect}
+                aria-label="Otevřít doklad"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold truncate hover:underline">
+                    {doc.supplierName || doc.fileName || "Doklad bez dodavatele"}
+                  </p>
+                  {doc.aiConfidence != null && (
+                    <AiConfidenceBadge confidence={doc.aiConfidence} />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
+                  {doc.documentNumber ? ` · ${doc.documentNumber}` : ""}
+                  {doc.issueDate ? ` · ${fmtDate(doc.issueDate)}` : ""}
+                </p>
+              </button>
+              <div className="text-right shrink-0">
+                <div className="font-bold">{fmtKc(doc.totalWithVat ?? null, 0)}</div>
+                {doc.variableSymbol && (
+                  <div className="text-xs text-muted-foreground">
+                    VS {doc.variableSymbol}
+                  </div>
+                )}
               </div>
+            </div>
+
+            {warnings.length > 0 && (
+              <ul className="mt-3 space-y-0.5 text-xs text-amber-800 dark:text-amber-200">
+                {warnings.map((w, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{w}</span>
+                  </li>
+                ))}
+              </ul>
             )}
+
+            <div className="flex flex-wrap gap-2 mt-3">
+              <Button size="sm" onClick={onApprove} disabled={busy}>
+                <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onCorrect}
+                disabled={busy}
+              >
+                <Pencil className="h-4 w-4 mr-1" /> Opravit
+              </Button>
+            </div>
           </div>
-        </div>
-
-        {warnings.length > 0 && (
-          <ul className="mt-3 space-y-0.5 text-xs text-amber-800 dark:text-amber-200">
-            {warnings.map((w, i) => (
-              <li key={i} className="flex gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                <span>{w}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex flex-wrap gap-2 mt-3">
-          <Button size="sm" onClick={onApprove} disabled={approving}>
-            <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit
-          </Button>
-          <Button size="sm" variant="outline" onClick={onCorrect}>
-            <Pencil className="h-4 w-4 mr-1" /> Opravit
-          </Button>
         </div>
       </CardContent>
     </Card>
