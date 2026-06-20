@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearch } from "wouter";
 import {
   useListJobs,
   getListJobsQueryKey,
@@ -57,8 +58,20 @@ function loadStoredColumns(): ExportColumnKey[] {
   }
 }
 
+function readStatusFromSearch(search: string): string {
+  const value = new URLSearchParams(search).get("status");
+  if (value && value in JOB_STATUSES) return value;
+  return "all";
+}
+
 export default function Jobs() {
-  const [status, setStatus] = useState<string>("all");
+  const search_ = useSearch();
+  const [status, setStatus] = useState<string>(() => readStatusFromSearch(search_));
+
+  useEffect(() => {
+    setStatus(readStatusFromSearch(search_));
+  }, [search_]);
+
   const [search, setSearch] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFrom, setExportFrom] = useState("");

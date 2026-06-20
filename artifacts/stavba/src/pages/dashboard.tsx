@@ -328,6 +328,7 @@ function WeekEmployeeRow({ person, weekFrom, weekTo }: { person: any; weekFrom: 
 }
 
 export default function Dashboard() {
+  const [, setLocation] = useLocation();
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() }
   });
@@ -416,19 +417,37 @@ export default function Dashboard() {
               <div className="text-[10px] font-medium uppercase tracking-wider opacity-80 mt-1">Dnes</div>
             </CardContent>
           </Card>
-          <Card className="bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800">
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setLocation("/jobs?status=in_progress")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=in_progress"); } }}
+            className="bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          >
             <CardContent className="p-2.5 flex flex-col items-center justify-center">
               <div className="text-xl font-bold leading-none">{summary.inProgressCount}</div>
               <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Probíhá</div>
             </CardContent>
           </Card>
-          <Card className="bg-blue-100 text-blue-900 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800">
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setLocation("/jobs?status=planned")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=planned"); } }}
+            className="bg-blue-100 text-blue-900 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
             <CardContent className="p-2.5 flex flex-col items-center justify-center">
               <div className="text-xl font-bold leading-none">{summary.plannedCount}</div>
               <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Naplánováno</div>
             </CardContent>
           </Card>
-          <Card className="bg-green-100 text-green-900 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800">
+          <Card
+            role="button"
+            tabIndex={0}
+            onClick={() => setLocation("/jobs?status=done")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=done"); } }}
+            className="bg-green-100 text-green-900 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+          >
             <CardContent className="p-2.5 flex flex-col items-center justify-center">
               <div className="text-xl font-bold leading-none">{summary.doneCount}</div>
               <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Hotovo</div>
