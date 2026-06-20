@@ -5,6 +5,7 @@ import {
   useListCostDocuments,
   getListCostDocumentsQueryKey,
   useApproveCostDocument,
+  useSetCostDocumentStatus,
   getGetBillingSummaryQueryKey,
   ListCostDocumentsSort,
   type CostDocument,
@@ -28,6 +29,7 @@ import {
   Loader2,
   Pencil,
   Sparkles,
+  XCircle,
 } from "lucide-react";
 
 // Only AI-prefilled documents still awaiting confirmation, lowest confidence first.
@@ -57,6 +59,7 @@ export default function BillingReviewQueue() {
     query: { queryKey: getListCostDocumentsQueryKey(QUEUE_PARAMS) },
   });
   const approveDoc = useApproveCostDocument();
+  const setStatus = useSetCostDocumentStatus();
 
   // Ids picked via the per-card checkboxes for "Schválit vybrané".
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -78,7 +81,7 @@ export default function BillingReviewQueue() {
     });
   };
 
-  const busy = approveDoc.isPending || bulkRunning;
+  const busy = approveDoc.isPending || setStatus.isPending || bulkRunning;
 
   const handleApprove = (doc: CostDocument) => {
     approveDoc.mutate(
@@ -101,9 +104,20 @@ export default function BillingReviewQueue() {
     );
   };
 
-  // Approve a batch of documents sequentially, reusing the per-document approve
-  // path so every business rule stays identical. Failures don't abort the rest.
-  const runBatch = async (targets: CostDocument[], emptyMessage: string) => {
+  // Run a batch of documents sequentially, reusing the per-document mutation so
+  // every business rule stays identical. Failures don't abort the rest.
+  const runBatch = async (
+    targets: CostDocument[],
+    emptyMessage: string,
+    op: {
+      action: (doc: CostDocument) => Promise<unknown>;
+      okOne: string;
+      okMany: (n: number) => string;
+      failOnly: string;
+      partial: (ok: number, failed: number) => string;
+      failVerb: string;
+    },
+  ) => {
     if (targets.length === 0) {
       toast({ title: emptyMessage });
       return;
@@ -114,7 +128,7 @@ export default function BillingReviewQueue() {
     let failed = 0;
     for (const doc of targets) {
       try {
-        await approveDoc.mutateAsync({ id: doc.id });
+        await op.action(doc);
         ok += 1;
       } catch {
         failed += 1;
@@ -129,21 +143,38 @@ export default function BillingReviewQueue() {
     });
     setBulkRunning(false);
     if (failed === 0) {
-      toast({
-        title:
-          ok === 1 ? "Doklad schválen" : `Schváleno ${ok} dokladů`,
-      });
+      toast({ title: ok === 1 ? op.okOne : op.okMany(ok) });
     } else {
       toast({
-        title: ok > 0 ? `Schváleno ${ok}, ${failed} selhalo` : "Schválení selhalo",
-        description:
-          failed > 0
-            ? `${failed} ${failed === 1 ? "doklad se nepodařilo" : "dokladů se nepodařilo"} schválit.`
-            : undefined,
-        variant: failed > 0 && ok === 0 ? "destructive" : undefined,
+        title: ok > 0 ? op.partial(ok, failed) : op.failOnly,
+        description: `${failed} ${
+          failed === 1 ? "doklad se nepodařilo" : "dokladů se nepodařilo"
+        } ${op.failVerb}.`,
+        variant: ok === 0 ? "destructive" : undefined,
       });
     }
   };
+
+  const approveBatch = (targets: CostDocument[], emptyMessage: string) =>
+    runBatch(targets, emptyMessage, {
+      action: (doc) => approveDoc.mutateAsync({ id: doc.id }),
+      okOne: "Doklad schválen",
+      okMany: (n) => `Schváleno ${n} dokladů`,
+      failOnly: "Schválení selhalo",
+      partial: (ok, failed) => `Schváleno ${ok}, ${failed} selhalo`,
+      failVerb: "schválit",
+    });
+
+  const ignoreBatch = (targets: CostDocument[], emptyMessage: string) =>
+    runBatch(targets, emptyMessage, {
+      action: (doc) =>
+        setStatus.mutateAsync({ id: doc.id, data: { status: "ignored" } }),
+      okOne: "Doklad ignorován",
+      okMany: (n) => `Ignorováno ${n} dokladů`,
+      failOnly: "Ignorování selhalo",
+      partial: (ok, failed) => `Ignorováno ${ok}, ${failed} selhalo`,
+      failVerb: "ignorovat",
+    });
 
   const selectedDocs = useMemo(
     () => (docs ?? []).filter((d) => selected.has(d.id)),
@@ -201,7 +232,7 @@ export default function BillingReviewQueue() {
           <Button
             size="sm"
             onClick={() =>
-              runBatch(selectedDocs, "Nejsou vybrané žádné doklady.")
+              approveBatch(selectedDocs, "Nejsou vybrané žádné doklady.")
             }
             disabled={busy || selectedDocs.length === 0}
           >
@@ -217,7 +248,19 @@ export default function BillingReviewQueue() {
             size="sm"
             variant="outline"
             onClick={() =>
-              runBatch(
+              ignoreBatch(selectedDocs, "Nejsou vybrané žádné doklady.")
+            }
+            disabled={busy || selectedDocs.length === 0}
+          >
+            <XCircle className="h-4 w-4 mr-1" />
+            Ignorovat vybrané
+            {selectedDocs.length > 0 ? ` (${selectedDocs.length})` : ""}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              approveBatch(
                 highConfidenceDocs,
                 "Žádné doklady s vysokou důvěryhodností.",
               )
