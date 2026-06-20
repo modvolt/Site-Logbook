@@ -1,0 +1,868 @@
+Jsi Replit Agent pracující v repozitáři modvolt/Site-Logbook.
+
+CÍL:
+Implementuj do aplikace Site-Logbook nový samostatný ADMIN modul „Fakturace“ pro Modvolt s.r.o.
+
+Modul musí umět:
+1. Vystavovat vydané faktury zákazníkům z hotových zakázek.
+2. Automaticky po vystavení faktury přepnout vybrané zakázky/akce do stavu „vyfakturováno“.
+3. Importovat nákladové faktury a doklady ručně, z příloh zakázek a z e-mailu.
+4. Přidat integraci OpenAI API pro vytěžování údajů z PDF, fotek účtenek, dodacích listů, přijatých faktur a dalších dokladů.
+5. Připravit import PDF, obrázků, XML, ISDOC a ISDOCX.
+6. Umožnit ruční kontrolu a potvrzení všech AI vytěžených dat před propsáním do systému.
+7. Propisovat do vydané faktury také dopravu, parkování, pokuty/poplatky, materiál a ruční položky.
+8. Zachovat bezpečnost, audit log, existující architekturu, Drizzle migrace, Zod validace, OpenAPI/Orval workflow a stávající styl aplikace.
+
+DŮLEŽITÉ:
+- Neimplementuj jen UI mockup.
+- Implementuj skutečný backend, DB schéma, migrace, služby, API routy a frontend stránky.
+- Dodrž stávající styl projektu.
+- Neodstraňuj existující funkce.
+- Nerozbíjej aktuální zakázky, zákazníky, přílohy, materiál, sklad, audit, GDPR, zálohy ani e-mail nastavení.
+- Všechny nové endpointy fakturace musí být chráněné na backendu, nestačí jen skrýt položku v menu.
+- Fakturace je dostupná pouze pro adminy.
+- Použij stávající oprávnění/roli admin. V UI použij requires: "manageUsers".
+- Pro backend přidej helper/middleware typu requireAdmin nebo použij existující auth/permission mechaniku, pokud v projektu existuje.
+- Všechny změny faktur, dokladů, vytěžených dat, sazeb DPH, přiřazení k zakázce a změny stavů zapisuj do audit logu.
+
+AKTUÁLNÍ KONTEXT APLIKACE:
+- Stack: React/Vite PWA, Express API, PostgreSQL, Drizzle ORM, Zod, OpenAPI/Orval, S3/MinIO, Docker/Coolify.
+- Zakázky už mají pole status.
+- Zakázky už mají ekonomická pole price, transportKm, transportCost, fines, parking.
+- Existují zákazníci, zakázky, dlouhodobé akce, materiály, přílohy, sklad, audit log, GDPR, uživatelé.
+- Levé menu je definované v artifacts/stavba/src/components/nav-items.ts.
+- Backend routy jsou registrované v artifacts/api-server/src/routes/index.ts.
+- DB schémata jsou v lib/db/src/schema.
+- OpenAI integrace zatím v programu není a musí být nově přidána.
+
+HLAVNÍ LOGIKA STAVŮ ZAKÁZEK:
+- Zakázka ve stavu „hotová“ je fakturovatelná.
+- Zakázka ve stavu „vyfakturováno“ už se nesmí nabízet k další fakturaci.
+- Zakázka v jiném stavu se nesmí nabízet k fakturaci.
+- Při vytvoření návrhu faktury se stav zakázky ještě nemění.
+- Až po vystavení/potvrzení faktury se všechny vybrané zakázky automaticky přepnou do stavu „vyfakturováno“.
+- Pokud je faktura stornována, systém nabídne adminovi možnost vrátit navázané zakázky zpět do stavu „hotová“.
+- Změna stavu při vystavení/stornu faktury musí proběhnout v DB transakci.
+- Faktura nesmí být vystavena, pokud některá vybraná zakázka už mezitím není ve stavu „hotová“.
+
+DLOUHODOBÉ AKCE:
+- Pokud jsou v aplikaci dlouhodobé akce/activities, připrav je pro fakturaci stejně jako zakázky.
+- Pokud activities zatím nemají vhodný status, přidej bezpečný fakturační příznak nebo status pro:
+  - hotová
+  - vyfakturováno
+  - nefakturovat
+- Neměň význam existujících dat bez migrace a bez zpětné kompatibility.
+- Pokud není možné korektně určit fakturovatelnost dlouhodobých akcí z existujících dat, implementuj nejdříve podporu pro zakázky a activities připrav jako rozšiřitelnou část s jasným TODO komentářem a bezpečným datovým modelem.
+
+MENU A FRONTEND:
+Přidej do levého menu samostatnou položku:
+
+Název: Fakturace
+URL: /billing
+Ikona: ReceiptText nebo FileText z lucide-react
+Přístup: pouze admin
+requires: "manageUsers"
+
+Fakturace musí být vidět v levém menu jako samostatný modul, ne jen v nastavení.
+
+Přidej routy/pages:
+- /billing
+- /billing/unbilled
+- /billing/invoices
+- /billing/invoices/:id
+- /billing/invoices/:id/edit
+- /billing/documents
+- /billing/documents/:id
+- /billing/email-import
+- /billing/settings
+
+DASHBOARD /billing:
+Zobraz karty:
+- Nevyfakturované hotové zakázky
+- Návrhy faktur
+- Vystavené faktury
+- Přijaté nákladové doklady čekající na kontrolu
+- E-mail import čekající na zpracování
+- Doklady s chybou vytěžení
+- Celkem k fakturaci bez DPH
+- Celkem vystaveno tento měsíc
+- Celkem náklady tento měsíc
+
+STRÁNKA /billing/unbilled:
+- Zobraz zákazníky, kteří mají alespoň jednu zakázku ve stavu „hotová“.
+- U každého zákazníka zobraz:
+  - název zákazníka
+  - počet hotových nevyfakturovaných zakázek
+  - součet price
+  - součet transportCost
+  - součet parking
+  - součet fines
+  - orientační celkem
+- Po výběru zákazníka zobraz seznam jeho fakturovatelných zakázek.
+- Admin může vybrat jednu nebo více zakázek do jedné faktury.
+- U vybraných zakázek zobraz náhled položek faktury.
+
+POLOŽKY, KTERÉ SE MAJÍ PROPISOVAT DO VYDANÉ FAKTURY:
+Z každé zakázky navrhni řádky:
+1. Práce / zakázka:
+   - z pole price
+   - popis: „Práce dle zakázky: [název zakázky]“
+2. Doprava:
+   - z transportCost
+   - transportKm zobraz informativně v popisu, např. „Doprava – 42 km“
+3. Parkování:
+   - z parking
+4. Pokuty / poplatky:
+   - z fines
+   - NEFAKTUROVAT automaticky bez potvrzení
+   - v UI u pokut přidej checkbox „Fakturovat zákazníkovi“
+5. Materiál:
+   - z existujících materiálových položek navázaných na zakázku, pokud existují
+   - z vytěžených dokladů potvrzených adminem
+6. Ruční položky:
+   - admin může přidat libovolnou položku
+
+U každého řádku faktury umožni:
+- popis
+- množství
+- jednotku
+- jednotkovou cenu bez DPH
+- slevu volitelně
+- sazbu DPH / režim DPH
+- celkem bez DPH
+- DPH
+- celkem s DPH
+- vazbu na zdroj: job/activity/material/document/manual
+
+DPH:
+Implementuj volby:
+- 21 %
+- 12 %
+- 0 %
+- PDP / přenesená daňová povinnost
+- mimo DPH
+
+U PDP:
+- sazba DPH na řádku se má počítat jako 0 na faktuře
+- řádek musí nést režim reverse_charge
+- na PDF faktury přidej text:
+  „Daň odvede zákazník.“
+  „Režim přenesení daňové povinnosti podle § 92e zákona o DPH.“
+- PDP musí být volitelné po řádcích i jako výchozí režim faktury.
+- PDP nikdy nenastavuj automaticky bez možnosti kontroly.
+
+VYDANÉ FAKTURY:
+Přidej datový model pro vydané faktury.
+
+Navržené tabulky:
+1. invoices
+- id
+- invoiceNumber
+- status: draft | issued | sent | paid | cancelled
+- customerId
+- issueDate
+- taxableSupplyDate
+- dueDate
+- currency default CZK
+- paymentMethod
+- variableSymbol
+- constantSymbol nullable
+- specificSymbol nullable
+- vatModeDefault: standard | reverse_charge | zero | non_vat
+- subtotalWithoutVat
+- totalVat
+- totalWithVat
+- notes
+- pdfObjectPath nullable
+- isdocObjectPath nullable
+- createdByUserId
+- issuedByUserId nullable
+- issuedAt nullable
+- cancelledAt nullable
+- createdAt
+- updatedAt
+
+2. invoice_lines
+- id
+- invoiceId
+- sourceType: job | activity | material | billing_document_line | transport | parking | fine | manual
+- sourceId nullable
+- jobId nullable
+- activityId nullable
+- description
+- quantity
+- unit
+- unitPriceWithoutVat
+- discountPercent nullable
+- vatRate nullable
+- vatMode: standard | reverse_charge | zero | non_vat
+- totalWithoutVat
+- totalVat
+- totalWithVat
+- sortOrder
+- createdAt
+- updatedAt
+
+3. invoice_source_links
+- id
+- invoiceId
+- jobId nullable
+- activityId nullable
+- amountWithoutVat
+- createdAt
+
+ČÍSLOVÁNÍ FAKTUR:
+- Přidej jednoduché nastavení číselné řady ve /billing/settings.
+- Výchozí formát např. FV{YYYY}{SEQ4}, tedy FV20260001.
+- Umožni nastavit prefix, rok, další pořadové číslo.
+- Generování čísla faktury musí být transakční, aby nevznikla duplicitní čísla.
+- Draft může mít dočasné číslo nebo žádné číslo.
+- Finální číslo se přidělí až při vystavení faktury, pokud není přiděleno už dříve bezpečně.
+
+PDF FAKTURY:
+- Přidej generování PDF faktury.
+- V PDF zobraz:
+  - dodavatel Modvolt s.r.o.
+  - IČO, DIČ, adresa, kontakty z nastavení
+  - zákazník
+  - číslo faktury
+  - datum vystavení
+  - DUZP
+  - splatnost
+  - variabilní symbol
+  - položky
+  - sazby DPH
+  - souhrn podle sazeb
+  - celkem k úhradě
+  - bankovní účet z nastavení
+  - text PDP, pokud je použit
+- PDF ukládej do S3/private prefixu.
+- Faktury a účetní doklady nesmí být dostupné přes obecný veřejný endpoint.
+- Pro stažení faktury vytvoř chráněný endpoint s kontrolou admin role.
+
+ISDOC:
+- Připrav import ISDOC/ISDOCX u přijatých faktur.
+- Připrav export vydané faktury do ISDOC jako samostatnou funkci, pokud to půjde v rámci aktuálního tasku.
+- ISDOC/XML parsuj strojově, nepoužívej AI jako primární parser strukturovaného XML.
+- U XML parseru zakaž nebezpečné externí entity / DTD, aby nevznikl XXE problém.
+- Pokud export ISDOC není možné dokončit kvalitně v tomto editu, vytvoř datový model a UI placeholder „Export ISDOC bude doplněn“, ale import a DB strukturu připrav správně.
+
+PŘIJATÉ NÁKLADOVÉ DOKLADY:
+Přidej modul pro přijaté doklady.
+
+Zdroje dokladů:
+1. ruční upload v modulu Fakturace
+2. přílohy už nahrané v zakázkách
+3. import z e-mailu
+4. později mobilní focení účtenek
+
+Podporované soubory:
+- PDF
+- JPG
+- JPEG
+- PNG
+- WEBP, pokud už je podporován
+- XML
+- ISDOC
+- ISDOCX
+- případně ZIP pouze pro ISDOCX, pokud je to nutné
+
+Tabulka billing_documents:
+- id
+- direction: incoming | outgoing
+- documentType: receipt | delivery_note | supplier_invoice | customer_invoice | credit_note | other
+- source: manual_upload | job_attachment | email_import | generated_invoice
+- status: uploaded | extracting | needs_review | approved | ignored | failed
+- originalFileName
+- mimeType
+- sizeBytes
+- sha256Hash
+- objectPath
+- emailMessageId nullable
+- jobId nullable
+- activityId nullable
+- customerId nullable
+- supplierName nullable
+- supplierIco nullable
+- supplierDic nullable
+- documentNumber nullable
+- variableSymbol nullable
+- issueDate nullable
+- taxableSupplyDate nullable
+- dueDate nullable
+- currency default CZK
+- totalWithoutVat nullable
+- totalVat nullable
+- totalWithVat nullable
+- vatMode nullable
+- aiConfidence nullable
+- aiRawJson jsonb nullable
+- extractionWarnings jsonb nullable
+- reviewedByUserId nullable
+- reviewedAt nullable
+- createdByUserId nullable
+- createdAt
+- updatedAt
+
+Tabulka billing_document_lines:
+- id
+- documentId
+- lineType: material | work | transport | parking | fine | fee | other
+- description
+- quantity nullable
+- unit nullable
+- unitPriceWithoutVat nullable
+- vatRate nullable
+- vatMode nullable
+- totalWithoutVat nullable
+- totalVat nullable
+- totalWithVat nullable
+- matchedJobId nullable
+- matchedActivityId nullable
+- matchedMaterialId nullable
+- confidence nullable
+- reviewStatus: suggested | accepted | rejected | manual
+- createdAt
+- updatedAt
+
+DUPLICITY:
+Při importu dokladů kontroluj duplicity podle:
+- sha256Hash přílohy
+- supplierIco + documentNumber
+- supplierName + documentNumber + totalWithVat
+- variableSymbol + totalWithVat
+- issueDate + totalWithVat + supplierName
+
+Pokud je pravděpodobná duplicita:
+- neimportuj automaticky duplicitní billing_document
+- zobraz varování
+- umožni adminovi označit jako duplicitu, ignorovat, nebo přesto importovat
+
+DOKLADY V ZAKÁZKÁCH:
+Do detailu zakázky přidej tlačítko:
+„Analyzovat doklady“
+
+Funkce:
+- vezme přílohy dané zakázky
+- vyfiltruje podporované typy PDF/JPG/PNG/XML/ISDOC/ISDOCX
+- založí billing_documents se source = job_attachment
+- spustí parser nebo AI vytěžení
+- protože doklad je již v zakázce, předvyplní jobId a customerId
+- zobrazí návrh vytěžených hodnot
+- admin může hodnoty potvrdit, upravit, odmítnout nebo rozdělit mezi více zakázek
+
+OPENAI INTEGRACE:
+Přidej novou integraci OpenAI API, která v aplikaci zatím není.
+
+Nainstaluj oficiální OpenAI Node SDK, pokud v projektu není:
+- openai
+
+Přidej env proměnné do .env.example:
+- OPENAI_API_KEY=
+- OPENAI_DOCUMENT_MODEL=
+- OPENAI_DOCUMENT_EXTRACTION_ENABLED=false
+- OPENAI_MAX_FILE_MB=20
+- OPENAI_REQUEST_TIMEOUT_MS=60000
+
+Důležité:
+- OPENAI_API_KEY nikdy necommituj.
+- Pokud OPENAI_DOCUMENT_EXTRACTION_ENABLED není true nebo chybí OPENAI_API_KEY, UI musí zobrazit, že AI vytěžení není nakonfigurované.
+- Aplikace se nesmí zhroutit, pokud OpenAI env proměnné nejsou nastavené.
+- Model nehardcoduj do kódu bez možnosti změny přes env.
+- Použij vision/file capable model podle aktuální dostupnosti OpenAI API.
+- Výstup z AI musí být vždy validovaný Zod schématem.
+- Nikdy neukládej AI výstup přímo jako potvrzená data bez review adminem.
+- Ukládej raw JSON odpověď pro audit/debug, ale pozor na citlivá data.
+- Do AI neposílej zbytečně víc dat, než je nutné.
+
+Vytvoř službu:
+artifacts/api-server/src/services/document-extraction/openai-document-extraction.ts
+
+Služba má exportovat funkce:
+- extractBillingDocumentFromFile(input)
+- extractBillingDocumentFromText(input)
+- normalizeExtractionResult(input)
+- validateExtractionResult(input)
+
+Výstup AI musí mít striktní tvar:
+{
+  "documentType": "receipt | delivery_note | supplier_invoice | credit_note | other",
+  "supplier": {
+    "name": string | null,
+    "ico": string | null,
+    "dic": string | null
+  },
+  "customer": {
+    "name": string | null,
+    "ico": string | null,
+    "dic": string | null
+  },
+  "documentNumber": string | null,
+  "variableSymbol": string | null,
+  "issueDate": "YYYY-MM-DD" | null,
+  "taxableSupplyDate": "YYYY-MM-DD" | null,
+  "dueDate": "YYYY-MM-DD" | null,
+  "currency": "CZK" | string,
+  "totals": {
+    "withoutVat": number | null,
+    "vat": number | null,
+    "withVat": number | null
+  },
+  "vatSummary": [
+    {
+      "vatRate": 21 | 12 | 0 | null,
+      "vatMode": "standard | reverse_charge | zero | non_vat",
+      "base": number | null,
+      "vat": number | null,
+      "total": number | null
+    }
+  ],
+  "lines": [
+    {
+      "description": string,
+      "quantity": number | null,
+      "unit": string | null,
+      "unitPriceWithoutVat": number | null,
+      "vatRate": 21 | 12 | 0 | null,
+      "vatMode": "standard | reverse_charge | zero | non_vat",
+      "totalWithoutVat": number | null,
+      "totalVat": number | null,
+      "totalWithVat": number | null,
+      "lineType": "material | work | transport | parking | fine | fee | other",
+      "confidence": number
+    }
+  ],
+  "confidence": number,
+  "warnings": string[],
+  "missingFields": string[]
+}
+
+AI prompt pro extrakci:
+- Jsi účetní extrakční parser pro české stavební/elektro doklady.
+- Vytěž pouze údaje viditelné v dokumentu.
+- Nehádej neviditelné údaje.
+- Pokud si nejsi jistý, nastav hodnotu null a přidej varování.
+- Částky vrať jako čísla v CZK, pokud dokument neuvádí jinou měnu.
+- Datum vrať ve formátu YYYY-MM-DD.
+- Rozliš přijatou fakturu, dodací list, účtenku a dobropis.
+- Rozliš materiál, práci, dopravu, parkování, pokuty/poplatky a ostatní.
+- Výstup musí přesně odpovídat JSON schématu.
+- Nevracej markdown ani vysvětlení mimo JSON.
+
+ZPRACOVÁNÍ DOKLADŮ:
+- Upload dokladu uloží soubor do S3.
+- Poté vytvoří billing_document ve stavu uploaded.
+- Spustí extraction job.
+- Při běhu nastav status extracting.
+- Při úspěchu ulož aiRawJson, billing_document_lines a nastav needs_review.
+- Při neúspěchu nastav failed a ulož chybovou zprávu.
+- Po ručním potvrzení adminem nastav approved.
+- Až approved doklady se mohou propisovat jako náklady/materiál do zakázky nebo jako položky do vydané faktury.
+
+ASYNCHRONNÍ ZPRACOVÁNÍ:
+Na začátek není nutný Redis.
+Použij jednoduchou DB frontu:
+Tabulka extraction_jobs:
+- id
+- billingDocumentId
+- status: queued | running | done | failed
+- attempts
+- lastError
+- startedAt
+- finishedAt
+- createdAt
+- updatedAt
+
+Worker:
+- může běžet v API procesu
+- zpracovává queued položky postupně
+- má limit pokusů např. 3
+- nesmí blokovat upload request
+- u 4GB serveru drž zpracování konzervativní
+
+EMAIL IMPORT NÁKLADOVÝCH FAKTUR:
+Implementuj přípravu a základ funkčního importu z Gmail/Google Workspace.
+
+Cíl:
+- Dodavatelé posílají nákladové faktury na faktury@modvolt.cz nebo do Gmail štítku „Modvolt Import“.
+- Aplikace stáhne nové e-maily a přílohy.
+- Přílohy uloží do S3.
+- Z příloh vytvoří billing_documents.
+- Spustí vytěžení dokladů.
+- Admin výsledek zkontroluje a potvrdí.
+
+Preferované režimy:
+1. Dedikovaná schránka faktury@modvolt.cz
+2. Gmail štítek „Modvolt Import“
+3. Celá schránka pouze jako nedoporučený fallback
+
+Přidej env proměnné:
+- GOOGLE_CLIENT_ID=
+- GOOGLE_CLIENT_SECRET=
+- GOOGLE_REDIRECT_URI=
+- GMAIL_IMPORT_ENABLED=false
+- GMAIL_IMPORT_LABEL=Modvolt Import
+- GMAIL_IMPORTED_LABEL=Importováno do Modvolt
+- GMAIL_IMPORT_MAX_MESSAGES=25
+
+OAuth:
+- Přidej napojení OAuth pro Gmail.
+- Refresh tokeny ukládej šifrovaně.
+- Přidej env:
+  - TOKEN_ENCRYPTION_KEY=
+- Pokud TOKEN_ENCRYPTION_KEY chybí, Gmail import nesmí být aktivní.
+- Tokeny nikdy neukládej plaintext.
+- Pro první verzi použij gmail.readonly, pokud se nebude e-mail štítkovat.
+- Pokud implementuješ přidání štítku „Importováno do Modvolt“, použij gmail.modify.
+- Umožni v nastavení zvolit, zda se po importu má e-mail označit štítkem, nebo jen evidovat v DB.
+
+Tabulky:
+email_import_accounts:
+- id
+- provider: gmail
+- emailAddress
+- status: connected | disconnected | error
+- accessTokenEncrypted nullable
+- refreshTokenEncrypted nullable
+- tokenExpiresAt nullable
+- lastSyncAt nullable
+- lastHistoryId nullable
+- importLabel
+- importedLabel
+- createdByUserId
+- createdAt
+- updatedAt
+
+email_import_messages:
+- id
+- accountId
+- providerMessageId
+- providerThreadId nullable
+- fromEmail
+- fromName nullable
+- subject
+- receivedAt
+- snippet nullable
+- importStatus: new | processing | imported | ignored | failed
+- hasAttachments
+- rawMetadataJson jsonb nullable
+- createdAt
+- updatedAt
+
+email_import_attachments:
+- id
+- messageId
+- providerAttachmentId
+- fileName
+- mimeType
+- sizeBytes
+- sha256Hash
+- objectPath
+- billingDocumentId nullable
+- extractionStatus: waiting | extracted | needs_review | failed | ignored
+- createdAt
+- updatedAt
+
+API routy pro e-mail import:
+- GET /billing/email-import/accounts
+- POST /billing/email-import/gmail/connect/start
+- GET /billing/email-import/gmail/callback
+- POST /billing/email-import/gmail/sync
+- GET /billing/email-import/messages
+- GET /billing/email-import/messages/:id
+- POST /billing/email-import/messages/:id/import
+- POST /billing/email-import/messages/:id/ignore
+- POST /billing/email-import/attachments/:id/import
+- POST /billing/email-import/attachments/:id/ignore
+
+E-mail import musí:
+- načítat pouze e-maily se zvoleným štítkem, pokud je label nastavený
+- stahovat pouze podporované typy příloh
+- ignorovat inline obrázky typu logo v podpisu, pokud jde rozumně poznat podle velikosti/názvu/content-id
+- ukládat originální metadata e-mailu
+- kontrolovat duplicity příloh přes SHA-256
+- neimportovat stejnou přílohu dvakrát
+- umožnit ruční reimport při chybě
+- po úspěšném importu volitelně přidat štítek „Importováno do Modvolt“
+
+UI /billing/email-import:
+- nahoře stav připojení Gmailu
+- tlačítko „Připojit Gmail“
+- tlačítko „Synchronizovat“
+- seznam importovaných e-mailů
+- filtry: nové, čeká na kontrolu, importováno, ignorováno, chyba
+- detail e-mailu:
+  - od
+  - předmět
+  - datum
+  - přílohy
+  - stav importu
+  - navázané billing_documents
+  - tlačítko importovat / ignorovat / znovu zpracovat
+
+RUČNÍ IMPORT DOKLADŮ:
+Stránka /billing/documents:
+- seznam přijatých dokladů
+- filtr podle stavu
+- filtr podle dodavatele
+- filtr podle zákazníka/zakázky
+- filtr podle typu dokladu
+- tlačítko „Nahrát doklad“
+- tlačítko „Znovu vytěžit“
+- tlačítko „Schválit“
+- tlačítko „Ignorovat“
+
+Detail dokladu /billing/documents/:id:
+- náhled PDF/obrázku, pokud možné
+- vytěžené údaje
+- řádky dokladu
+- confidence
+- warnings
+- možnost upravit všechna pole
+- výběr zákazníka
+- výběr zakázky
+- možnost rozdělit řádky mezi více zakázek
+- potvrzení adminem
+- audit historie
+
+PÁROVÁNÍ DOKLADŮ NA ZAKÁZKY:
+Implementuj návrhovou logiku:
+- pokud doklad vznikl z přílohy zakázky, předvyplň zakázku
+- pokud doklad přišel z e-mailu, hledej podle:
+  - zákazníka
+  - názvu/adresy zakázky
+  - data dokladu a data zakázky
+  - dodavatele
+  - názvů materiálu
+  - poznámky v e-mailu
+  - částky
+- AI může navrhnout párování, ale nesmí ho automaticky definitivně potvrdit.
+- U každého návrhu ulož confidence.
+- Admin musí párování potvrdit.
+
+ROZDĚLENÍ JEDNÉ NÁKLADOVÉ FAKTURY MEZI VÍCE ZAKÁZEK:
+V detailu billing document umožni:
+- řádek dokladu přiřadit k jedné zakázce
+- řádek rozdělit podle množství
+- řádek rozdělit podle procent
+- část dokladu dát na sklad / interní náklad
+- část dokladu nepřefakturovávat
+
+VÝSTUP DO VYDANÉ FAKTURY:
+Při tvorbě faktury ze zakázek nabídni:
+- potvrzené materiálové položky z dokladů
+- potvrzené ruční materiály
+- dopravu
+- parkování
+- pokuty s ručním potvrzením
+- práci/cenu zakázky
+- ruční položky
+
+BEZPEČNOST:
+- Celý billing modul pouze admin.
+- Backend musí chránit všechny /billing endpointy admin kontrolou.
+- Faktury a účetní doklady nesmí být dostupné přes obecný public URL.
+- S3 objectPath nikdy neposílej jako veřejně použitelný URL bez autorizace.
+- PDF faktury a doklady stahuj pouze přes autorizovaný endpoint.
+- OpenAI API key jen env.
+- Gmail OAuth tokeny šifrovaně.
+- Přidej audit log pro:
+  - vytvoření faktury
+  - úprava faktury
+  - vystavení faktury
+  - storno faktury
+  - změna zakázky na vyfakturováno
+  - import dokladu
+  - vytěžení dokladu
+  - ruční úprava vytěžených dat
+  - schválení dokladu
+  - ignorování dokladu
+  - připojení/odpojení Gmail importu
+  - ruční synchronizace Gmailu
+
+TRANSAKCE:
+Endpoint POST /billing/invoices/:id/issue musí v jedné DB transakci:
+1. načíst fakturu
+2. ověřit, že je draft
+3. ověřit, že všechny navázané zakázky jsou stále „hotová“
+4. přidělit číslo faktury, pokud ještě není
+5. přepočítat totals
+6. nastavit invoice.status = issued
+7. nastavit issuedAt a issuedByUserId
+8. vygenerovat PDF a uložit do S3
+9. přepnout všechny navázané zakázky na „vyfakturováno“
+10. zapsat audit log
+11. commit
+
+Pokud cokoliv selže, transakce se rollbackne a zakázky zůstanou ve stavu „hotová“.
+
+API ROUTY FAKTURACE:
+Přidej billingRouter a zaregistruj ho do routes/index.ts.
+
+Navržené endpointy:
+- GET /billing/summary
+- GET /billing/unbilled
+- GET /billing/unbilled/customers
+- GET /billing/unbilled/customers/:customerId
+- POST /billing/invoices/draft
+- GET /billing/invoices
+- GET /billing/invoices/:id
+- PATCH /billing/invoices/:id
+- POST /billing/invoices/:id/recalculate
+- POST /billing/invoices/:id/issue
+- POST /billing/invoices/:id/cancel
+- POST /billing/invoices/:id/send-email
+- GET /billing/invoices/:id/pdf
+- GET /billing/invoices/:id/isdoc
+- GET /billing/documents
+- POST /billing/documents/upload
+- GET /billing/documents/:id
+- PATCH /billing/documents/:id
+- POST /billing/documents/:id/extract
+- POST /billing/documents/:id/approve
+- POST /billing/documents/:id/ignore
+- POST /billing/documents/:id/assign-lines
+- POST /billing/jobs/:jobId/analyze-documents
+- GET /billing/settings
+- PATCH /billing/settings
+
+ZOD A OPENAPI:
+- Ke všem requestům/response přidej Zod schémata.
+- Zapoj do stávající OpenAPI/Orval pipeline, pokud projekt generuje klienta.
+- Frontend musí používat stejný API klient/styl jako zbytek aplikace.
+
+NASTAVENÍ FAKTURACE:
+Tabulka billing_settings:
+- id
+- supplierName
+- supplierIco
+- supplierDic
+- supplierAddress
+- supplierEmail
+- supplierPhone
+- bankAccount
+- iban nullable
+- invoiceNumberPrefix
+- invoiceNumberFormat
+- nextInvoiceSequence
+- defaultDueDays
+- defaultVatMode
+- defaultVatRate
+- createdAt
+- updatedAt
+
+UI /billing/settings:
+- údaje dodavatele Modvolt
+- bankovní účet
+- splatnost
+- číselná řada
+- výchozí DPH
+- OpenAI stav konfigurace
+- Gmail import stav konfigurace
+- test Gmail připojení
+- test OpenAI konfigurace bez odeslání reálného dokladu
+
+VALIDACE:
+- Fakturu nelze vystavit bez zákazníka.
+- Fakturu nelze vystavit bez položek.
+- Fakturu nelze vystavit s nulovým nebo záporným celkem, pokud admin výslovně nepotvrdí dobropis/storno.
+- Fakturu nelze vystavit, pokud vybraná zakázka není „hotová“.
+- Fakturu nelze vystavit, pokud už je zakázka „vyfakturováno“.
+- Přijatý doklad nelze schválit bez typu dokladu a alespoň základní částky nebo řádků.
+- AI confidence pod 0.7 označ jako needs_review a zobraz varování.
+- U rozdílu mezi součtem řádků a celkem dokladu zobraz varování.
+
+DESIGN UI:
+- Drž české popisky.
+- Drž stávající design systém aplikace.
+- Nepřidávej nový UI framework.
+- Používej existující komponenty, pokud existují.
+- Fakturace musí být použitelná na mobilu i desktopu.
+- V tabulkách používej jasné stavy/badge:
+  - Návrh
+  - Vystaveno
+  - Odesláno
+  - Zaplaceno
+  - Storno
+  - Čeká na kontrolu
+  - Chyba vytěžení
+  - Schváleno
+  - Ignorováno
+
+MIGRACE:
+- Přidej Drizzle migrace.
+- Migrace musí být bezpečné pro existující produkční data.
+- Nepřepisuj existující statusy zakázek.
+- Pokud přidáváš nové status hodnoty, zachovej textové status pole.
+- Přidej indexy na:
+  - invoices.customerId
+  - invoices.status
+  - invoice_source_links.invoiceId
+  - invoice_source_links.jobId
+  - billing_documents.status
+  - billing_documents.sha256Hash
+  - billing_documents.documentNumber
+  - billing_documents.supplierIco
+  - email_import_messages.providerMessageId
+  - email_import_attachments.sha256Hash
+
+TESTY / KONTROLY:
+Po implementaci proveď:
+1. TypeScript check.
+2. Build frontendu.
+3. Build backendu.
+4. DB migrace.
+5. Základní API smoke testy.
+6. Ověř, že běžný user/master nevidí Fakturaci.
+7. Ověř, že ne-admin nemůže volat /billing API.
+8. Ověř, že admin vidí Fakturaci.
+9. Ověř, že zakázka „hotová“ se zobrazí v nevyfakturovaných.
+10. Ověř, že po draft faktuře zakázka zůstane „hotová“.
+11. Ověř, že po vystavení faktury se zakázka změní na „vyfakturováno“.
+12. Ověř, že „vyfakturováno“ se už nenabízí znovu.
+13. Ověř upload PDF dokladu.
+14. Ověř stav, kdy OpenAI není nakonfigurované.
+15. Ověř stav, kdy Gmail není nakonfigurovaný.
+16. Ověř detekci duplicit podle SHA-256.
+17. Ověř audit log u vystavení faktury.
+
+AKCEPTAČNÍ KRITÉRIA:
+- V levém menu existuje Fakturace pouze pro admin.
+- Admin umí vybrat zákazníka a hotové nevyfakturované zakázky.
+- Admin umí vytvořit draft faktury.
+- Draft faktury nemění stav zakázek.
+- Vystavení faktury změní stav všech vybraných zakázek na „vyfakturováno“.
+- Vystavená faktura má PDF uložené v S3.
+- Do faktury se propíše práce, doprava, parkování a volitelně pokuty.
+- Lze přidat ruční položky.
+- Lze zvolit 21 %, 12 %, 0 %, PDP nebo mimo DPH.
+- Přijatý doklad lze nahrát ručně.
+- Přijatý doklad lze založit z přílohy zakázky.
+- Existuje příprava/funkční základ pro Gmail import.
+- Existuje OpenAI service pro vytěžování dokladů.
+- AI výstup je validovaný Zod schématem.
+- AI výstup vždy vyžaduje ruční potvrzení adminem.
+- Ne-admin nemá přístup k billing endpointům.
+- Všechny důležité změny jsou v audit logu.
+
+IMPLEMENTAČNÍ POŘADÍ:
+1. Projdi aktuální strukturu projektu.
+2. Najdi existující auth/permissions helpery.
+3. Najdi existující audit log helpery.
+4. Navrhni a přidej DB schémata.
+5. Přidej migrace.
+6. Přidej backend billing router.
+7. Přidej služby invoiceService, billingDocumentService, documentExtractionService, gmailImportService.
+8. Přidej OpenAI konfiguraci a service.
+9. Přidej Gmail import konfiguraci a service.
+10. Přidej frontend menu položku.
+11. Přidej frontend stránky.
+12. Napoj API klienta.
+13. Přidej PDF generování faktury.
+14. Přidej analyzování dokladů z detailu zakázky.
+15. Přidej testy/smoke kontroly.
+16. Aktualizuj README/.env.example/PRODUCTION_READINESS.md.
+
+NEJDŮLEŽITĚJŠÍ PRAVIDLO:
+Nejdříve implementuj robustní fakturaci a stavový workflow.
+OpenAI a Gmail import implementuj modulárně tak, aby aplikace fungovala i bez nakonfigurovaného OpenAI API klíče a bez Gmail OAuth připojení.
