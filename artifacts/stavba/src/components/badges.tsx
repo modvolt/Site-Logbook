@@ -1,5 +1,6 @@
-import { Check, Clock, XCircle, AlertCircle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck, Receipt, FileEdit, FileText, Send, CircleDollarSign } from "lucide-react";
+import { Check, Clock, XCircle, AlertCircle, AlertTriangle, HardHat, CalendarDays, Wrench, RefreshCw, MoreHorizontal, ShieldCheck, Receipt, FileEdit, FileText, Send, CircleDollarSign } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { overdueLabel } from "@/lib/billing-format";
 
 export const JOB_STATUSES = {
   planned: { label: "Naplánováno", color: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800", icon: Clock },
@@ -45,6 +46,18 @@ export function InvoiceStatusBadge({ status, className = "" }: { status: string;
     <Badge variant="outline" className={`font-medium ${config.color} ${className}`}>
       <Icon className="w-3 h-3 mr-1" />
       {config.label}
+    </Badge>
+  );
+}
+
+export function OverdueBadge({ days, className = "" }: { days: number; className?: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={`font-medium bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800 ${className}`}
+    >
+      <AlertTriangle className="w-3 h-3 mr-1" />
+      {overdueLabel(days)}
     </Badge>
   );
 }

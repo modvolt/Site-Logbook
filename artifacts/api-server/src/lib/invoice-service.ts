@@ -213,6 +213,7 @@ export async function getBillingSummary() {
       status: invoicesTable.status,
       totalWithVat: invoicesTable.totalWithVat,
       issueDate: invoicesTable.issueDate,
+      dueDate: invoicesTable.dueDate,
     })
     .from(invoicesTable);
 
@@ -233,12 +234,33 @@ export async function getBillingSummary() {
       .reduce((acc, i) => acc + num(i.totalWithVat), 0),
   );
 
+  // Outstanding receivables: invoices handed to the customer (issued/sent) that
+  // are neither paid nor cancelled. Drafts are not yet real receivables.
+  const today = todayIso();
+  const unpaidInvoices = allInvoices.filter(
+    (i) => i.status === "issued" || i.status === "sent",
+  );
+  const unpaidTotalWithVat = round2(
+    unpaidInvoices.reduce((acc, i) => acc + num(i.totalWithVat), 0),
+  );
+  // ISO "YYYY-MM-DD" strings compare lexicographically by calendar date.
+  const overdueInvoices = unpaidInvoices.filter(
+    (i) => typeof i.dueDate === "string" && i.dueDate < today,
+  );
+  const overdueTotalWithVat = round2(
+    overdueInvoices.reduce((acc, i) => acc + num(i.totalWithVat), 0),
+  );
+
   return {
     unbilledDoneJobs: unbilled.length,
     draftInvoices: draftCount,
     issuedInvoices: issuedCount,
     totalToInvoiceWithoutVat: unbilledTotal,
     issuedThisMonthWithVat,
+    unpaidCount: unpaidInvoices.length,
+    unpaidTotalWithVat,
+    overdueCount: overdueInvoices.length,
+    overdueTotalWithVat,
   };
 }
 

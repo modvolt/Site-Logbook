@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Building2,
   Settings as SettingsIcon,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function Billing() {
@@ -74,7 +75,7 @@ export default function Billing() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <Card>
           <CardContent className="p-4">
             <div className="text-xs text-muted-foreground mb-1">
@@ -92,6 +93,59 @@ export default function Billing() {
             </div>
             <div className="text-xl font-bold">
               {isLoading ? "—" : fmtKc(data?.issuedThisMonthWithVat, 0)}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">
+              Celkem nezaplaceno (s DPH)
+            </div>
+            <div className="text-xl font-bold">
+              {isLoading ? "—" : fmtKc(data?.unpaidTotalWithVat, 0)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {isLoading
+                ? ""
+                : `${data?.unpaidCount ?? 0} ${invoiceNoun(data?.unpaidCount ?? 0)}`}
+            </div>
+          </CardContent>
+        </Card>
+        <Card
+          className={
+            !isLoading && (data?.overdueCount ?? 0) > 0
+              ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/30 cursor-pointer hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
+              : ""
+          }
+          onClick={
+            !isLoading && (data?.overdueCount ?? 0) > 0
+              ? () => setLocation("/billing/invoices?status=overdue")
+              : undefined
+          }
+        >
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              {!isLoading && (data?.overdueCount ?? 0) > 0 && (
+                <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+              )}
+              Po splatnosti (s DPH)
+            </div>
+            <div
+              className={`text-xl font-bold ${
+                !isLoading && (data?.overdueCount ?? 0) > 0
+                  ? "text-red-700 dark:text-red-300"
+                  : ""
+              }`}
+            >
+              {isLoading ? "—" : fmtKc(data?.overdueTotalWithVat, 0)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {isLoading
+                ? ""
+                : `${data?.overdueCount ?? 0} ${invoiceNoun(data?.overdueCount ?? 0)}`}
             </div>
           </CardContent>
         </Card>
@@ -122,6 +176,12 @@ export default function Billing() {
       </div>
     </div>
   );
+}
+
+function invoiceNoun(count: number): string {
+  if (count === 1) return "faktura";
+  if (count >= 2 && count <= 4) return "faktury";
+  return "faktur";
 }
 
 function NavCard({

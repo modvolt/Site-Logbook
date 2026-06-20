@@ -37,6 +37,17 @@ surviving lines. `createDraft` source links still come from the selected `jobIds
 **Watch:** legacy drafts edited *before* this change have lines with null `jobId`; only a
 fresh save recomputes them correctly.
 
+## 3b. "Unpaid" / "overdue" = issued|sent only (drafts excluded)
+`getBillingSummary`'s `unpaid*` / `overdue*` metrics and the frontend `overdueDays()`
+badge both treat only `status in (issued, sent)` as a receivable. Drafts are excluded
+even though they are technically "not paid/cancelled" — a draft is not yet handed to
+the customer, so it is not money owed. Overdue = unpaid AND `dueDate < today`
+(ISO "YYYY-MM-DD" string compare).
+**Why:** the task defined overdue as "stav != zaplaceno/storno", but counting draft
+amounts as outstanding receivables would distort cash-flow numbers.
+**How to apply:** any future "receivables" / bank-payment-matching / reminder feature
+must use the same issued|sent definition for consistency, not "not paid".
+
 ## 3. `/billing/settings` PUT enumerates fields explicitly
 `routes/billing.ts` PUT `/billing/settings` lists each field by hand when calling
 `updateBillingSettings`, and the service's `BillingSettingsInput` + `assign()` list

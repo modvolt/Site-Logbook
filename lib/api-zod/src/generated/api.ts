@@ -2391,7 +2391,11 @@ export const GetBillingSummaryResponse = zod.object({
   "draftInvoices": zod.number(),
   "issuedInvoices": zod.number(),
   "totalToInvoiceWithoutVat": zod.number().describe('Orientational sum (price+transportCost+parking) of unbilled done jobs'),
-  "issuedThisMonthWithVat": zod.number()
+  "issuedThisMonthWithVat": zod.number(),
+  "unpaidCount": zod.number().describe('Count of issued\/sent (not paid, not cancelled) invoices'),
+  "unpaidTotalWithVat": zod.number().describe('Sum with VAT of issued\/sent invoices not yet paid'),
+  "overdueCount": zod.number().describe('Count of unpaid invoices whose dueDate is before today'),
+  "overdueTotalWithVat": zod.number().describe('Sum with VAT of overdue unpaid invoices')
 })
 
 

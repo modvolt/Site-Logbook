@@ -26,3 +26,36 @@ export function vatModeLabel(mode: string | null | undefined): string {
   if (!mode) return "—";
   return VAT_MODE_LABELS[mode] ?? mode;
 }
+
+/** Czech plural of "den" — 1 den, 2–4 dny, 5+ dní. */
+export function dayNoun(days: number): string {
+  const n = Math.abs(days);
+  if (n === 1) return "den";
+  if (n >= 2 && n <= 4) return "dny";
+  return "dní";
+}
+
+/**
+ * Whole calendar days an issued/sent invoice is past its due date.
+ * Returns a positive number only when overdue, otherwise `null`.
+ * Paid, cancelled and draft invoices are never overdue.
+ */
+export function overdueDays(
+  dueDate: string | null | undefined,
+  status: string,
+): number | null {
+  if (!dueDate) return null;
+  if (status !== "issued" && status !== "sent") return null;
+  const due = new Date(dueDate);
+  if (Number.isNaN(due.getTime())) return null;
+  due.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.floor((today.getTime() - due.getTime()) / 86_400_000);
+  return days > 0 ? days : null;
+}
+
+/** Label such as "Po splatnosti 3 dny". */
+export function overdueLabel(days: number): string {
+  return `Po splatnosti ${days} ${dayNoun(days)}`;
+}

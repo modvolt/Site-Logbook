@@ -4954,6 +4954,10 @@ components:
         - issuedInvoices
         - totalToInvoiceWithoutVat
         - issuedThisMonthWithVat
+        - unpaidCount
+        - unpaidTotalWithVat
+        - overdueCount
+        - overdueTotalWithVat
       properties:
         unbilledDoneJobs:
           type: integer
@@ -4967,6 +4971,18 @@ components:
           description: Orientational sum (price+transportCost+parking) of unbilled done jobs
         issuedThisMonthWithVat:
           type: number
+        unpaidCount:
+          type: integer
+          description: Count of issued/sent (not paid, not cancelled) invoices
+        unpaidTotalWithVat:
+          type: number
+          description: Sum with VAT of issued/sent invoices not yet paid
+        overdueCount:
+          type: integer
+          description: Count of unpaid invoices whose dueDate is before today
+        overdueTotalWithVat:
+          type: number
+          description: Sum with VAT of overdue unpaid invoices
 
     BillingSettings:
       type: object

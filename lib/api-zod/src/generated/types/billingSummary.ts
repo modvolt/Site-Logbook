@@ -14,4 +14,12 @@ export interface BillingSummary {
   /** Orientational sum (price+transportCost+parking) of unbilled done jobs */
   totalToInvoiceWithoutVat: number;
   issuedThisMonthWithVat: number;
+  /** Count of issued/sent (not paid, not cancelled) invoices */
+  unpaidCount: number;
+  /** Sum with VAT of issued/sent invoices not yet paid */
+  unpaidTotalWithVat: number;
+  /** Count of unpaid invoices whose dueDate is before today */
+  overdueCount: number;
+  /** Sum with VAT of overdue unpaid invoices */
+  overdueTotalWithVat: number;
 }
