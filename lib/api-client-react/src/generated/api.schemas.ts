@@ -2464,7 +2464,24 @@ status?: string;
 supplierIc?: string;
 jobId?: number;
 customerId?: number;
+/**
+ * Only documents that were prefilled by AI extraction.
+ */
+aiOnly?: boolean;
+/**
+ * Sort order. `confidence_asc` puts the lowest AI confidence first
+(the review-queue ordering); default is newest first.
+
+ */
+sort?: ListCostDocumentsSort;
 };
+
+export type ListCostDocumentsSort = typeof ListCostDocumentsSort[keyof typeof ListCostDocumentsSort];
+
+
+export const ListCostDocumentsSort = {
+  confidence_asc: 'confidence_asc',
+} as const;
 
 export type ListApprovedCostLinesParams = {
 customerId: number;

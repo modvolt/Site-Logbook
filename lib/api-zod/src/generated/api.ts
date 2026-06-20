@@ -3244,7 +3244,9 @@ export const ListCostDocumentsQueryParams = zod.object({
   "status": zod.coerce.string().optional(),
   "supplierIc": zod.coerce.string().optional(),
   "jobId": zod.coerce.number().optional(),
-  "customerId": zod.coerce.number().optional()
+  "customerId": zod.coerce.number().optional(),
+  "aiOnly": zod.coerce.boolean().optional().describe('Only documents that were prefilled by AI extraction.'),
+  "sort": zod.enum(['confidence_asc']).optional().describe('Sort order. `confidence_asc` puts the lowest AI confidence first\n(the review-queue ordering); default is newest first.\n')
 })
 
 export const ListCostDocumentsResponseItem = zod.object({

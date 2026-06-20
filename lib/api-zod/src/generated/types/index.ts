@@ -133,6 +133,7 @@ export * from './listActivitiesParams';
 export * from './listApprovedCostLinesParams';
 export * from './listAuditLogsParams';
 export * from './listCostDocumentsParams';
+export * from './listCostDocumentsSort';
 export * from './listInvoicesParams';
 export * from './listJobsParams';
 export * from './loginInput';

@@ -8,7 +8,7 @@
  * by an admin during review. Matching is only ever a suggestion.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import {
   db,
   billingDocumentsTable,
@@ -476,6 +476,10 @@ export interface DocumentFilters {
   supplierIc?: string;
   jobId?: number;
   customerId?: number;
+  /** Restrict to documents that were prefilled by AI extraction. */
+  aiOnly?: boolean;
+  /** `confidence_asc` = lowest AI confidence first (review-queue order). */
+  sort?: string;
 }
 
 export async function listDocuments(filters: DocumentFilters) {
@@ -486,12 +490,20 @@ export async function listDocuments(filters: DocumentFilters) {
   if (filters.jobId != null) conds.push(eq(billingDocumentsTable.jobId, filters.jobId));
   if (filters.customerId != null)
     conds.push(eq(billingDocumentsTable.customerId, filters.customerId));
+  if (filters.aiOnly) conds.push(isNotNull(billingDocumentsTable.aiExtractedAt));
+
+  // confidence_asc surfaces the riskiest (lowest-confidence) suggestions first;
+  // Postgres ASC places NULL confidence last, then ties broken by newest first.
+  const orderBy =
+    filters.sort === "confidence_asc"
+      ? [asc(billingDocumentsTable.aiConfidence), desc(billingDocumentsTable.createdAt)]
+      : [desc(billingDocumentsTable.createdAt)];
 
   const rows = await db
     .select()
     .from(billingDocumentsTable)
     .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(billingDocumentsTable.createdAt));
+    .orderBy(...orderBy);
   return rows.map(serializeDocument);
 }
 

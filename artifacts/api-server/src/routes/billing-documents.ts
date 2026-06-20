@@ -133,11 +133,15 @@ router.get("/billing/documents", async (req, res): Promise<void> => {
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
   const supplierIc =
     typeof req.query.supplierIc === "string" ? req.query.supplierIc : undefined;
+  const aiOnly = req.query.aiOnly === "true";
+  const sort = typeof req.query.sort === "string" ? req.query.sort : undefined;
   const docs = await listDocuments({
     status,
     supplierIc,
     jobId: optInt(req.query.jobId),
     customerId: optInt(req.query.customerId),
+    aiOnly,
+    sort,
   });
   res.json(docs);
 });

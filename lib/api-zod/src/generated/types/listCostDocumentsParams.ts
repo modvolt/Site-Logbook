@@ -5,10 +5,21 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { ListCostDocumentsSort } from './listCostDocumentsSort';
 
 export type ListCostDocumentsParams = {
 status?: string;
 supplierIc?: string;
 jobId?: number;
 customerId?: number;
+/**
+ * Only documents that were prefilled by AI extraction.
+ */
+aiOnly?: boolean;
+/**
+ * Sort order. `confidence_asc` puts the lowest AI confidence first
+(the review-queue ordering); default is newest first.
+
+ */
+sort?: ListCostDocumentsSort;
 };

@@ -17,6 +17,7 @@ import {
   Settings as SettingsIcon,
   AlertTriangle,
   Banknote,
+  Sparkles,
 } from "lucide-react";
 
 export default function Billing() {
@@ -185,6 +186,13 @@ export default function Billing() {
           title="Přijaté doklady"
           subtitle="Účtenky, dodací listy a přijaté faktury k přefakturaci"
           onClick={() => setLocation("/billing/documents")}
+        />
+        <NavCard
+          icon={Sparkles}
+          color="text-violet-500"
+          title="Kontrola AI dokladů"
+          subtitle="Doklady předvyplněné AI čekající na potvrzení, nejnižší důvěryhodnost první"
+          onClick={() => setLocation("/billing/documents/review")}
         />
         <NavCard
           icon={FileText}

@@ -38,7 +38,7 @@ import {
   DuplicateCostDocumentError,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
-import { ArrowLeft, FileText, Inbox, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Inbox, Sparkles, Upload } from "lucide-react";
 
 const UPLOAD_ACCEPT =
   "image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.xml,.isdoc,.isdocx";
@@ -124,16 +124,25 @@ export default function BillingDocuments() {
         <ArrowLeft className="h-4 w-4 mr-1" /> Fakturace
       </Button>
 
-      <div className="flex items-center gap-3 mb-5">
-        <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2.5 rounded-full text-emerald-600 dark:text-emerald-300">
-          <Inbox className="h-6 w-6" />
+      <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2.5 rounded-full text-emerald-600 dark:text-emerald-300">
+            <Inbox className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">Přijaté doklady</h1>
+            <p className="text-sm text-muted-foreground">
+              Účtenky, dodací listy, přijaté faktury a dobropisy
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">Přijaté doklady</h1>
-          <p className="text-sm text-muted-foreground">
-            Účtenky, dodací listy, přijaté faktury a dobropisy
-          </p>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setLocation("/billing/documents/review")}
+        >
+          <Sparkles className="h-4 w-4 mr-1" /> Kontrola AI dokladů
+        </Button>
       </div>
 
       <input

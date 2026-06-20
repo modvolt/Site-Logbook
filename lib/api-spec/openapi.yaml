@@ -3509,6 +3509,21 @@ paths:
           required: false
           schema:
             type: integer
+        - name: aiOnly
+          in: query
+          required: false
+          description: Only documents that were prefilled by AI extraction.
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          required: false
+          description: |
+            Sort order. `confidence_asc` puts the lowest AI confidence first
+            (the review-queue ordering); default is newest first.
+          schema:
+            type: string
+            enum: [confidence_asc]
       responses:
         "200":
           description: Cost documents

@@ -1,0 +1,226 @@
+import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useListCostDocuments,
+  getListCostDocumentsQueryKey,
+  useApproveCostDocument,
+  getGetBillingSummaryQueryKey,
+  ListCostDocumentsSort,
+  type CostDocument,
+  type ListCostDocumentsParams,
+} from "@workspace/api-client-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { fmtKc, fmtDate } from "@/lib/billing-format";
+import {
+  AI_CONFIDENCE_LOW,
+  AiConfidenceBadge,
+  COST_DOC_TYPE_LABELS,
+} from "@/lib/cost-document-format";
+import {
+  ArrowLeft,
+  AlertTriangle,
+  CheckCircle2,
+  Pencil,
+  Sparkles,
+} from "lucide-react";
+
+// Only AI-prefilled documents still awaiting confirmation, lowest confidence first.
+const QUEUE_PARAMS: ListCostDocumentsParams = {
+  status: "needs_review",
+  aiOnly: true,
+  sort: ListCostDocumentsSort.confidence_asc,
+};
+
+function docWarnings(doc: CostDocument): string[] {
+  return (doc.warnings ?? "")
+    .split("\n")
+    .map((w) => w.trim())
+    .filter(Boolean);
+}
+
+export default function BillingReviewQueue() {
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: docs, isLoading } = useListCostDocuments(QUEUE_PARAMS, {
+    query: { queryKey: getListCostDocumentsQueryKey(QUEUE_PARAMS) },
+  });
+  const approveDoc = useApproveCostDocument();
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/billing/documents"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/billing/approved-lines"] });
+    queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+  };
+
+  const handleApprove = (doc: CostDocument) => {
+    approveDoc.mutate(
+      { id: doc.id },
+      {
+        onSuccess: () => {
+          refresh();
+          toast({
+            title: "Doklad schválen",
+            description: doc.supplierName || doc.fileName || undefined,
+          });
+        },
+        onError: (err) =>
+          toast({
+            title: "Schválení selhalo",
+            description: err instanceof Error ? err.message : undefined,
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const lowCount =
+    docs?.filter((d) => d.aiConfidence != null && d.aiConfidence < AI_CONFIDENCE_LOW)
+      .length ?? 0;
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mb-3 -ml-2 text-muted-foreground"
+        onClick={() => setLocation("/billing/documents")}
+      >
+        <ArrowLeft className="h-4 w-4 mr-1" /> Přijaté doklady
+      </Button>
+
+      <div className="flex items-center gap-3 mb-5">
+        <div className="bg-violet-100 dark:bg-violet-900/30 p-2.5 rounded-full text-violet-600 dark:text-violet-300">
+          <Sparkles className="h-6 w-6" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Kontrola AI dokladů</h1>
+          <p className="text-sm text-muted-foreground">
+            Doklady předvyplněné pomocí AI čekající na potvrzení — nejnižší
+            důvěryhodnost první
+          </p>
+        </div>
+      </div>
+
+      {!isLoading && docs && docs.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4 text-sm">
+          <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 font-medium">
+            {docs.length} ke kontrole
+          </span>
+          {lowCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 px-3 py-1 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {lowCount} s nízkou důvěryhodností
+            </span>
+          )}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-28 w-full" />
+          ))}
+        </div>
+      ) : !docs || docs.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+          <CheckCircle2 className="w-10 h-10 mx-auto mb-2 opacity-20" />
+          <p className="text-sm">
+            Žádné AI doklady ke kontrole. Vše je potvrzeno.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {docs.map((doc) => (
+            <ReviewCard
+              key={doc.id}
+              doc={doc}
+              approving={approveDoc.isPending}
+              onApprove={() => handleApprove(doc)}
+              onCorrect={() => setLocation(`/billing/documents/${doc.id}`)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewCard({
+  doc,
+  approving,
+  onApprove,
+  onCorrect,
+}: {
+  doc: CostDocument;
+  approving: boolean;
+  onApprove: () => void;
+  onCorrect: () => void;
+}) {
+  const low = doc.aiConfidence != null && doc.aiConfidence < AI_CONFIDENCE_LOW;
+  const warnings = docWarnings(doc);
+
+  return (
+    <Card
+      className={
+        low ? "border-amber-300 bg-amber-50/60 dark:bg-amber-900/10" : ""
+      }
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <button
+            className="min-w-0 text-left"
+            onClick={onCorrect}
+            aria-label="Otevřít doklad"
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-semibold truncate hover:underline">
+                {doc.supplierName || doc.fileName || "Doklad bez dodavatele"}
+              </p>
+              {doc.aiConfidence != null && (
+                <AiConfidenceBadge confidence={doc.aiConfidence} />
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
+              {doc.documentNumber ? ` · ${doc.documentNumber}` : ""}
+              {doc.issueDate ? ` · ${fmtDate(doc.issueDate)}` : ""}
+            </p>
+          </button>
+          <div className="text-right shrink-0">
+            <div className="font-bold">{fmtKc(doc.totalWithVat ?? null, 0)}</div>
+            {doc.variableSymbol && (
+              <div className="text-xs text-muted-foreground">
+                VS {doc.variableSymbol}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {warnings.length > 0 && (
+          <ul className="mt-3 space-y-0.5 text-xs text-amber-800 dark:text-amber-200">
+            {warnings.map((w, i) => (
+              <li key={i} className="flex gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{w}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="flex flex-wrap gap-2 mt-3">
+          <Button size="sm" onClick={onApprove} disabled={approving}>
+            <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit
+          </Button>
+          <Button size="sm" variant="outline" onClick={onCorrect}>
+            <Pencil className="h-4 w-4 mr-1" /> Opravit
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
