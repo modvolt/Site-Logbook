@@ -5263,6 +5263,10 @@ components:
           type: boolean
         sortOrder:
           type: integer
+        sourceType:
+          type: ["string", "null"]
+        sourceId:
+          type: ["integer", "null"]
         createdAt:
           type: string
 

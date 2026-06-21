@@ -404,6 +404,8 @@ export const ListMaterialsResponseItem = zod.object({
   "pricePerUnit": zod.number().nullish(),
   "done": zod.boolean(),
   "sortOrder": zod.number(),
+  "sourceType": zod.string().nullish(),
+  "sourceId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 export const ListMaterialsResponse = zod.array(ListMaterialsResponseItem)
@@ -455,6 +457,8 @@ export const UpdateMaterialResponse = zod.object({
   "pricePerUnit": zod.number().nullish(),
   "done": zod.boolean(),
   "sortOrder": zod.number(),
+  "sourceType": zod.string().nullish(),
+  "sourceId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 

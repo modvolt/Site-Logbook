@@ -19,6 +19,7 @@ import {
   extractionJobsTable,
   attachmentsTable,
   jobsTable,
+  materialsTable,
   warehouseItemsTable,
   auditLogTable,
   type BillingDocument,
@@ -1336,6 +1337,8 @@ export async function updateLine(
         .where(eq(billingDocumentLinesTable.id, lineId));
       await recomputeLineTotals(tx, updated);
     }
+    // Keep the job's materials in sync when editing a line of an approved doc.
+    await syncJobMaterialsForDocument(tx, documentId);
     return undefined;
   }).then(() => getDocument(documentId));
 }
@@ -1393,6 +1396,15 @@ export async function splitLine(
     await tx
       .delete(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.id, lineId));
+    // The original line id is gone, so the reconcile in the sync below (which
+    // keys off the document's *current* line ids) can no longer see this line's
+    // propagated material — remove it explicitly to avoid an orphan.
+    await tx.delete(materialsTable).where(
+      and(
+        eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+        eq(materialsTable.sourceId, lineId),
+      ),
+    );
 
     const values = parts.map((p, idx) => {
       const vals = lineValues(
@@ -1419,8 +1431,110 @@ export async function splitLine(
       };
     });
     await tx.insert(billingDocumentLinesTable).values(values);
+    // The original line was replaced; re-sync sourced materials for the doc.
+    await syncJobMaterialsForDocument(tx, documentId);
     return undefined;
   }).then(() => getDocument(documentId));
+}
+
+// ---------------------------------------------------------------------------
+// Approved document → job materials propagation
+// ---------------------------------------------------------------------------
+
+const MATERIAL_SOURCE_TYPE = "billing_document_line";
+
+/**
+ * Mirror an APPROVED cost document's material lines into the linked jobs'
+ * `materials` lists (quantity + purchase price bez DPH), so účtenky / dodací
+ * listy automatically populate the job detail for later invoicing.
+ *
+ * Idempotent: each propagated material row is keyed back to its source
+ * `billing_document_line` via (sourceType, sourceId), so re-running updates the
+ * same row in place instead of duplicating (preserving its `done`/`sortOrder`).
+ * The set is reconciled every call: lines that are no longer eligible (line
+ * removed, lost its job, became a fee, allocated to stock, or the whole
+ * document left "approved") have their sourced material removed.
+ *
+ * Skipped: fee lines, non-material line types, and stock-allocated lines (those
+ * go to the warehouse, not a job). A line's job is its own `jobId`, falling back
+ * to the document's `jobId`. Must run inside the caller's transaction.
+ */
+export async function syncJobMaterialsForDocument(
+  tx: DbOrTx,
+  documentId: number,
+): Promise<void> {
+  const [doc] = await tx
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) return;
+
+  const lines = await tx
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, documentId));
+  const lineIds = lines.map((l) => l.id);
+
+  const existing = lineIds.length
+    ? await tx
+        .select()
+        .from(materialsTable)
+        .where(
+          and(
+            eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            inArray(materialsTable.sourceId, lineIds),
+          ),
+        )
+    : [];
+  const desired = new Set<number>();
+
+  // Only an approved document propagates; otherwise the loop is skipped and any
+  // previously-sourced materials below are reconciled away.
+  if (doc.status === "approved") {
+    for (const line of lines) {
+      if (line.feeType) continue;
+      if (line.lineType !== "material") continue;
+      if (line.allocationType === "stock") continue;
+      const jobId = line.jobId ?? doc.jobId;
+      if (jobId == null) continue;
+
+      desired.add(line.id);
+      const values = {
+        jobId,
+        name: line.description,
+        quantity:
+          line.quantity == null ? null : String(round2(num(line.quantity))),
+        unit: line.unit ?? null,
+        pricePerUnit:
+          line.unitPriceWithoutVat == null
+            ? null
+            : String(round2(num(line.unitPriceWithoutVat))),
+      };
+      // Atomic upsert keyed on the partial unique index
+      // (source_type, source_id) WHERE source_type IS NOT NULL, so concurrent
+      // approvals/edits of the same line converge instead of one failing the
+      // unique constraint with a 500.
+      await tx
+        .insert(materialsTable)
+        .values({
+          ...values,
+          sourceType: MATERIAL_SOURCE_TYPE,
+          sourceId: line.id,
+        })
+        .onConflictDoUpdate({
+          target: [materialsTable.sourceType, materialsTable.sourceId],
+          targetWhere: isNotNull(materialsTable.sourceType),
+          set: values,
+        });
+    }
+  }
+
+  const toDelete = existing
+    .filter((m) => m.sourceId == null || !desired.has(m.sourceId))
+    .map((m) => m.id);
+  if (toDelete.length) {
+    await tx.delete(materialsTable).where(inArray(materialsTable.id, toDelete));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1453,6 +1567,8 @@ export async function approveDocument(id: number, actor: Actor) {
           eq(billingDocumentLinesTable.allocationType, REBILL_ALLOC),
         ),
       );
+    // Propagate the approved material lines into their jobs' materials lists.
+    await syncJobMaterialsForDocument(tx, id);
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -1608,6 +1724,8 @@ export async function setDocumentStatus(
           ),
         );
     }
+    // Reconcile job materials (removes them when leaving "approved").
+    await syncJobMaterialsForDocument(tx, id);
   });
   return getDocument(id);
 }
@@ -1641,16 +1759,33 @@ export async function deleteDocument(id: number, actor: Actor) {
   if (invoiced) {
     throw appError(409, "Doklad má položky na faktuře a nelze jej smazat.");
   }
-  await db.delete(billingDocumentsTable).where(eq(billingDocumentsTable.id, id));
-  await db.insert(auditLogTable).values({
-    actorUserId: actor.userId,
-    actorName: actor.name,
-    action: "delete",
-    entityType: "billing_documents",
-    entityId: id,
-    summary: `Nákladový doklad smazán${doc.documentNumber ? ` (${doc.documentNumber})` : ""}`,
-    method: "DELETE",
-    path: `/billing/documents/${id}`,
+  // Atomic: remove propagated job materials, delete the document (cascading its
+  // lines), and audit — all or nothing. Materials must go first while the lines
+  // still exist (materials reference lines by id, not via FK).
+  await db.transaction(async (tx) => {
+    await tx.delete(materialsTable).where(
+      and(
+        eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+        inArray(
+          materialsTable.sourceId,
+          tx
+            .select({ id: billingDocumentLinesTable.id })
+            .from(billingDocumentLinesTable)
+            .where(eq(billingDocumentLinesTable.documentId, id)),
+        ),
+      ),
+    );
+    await tx.delete(billingDocumentsTable).where(eq(billingDocumentsTable.id, id));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "delete",
+      entityType: "billing_documents",
+      entityId: id,
+      summary: `Nákladový doklad smazán${doc.documentNumber ? ` (${doc.documentNumber})` : ""}`,
+      method: "DELETE",
+      path: `/billing/documents/${id}`,
+    });
   });
 }
 

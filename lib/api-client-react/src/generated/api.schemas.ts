@@ -280,6 +280,10 @@ export interface Material {
   pricePerUnit?: number | null;
   done: boolean;
   sortOrder: number;
+  /** @nullable */
+  sourceType?: string | null;
+  /** @nullable */
+  sourceId?: number | null;
   createdAt: string;
 }
 

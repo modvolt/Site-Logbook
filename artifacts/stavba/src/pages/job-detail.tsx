@@ -995,6 +995,9 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
                   <ShoppingCart className="w-4 h-4 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <span className="font-medium text-sm">{m.name}</span>
+                    {m.sourceType && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Z dokladu</span>
+                    )}
                     {(m.quantity != null || m.unit) && (
                       <span className="text-muted-foreground text-xs ml-2">{m.quantity} {m.unit}</span>
                     )}

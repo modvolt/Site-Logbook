@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "materials_source_uq" ON "materials" USING btree ("source_type","source_id") WHERE "materials"."source_type" is not null;
