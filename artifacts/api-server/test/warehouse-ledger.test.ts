@@ -5,6 +5,8 @@ import {
   usersTable,
   jobsTable,
   materialsTable,
+  activitiesTable,
+  activityMaterialsTable,
   warehouseItemsTable,
   warehouseMovementsTable,
   billingDocumentsTable,
@@ -13,6 +15,7 @@ import {
 import {
   createManualMovement,
   reconcileMaterialStockMovement,
+  reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
   netSignedForSources,
   listItemMovements,
@@ -42,6 +45,7 @@ const actor = { userId: 0, name: "Test Runner" };
 const itemIds: number[] = [];
 const jobIds: number[] = [];
 const docIds: number[] = [];
+const activityIds: number[] = [];
 
 /** Read the cached quantity column for an item. */
 async function itemQty(itemId: number): Promise<number> {
@@ -147,6 +151,12 @@ afterEach(async () => {
       .delete(billingDocumentsTable)
       .where(inArray(billingDocumentsTable.id, docIds));
     docIds.length = 0;
+  }
+  if (activityIds.length) {
+    await db
+      .delete(activitiesTable)
+      .where(inArray(activitiesTable.id, activityIds));
+    activityIds.length = 0;
   }
   if (jobIds.length) {
     await db.delete(jobsTable).where(inArray(jobsTable.id, jobIds));
@@ -323,5 +333,119 @@ describe("job material issue lifecycle", () => {
 
     // The source's net contribution is fully on B now.
     expect(await netSignedForSources(db, "material", [materialId])).toBeCloseTo(-30, 2);
+  });
+});
+
+describe("activity material issue lifecycle", () => {
+  async function makeActivity(): Promise<number> {
+    const [activity] = await db
+      .insert(activitiesTable)
+      .values({ name: `Činnost ${TAG}` })
+      .returning();
+    activityIds.push(activity.id);
+    return activity.id;
+  }
+
+  async function insertActivityMaterial(
+    activityId: number,
+    name: string,
+    quantity: string,
+  ): Promise<number> {
+    const [m] = await db
+      .insert(activityMaterialsTable)
+      .values({ activityId, name, quantity, pricePerUnit: "10" })
+      .returning();
+    return m.id;
+  }
+
+  it("issue → edit → delete keeps stock consistent and nets to zero on delete", async () => {
+    const itemId = await makeItem({ name: `Trubka ${TAG}` });
+    // Opening balance of 100 via a manual receipt.
+    await createManualMovement(db, itemId, { direction: "in", quantity: 100 }, actor);
+    const activityId = await makeActivity();
+
+    // Issue 10 → −10. The route always passes jobId: null for activity materials.
+    const materialId = await insertActivityMaterial(activityId, `Trubka ${TAG}`, "10");
+    await db.transaction(async (tx) => {
+      const [m] = await tx
+        .select()
+        .from(activityMaterialsTable)
+        .where(eq(activityMaterialsTable.id, materialId));
+      await reconcileActivityMaterialStockMovement(
+        tx,
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        actor,
+      );
+    });
+    expect(await expectConsistent(itemId)).toBeCloseTo(90, 2);
+
+    // Edit to 15 → only the −5 delta is appended.
+    await db.transaction(async (tx) => {
+      const [m] = await tx
+        .update(activityMaterialsTable)
+        .set({ quantity: "15" })
+        .where(eq(activityMaterialsTable.id, materialId))
+        .returning();
+      await reconcileActivityMaterialStockMovement(
+        tx,
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        actor,
+      );
+    });
+    expect(await expectConsistent(itemId)).toBeCloseTo(85, 2);
+
+    // Delete → reverse the issue; stock returns to the opening balance and the
+    // source's net contribution ends at exactly zero.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(activityMaterialsTable)
+        .where(eq(activityMaterialsTable.id, materialId));
+      await reconcileSourceMovements(tx, "activity_material", materialId, null, actor);
+    });
+    expect(await expectConsistent(itemId)).toBeCloseTo(100, 2);
+    expect(await netSignedForSources(db, "activity_material", [materialId])).toBeCloseTo(0, 2);
+  });
+
+  it("re-matching an activity material to a different item moves stock between both", async () => {
+    const itemA = await makeItem({ name: `Spojka A ${TAG}` });
+    const itemB = await makeItem({ name: `Spojka B ${TAG}` });
+    await createManualMovement(db, itemA, { direction: "in", quantity: 100 }, actor);
+    await createManualMovement(db, itemB, { direction: "in", quantity: 100 }, actor);
+    const activityId = await makeActivity();
+
+    // Issue 30 against A (matched by name).
+    const materialId = await insertActivityMaterial(activityId, `Spojka A ${TAG}`, "30");
+    await db.transaction(async (tx) => {
+      const [m] = await tx
+        .select()
+        .from(activityMaterialsTable)
+        .where(eq(activityMaterialsTable.id, materialId));
+      await reconcileActivityMaterialStockMovement(
+        tx,
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        actor,
+      );
+    });
+    expect(await expectConsistent(itemA)).toBeCloseTo(70, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(100, 2);
+
+    // Rename the material to match B: A is restored, B is drawn down.
+    await db.transaction(async (tx) => {
+      const [m] = await tx
+        .update(activityMaterialsTable)
+        .set({ name: `Spojka B ${TAG}` })
+        .where(eq(activityMaterialsTable.id, materialId))
+        .returning();
+      await reconcileActivityMaterialStockMovement(
+        tx,
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        actor,
+      );
+    });
+    expect(await expectConsistent(itemA)).toBeCloseTo(100, 2);
+    expect(await expectConsistent(itemB)).toBeCloseTo(70, 2);
+
+    // The source's net contribution is fully on B now.
+    expect(await netSignedForSources(db, "activity_material", [materialId])).toBeCloseTo(-30, 2);
   });
 });
