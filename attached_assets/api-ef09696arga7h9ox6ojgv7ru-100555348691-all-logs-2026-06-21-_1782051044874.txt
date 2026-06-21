@@ -1,0 +1,857 @@
+{"level":30,"time":1782036986225,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782036987558,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782036987559,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '17cpikmdlfsqjwaeb79k'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782037462435,"pid":1,"hostname":"101f0300485c","req":{"id":9,"method":"POST","url":"/api/billing/documents/upload"},"res":{"statusCode":200},"responseTime":163,"msg":"request completed"}
+{"level":30,"time":1782037462602,"pid":1,"hostname":"101f0300485c","req":{"id":10,"method":"GET","url":"/api/billing/documents/13"},"res":{"statusCode":200},"responseTime":36,"msg":"request completed"}
+{"level":30,"time":1782037462637,"pid":1,"hostname":"101f0300485c","req":{"id":11,"method":"GET","url":"/api/billing/documents"},"res":{"statusCode":200},"responseTime":70,"msg":"request completed"}
+{"level":30,"time":1782037462650,"pid":1,"hostname":"101f0300485c","req":{"id":12,"method":"GET","url":"/api/billing/documents"},"res":{"statusCode":304},"responseTime":75,"msg":"request completed"}
+{"level":30,"time":1782037462724,"pid":1,"hostname":"101f0300485c","req":{"id":13,"method":"GET","url":"/api/jobs"},"res":{"statusCode":304},"responseTime":146,"msg":"request completed"}
+{"level":30,"time":1782037465182,"pid":1,"hostname":"101f0300485c","req":{"id":14,"method":"POST","url":"/api/billing/documents/13/extract"},"res":{"statusCode":200},"responseTime":48,"msg":"request completed"}
+{"level":30,"time":1782037465288,"pid":1,"hostname":"101f0300485c","req":{"id":15,"method":"GET","url":"/api/billing/documents/13"},"res":{"statusCode":304},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1782037476426,"pid":1,"hostname":"101f0300485c","req":{"id":16,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782037482466,"pid":1,"hostname":"101f0300485c","extractionJobId":35,"documentId":13,"confidence":0.97,"msg":"AI extraction completed"}
+{"level":30,"time":1782037506686,"pid":1,"hostname":"101f0300485c","req":{"id":17,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782037536904,"pid":1,"hostname":"101f0300485c","req":{"id":18,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782037567105,"pid":1,"hostname":"101f0300485c","req":{"id":19,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782037597321,"pid":1,"hostname":"101f0300485c","req":{"id":20,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037612175,"pid":1,"hostname":"101f0300485c","req":{"id":21,"method":"POST","url":"/api/billing/documents/13/extract"},"res":{"statusCode":200},"responseTime":62,"msg":"request completed"}
+{"level":30,"time":1782037612293,"pid":1,"hostname":"101f0300485c","req":{"id":22,"method":"GET","url":"/api/billing/documents/13"},"res":{"statusCode":200},"responseTime":28,"msg":"request completed"}
+{"level":30,"time":1782037622418,"pid":1,"hostname":"101f0300485c","req":{"id":23,"method":"PATCH","url":"/api/billing/documents/13/references/13"},"res":{"statusCode":200},"responseTime":66,"msg":"request completed"}
+{"level":30,"time":1782037622548,"pid":1,"hostname":"101f0300485c","req":{"id":24,"method":"GET","url":"/api/billing/documents/13"},"res":{"statusCode":200},"responseTime":28,"msg":"request completed"}
+{"level":30,"time":1782037624775,"pid":1,"hostname":"101f0300485c","req":{"id":25,"method":"PATCH","url":"/api/billing/documents/13/references/13"},"res":{"statusCode":200},"responseTime":35,"msg":"request completed"}
+{"level":30,"time":1782037624896,"pid":1,"hostname":"101f0300485c","req":{"id":26,"method":"GET","url":"/api/billing/documents/13"},"res":{"statusCode":200},"responseTime":26,"msg":"request completed"}
+{"level":30,"time":1782037627562,"pid":1,"hostname":"101f0300485c","req":{"id":27,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037627666,"pid":1,"hostname":"101f0300485c","req":{"id":28,"method":"POST","url":"/api/billing/documents/13/approve"},"res":{"statusCode":200},"responseTime":36,"msg":"request completed"}
+{"level":30,"time":1782037627785,"pid":1,"hostname":"101f0300485c","req":{"id":29,"method":"GET","url":"/api/billing/documents/13"},"res":{"statusCode":200},"responseTime":25,"msg":"request completed"}
+{"level":30,"time":1782037630371,"pid":1,"hostname":"101f0300485c","req":{"id":30,"method":"GET","url":"/api/billing/documents"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+{"level":30,"time":1782037630392,"pid":1,"hostname":"101f0300485c","req":{"id":31,"method":"GET","url":"/api/billing/documents"},"res":{"statusCode":200},"responseTime":31,"msg":"request completed"}
+{"level":30,"time":1782037638710,"pid":1,"hostname":"101f0300485c","req":{"id":32,"method":"POST","url":"/api/billing/documents/upload"},"res":{"statusCode":200},"responseTime":98,"msg":"request completed"}
+{"level":30,"time":1782037638946,"pid":1,"hostname":"101f0300485c","req":{"id":34,"method":"GET","url":"/api/billing/documents/14"},"res":{"statusCode":200},"responseTime":17,"msg":"request completed"}
+{"level":30,"time":1782037638955,"pid":1,"hostname":"101f0300485c","req":{"id":33,"method":"GET","url":"/api/billing/documents"},"res":{"statusCode":304},"responseTime":27,"msg":"request completed"}
+{"level":30,"time":1782037638967,"pid":1,"hostname":"101f0300485c","req":{"id":35,"method":"GET","url":"/api/billing/documents"},"res":{"statusCode":200},"responseTime":36,"msg":"request completed"}
+{"level":30,"time":1782037638968,"pid":1,"hostname":"101f0300485c","req":{"id":36,"method":"GET","url":"/api/customers"},"res":{"statusCode":304},"responseTime":34,"msg":"request completed"}
+{"level":30,"time":1782037642826,"pid":1,"hostname":"101f0300485c","req":{"id":37,"method":"POST","url":"/api/billing/documents/14/extract"},"res":{"statusCode":200},"responseTime":21,"msg":"request completed"}
+{"level":30,"time":1782037642954,"pid":1,"hostname":"101f0300485c","req":{"id":38,"method":"GET","url":"/api/billing/documents/14"},"res":{"statusCode":304},"responseTime":13,"msg":"request completed"}
+{"level":30,"time":1782037653384,"pid":1,"hostname":"101f0300485c","req":{"id":39,"method":"POST","url":"/api/billing/documents/14/extract"},"res":{"statusCode":200},"responseTime":54,"msg":"request completed"}
+{"level":30,"time":1782037653491,"pid":1,"hostname":"101f0300485c","req":{"id":40,"method":"GET","url":"/api/billing/documents/14"},"res":{"statusCode":304},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1782037654775,"pid":1,"hostname":"101f0300485c","extractionJobId":38,"documentId":14,"confidence":0.96,"msg":"AI extraction completed"}
+{"level":30,"time":1782037657776,"pid":1,"hostname":"101f0300485c","req":{"id":41,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037688036,"pid":1,"hostname":"101f0300485c","req":{"id":42,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+{"level":30,"time":1782037715248,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782037716649,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782037716650,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'cbz6hi8cjvz7wewivkfj'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782037716650,"pid":1,"hostname":"101f0300485c","intervalHours":24,"msg":"Backup scheduler started"}
+{"level":30,"time":1782037716650,"pid":1,"hostname":"101f0300485c","intervalHours":12,"msg":"Invoice reminder scheduler started"}
+{"level":30,"time":1782037716650,"pid":1,"hostname":"101f0300485c","pollMs":5000,"msg":"Extraction worker started"}
+{"level":30,"time":1782037716650,"pid":1,"hostname":"101f0300485c","tickMs":60000,"msg":"Email import worker started"}
+{"level":30,"time":1782037720349,"pid":1,"hostname":"101f0300485c","req":{"id":1,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":20,"msg":"request completed"}
+{"level":30,"time":1782037750609,"pid":1,"hostname":"101f0300485c","req":{"id":2,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037780816,"pid":1,"hostname":"101f0300485c","req":{"id":3,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+{"level":30,"time":1782037811047,"pid":1,"hostname":"101f0300485c","req":{"id":4,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782037841300,"pid":1,"hostname":"101f0300485c","req":{"id":5,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037871599,"pid":1,"hostname":"101f0300485c","req":{"id":6,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037901848,"pid":1,"hostname":"101f0300485c","req":{"id":7,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037932093,"pid":1,"hostname":"101f0300485c","req":{"id":8,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782037962309,"pid":1,"hostname":"101f0300485c","req":{"id":9,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782037992560,"pid":1,"hostname":"101f0300485c","req":{"id":10,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782038022793,"pid":1,"hostname":"101f0300485c","req":{"id":11,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":0,"msg":"request completed"}
+{"level":30,"time":1782038053303,"pid":1,"hostname":"101f0300485c","req":{"id":12,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '10p6t5rfzdplmyprd76r'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782038079652,"pid":7,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782038081217,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782038081218,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'z0jc9ykfh11nvmwythky'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'm7q7ysk9n4aonf6fhej7'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782038810717,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782038812141,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782038812142,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+{"level":30,"time":1782039175445,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782039176815,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782039176817,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '178do1yel1byak2ycv9x'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782039756926,"pid":1,"hostname":"101f0300485c","req":{"id":8,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782039787165,"pid":1,"hostname":"101f0300485c","req":{"id":9,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+{"level":30,"time":1782039817473,"pid":1,"hostname":"101f0300485c","req":{"id":10,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1782039847718,"pid":1,"hostname":"101f0300485c","req":{"id":11,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782039877951,"pid":1,"hostname":"101f0300485c","req":{"id":12,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+{"level":30,"time":1782039904869,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782039906175,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782039906176,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '4a8qpjjbr1azdt78xh8d'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '1d58is584qrtw1eh7vob'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'hkbqosot51og9p64w6ox'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'l522juh5mzka29k9zrlm'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'ef180oihg3oiv9w26m3t'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'muoa79mb250y5r887qde'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782042036079,"pid":1,"hostname":"101f0300485c","req":{"id":11,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":0,"msg":"request completed"}
+{"level":30,"time":1782042066312,"pid":1,"hostname":"101f0300485c","req":{"id":12,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782042093312,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782042094455,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782042094457,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'fuxtpz9fx680465ka61o'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782042430944,"pid":1,"hostname":"101f0300485c","req":{"id":12,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782042457573,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782042458686,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782042458686,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '13rxfyw3bc52gun6ongv'
+}
+
+Node.js v24.17.0
+node:events:487
+{"level":30,"time":1782042823732,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782042824767,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782042824768,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '7uidof6wr5s76le0wf3c'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+{"level":30,"time":1782043187905,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782043189030,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782043189031,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '18r7pe7ukthvl8jafjk8'
+}
+
+Node.js v24.17.0
+node:events:487
+{"level":30,"time":1782043553409,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782043554591,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782043554592,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '1irh6tiwzw3de3lex3eq'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '1b28t65w22q9txuradzt'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782044191945,"pid":1,"hostname":"101f0300485c","req":{"id":15,"method":"GET","url":"/api/jobs/38/time-entries"},"res":{"statusCode":304},"responseTime":29,"msg":"request completed"}
+{"level":30,"time":1782044191962,"pid":1,"hostname":"101f0300485c","req":{"id":13,"method":"GET","url":"/api/jobs/38/attachments"},"res":{"statusCode":200},"responseTime":64,"msg":"request completed"}
+{"level":30,"time":1782044191966,"pid":1,"hostname":"101f0300485c","req":{"id":14,"method":"GET","url":"/api/people"},"res":{"statusCode":304},"responseTime":54,"msg":"request completed"}
+{"level":30,"time":1782044194315,"pid":1,"hostname":"101f0300485c","req":{"id":16,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":304},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1782044194465,"pid":1,"hostname":"101f0300485c","req":{"id":17,"method":"GET","url":"/api/jobs/38"},"res":{"statusCode":304},"responseTime":18,"msg":"request completed"}
+{"level":30,"time":1782044194648,"pid":1,"hostname":"101f0300485c","req":{"id":18,"method":"GET","url":"/api/jobs/38/attachments"},"res":{"statusCode":304},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1782044194654,"pid":1,"hostname":"101f0300485c","req":{"id":20,"method":"GET","url":"/api/people"},"res":{"statusCode":304},"responseTime":17,"msg":"request completed"}
+{"level":30,"time":1782044194690,"pid":1,"hostname":"101f0300485c","req":{"id":19,"method":"GET","url":"/api/customers"},"res":{"statusCode":304},"responseTime":56,"msg":"request completed"}
+{"level":30,"time":1782044194691,"pid":1,"hostname":"101f0300485c","req":{"id":21,"method":"GET","url":"/api/jobs/38/time-entries"},"res":{"statusCode":304},"responseTime":48,"msg":"request completed"}
+{"level":30,"time":1782044195426,"pid":1,"hostname":"101f0300485c","req":{"id":22,"method":"GET","url":"/api/dashboard/today"},"res":{"statusCode":304},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1782044195430,"pid":1,"hostname":"101f0300485c","req":{"id":23,"method":"GET","url":"/api/dashboard/summary"},"res":{"statusCode":304},"responseTime":11,"msg":"request completed"}
+{"level":30,"time":1782044195561,"pid":1,"hostname":"101f0300485c","req":{"id":24,"method":"GET","url":"/api/jobs"},"res":{"statusCode":200},"responseTime":10,"msg":"request completed"}
+{"level":30,"time":1782044197066,"pid":1,"hostname":"101f0300485c","req":{"id":26,"method":"GET","url":"/api/preferences"},"res":{"statusCode":304},"responseTime":12,"msg":"request completed"}
+{"level":30,"time":1782044197087,"pid":1,"hostname":"101f0300485c","req":{"id":25,"method":"GET","url":"/api/jobs"},"res":{"statusCode":200},"responseTime":43,"msg":"request completed"}
+{"level":30,"time":1782044198281,"pid":1,"hostname":"101f0300485c","req":{"id":27,"method":"GET","url":"/api/jobs"},"res":{"statusCode":200},"responseTime":129,"msg":"request completed"}
+{"level":30,"time":1782044198975,"pid":1,"hostname":"101f0300485c","req":{"id":28,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1782044229227,"pid":1,"hostname":"101f0300485c","req":{"id":29,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782044259478,"pid":1,"hostname":"101f0300485c","req":{"id":30,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1782044287556,"pid":8,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782044288642,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782044288643,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '19m04fetrrak8jobq53i'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '13km6cpi8jdywavd2542'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'rqcjqvk0hev05rlwvvsh'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '10otreclgoigreczvo78'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '5ayu4zoh9wy3uw67msto'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'cu5knqbl4nr45dxeksgz'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '0uwiujr6eyqt4xdsfx4u'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '18f3gkxhzkl07o4jk08r'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782046841233,"pid":7,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782046842667,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+{"level":30,"time":1782046842668,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'zk449p0gltr6ndr2vujf'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'ettwjm4iqj6fcgz18cfv'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'l5yyzoqytwxn5dstvwzy'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'kpeiuekfjg7z8bwqm87u'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '1fihhik8li4jrhc6eo0q'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'lhtzlhcumvh4w7n1kghg'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+{"level":30,"time":1782049398468,"pid":7,"hostname":"101f0300485c","msg":"Database migrations applied successfully."}
+{"level":30,"time":1782049399794,"pid":1,"hostname":"101f0300485c","port":5000,"msg":"Server listening"}
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '2fj9wcm6qa5on9ef9qgq'
+}
+
+Node.js v24.17.0
+{"level":30,"time":1782049399796,"pid":1,"hostname":"101f0300485c","backend":"s3","endpoint":"https://fsn1.your-objectstorage.com","region":<REDACTED>@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: 'eboprxb8jjw8535g3p45'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '1a1rs97f3rribcxnmvx3'
+}
+
+Node.js v24.17.0
+node:events:487
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: Socket timeout
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:949:29)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+Emitted 'error' event on ImapFlow instance at:
+    at ImapFlow.emitError (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:452:14)
+    at TLSSocket.<anonymous> (/app/node_modules/.pnpm/imapflow@1.4.2/node_modules/imapflow/lib/imap-flow.js:969:26)
+    at TLSSocket.emit (node:events:509:28)
+    at Socket._onTimeout (node:net:611:8)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7) {
+  code: 'ETIMEOUT',
+  _connId: '1z3urs2bp8t7tcy72yzj'
+}
+
+Node.js v24.17.0

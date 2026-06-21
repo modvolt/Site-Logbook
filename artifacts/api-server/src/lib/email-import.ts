@@ -176,7 +176,7 @@ export async function resolveImapConfig(): Promise<ResolvedImapConfig | null> {
 }
 
 function newClient(cfg: ResolvedImapConfig): ImapFlow {
-  return new ImapFlow({
+  const client = new ImapFlow({
     host: cfg.host,
     port: cfg.port,
     secure: cfg.secure,
@@ -184,6 +184,19 @@ function newClient(cfg: ResolvedImapConfig): ImapFlow {
     // Silence imapflow's own pino logger; we log outcomes ourselves.
     logger: false,
   });
+  // ImapFlow is an EventEmitter that emits an 'error' event on socket-level
+  // failures (e.g. "Socket timeout" / ETIMEOUT) which can fire AFTER connect()
+  // resolved — during idle or while streaming. An EventEmitter 'error' with no
+  // listener throws and crashes the whole API process (the observed deploy
+  // crash-loop). Attach a no-throw listener so these are logged, never fatal;
+  // the per-poll try/catch already records the operational outcome.
+  client.on("error", (err: unknown) => {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "IMAP klient nahlásil chybu (ignorováno, spojení se obnoví při dalším pollu)",
+    );
+  });
+  return client;
 }
 
 /**
