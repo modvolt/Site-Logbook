@@ -87,7 +87,12 @@ export default defineConfig(async ({ command }) => {
               // avoid serving one user's data to the next. Writes
               // (POST/PATCH/DELETE) are never cached.
               urlPattern: ({ url, request }) =>
-                url.pathname.startsWith("/api/") && request.method === "GET",
+                url.pathname.startsWith("/api/") &&
+                // The SSE stream (/api/events) is a long-lived response that
+                // must never be cached/cloned by the service worker, or the
+                // real-time channel breaks. Let it pass straight to the network.
+                url.pathname !== "/api/events" &&
+                request.method === "GET",
               handler: "NetworkFirst",
               options: {
                 cacheName: "stavba-api",

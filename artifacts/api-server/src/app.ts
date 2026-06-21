@@ -8,6 +8,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { attachAuth, requireAuth, requireWriteAccess } from "./middlewares/auth";
 import { auditMutations } from "./middlewares/audit";
+import { broadcastMutations } from "./middlewares/live-updates";
 
 const app: Express = express();
 
@@ -133,6 +134,9 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 
 // Record successful data mutations to the audit log (after auth so the actor is known)
 app.use("/api", auditMutations);
+
+// Broadcast successful mutations to other devices' open screens (SSE push)
+app.use("/api", broadcastMutations);
 
 app.use("/api", router);
 

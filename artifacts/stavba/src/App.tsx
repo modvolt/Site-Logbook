@@ -9,6 +9,7 @@ import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { QuickAddDateProvider } from "@/hooks/use-quick-add-date";
+import { useLiveUpdates } from "@/hooks/use-live-updates";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -92,6 +93,9 @@ function WriteOnly({ component: Component }: { component: React.ComponentType })
 }
 
 function AuthenticatedApp() {
+  // Keep open screens live with changes made on other devices (SSE push).
+  // Only active while authenticated, so the stream is never opened on /login.
+  useLiveUpdates();
   return (
     <QuickAddDateProvider>
       <Layout>
