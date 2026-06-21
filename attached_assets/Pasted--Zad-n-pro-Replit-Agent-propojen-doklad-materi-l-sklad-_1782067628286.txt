@@ -1,0 +1,284 @@
+# Zadání pro Replit Agent: propojení dokladů → materiál → sklad → fakturace
+
+> Vlož tento dokument jako prompt do Replit Agenta v repozitáři `modvolt/Site-Logbook`.
+> Agent má přímý přístup k repu, databázi a build/test toolchainu — využij to a po
+> každé fázi spouštěj `pnpm run typecheck` a relevantní testy, místo abys čekal na
+> konec celého úkolu. Postupuj přesně v pořadí fází níže — každá fáze je navržena
+> tak, aby šla mergovat samostatně a nic nerozbila.
+
+## 0. Kontext — co už v repu funguje a nesmí se rozbít
+
+Repo už řeší správně:
+- `materials` upsert z `billing_document_lines` přes partial unique index
+  `materials_source_uq (source_type, source_id) WHERE source_type IS NOT NULL`
+  → `syncJobMaterialsForDocument()` v `artifacts/api-server/src/lib/cost-document-service.ts`.
+- Append-only skladová ledger s idempotentní reconciliací podle zdroje
+  (`reconcileSourceMovements()` v `artifacts/api-server/src/lib/warehouse-service.ts`).
+- Document-level matching skóre faktura ↔ dodací list ↔ zakázka
+  (`scoreDeliveryNoteToInvoice()`, `rankJobsForReference()` v `document-matching.ts`).
+- AI extrakce jako pouhý `needs_review` návrh, nikdy auto-schválené
+  (`applyAiSuggestion()`, `extraction-worker.ts`).
+
+**Nepřepisuj tyto mechanismy.** Nová práce na ně navazuje. Konkrétně: nikdy nevytvářej
+nový skladový pohyb mimo `reconcileSourceMovements`/`reconcileMaterialStockMovement` —
+jinak hrozí dvojí odečet skladu (akceptační kritérium #24 ze zadání).
+
+## 1. Hlavní mezera, kterou řešíme
+
+`syncJobMaterialsForDocument()` dnes nastaví cenu materiálu **jen z dokladu, který
+materiál vytvořil** (typicky dodací list, kde bývá cena 0/prázdná). Když později
+přijde a schválí se navazující faktura, nic cenu zpětně nepřenese na existující
+řádek `materials`. To je přesně problém č. 1–3 z původního zadání firmy.
+
+---
+
+## FÁZE 1 — DB migrace (základ, bez kterého nejde nic dalšího)
+
+Pracuj v `lib/db/src/schema/`. Po každé změně spusť
+`pnpm --filter @workspace/db run generate` (drizzle-kit vygeneruje SQL migraci do
+`lib/db/migrations/`), zkontroluj vygenerovaný SQL ručně, pak `pnpm --filter @workspace/db run migrate`
+proti dev DB.
+
+### 1.1 `materials.ts` — stav a provenance ceny
+Přidej sloupce (všechny nullable, bez NOT NULL — žádná destruktivní změna):
+```
+priceSource: text("price_source")              // pending_invoice | from_invoice | from_stock_price | manual | unpriced | estimated
+priceSourceDocumentId: integer → billing_documents.id (onDelete: set null)
+priceSourceLineId: integer → billing_document_lines.id (onDelete: set null)
+priceSourceSupplierName: text
+priceSourceDate: text   // ISO YYYY-MM-DD, stejná konvence jako jinde v repu
+priceConfidence: numeric(3,2)
+adminNote: text
+```
+Backfill v té samé migraci (raw SQL v generovaném souboru, nebo `data migration` skript):
+`UPDATE materials SET price_source = CASE WHEN price_per_unit IS NOT NULL THEN 'manual' ELSE 'pending_invoice' END WHERE price_source IS NULL;`
+
+Index: `index("materials_price_source_document_idx").on(t.priceSourceDocumentId)`.
+
+### 1.2 `warehouse-items.ts` — katalogová identifikace
+Přidej: `ean text`, `supplierSku text`, `supplierName text`, `supplierIc text`,
+`manufacturer text`, `normalizedName text`. Indexy na `ean`, `supplierSku`, `normalizedName`.
+**Nezasahuj** do `quantity`/`purchasePrice` logiky — ta zůstává.
+
+### 1.3 Nová tabulka `warehouse-price-history.ts`
+```
+id, warehouseItemId → warehouse_items.id (cascade)
+supplierName, supplierIc, supplierSku, ean, manufacturer, normalizedName
+invoiceDocumentId → billing_documents.id (set null)
+invoiceLineId → billing_document_lines.id (set null), UNIQUE  // idempotence klíč
+unitPriceWithoutVat, unitPriceWithVat numeric(12,2)
+vatRate numeric(5,2)
+quantity numeric(12,2), unit text
+purchaseDate text
+confidence numeric(3,2)
+sourceType text  // 'invoice_line' | 'manual'
+createdAt timestamp default now()
+```
+Unique index na `invoiceLineId WHERE invoiceLineId IS NOT NULL` — re-run pipeline
+musí dělat `ON CONFLICT DO UPDATE`, ne duplicitní insert.
+Indexy: `warehouseItemId`, `ean`, `supplierSku`, `normalizedName`, `purchaseDate`.
+
+### 1.4 `billing-documents.ts` — chybějící indexy pro párování po řádcích
+Do `billingDocumentLinesTable` přidej indexy na `ean`, `supplierSku` (sloupce už
+existují, jen chybí index — viz bod 13 původního zadání).
+
+Zaregistruj nové tabulky v `lib/db/src/schema/index.ts` a `lib/db/src/index.ts`
+(export `warehouseItemPriceHistoryTable`, typy `WarehouseItemPriceHistory` /
+`InsertWarehouseItemPriceHistory`) — stejný vzor jako ostatní tabulky.
+
+✅ Checkpoint: `pnpm --filter @workspace/db run typecheck` (nebo ekvivalent z root
+`tsc --build`) musí projít, než pokračuješ do fáze 2.
+
+---
+
+## FÁZE 2 — Čisté funkce pro skórování a cenovou prioritu
+
+Soubor `artifacts/api-server/src/lib/document-matching.ts` — přidej (neměň existující
+exporty, jen přidávej):
+
+```ts
+export interface MatchableLine {
+  description: string;
+  ean?: string | null;
+  supplierSku?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  normalizedName?: string | null; // pokud chybí, dopočítej z description
+}
+
+export function scoreLineMatch(invoiceLine: MatchableLine, candidateLine: MatchableLine): ScoredMatch
+```
+Priorita signálů v `scoreLineMatch`: shoda EAN (nejsilnější) → shoda supplierSku →
+shoda normalizovaného názvu + podobné množství → jen podobnost názvu (slabé).
+Použij existující `normalizeReferenceNumber` jako vzor pro normalizaci názvu
+(lowercase, diakritika, whitespace) — případně přidej `normalizeItemName()` do
+`reference-extractor.ts` vedle stávajících funkcí.
+
+Nový soubor `artifacts/api-server/src/lib/job-material-pricing.ts`:
+```ts
+export interface PriceResolution {
+  unitPriceWithoutVat: number | null;
+  priceSource: "from_invoice" | "from_stock_price" | "manual" | "unpriced" | "estimated";
+  sourceDocumentId: number | null;
+  sourceLineId: number | null;
+  supplierName: string | null;
+  date: string | null;
+  confidence: number | null;
+}
+
+export function resolveJobMaterialPrice(input: {
+  matchedInvoiceLine?: { unitPriceWithoutVat: number; documentId: number; lineId: number; supplierName: string | null; issueDate: string | null; confidence: number } | null;
+  stockPriceByEanSku?: { unitPrice: number; date: string | null; supplierName: string | null } | null;
+  stockPriceByName?: { unitPrice: number; date: string | null; supplierName: string | null } | null;
+  manualPrice?: number | null;
+}): PriceResolution
+```
+Implementuj přesně prioritu z bodu 7 původního zadání (faktura → EAN/SKU historie →
+název+dodavatel historie → ruční cena → `unpriced`). **Pure funkce, žádný DB přístup**
+— testovatelná bez databáze (viz Fáze 5).
+
+✅ Checkpoint: napiš a spusť unit testy na `scoreLineMatch` a `resolveJobMaterialPrice`
+dřív, než je zapojíš do pipeline (jsou to čisté funkce, nejlevnější místo na chyby
+odhalit).
+
+---
+
+## FÁZE 3 — Napojení do pipeline (hlavní logika)
+
+V `cost-document-service.ts`:
+
+### 3.1 Konfigurace (do `.env.example` + `lib/config.ts` nebo ekvivalentu, podle
+existujícího vzoru pro `OPENAI_DOCUMENT_EXTRACTION_ENABLED`):
+```
+DOCUMENT_AUTO_LINK_ENABLED=true
+DOCUMENT_AUTO_CONFIRM_ENABLED=false
+DOCUMENT_AUTO_LINK_MIN_SCORE=0.75
+DOCUMENT_AUTO_CONFIRM_MIN_SCORE=0.92
+```
+
+### 3.2 Uprav `matchDocumentReferences()` / `suggestDocumentMatches()`
+Dnes: cokoliv se skóre > 0 se zapíše do `matchedJobId`/`matchedDocumentId`. Změň na:
+- zapsat `matchedJobId`/`matchedDocumentId` jen při `score >= DOCUMENT_AUTO_LINK_MIN_SCORE`
+  (pokud `DOCUMENT_AUTO_LINK_ENABLED`), jinak zůstává jen návrh v `candidatesByRef`/
+  return value pro UI.
+- nastavit `matchConfirmed = 1` **pouze** při `score >= DOCUMENT_AUTO_CONFIRM_MIN_SCORE`
+  **a** `DOCUMENT_AUTO_CONFIRM_ENABLED=true`. Jinak nech `matchConfirmed = 0` (beze změny
+  oproti dnešku — výchozí chování zůstává 100% manuální, protože
+  `DOCUMENT_AUTO_CONFIRM_ENABLED` defaultuje na `false`).
+
+### 3.3 Nová funkce `propagateInvoicePricesToJobMaterials(tx, documentId, actor)`
+Spouští se z `approveDocument()` hned po `syncJobMaterialsForDocument()`, **jen když**
+`doc.docType` je `invoice`/`credit_note` **a** dokument je potvrzeně spárovaný
+(`matchConfirmed=1` na referenci, nebo `primaryDocumentId`/explicitní admin link na
+dodací list). Logika:
+1. Najdi spárovaný dodací list (přes `billing_document_references` s
+   `matchedDocumentId` a `matchConfirmed=1`, nebo přes existující `mergeGroupId`/
+   `primaryDocumentId` mechanismus, pokud je doklad sloučený).
+2. Pro každou položku faktury (`billing_document_lines` kde `lineType='material'`)
+   najdi odpovídající `materials` řádek: nejdřív přes `materials.sourceId` →
+   `billing_document_lines` patřící danému dodacímu listu, spárované přes
+   `scoreLineMatch` (EAN/SKU/název). Použij `resolveJobMaterialPrice` s
+   `matchedInvoiceLine` vyplněným.
+3. `UPDATE materials SET pricePerUnit=…, priceSource='from_invoice', priceSourceDocumentId, priceSourceLineId, priceSourceSupplierName, priceSourceDate, priceConfidence WHERE id = …`
+   — **update existujícího řádku, nikdy insert** (idempotentní, žádné duplicity).
+4. Pokud se invoice line k žádnému existujícímu `materials` řádku nenajde (faktura bez
+   předchozího dodacího listu v zakázce) a faktura **má** `jobId`, vytvoř nový
+   `materials` řádek stejným upsert vzorem jako `syncJobMaterialsForDocument`
+   (`sourceType='billing_document_line'`, `sourceId=<invoice line id>`) — tím se
+   nerozbije unique constraint, protože je to nová `sourceId`.
+
+### 3.4 Přejmenuj/rozšiř `updateWarehousePricesFromDocument()` → zavolej ji
+automaticky z `approveDocument()` (ne jen jako ruční akci — ponech ruční endpoint
+pro re-trigger, ale zavolej ji i automaticky), a uvnitř navíc:
+- doplň EAN/SKU/manufacturer/normalizedName do `warehouse_items` při vytvoření/update
+  položky (dnes se matchuje jen podle `code`/name — rozšiř `loadItemMaps`-like helper
+  o EAN a SKU klíče).
+- po update `purchasePrice` vlož/aktualizuj řádek do `warehouse_price_history`
+  (`ON CONFLICT (invoice_line_id) DO UPDATE`).
+- **Nevolej žádnou skladovou pohybovou funkci navíc** — to zůstává výhradně
+  v `reconcileDocumentStockMovements`/`reconcileSourceMovements`. Tahle funkce mění
+  jen cenu a historii, nikdy množství.
+
+### 3.5 Pořadí v `approveDocument()` ať odpovídá bodu 10 zadání:
+`syncJobMaterialsForDocument` → `reconcileDocumentStockMovements` →
+`propagateInvoicePricesToJobMaterials` (jen pro invoice/credit_note) →
+`updateWarehouseCatalogAndPriceHistory` (přejmenovaná `updateWarehousePricesFromDocument`).
+Celé v jedné `db.transaction` jako dnes.
+
+✅ Checkpoint: napiš integrační test (viz Fáze 5, scénáře 1–3) dřív, než půjdeš do UI.
+
+---
+
+## FÁZE 4 — Zákaznická fakturace + UI
+
+### 4.1 `invoice-service.ts` — `getApprovedLinesForCustomer` / `listUnbilledCustomers`
+Rozšiř, aby vedle `billing_document_lines` (rebill) nabízely i `materials` řádky
+zakázky s `priceSource IN ('from_invoice','from_stock_price','manual','estimated')`
+a bez existující vazby na vystavenou fakturu zákazníkovi (přidej `invoicedAt`/
+`invoicedInvoiceId` sloupec na `materials`, pokud tam ještě není — zkontroluj, jestli
+náhodou neexistuje paralelní mechanismus přes `done`/jiné pole, ať se nezdvojí).
+Při zahrnutí do faktury označ materiál jako vyfakturovaný (bod 8, 22 zadání) a
+**nevolej znovu žádnou skladovou výdejovou logiku** — výdej už proběhl při vzniku
+materiálu v `reconcileMaterialStockMovement`.
+
+### 4.2 Frontend — `artifacts/stavba/src/pages/job-detail.tsx`
+Přidej/uprav sekci „Materiál z dokladů" se sloupci a akcemi přesně dle bodu 9
+původního zadání. Načítej data z rozšířeného materials API (`routes/materials.ts`) —
+přidej tam pole `priceSource`, `priceSourceDocumentId` (s názvem/číslem dokladu přes
+join), `priceConfidence`, `adminNote`.
+
+### 4.3 Frontend — `artifacts/stavba/src/pages/billing-document-detail.tsx`
+Přidej panel „Automatické vazby" (faktura↔DL, faktura↔zakázka, faktura↔materiál,
+faktura↔skladová položka, confidence, důvod, stav navrženo/potvrzeno/odmítnuto) —
+zdroj dat: `billing_document_references` (už existuje) + nová data z
+`propagateInvoicePricesToJobMaterials` (vrať strukturovaný log z té funkce a ulož ho
+buď do `notes`/`warnings` dokumentu, nebo do nové tabulky `document_match_log`, pokud
+chceš strukturovaná data pro UI místo textu — doporučuji druhé, ať jde filtrovat).
+
+✅ Checkpoint: po UI fázi spusť `pnpm run build` (root) — typecheck napříč celým
+monorepem včetně `lib/api-zod`/`lib/api-client-react`, pokud generuješ typy z API
+specu, regeneruj je (zkontroluj `lib/api-spec` skripty).
+
+---
+
+## FÁZE 5 — Testy (mapování na akceptační kritéria původního zadání)
+
+Piš do `artifacts/api-server/test/` vedle existujících testů, stejný vzor (zkontroluj,
+jaký test runner/fixtures tam už jsou — `vitest run` dle `package.json`).
+
+1. Dodací list nahraný do zakázky → materiál vznikne s `priceSource='pending_invoice'`.
+2. Faktura obsahující číslo DL → `propagateInvoicePricesToJobMaterials` doplní cenu
+   k existujícímu materiálu, `priceSource='from_invoice'`.
+3. Faktura bez čísla DL, ale se shodným EAN/SKU na řádku → `scoreLineMatch` najde
+   shodu, cena se doplní.
+4. Faktura bez EAN/SKU, jen podobný název → `suggestDocumentMatches` vrátí návrh,
+   ale `matchConfirmed` zůstává 0 (s defaultním `DOCUMENT_AUTO_CONFIRM_ENABLED=false`).
+5. Schválená faktura aktualizuje `warehouse_items.purchasePrice` a vloží řádek do
+   `warehouse_price_history`.
+6. Fakturace zákazníkovi použije `from_invoice` cenu, ne `from_stock_price`, pokud
+   jsou obě dostupné (test přímo na `resolveJobMaterialPrice`).
+7. Vystavení odchozí faktury označí materiál jako vyfakturovaný a nevytvoří podruhé
+   stejný skladový pohyb (`netSignedForSources` z `warehouse-service.ts` — porovnej
+   před/po vystavení faktury, musí být beze změny).
+8. **Idempotence:** zavolej `approveDocument(id)` reálně dvakrát (druhé volání po
+   `setDocumentStatus` zpátky na approved, nebo přímo zavolej vnitřní funkce pipeline
+   dvakrát nad stejným dokladem) → žádný duplicitní `materials` řádek, žádný duplicitní
+   řádek `warehouse_price_history`, `netSignedForSources` beze změny.
+9. Admin UI (smoke test / API response shape) vrací `priceSourceDocumentId` a
+   `priceSourceSupplierName` u materiálu s `from_invoice`.
+
+---
+
+## Efektivita pro agenta — doporučené pořadí práce
+
+1. Fáze 1 (migrace) → commit, typecheck.
+2. Fáze 2 (pure funkce + jejich unit testy) → commit, testy zelené bez DB.
+3. Fáze 3 (pipeline) → integrační testy ze scénářů 1, 2, 8 (nejvyšší riziko
+   duplicit/dvojího odečtu) **dřív** než zbytek scénářů.
+4. Fáze 4 (UI) až nakonec — backend musí být stabilní, než se na něj váže frontend.
+5. Po každé fázi spusť `pnpm run typecheck` z rootu (rychlejší než plný build) a
+   commitni samostatně — usnadní to review i případný revert jedné fáze bez dopadu
+   na ostatní.
+6. Nepřidávej nové npm závislosti — vše (normalizace stringů, scoring) jde napsat
+   nad tím, co repo už používá (`fast-xml-parser`, vlastní `reference-extractor.ts`
+   vzor).
