@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-client-react";
 import type { WarehouseMovement } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   Dialog,
   DialogContent,
@@ -145,11 +146,7 @@ export function ItemMovementHistoryDialog({
   const qtyValid = Number.isFinite(qty) && qty > 0;
 
   const refresh = () => {
-    queryClient.invalidateQueries({
-      queryKey: getListWarehouseItemMovementsQueryKey(itemId),
-    });
-    queryClient.invalidateQueries({ queryKey: getListWarehouseItemsQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListWarehouseMovementsQueryKey() });
+    invalidateData(queryClient, "warehouse");
   };
 
   const submit = (e: React.FormEvent) => {

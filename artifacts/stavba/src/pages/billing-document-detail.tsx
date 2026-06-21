@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   useGetCostDocument,
   getGetCostDocumentQueryKey,
@@ -134,10 +135,7 @@ export default function BillingDocumentDetail() {
   const [splitLine, setSplitLine] = useState<CostDocumentLine | null>(null);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: getGetCostDocumentQueryKey(id) });
-    queryClient.invalidateQueries({ queryKey: ["/api/billing/documents"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/billing/approved-lines"] });
-    queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+    invalidateData(queryClient, "billingDocuments", "jobs", "warehouse");
   };
 
   const doc = data?.document;

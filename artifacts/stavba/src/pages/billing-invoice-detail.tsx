@@ -17,6 +17,7 @@ import {
   getListUnbilledCustomersQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -106,10 +107,7 @@ export default function BillingInvoiceDetail() {
   const [reminderMessage, setReminderMessage] = useState("");
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: getGetInvoiceQueryKey(id) });
-    queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListUnbilledCustomersQueryKey() });
+    invalidateData(queryClient, "billingInvoices", "jobs");
   };
 
   const handleRecalc = () =>
@@ -145,9 +143,7 @@ export default function BillingInvoiceDetail() {
       { id },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getListUnbilledCustomersQueryKey() });
+          invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept smazán" });
           setLocation("/billing/invoices");
         },

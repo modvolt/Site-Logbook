@@ -14,6 +14,7 @@ import {
   type JablotronUser,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -178,10 +179,7 @@ export default function PristupoveUdaje() {
   const deleteCred = useDeleteDeviceCredential();
 
   const invalidate = () => {
-    if (customerId)
-      queryClient.invalidateQueries({
-        queryKey: getListDeviceCredentialsQueryKey(customerId),
-      });
+    if (customerId) invalidateData(queryClient, "customers");
   };
 
   const siteName = (siteId: number | null | undefined) =>

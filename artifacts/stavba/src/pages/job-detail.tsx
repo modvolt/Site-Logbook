@@ -2,8 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { format } from "date-fns";
 import { 
-  useGetJob, getGetJobQueryKey, getListJobsQueryKey,
-  getGetDashboardSummaryQueryKey, getGetTodayJobsQueryKey,
+  useGetJob, getGetJobQueryKey,
   useUpdateJobStatus, useUpdateJob, useDeleteJob,
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
@@ -55,13 +54,12 @@ import {
   showTimerNotification,
   clearTimerNotification,
 } from "@/lib/timer-notification";
+import { invalidateData } from "@/lib/query-invalidation";
 
-// Keep the jobs list, calendar and dashboard in sync after a job changes,
-// so the user never has to refresh manually (global staleTime is 5 min).
+// Po změně zakázky obnoví seznamy, kalendář, dashboard i statistiky – uživatel
+// nikdy nemusí obnovovat ručně. Vazby viz @/lib/query-invalidation.
 function invalidateJobLists(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
-  queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
-  queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+  invalidateData(queryClient, "jobs");
 }
 
 
@@ -878,8 +876,7 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   const removeEntry = useDeleteJobTimeEntry();
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: listKey });
-    queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(jobId) });
+    invalidateData(queryClient, "jobs");
   };
 
   const busy = addPerson.isPending || startTimer.isPending || stopTimer.isPending || setHours.isPending || removeEntry.isPending;
@@ -932,7 +929,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
     createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: newQty ? parseFloat(newQty) : null, unit: newUnit || null, pricePerUnit: newPrice ? parseFloat(newPrice) : null } }, {
       onSuccess: () => {
         setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
-        queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey(jobId) });
+        invalidateData(queryClient, "jobs", "warehouse");
       }
     });
   };
@@ -941,7 +938,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
     if (!confirm("Smazat materiál?")) return;
     deleteMaterial.mutate({ jobId, materialId }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey(jobId) });
+        invalidateData(queryClient, "jobs", "warehouse");
         toast({ title: "Materiál odstraněn" });
       }
     });
@@ -952,7 +949,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const saveEdit = () => {
     if (!editDraft.name?.trim()) return;
     updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: editDraft.quantity !== "" ? parseFloat(editDraft.quantity) : null, unit: editDraft.unit || null, pricePerUnit: editDraft.pricePerUnit !== "" ? parseFloat(editDraft.pricePerUnit) : null } }, {
-      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey(jobId) }); cancelEdit(); }
+      onSuccess: () => { invalidateData(queryClient, "jobs", "warehouse"); cancelEdit(); }
     });
   };
 

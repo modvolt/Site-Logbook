@@ -14,6 +14,7 @@ import {
   type UnbilledJob,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -116,12 +117,7 @@ export default function BillingUnbilledDetail() {
       },
       {
         onSuccess: (invoice) => {
-          queryClient.invalidateQueries({ queryKey: getListUnbilledCustomersQueryKey() });
-          queryClient.invalidateQueries({
-            queryKey: getGetUnbilledCustomerDetailQueryKey(customerId),
-          });
-          queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+          invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept faktury vytvořen" });
           setLocation(`/billing/invoices/${invoice.id}/edit`);
         },

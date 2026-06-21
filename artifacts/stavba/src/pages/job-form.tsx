@@ -7,6 +7,7 @@ import {
   getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey 
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Autocomplete } from "@/components/autocomplete";
@@ -205,7 +206,7 @@ export default function JobForm() {
 
     createJob.mutate({ data: jobData }, {
       onSuccess: async (newJob) => {
-        queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+        invalidateData(queryClient, "jobs", "warehouse");
         for (const title of tasks) {
           await createTask.mutateAsync({ jobId: newJob.id, data: { title } }).catch(() => {});
         }

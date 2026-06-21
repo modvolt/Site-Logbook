@@ -9,6 +9,7 @@ import {
   useReorderJobs,
 } from "@workspace/api-client-react";
 import { useQueryClient, useIsFetching } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -90,8 +91,7 @@ function DashboardJobRow({ job }: { job: any }) {
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(job.id), data);
-          queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          invalidateData(queryClient, "jobs");
           if (notify) void showTimerNotification(job.title);
           toast({ title: "Čas spuštěn" });
         },
@@ -108,8 +108,7 @@ function DashboardJobRow({ job }: { job: any }) {
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(job.id), data);
-          queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          invalidateData(queryClient, "jobs");
           void clearTimerNotification();
           toast({
             title: belowThreshold
@@ -260,8 +259,7 @@ function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(runningJob.id), data);
-          queryClient.invalidateQueries({ queryKey: getGetTodayJobsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+          invalidateData(queryClient, "jobs");
           void clearTimerNotification();
           toast({
             title: belowThreshold

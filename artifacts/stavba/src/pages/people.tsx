@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useListPeople, useCreatePerson, useDeletePerson, getListPeopleQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +28,7 @@ export default function People() {
     createPerson.mutate({ data: { name: newPersonName.trim() } }, {
       onSuccess: () => {
         setNewPersonName("");
-        queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
+        invalidateData(queryClient, "people");
         toast({ title: "Pracovník přidán" });
       },
       onError: () => {
@@ -41,7 +42,7 @@ export default function People() {
     
     deletePerson.mutate({ id }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
+        invalidateData(queryClient, "people");
         toast({ title: "Pracovník odebrán" });
       },
       onError: () => {

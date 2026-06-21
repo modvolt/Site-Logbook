@@ -11,6 +11,7 @@ import {
   getListPeopleQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -127,8 +128,7 @@ export default function StrojDetail() {
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetMachineQueryKey(id) });
-          queryClient.invalidateQueries({ queryKey: getListMachinesQueryKey() });
+          invalidateData(queryClient, "machines");
           setEditing(false);
           toast({ title: "Uloženo" });
         },
@@ -143,8 +143,7 @@ export default function StrojDetail() {
       { id, data: { assignedPersonId: value !== "none" ? parseInt(value) : null } },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetMachineQueryKey(id) });
-          queryClient.invalidateQueries({ queryKey: getListMachinesQueryKey() });
+          invalidateData(queryClient, "machines");
           toast({ title: value !== "none" ? "Přiřazeno" : "Přiřazení zrušeno" });
         },
         onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
@@ -158,7 +157,7 @@ export default function StrojDetail() {
       { id },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListMachinesQueryKey() });
+          invalidateData(queryClient, "machines");
           toast({ title: "Stroj smazán" });
           setLocation("/stroje");
         },

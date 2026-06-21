@@ -8,6 +8,7 @@ import {
   useListPeople, getListPeopleQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TimePicker } from "@/components/time-picker";
@@ -118,7 +119,7 @@ export default function Admin() {
     }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(editingId), data);
-        queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+        invalidateData(queryClient, "jobs");
         toast({ title: "Zakázka uložena" });
         cancelEdit();
       },
@@ -130,7 +131,7 @@ export default function Admin() {
     if (!confirm(`Smazat „${title}"? Tato akce je nevratná.`)) return;
     deleteJob.mutate({ id }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+        invalidateData(queryClient, "jobs");
         toast({ title: "Zakázka smazána" });
         setSelected(s => { const n = new Set(s); n.delete(id); return n; });
       },
@@ -148,7 +149,7 @@ export default function Admin() {
         ok++;
       } catch { fail++; }
     }
-    queryClient.invalidateQueries({ queryKey: getListJobsQueryKey() });
+    invalidateData(queryClient, "jobs");
     setSelected(new Set());
     toast({ title: `Smazáno ${ok}, selhalo ${fail}` });
   };

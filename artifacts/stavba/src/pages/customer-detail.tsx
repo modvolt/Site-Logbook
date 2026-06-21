@@ -10,6 +10,7 @@ import {
   getListCustomerContactsQueryKey, getListCustomerSitesQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -78,10 +79,8 @@ export default function CustomerDetail() {
   const [editingSiteId, setEditingSiteId] = useState<number | null>(null);
   const [editSite, setEditSite] = useState<SiteForm>(emptySite);
 
-  const invalidateContacts = () =>
-    queryClient.invalidateQueries({ queryKey: getListCustomerContactsQueryKey(id) });
-  const invalidateSites = () =>
-    queryClient.invalidateQueries({ queryKey: getListCustomerSitesQueryKey(id) });
+  const invalidateContacts = () => invalidateData(queryClient, "customers");
+  const invalidateSites = () => invalidateData(queryClient, "customers");
 
   const startEdit = () => {
     if (!customer) return;
@@ -114,7 +113,7 @@ export default function CustomerDetail() {
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+          invalidateData(queryClient, "customers");
           setEditing(false);
           toast({ title: "Zákazník uložen" });
         },
@@ -129,7 +128,7 @@ export default function CustomerDetail() {
       { id },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+          invalidateData(queryClient, "customers");
           toast({ title: "Zákazník smazán" });
           setLocation("/customers");
         },

@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-client-react";
 import type { WarehouseItem } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,7 +61,7 @@ export default function Sklad() {
   const updateItem = useUpdateWarehouseItem();
   const deleteItem = useDeleteWarehouseItem();
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: getListWarehouseItemsQueryKey() });
+  const invalidate = () => invalidateData(queryClient, "warehouse");
 
   const toPayload = (f: FormState) => ({
     name: f.name.trim(),

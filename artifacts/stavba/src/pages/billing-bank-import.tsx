@@ -11,6 +11,7 @@ import {
   type BankPaymentsConfirmResult,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -184,8 +185,7 @@ export default function BillingBankImport() {
     try {
       const res = await confirmMut.mutateAsync({ data: { payments } });
       setResult(res);
-      queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+      invalidateData(queryClient, "bankImport");
       toast({
         title: `Označeno jako zaplaceno: ${res.paidCount}`,
         description:

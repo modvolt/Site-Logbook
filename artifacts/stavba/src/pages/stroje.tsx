@@ -8,6 +8,7 @@ import {
   getListPeopleQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -91,7 +92,7 @@ export default function Stroje() {
       {
         onSuccess: (created) => {
           resetForm();
-          queryClient.invalidateQueries({ queryKey: getListMachinesQueryKey() });
+          invalidateData(queryClient, "machines");
           toast({ title: "Stroj přidán", description: "Otevřete detail pro QR kód." });
           setLocation(`/stroje/${created.id}`);
         },

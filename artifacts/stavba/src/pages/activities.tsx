@@ -6,6 +6,7 @@ import {
   useListCustomers, getGetMyStatsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,8 +40,7 @@ export default function Activities() {
   const deleteActivity = useDeleteActivity();
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["/activities"] });
-    queryClient.invalidateQueries({ queryKey: getGetMyStatsQueryKey() });
+    invalidateData(queryClient, "activities");
   };
 
   const handleAdd = (e: React.FormEvent) => {

@@ -54,8 +54,13 @@ import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000,
+      // Automatická obnova: data se sama načtou znovu, když se uživatel vrátí
+      // do aplikace nebo obnoví připojení. Žádný polling (refetchInterval) –
+      // šetrné na mobilní data. Krátký staleTime, aby měl refetch při fokusu
+      // smysl, ale rychlé přepínání obrazovek zbytečně nezatěžovalo síť.
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      staleTime: 30 * 1000,
     },
   },
 });

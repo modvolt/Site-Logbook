@@ -19,6 +19,7 @@ import {
   type EmailImportAttachment,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -113,7 +114,7 @@ export default function BillingEmailImport() {
     }
     // Strip the query params so a refresh doesn't re-toast.
     window.history.replaceState({}, "", window.location.pathname);
-    queryClient.invalidateQueries({ queryKey: getGetEmailImportStatusQueryKey() });
+    invalidateData(queryClient, "emailImport");
   }, [toast, queryClient]);
 
   const { data: status, isLoading: statusLoading } = useGetEmailImportStatus({
@@ -127,7 +128,7 @@ export default function BillingEmailImport() {
   const sync = useSyncEmailImport();
 
   const refreshStatus = () =>
-    queryClient.invalidateQueries({ queryKey: getGetEmailImportStatusQueryKey() });
+    invalidateData(queryClient, "emailImport");
 
   const handleConnect = () => {
     window.location.href = CONNECT_URL;
@@ -155,10 +156,7 @@ export default function BillingEmailImport() {
           title: "Synchronizace dokončena",
           description: `Načteno ${res.fetched}, nových ${res.newMessages}.`,
         });
-        refreshStatus();
-        queryClient.invalidateQueries({
-          queryKey: getListEmailImportMessagesQueryKey(),
-        });
+        invalidateData(queryClient, "emailImport");
       },
       onError: (err) =>
         toast({
@@ -366,9 +364,7 @@ function LabelSettings({
       {
         onSuccess: () => {
           toast({ title: "Nastavení uloženo" });
-          queryClient.invalidateQueries({
-            queryKey: getGetEmailImportStatusQueryKey(),
-          });
+          invalidateData(queryClient, "emailImport");
         },
         onError: (err) =>
           toast({
@@ -489,10 +485,7 @@ function MessagesSection() {
   const ignoreMsg = useIgnoreEmailImportMessage();
   const reprocessMsg = useReprocessEmailImportMessage();
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: getListEmailImportMessagesQueryKey(),
-    });
+  const invalidate = () => invalidateData(queryClient, "emailImport");
 
   const handleImport = (id: number) =>
     importMsg.mutate(

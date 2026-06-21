@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   useListCustomers, getListCustomersQueryKey,
   useListPeople, getListPeopleQueryKey,
@@ -90,9 +91,7 @@ export default function Gdpr() {
     erase.mutate({ data: { subjectType, subjectId } }, {
       onSuccess: (res) => {
         toast({ title: "Údaje vymazány", description: res.message });
-        queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListPeopleQueryKey() });
-        if (customerId != null) queryClient.invalidateQueries({ queryKey: getListCustomerContactsQueryKey(customerId) });
+        invalidateData(queryClient, "customers", "people");
         queryClient.invalidateQueries({ queryKey: getListAuditLogsQueryKey() });
         resetSelection();
       },

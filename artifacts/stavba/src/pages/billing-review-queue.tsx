@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   useListCostDocuments,
   getListCostDocumentsQueryKey,
@@ -73,9 +74,7 @@ export default function BillingReviewQueue() {
   const [bulkRunning, setBulkRunning] = useState(false);
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/billing/documents"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/billing/approved-lines"] });
-    queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+    invalidateData(queryClient, "reviewQueue", "jobs", "warehouse");
   };
 
   const toggleSelected = (id: number) => {

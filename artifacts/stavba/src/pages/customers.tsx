@@ -5,6 +5,7 @@ import {
   getListCustomersQueryKey 
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -70,7 +71,7 @@ export default function Customers() {
       onSuccess: () => {
         setNewForm(emptyForm);
         setShowAddForm(false);
-        queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+        invalidateData(queryClient, "customers");
         toast({ title: "Zákazník přidán" });
       },
       onError: () => toast({ title: "Nepodařilo se přidat zákazníka", variant: "destructive" })
@@ -105,7 +106,7 @@ export default function Customers() {
     }, {
       onSuccess: () => {
         setEditingId(null);
-        queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+        invalidateData(queryClient, "customers");
         toast({ title: "Zákazník upraven" });
       },
       onError: () => toast({ title: "Nepodařilo se upravit zákazníka", variant: "destructive" })
@@ -116,7 +117,7 @@ export default function Customers() {
     if (!confirm("Opravdu smazat tohoto zákazníka?")) return;
     deleteCustomer.mutate({ id }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+        invalidateData(queryClient, "customers");
         toast({ title: "Zákazník smazán" });
       },
       onError: () => toast({ title: "Nepodařilo se smazat zákazníka", variant: "destructive" })
@@ -159,9 +160,7 @@ export default function Customers() {
       <CustomerCsvImport
         open={showImport}
         onOpenChange={setShowImport}
-        onImported={() =>
-          queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() })
-        }
+        onImported={() => invalidateData(queryClient, "customers")}
       />
 
       {showAddForm && (

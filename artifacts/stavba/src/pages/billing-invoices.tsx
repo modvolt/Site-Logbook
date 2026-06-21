@@ -8,6 +8,7 @@ import {
   getGetBillingSummaryQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,8 +65,7 @@ export default function BillingInvoices() {
       { id, data: { status: "paid" } },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+          invalidateData(queryClient, "billingInvoices");
           toast({ title: "Označeno jako zaplaceno" });
         },
         onError: () =>
@@ -78,7 +78,7 @@ export default function BillingInvoices() {
       { id, data: { to: null, subject: null, message: null } },
       {
         onSuccess: (res) => {
-          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+          invalidateData(queryClient, "billingInvoices");
           toast({
             title: res.sent ? "Upomínka odeslána" : "Upomínku se nepodařilo odeslat",
             description: res.to ? `Příjemce: ${res.to}` : undefined,

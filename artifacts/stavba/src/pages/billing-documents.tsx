@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   useListCostDocuments,
   getListCostDocumentsQueryKey,
@@ -90,8 +91,7 @@ export default function BillingDocuments() {
   const aiReviewCount = aiReviewDocs?.length ?? 0;
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/billing/documents"] });
-    queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+    invalidateData(queryClient, "billingDocuments");
   };
 
   const doUpload = async (file: File, force: boolean) => {

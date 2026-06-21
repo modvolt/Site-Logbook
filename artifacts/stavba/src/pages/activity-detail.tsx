@@ -39,6 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { debugLog } from "@/lib/pwa";
 import { prepareImageFile } from "@/lib/prepare-image";
+import { invalidateData } from "@/lib/query-invalidation";
 
 function getAttachmentUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -132,10 +133,7 @@ export default function ActivityDetail() {
   const elapsed = useTimer(activity?.timerStartedAt);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: detailKey });
-    queryClient.invalidateQueries({ queryKey: matsKey });
-    queryClient.invalidateQueries({ queryKey: ["/activities"] });
-    queryClient.invalidateQueries({ queryKey: getGetMyStatsQueryKey() });
+    invalidateData(queryClient, "activities", "warehouse");
   };
 
   if (isLoading || !activity) {
@@ -192,8 +190,7 @@ export default function ActivityDetail() {
     if (!confirm(`Smazat akci „${activity.name}"? Smažou se i materiály.`)) return;
     deleteActivity.mutate({ id }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["/activities"] });
-        queryClient.invalidateQueries({ queryKey: getGetMyStatsQueryKey() });
+        invalidateData(queryClient, "activities", "warehouse");
         toast({ title: "Akce smazána" });
         setLocation("/activities");
       },

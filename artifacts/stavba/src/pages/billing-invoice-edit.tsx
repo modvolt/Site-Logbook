@@ -11,6 +11,7 @@ import {
   type InvoiceUpdateInput,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,9 +194,7 @@ export default function BillingInvoiceEdit() {
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getGetInvoiceQueryKey(id) });
-          queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetBillingSummaryQueryKey() });
+          invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept uložen" });
           setLocation(`/billing/invoices/${id}`);
         },
