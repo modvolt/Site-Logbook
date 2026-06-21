@@ -151,9 +151,11 @@ export const billingDocumentsTable = pgTable(
  * Individual lines of a received cost document.
  *
  * A line can be matched to a job and re-billed, marked internal/stock/not
- * re-billed, or SPLIT across several jobs. Splitting creates sibling lines that
- * reference the original via `parent_line_id` (provenance); each split line
- * carries its own quantity/job assignment.
+ * re-billed, or SPLIT across several jobs. Splitting replaces the original line
+ * with independent sibling lines, each carrying its own quantity/job assignment.
+ * `parent_line_id` exists for optional provenance, but split parts leave it null
+ * because the original line is deleted in the same transaction (so a reference
+ * to it would break this self-FK).
  *
  * Matching is only ever a SUGGESTION — `match_confirmed` stays false until an
  * admin confirms it. Nothing is auto-confirmed.

@@ -1351,9 +1351,13 @@ export interface SplitPart {
 
 /**
  * Split a line into N sibling lines by quantity. The original line is removed
- * and replaced by the parts (each referencing the original via parent_line_id
- * for provenance). The parts' quantities must sum to the original quantity
- * (within a haléř) so no value is invented or lost.
+ * and replaced by the parts (independent sibling lines, each with its own
+ * quantity / job assignment). The parts' quantities must sum to the original
+ * quantity (within a haléř) so no value is invented or lost.
+ *
+ * The parts deliberately carry `parentLineId = null`: the original line is
+ * deleted in this same transaction, so referencing its id would violate the
+ * `parent_line_id` FK. (Provenance to a deleted row is impossible anyway.)
  */
 export async function splitLine(
   documentId: number,
@@ -1421,7 +1425,7 @@ export async function splitLine(
       );
       return {
         ...vals,
-        parentLineId: lineId,
+        parentLineId: null,
         jobId: p.jobId ?? line.jobId ?? null,
         allocationType:
           p.allocationType && VALID_ALLOC.has(p.allocationType)

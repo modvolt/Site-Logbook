@@ -29,13 +29,13 @@ removed (e.g. split replaces the original), the helper alone can't see the gone
 line, so splitLine must *explicitly* delete the original line's sourced material
 before re-syncing — otherwise an orphan material survives.
 
-## Pre-existing splitLine bug (NOT caused by this feature)
+## splitLine FK self-reference (fixed)
 
-`splitLine` deletes the original line, then inserts the new parts with
-`parentLineId = <original lineId>`. But `billing_document_lines.parent_line_id`
-has an FK → `billing_document_lines(id)` (ON DELETE SET NULL). Inserting parts
-that reference the just-deleted original id violates the FK, so **split always
-500s and rolls back** — independent of the material sync. The route was never
-exercised before. **How to apply:** if split needs to work, fix the parent ref
-(e.g. set `parentLineId: null`, or insert parts before deleting/repoint), not
-the material sync. Out of scope for the propagation feature.
+`splitLine` deletes the original line, then inserts the new parts. It used to set
+`parentLineId = <original lineId>`, but `billing_document_lines.parent_line_id`
+has a self-FK → `billing_document_lines(id)`; referencing the just-deleted
+original violated it, so split **always 500'd and rolled back** (the route had
+never actually worked). **Fix:** split parts now carry `parentLineId = null` —
+provenance to a deleted row is impossible anyway, and the frontend never reads
+parentLineId (it only ever gated re-splitting). **How to apply:** never point a
+self-FK at a row deleted earlier in the same transaction; null it or reorder.
