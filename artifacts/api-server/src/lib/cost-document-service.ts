@@ -601,8 +601,15 @@ export async function createDocument(
   const parsedBy = parsed ? "isdoc" : null;
   const sourcePriority = parsed ? "isdoc" : isPdfLike(input.contentType) ? "pdf" : "manual";
 
+  // A delivery note (`delivery_note`) is not a payment document: monetary totals
+  // are normally absent, so payment-oriented reconciliation/warnings would only
+  // add noise. Keep this consistent with the AI path and the frontend's
+  // `isPaymentDocument` helper.
+  const isPaymentDoc = docType !== "delivery_note";
+
   // Sum-of-lines vs. document total reconciliation (warn → stays needs_review).
-  if (parsed && parsed.lines.length && parsed.subtotalWithoutVat != null) {
+  // Skipped for delivery notes where a document total mismatch is expected.
+  if (isPaymentDoc && parsed && parsed.lines.length && parsed.subtotalWithoutVat != null) {
     const linesSum = round2(
       parsed.lines.reduce((a, l) => a + (l.totalWithoutVat ?? 0), 0),
     );
