@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   applyMaterialMarkup,
   resolveMaterialMarkup,
+  resolveLineMaterialMarkup,
   computeLine,
   sumTotals,
 } from "../src/lib/invoice-calc";
@@ -34,6 +35,51 @@ describe("resolveMaterialMarkup", () => {
     expect(resolveMaterialMarkup(-5, 10)).toBe(0);
     expect(resolveMaterialMarkup(undefined, -5)).toBe(0);
     expect(resolveMaterialMarkup(Number.NaN, 10)).toBe(0);
+  });
+});
+
+describe("resolveLineMaterialMarkup", () => {
+  // Chain: per-line override → category default → fallback (invoice/settings).
+  it("uses the per-line override over the category default and fallback", () => {
+    expect(resolveLineMaterialMarkup(30, 20, 10)).toBe(30);
+  });
+
+  it("treats a per-line override of 0 as a deliberate opt-out (wins)", () => {
+    expect(resolveLineMaterialMarkup(0, 20, 10)).toBe(0);
+  });
+
+  it("falls through null/undefined/NaN/negative overrides to the next layer", () => {
+    expect(resolveLineMaterialMarkup(null, 20, 10)).toBe(20);
+    expect(resolveLineMaterialMarkup(undefined, 20, 10)).toBe(20);
+    expect(resolveLineMaterialMarkup(Number.NaN, 20, 10)).toBe(20);
+    expect(resolveLineMaterialMarkup(-5, 20, 10)).toBe(20);
+  });
+
+  it("uses the category default when there is no override", () => {
+    expect(resolveLineMaterialMarkup(undefined, 15, 10)).toBe(15);
+  });
+
+  it("treats a category default of 0 as a deliberate opt-out (wins over fallback)", () => {
+    expect(resolveLineMaterialMarkup(undefined, 0, 10)).toBe(0);
+  });
+
+  it("falls through an invalid category default to the global fallback", () => {
+    expect(resolveLineMaterialMarkup(undefined, null, 10)).toBe(10);
+    expect(resolveLineMaterialMarkup(undefined, Number.NaN, 10)).toBe(10);
+    expect(resolveLineMaterialMarkup(undefined, -3, 10)).toBe(10);
+  });
+
+  it("uses the global fallback when neither override nor category rule is set", () => {
+    expect(resolveLineMaterialMarkup(undefined, undefined, 12.5)).toBe(12.5);
+  });
+
+  it("collapses an invalid fallback to 0 (no markup)", () => {
+    expect(resolveLineMaterialMarkup(undefined, undefined, Number.NaN)).toBe(0);
+    expect(resolveLineMaterialMarkup(undefined, undefined, -1)).toBe(0);
+  });
+
+  it("rounds the resolved markup to 2 decimals", () => {
+    expect(resolveLineMaterialMarkup(12.345, undefined, 0)).toBe(12.35);
   });
 });
 
