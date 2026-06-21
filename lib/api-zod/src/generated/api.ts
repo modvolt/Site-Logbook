@@ -2741,6 +2741,48 @@ export const UpdateBillingSettingsResponse = zod.object({
 
 
 /**
+ * @summary List per-category material markup rules (admin only)
+ */
+export const ListMaterialMarkupRulesResponse = zod.object({
+  "rules": zod.array(zod.object({
+  "id": zod.number(),
+  "category": zod.string(),
+  "markupPercent": zod.number(),
+  "updatedAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Create or update a per-category material markup rule (admin only)
+ */
+
+export const upsertMaterialMarkupRuleBodyMarkupPercentMin = 0;
+
+
+
+export const UpsertMaterialMarkupRuleBody = zod.object({
+  "category": zod.string().min(1).describe('Warehouse-item category this rule applies to (matched case-insensitively)'),
+  "markupPercent": zod.number().min(upsertMaterialMarkupRuleBodyMarkupPercentMin).describe('Default markup percent for materials in this category (0 = no markup)')
+})
+
+export const UpsertMaterialMarkupRuleResponse = zod.object({
+  "id": zod.number(),
+  "category": zod.string(),
+  "markupPercent": zod.number(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a per-category material markup rule (admin only)
+ */
+export const DeleteMaterialMarkupRuleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary Customers with at least one done, not-yet-billed job (admin only)
  */
 export const ListUnbilledCustomersResponseItem = zod.object({
@@ -2786,7 +2828,8 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "name": zod.string(),
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
-  "pricePerUnit": zod.number().nullish()
+  "pricePerUnit": zod.number().nullish(),
+  "categoryMarkupPercent": zod.number().nullish().describe('Category-default markup (%) resolved from the matching warehouse item\'s category, or null when no category rule applies (falls back to the invoice\/settings default)')
 }))
 }))
 })
@@ -2840,6 +2883,8 @@ export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
 /**
  * @summary Create a draft invoice (admin only); does not change job status
  */
+export const createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
+
 
 
 
@@ -2848,6 +2893,10 @@ export const CreateInvoiceBody = zod.object({
   "jobIds": zod.array(zod.number()).optional().describe('Done jobs to auto-propose lines from (práce\/doprava\/parkování\/materiál)'),
   "billFineJobIds": zod.array(zod.number()).optional().describe('Subset of jobIds whose fines should also be billed (explicit opt-in)'),
   "materialMarkupPercent": zod.number().nullish().describe('Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted'),
+  "materialMarkupOverrides": zod.array(zod.object({
+  "materialId": zod.number(),
+  "markupPercent": zod.number().min(createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin).describe('Effective markup percent for this material line (0 = no markup)')
+})).optional().describe('Per-material markup overrides (highest priority); each entry overrides the category default and the invoice\/settings default for that material line'),
   "lines": zod.array(zod.object({
   "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
   "sourceId": zod.number().nullish(),

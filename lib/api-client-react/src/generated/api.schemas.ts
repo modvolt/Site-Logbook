@@ -1667,6 +1667,30 @@ export interface BillingSettingsInput {
   reminderDays?: string | null;
 }
 
+export interface MaterialMarkupRule {
+  id: number;
+  category: string;
+  markupPercent: number;
+  updatedAt: string;
+}
+
+export interface MaterialMarkupRuleList {
+  rules: MaterialMarkupRule[];
+}
+
+export interface UpsertMaterialMarkupRuleInput {
+  /**
+     * Warehouse-item category this rule applies to (matched case-insensitively)
+     * @minLength 1
+     */
+  category: string;
+  /**
+     * Default markup percent for materials in this category (0 = no markup)
+     * @minimum 0
+     */
+  markupPercent: number;
+}
+
 export interface UnbilledCustomer {
   customerId: number;
   companyName: string;
@@ -1687,6 +1711,11 @@ export interface UnbilledJobMaterial {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /**
+     * Category-default markup (%) resolved from the matching warehouse item's category, or null when no category rule applies (falls back to the invoice/settings default)
+     * @nullable
+     */
+  categoryMarkupPercent?: number | null;
 }
 
 export interface UnbilledJob {
@@ -1819,6 +1848,15 @@ export const InvoiceCreateInputVatModeDefault = {
   non_vat: 'non_vat',
 } as const;
 
+export interface MaterialMarkupOverride {
+  materialId: number;
+  /**
+     * Effective markup percent for this material line (0 = no markup)
+     * @minimum 0
+     */
+  markupPercent: number;
+}
+
 export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof typeof InvoiceLineInputSourceType];
 
 
@@ -1879,6 +1917,8 @@ export interface InvoiceCreateInput {
      * @nullable
      */
   materialMarkupPercent?: number | null;
+  /** Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line */
+  materialMarkupOverrides?: MaterialMarkupOverride[];
   /** Extra manual lines appended after the auto-proposed ones */
   lines?: InvoiceLineInput[];
   /** @nullable */

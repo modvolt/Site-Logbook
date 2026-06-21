@@ -3018,6 +3018,87 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/material-markup-rules:
+    get:
+      operationId: listMaterialMarkupRules
+      tags: [billing]
+      summary: List per-category material markup rules (admin only)
+      responses:
+        "200":
+          description: Material markup rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialMarkupRuleList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: upsertMaterialMarkupRule
+      tags: [billing]
+      summary: Create or update a per-category material markup rule (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertMaterialMarkupRuleInput"
+      responses:
+        "200":
+          description: Saved markup rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialMarkupRule"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/material-markup-rules/{id}:
+    delete:
+      operationId: deleteMaterialMarkupRule
+      tags: [billing]
+      summary: Delete a per-category material markup rule (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Invalid id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/unbilled:
     get:
       operationId: listUnbilledCustomers
@@ -7090,6 +7171,11 @@ components:
         materialMarkupPercent:
           type: ["number", "null"]
           description: Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
+        materialMarkupOverrides:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterialMarkupOverride"
+          description: Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line
         lines:
           type: array
           items:
@@ -7332,6 +7418,55 @@ components:
           type: ["string", "null"]
         pricePerUnit:
           type: ["number", "null"]
+        categoryMarkupPercent:
+          type: ["number", "null"]
+          description: Category-default markup (%) resolved from the matching warehouse item's category, or null when no category rule applies (falls back to the invoice/settings default)
+
+    MaterialMarkupOverride:
+      type: object
+      required: [materialId, markupPercent]
+      properties:
+        materialId:
+          type: integer
+        markupPercent:
+          type: number
+          minimum: 0
+          description: Effective markup percent for this material line (0 = no markup)
+
+    MaterialMarkupRule:
+      type: object
+      required: [id, category, markupPercent, updatedAt]
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        markupPercent:
+          type: number
+        updatedAt:
+          type: string
+
+    MaterialMarkupRuleList:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterialMarkupRule"
+
+    UpsertMaterialMarkupRuleInput:
+      type: object
+      required: [category, markupPercent]
+      properties:
+        category:
+          type: string
+          minLength: 1
+          description: Warehouse-item category this rule applies to (matched case-insensitively)
+        markupPercent:
+          type: number
+          minimum: 0
+          description: Default markup percent for materials in this category (0 = no markup)
 
     UnbilledJob:
       type: object

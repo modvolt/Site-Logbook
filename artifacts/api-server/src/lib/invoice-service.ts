@@ -1,7 +1,9 @@
-import { and, desc, eq, inArray, isNotNull, ne, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import {
   db,
   billingSettingsTable,
+  materialMarkupRulesTable,
+  warehouseItemsTable,
   invoicesTable,
   invoiceLinesTable,
   invoiceSourceLinksTable,
@@ -10,6 +12,7 @@ import {
   customersTable,
   auditLogTable,
   type BillingSettings,
+  type MaterialMarkupRule,
   type Invoice,
   type InvoiceLine,
 } from "@workspace/db";
@@ -18,12 +21,14 @@ import {
   deriveJobSourceLinks,
   applyMaterialMarkup,
   resolveMaterialMarkup,
+  resolveLineMaterialMarkup,
   num,
   round2,
   sumTotals,
   type ComputedLine,
   type VatMode,
 } from "./invoice-calc";
+import { normalizeItemName } from "./reference-extractor";
 import { generateInvoicePdf, type InvoicePdfData } from "./invoice-pdf";
 import { resolveIban, buildSpayd, generatePaymentQrDataUrl } from "./invoice-qr";
 import { ObjectStorageService } from "./objectStorage";
@@ -212,6 +217,133 @@ export async function updateBillingSettings(
     .where(eq(billingSettingsTable.id, SETTINGS_ID))
     .returning();
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// Per-category material markup rules
+// ---------------------------------------------------------------------------
+
+export function serializeMarkupRule(row: MaterialMarkupRule) {
+  return {
+    id: row.id,
+    category: row.category,
+    markupPercent: num(row.markupPercent),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function listMaterialMarkupRules() {
+  const rows = await db
+    .select()
+    .from(materialMarkupRulesTable)
+    .orderBy(asc(materialMarkupRulesTable.category));
+  return rows.map(serializeMarkupRule);
+}
+
+export interface MaterialMarkupRuleInput {
+  category: string;
+  markupPercent: number;
+}
+
+/** Insert-or-update the markup rule for a category (matched case-insensitively). */
+export async function upsertMaterialMarkupRule(input: MaterialMarkupRuleInput) {
+  const category = input.category.trim();
+  if (!category) throw appError(400, "Kategorie nesmí být prázdná.");
+  if (!Number.isFinite(input.markupPercent) || input.markupPercent < 0) {
+    throw appError(400, "Přirážka nesmí být záporná.");
+  }
+  const markup = String(round2(input.markupPercent));
+  // Category uniqueness is case-insensitive (functional unique index on
+  // lower(category)). Resolve any existing rule the same way, then update in
+  // place or insert, within one transaction to avoid a race.
+  const row = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(materialMarkupRulesTable)
+      .where(sql`lower(${materialMarkupRulesTable.category}) = lower(${category})`)
+      .limit(1);
+    if (existing) {
+      const [updated] = await tx
+        .update(materialMarkupRulesTable)
+        .set({ category, markupPercent: markup, updatedAt: new Date() })
+        .where(eq(materialMarkupRulesTable.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [inserted] = await tx
+      .insert(materialMarkupRulesTable)
+      .values({ category, markupPercent: markup })
+      .returning();
+    return inserted;
+  });
+  return serializeMarkupRule(row);
+}
+
+export async function deleteMaterialMarkupRule(id: number): Promise<boolean> {
+  const deleted = await db
+    .delete(materialMarkupRulesTable)
+    .where(eq(materialMarkupRulesTable.id, id))
+    .returning({ id: materialMarkupRulesTable.id });
+  return deleted.length > 0;
+}
+
+/**
+ * Build a resolver that maps a job-material NAME to its category-default markup
+ * percent (or null when no rule applies). A material's "type" is taken from the
+ * warehouse-catalogue item it matches by normalized name; that item's category
+ * is then looked up in the markup rules. Categories are matched
+ * case-insensitively. Returns `() => null` when no rules exist (fast path).
+ */
+async function buildCategoryMarkupResolver(
+  exec: DbOrTx,
+): Promise<(name: string | null | undefined) => number | null> {
+  const rules = await exec.select().from(materialMarkupRulesTable);
+  if (!rules.length) return () => null;
+  // category (lower-cased) → markup percent
+  const markupByCategory = new Map<string, number>();
+  for (const r of rules) {
+    markupByCategory.set(r.category.trim().toLowerCase(), num(r.markupPercent));
+  }
+
+  const items = await exec
+    .select({
+      name: warehouseItemsTable.name,
+      normalizedName: warehouseItemsTable.normalizedName,
+      category: warehouseItemsTable.category,
+    })
+    .from(warehouseItemsTable)
+    .where(isNotNull(warehouseItemsTable.category));
+
+  // normalized material name → category-default markup percent
+  const markupByNormName = new Map<string, number>();
+  for (const it of items) {
+    if (!it.category) continue;
+    const markup = markupByCategory.get(it.category.trim().toLowerCase());
+    if (markup == null) continue;
+    const key = it.normalizedName?.trim() || normalizeItemName(it.name);
+    if (key) markupByNormName.set(key, markup);
+  }
+  if (!markupByNormName.size) return () => null;
+
+  return (name) => {
+    const key = normalizeItemName(name);
+    if (!key) return null;
+    const hit = markupByNormName.get(key);
+    return hit == null ? null : hit;
+  };
+}
+
+/**
+ * Resolve the category-default markup for a job material by name, exposed for
+ * the unbilled-detail endpoint so the create UI can display effective markups.
+ */
+async function getCategoryMarkupByName(
+  names: string[],
+): Promise<Map<string, number | null>> {
+  const resolver = await buildCategoryMarkupResolver(db);
+  const out = new Map<string, number | null>();
+  for (const n of names) out.set(n, resolver(n));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +538,13 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     materialsByJob.set(m.jobId, list);
   }
 
+  // Resolve each billable material's category-default markup once so the create
+  // UI can show effective markups (override → category → invoice/settings).
+  const billableMaterialNames = materials
+    .filter((m) => m.pricePerUnit != null && m.invoicedInvoiceId == null)
+    .map((m) => m.name);
+  const categoryMarkupByName = await getCategoryMarkupByName(billableMaterialNames);
+
   const jobs = rows.map(({ job }) => ({
     id: job.id,
     title: job.title,
@@ -425,6 +564,9 @@ export async function getUnbilledCustomerDetail(customerId: number) {
         quantity: round2(num(m.quantity ?? 1)),
         unit: m.unit,
         pricePerUnit: round2(num(m.pricePerUnit)),
+        // Category-default markup (%) resolved from the matching catalogue
+        // item, or null when no category rule applies (falls back to default).
+        categoryMarkupPercent: categoryMarkupByName.get(m.name) ?? null,
       })),
   }));
 
@@ -556,6 +698,13 @@ interface RawLine {
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbOrTx = typeof db | Tx;
 
+interface BuildProposedLinesOpts {
+  /** Per-material markup overrides keyed by material id (highest priority). */
+  lineMarkupOverrides?: Map<number, number>;
+  /** Resolver for a material's category-default markup (second priority). */
+  categoryMarkupForName?: (name: string | null | undefined) => number | null;
+}
+
 /** Build the proposed lines + per-job billed amounts from a set of done jobs. */
 async function buildProposedLines(
   exec: DbOrTx,
@@ -564,6 +713,7 @@ async function buildProposedLines(
   customerId: number,
   invoiceVatMode: VatMode,
   materialMarkupPercent = 0,
+  opts: BuildProposedLinesOpts = {},
 ): Promise<{ lines: RawLine[]; jobAmounts: Map<number, number> }> {
   const lines: RawLine[] = [];
   const jobAmounts = new Map<number, number>();
@@ -638,6 +788,14 @@ async function buildProposedLines(
       if (m.pricePerUnit == null) continue;
       // Skip materials already reserved on another invoice (no double-billing).
       if (m.invoicedInvoiceId != null) continue;
+      // Material lines (and only these) carry the optional percent markup,
+      // resolved per line: per-line override → category default → invoice/
+      // settings default (the passed-in materialMarkupPercent).
+      const effectiveMarkup = resolveLineMaterialMarkup(
+        opts.lineMarkupOverrides?.get(m.id),
+        opts.categoryMarkupForName?.(m.name),
+        materialMarkupPercent,
+      );
       jobLines.push({
         sourceType: "material",
         jobId,
@@ -645,8 +803,7 @@ async function buildProposedLines(
         description: m.name,
         quantity: round2(num(m.quantity ?? 1)),
         unit: m.unit ?? "ks",
-        // Material lines (and only these) carry the optional percent markup.
-        unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), materialMarkupPercent),
+        unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), effectiveMarkup),
         vatMode: invoiceVatMode,
       });
     }
@@ -763,6 +920,8 @@ export interface InvoiceCreateInput {
   jobIds?: number[];
   billFineJobIds?: number[];
   materialMarkupPercent?: number;
+  /** Per-material markup overrides keyed by material id (highest priority). */
+  materialMarkupOverrides?: Array<{ materialId: number; markupPercent: number }>;
   vatModeDefault?: VatMode;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
@@ -793,8 +952,20 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
     input.materialMarkupPercent,
     settings.materialMarkupPercent,
   );
+  // Per-line overrides keyed by material id (last write wins on duplicates).
+  const lineMarkupOverrides = new Map<number, number>();
+  for (const o of input.materialMarkupOverrides ?? []) {
+    if (
+      Number.isInteger(o.materialId) &&
+      Number.isFinite(o.markupPercent) &&
+      o.markupPercent >= 0
+    ) {
+      lineMarkupOverrides.set(o.materialId, round2(o.markupPercent));
+    }
+  }
 
   const id = await db.transaction(async (tx) => {
+    const categoryMarkupForName = await buildCategoryMarkupResolver(tx);
     const { lines: proposed, jobAmounts } = await buildProposedLines(
       tx,
       jobIds,
@@ -802,6 +973,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
       input.customerId,
       vatModeDefault,
       materialMarkupPercent,
+      { lineMarkupOverrides, categoryMarkupForName },
     );
 
     const manual: RawLine[] = (input.lines ?? []).map((l) => ({

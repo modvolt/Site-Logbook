@@ -112,6 +112,28 @@ export function resolveMaterialMarkup(
 }
 
 /**
+ * Resolve the effective material markup for a single material line, walking the
+ * priority chain: per-line override → category default → fallback (the already
+ * resolved invoice/settings default). Each layer is "set" only when it is a
+ * finite, non-negative number; anything else (null/undefined/NaN/negative) is
+ * treated as "not set" and resolution falls through to the next layer.
+ *
+ * A per-line override (or category default) of exactly `0` is a deliberate
+ * opt-out and wins — that line gets no markup even when a default exists.
+ */
+export function resolveLineMaterialMarkup(
+  override: number | null | undefined,
+  categoryMarkup: number | null | undefined,
+  fallback: number,
+): number {
+  const isSet = (v: number | null | undefined): v is number =>
+    v != null && Number.isFinite(v) && v >= 0;
+  if (isSet(override)) return round2(override);
+  if (isSet(categoryMarkup)) return round2(categoryMarkup);
+  return isSet(fallback) ? round2(fallback) : 0;
+}
+
+/**
  * Apply a percent markup to a material unit price. A markup of 0 (or less)
  * leaves the price unchanged. Result is rounded to 2 decimals.
  */

@@ -8,6 +8,10 @@ import {
   getGetDocumentExtractionStatusQueryKey,
   useTestDocumentExtraction,
   useUpdateDocumentExtraction,
+  useListMaterialMarkupRules,
+  getListMaterialMarkupRulesQueryKey,
+  useUpsertMaterialMarkupRule,
+  useDeleteMaterialMarkupRule,
   type BillingSettings,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,6 +43,9 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Percent,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 type Form = {
@@ -413,6 +420,8 @@ export default function BillingSettings() {
           </CardContent>
         </Card>
 
+        <MaterialMarkupRulesCard />
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -727,6 +736,197 @@ export default function BillingSettings() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MaterialMarkupRulesCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useListMaterialMarkupRules({
+    query: { queryKey: getListMaterialMarkupRulesQueryKey() },
+  });
+  const upsert = useUpsertMaterialMarkupRule();
+  const remove = useDeleteMaterialMarkupRule();
+
+  const [newCategory, setNewCategory] = useState("");
+  const [newMarkup, setNewMarkup] = useState("");
+
+  const rules = data?.rules ?? [];
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getListMaterialMarkupRulesQueryKey() });
+
+  const saveRule = (category: string, markupRaw: string) => {
+    const cat = category.trim();
+    if (!cat) {
+      toast({ title: "Zadejte kategorii", variant: "destructive" });
+      return;
+    }
+    const markup = Number(markupRaw);
+    if (!Number.isFinite(markup) || markup < 0) {
+      toast({ title: "Přirážka musí být nezáporné číslo", variant: "destructive" });
+      return;
+    }
+    upsert.mutate(
+      { data: { category: cat, markupPercent: markup } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setNewCategory("");
+          setNewMarkup("");
+          toast({ title: "Přirážka kategorie uložena" });
+        },
+        onError: () =>
+          toast({ title: "Nepodařilo se uložit přirážku", variant: "destructive" }),
+      },
+    );
+  };
+
+  const deleteRule = (id: number) => {
+    remove.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Přirážka kategorie smazána" });
+        },
+        onError: () =>
+          toast({ title: "Nepodařilo se smazat přirážku", variant: "destructive" }),
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Percent className="h-5 w-5" /> Přirážky podle kategorie materiálu
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Nastavte odlišnou přirážku pro jednotlivé kategorie materiálu (podle
+          kategorie skladové položky). Materiál se ke kategorii přiřadí podle názvu.
+          Když kategorie pravidlo nemá, použije se výchozí přirážka výše. Při
+          vytváření faktury lze přirážku upravit i u jednotlivých položek.
+        </p>
+
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          <div className="space-y-2">
+            {rules.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                Zatím žádná pravidla – platí výchozí přirážka.
+              </p>
+            ) : (
+              <div className="divide-y rounded-md border">
+                {rules.map((r) => (
+                  <MarkupRuleRow
+                    key={r.id}
+                    category={r.category}
+                    markupPercent={r.markupPercent}
+                    onSave={(markup) => saveRule(r.category, markup)}
+                    onDelete={() => deleteRule(r.id)}
+                    saving={upsert.isPending}
+                    deleting={remove.isPending}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-end gap-2 pt-2">
+              <div className="flex-1 min-w-[160px]">
+                <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Kategorie
+                </Label>
+                <Input
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  placeholder="např. Kabeláž"
+                />
+              </div>
+              <div className="w-[120px]">
+                <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Přirážka (%)
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newMarkup}
+                  onChange={(e) => setNewMarkup(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={() => saveRule(newCategory, newMarkup)}
+                disabled={upsert.isPending}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Přidat
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MarkupRuleRow({
+  category,
+  markupPercent,
+  onSave,
+  onDelete,
+  saving,
+  deleting,
+}: {
+  category: string;
+  markupPercent: number;
+  onSave: (markupRaw: string) => void;
+  onDelete: () => void;
+  saving: boolean;
+  deleting: boolean;
+}) {
+  const [value, setValue] = useState(String(markupPercent));
+  useEffect(() => {
+    setValue(String(markupPercent));
+  }, [markupPercent]);
+  const dirty = value.trim() !== String(markupPercent);
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <span className="flex-1 text-sm font-medium truncate">{category}</span>
+      <Input
+        type="number"
+        min="0"
+        step="0.01"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-[110px]"
+      />
+      <span className="text-sm text-muted-foreground">%</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => onSave(value)}
+        disabled={!dirty || saving}
+      >
+        <Save className="h-4 w-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:text-destructive"
+        onClick={onDelete}
+        disabled={deleting}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
     </div>
   );
 }

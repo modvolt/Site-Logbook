@@ -25,6 +25,8 @@ import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent } from "lucide-react";
 
+type UnbilledMaterial = UnbilledJob["materials"][number];
+
 /** Material subtotal (purchase price, no markup) for a single job. */
 function jobMaterialTotal(job: UnbilledJob): number {
   let total = 0;
@@ -34,14 +36,28 @@ function jobMaterialTotal(job: UnbilledJob): number {
   return total;
 }
 
+/** Material subtotal with each line's effective (per-material) markup applied. */
+function jobMaterialTotalWithMarkup(
+  job: UnbilledJob,
+  effectiveMarkupFor: (m: UnbilledMaterial) => number,
+): number {
+  let total = 0;
+  for (const m of job.materials) {
+    if (m.quantity == null || m.pricePerUnit == null) continue;
+    const base = m.quantity * m.pricePerUnit;
+    const mk = effectiveMarkupFor(m);
+    total += base * (mk > 0 ? 1 + mk / 100 : 1);
+  }
+  return total;
+}
+
 function jobOrientationalTotal(
   job: UnbilledJob,
   billFine: boolean,
-  markupPercent = 0,
+  effectiveMarkupFor: (m: UnbilledMaterial) => number,
 ): number {
   let total = (job.price ?? 0) + (job.transportCost ?? 0) + (job.parking ?? 0);
-  const factor = markupPercent > 0 ? 1 + markupPercent / 100 : 1;
-  total += jobMaterialTotal(job) * factor;
+  total += jobMaterialTotalWithMarkup(job, effectiveMarkupFor);
   if (billFine) total += job.fines ?? 0;
   return total;
 }
@@ -77,6 +93,9 @@ export default function BillingUnbilledDetail() {
   // editable per invoice. Empty string is treated as 0 (no markup).
   const [markup, setMarkup] = useState<string>("");
   const [markupTouched, setMarkupTouched] = useState(false);
+  // Per-material markup overrides (highest priority), keyed by material id.
+  // Stored as raw strings; an absent/blank entry means "use category → default".
+  const [materialMarkup, setMaterialMarkup] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (!markupTouched && settings) {
@@ -88,6 +107,32 @@ export default function BillingUnbilledDetail() {
     const n = Number(markup);
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [markup]);
+
+  // Resolve the effective markup for a single material line:
+  // per-line override → category default → invoice default. A blank/invalid
+  // override falls through; an explicit 0 (override or category) wins.
+  const effectiveMarkupFor = (m: UnbilledMaterial): number => {
+    const ov = materialMarkup[m.id];
+    if (ov !== undefined && ov.trim() !== "") {
+      const n = Number(ov);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+    if (m.categoryMarkupPercent != null && m.categoryMarkupPercent >= 0) {
+      return m.categoryMarkupPercent;
+    }
+    return markupPercent;
+  };
+
+  // The label/source shown next to each material's markup input.
+  const markupSourceFor = (m: UnbilledMaterial): "override" | "category" | "default" => {
+    const ov = materialMarkup[m.id];
+    if (ov !== undefined && ov.trim() !== "") {
+      const n = Number(ov);
+      if (Number.isFinite(n) && n >= 0) return "override";
+    }
+    if (m.categoryMarkupPercent != null && m.categoryMarkupPercent >= 0) return "category";
+    return "default";
+  };
 
   const jobs = data?.jobs ?? [];
   const costLines = approvedLines ?? [];
@@ -115,8 +160,8 @@ export default function BillingUnbilledDetail() {
     () =>
       jobs
         .filter((j) => isChecked(j.id))
-        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], markupPercent), 0),
-    [jobs, selected, fines, markupPercent],
+        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], effectiveMarkupFor), 0),
+    [jobs, selected, fines, markupPercent, materialMarkup],
   );
 
   // Material purchase-price base across selected jobs + the markup amount it adds.
@@ -127,7 +172,18 @@ export default function BillingUnbilledDetail() {
         .reduce((sum, j) => sum + jobMaterialTotal(j), 0),
     [jobs, selected],
   );
-  const markupAmount = (selectedMaterialBase * markupPercent) / 100;
+  // Total markup added across all selected materials (each at its effective %).
+  const markupAmount = useMemo(
+    () =>
+      jobs
+        .filter((j) => isChecked(j.id))
+        .reduce(
+          (sum, j) =>
+            sum + (jobMaterialTotalWithMarkup(j, effectiveMarkupFor) - jobMaterialTotal(j)),
+          0,
+        ),
+    [jobs, selected, markupPercent, materialMarkup],
+  );
 
   const handleCreate = () => {
     if (chosenJobIds.length === 0 && costLines.length === 0) return;
@@ -143,6 +199,22 @@ export default function BillingUnbilledDetail() {
       sourceType: "billing_document_line" as const,
       sourceId: line.id,
     }));
+    // Send only explicit per-line overrides; the category default and the
+    // invoice default are resolved server-side. (Materials on unselected jobs
+    // are ignored.)
+    const selectedJobIds = new Set(chosenJobIds);
+    const materialMarkupOverrides: { materialId: number; markupPercent: number }[] = [];
+    for (const job of jobs) {
+      if (!selectedJobIds.has(job.id)) continue;
+      for (const m of job.materials) {
+        const ov = materialMarkup[m.id];
+        if (ov === undefined || ov.trim() === "") continue;
+        const n = Number(ov);
+        if (Number.isFinite(n) && n >= 0) {
+          materialMarkupOverrides.push({ materialId: m.id, markupPercent: n });
+        }
+      }
+    }
     createInvoice.mutate(
       {
         data: {
@@ -150,6 +222,7 @@ export default function BillingUnbilledDetail() {
           jobIds: chosenJobIds,
           billFineJobIds,
           materialMarkupPercent: markupPercent,
+          ...(materialMarkupOverrides.length > 0 ? { materialMarkupOverrides } : {}),
           vatModeDefault: settings?.vatModeDefault ?? "standard",
           ...(costLineInputs.length > 0 ? { lines: costLineInputs } : {}),
         },
@@ -255,14 +328,78 @@ export default function BillingUnbilledDetail() {
                       )}
                     </div>
                     {job.materials.length > 0 && (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Materiál:{" "}
-                        {job.materials
-                          .map(
-                            (m) =>
-                              `${m.name}${m.quantity != null ? ` (${m.quantity}${m.unit ? " " + m.unit : ""})` : ""}`,
-                          )
-                          .join(", ")}
+                      <div
+                        className="mt-2 space-y-1.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Materiál – přirážka
+                        </p>
+                        {job.materials.map((m) => {
+                          const source = markupSourceFor(m);
+                          const eff = effectiveMarkupFor(m);
+                          return (
+                            <div
+                              key={m.id}
+                              className="flex items-center gap-2 text-xs"
+                            >
+                              <span className="flex-1 min-w-0 truncate">
+                                {m.name}
+                                {m.quantity != null
+                                  ? ` (${m.quantity}${m.unit ? " " + m.unit : ""})`
+                                  : ""}
+                              </span>
+                              <span
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                  source === "override"
+                                    ? "bg-primary/15 text-primary"
+                                    : source === "category"
+                                      ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                                      : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {source === "override"
+                                  ? "vlastní"
+                                  : source === "category"
+                                    ? "kategorie"
+                                    : "výchozí"}
+                              </span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={
+                                  materialMarkup[m.id] !== undefined
+                                    ? materialMarkup[m.id]
+                                    : String(eff)
+                                }
+                                onChange={(e) =>
+                                  setMaterialMarkup((p) => ({
+                                    ...p,
+                                    [m.id]: e.target.value,
+                                  }))
+                                }
+                                className="h-7 w-[72px] text-xs"
+                              />
+                              <span className="text-muted-foreground">%</span>
+                              {materialMarkup[m.id] !== undefined && (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground hover:text-foreground underline"
+                                  onClick={() =>
+                                    setMaterialMarkup((p) => {
+                                      const next = { ...p };
+                                      delete next[m.id];
+                                      return next;
+                                    })
+                                  }
+                                >
+                                  zpět
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {(job.fines ?? 0) > 0 && (
@@ -282,7 +419,10 @@ export default function BillingUnbilledDetail() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="font-bold">
-                      {fmtKc(jobOrientationalTotal(job, !!fines[job.id]), 0)}
+                      {fmtKc(
+                        jobOrientationalTotal(job, !!fines[job.id], effectiveMarkupFor),
+                        0,
+                      )}
                     </div>
                   </div>
                 </div>
@@ -342,6 +482,7 @@ export default function BillingUnbilledDetail() {
               Přirážka na materiál
             </div>
             <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm text-muted-foreground">Výchozí přirážka</span>
               <Input
                 type="number"
                 min="0"
@@ -361,7 +502,7 @@ export default function BillingUnbilledDetail() {
                 <span>{fmtKc(selectedMaterialBase, 2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Přirážka ({markupPercent} %)</span>
+                <span className="text-muted-foreground">Přirážka celkem</span>
                 <span className={markupAmount > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}>
                   {markupAmount > 0 ? "+ " : ""}
                   {fmtKc(markupAmount, 2)}
@@ -373,8 +514,12 @@ export default function BillingUnbilledDetail() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Přirážka se přičte pouze k materiálu. Práce, doprava ani pokuty se
-              nemění.
+              Výchozí přirážka platí pro materiál bez vlastní přirážky nebo
+              přirážky podle kategorie. Přirážku lze upravit u každé položky výše
+              (<span className="font-medium">vlastní</span> →{" "}
+              <span className="font-medium">kategorie</span> →{" "}
+              <span className="font-medium">výchozí</span>). Přičte se pouze
+              k materiálu – práce, doprava ani pokuty se nemění.
             </p>
           </CardContent>
         </Card>

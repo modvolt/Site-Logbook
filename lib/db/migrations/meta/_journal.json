@@ -148,6 +148,13 @@
       "when": 1782071397822,
       "tag": "0020_calm_loners",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782081175042,
+      "tag": "0021_heavy_terrax",
+      "breakpoints": true
     }
   ]
 }

@@ -29,5 +29,6 @@ export * from "./backup-log";
 export * from "./invoices";
 export * from "./invoice-reminders";
 export * from "./billing-settings";
+export * from "./material-markup-rules";
 export * from "./billing-documents";
 export * from "./email-import";

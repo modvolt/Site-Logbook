@@ -15,4 +15,9 @@ export interface UnbilledJobMaterial {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /**
+     * Category-default markup (%) resolved from the matching warehouse item's category, or null when no category rule applies (falls back to the invoice/settings default)
+     * @nullable
+     */
+  categoryMarkupPercent?: number | null;
 }

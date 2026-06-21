@@ -7,6 +7,7 @@
  */
 import type { InvoiceCreateInputVatModeDefault } from './invoiceCreateInputVatModeDefault';
 import type { InvoiceLineInput } from './invoiceLineInput';
+import type { MaterialMarkupOverride } from './materialMarkupOverride';
 
 export interface InvoiceCreateInput {
   customerId: number;
@@ -19,6 +20,8 @@ export interface InvoiceCreateInput {
      * @nullable
      */
   materialMarkupPercent?: number | null;
+  /** Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line */
+  materialMarkupOverrides?: MaterialMarkupOverride[];
   /** Extra manual lines appended after the auto-proposed ones */
   lines?: InvoiceLineInput[];
   /** @nullable */

@@ -126,6 +126,8 @@ import type {
   MachineUpdate,
   Material,
   MaterialInput,
+  MaterialMarkupRule,
+  MaterialMarkupRuleList,
   MaterialUpdate,
   MeResponse,
   MyJobSummary,
@@ -155,6 +157,7 @@ import type {
   TimeEntryUpdate,
   UnbilledCustomer,
   UnbilledCustomerDetail,
+  UpsertMaterialMarkupRuleInput,
   UserInput,
   UserPreferences,
   UserPreferencesInput,
@@ -9839,6 +9842,224 @@ export const useUpdateBillingSettings = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateBillingSettingsMutationOptions(options));
+    }
+
+export const getListMaterialMarkupRulesUrl = () => {
+
+
+
+
+  return `/api/billing/material-markup-rules`
+}
+
+/**
+ * @summary List per-category material markup rules (admin only)
+ */
+export const listMaterialMarkupRules = async ( options?: RequestInit): Promise<MaterialMarkupRuleList> => {
+
+  return customFetch<MaterialMarkupRuleList>(getListMaterialMarkupRulesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMaterialMarkupRulesQueryKey = () => {
+    return [
+    `/api/billing/material-markup-rules`
+    ] as const;
+    }
+
+
+export const getListMaterialMarkupRulesQueryOptions = <TData = Awaited<ReturnType<typeof listMaterialMarkupRules>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMaterialMarkupRules>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMaterialMarkupRulesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMaterialMarkupRules>>> = ({ signal }) => listMaterialMarkupRules({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMaterialMarkupRules>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMaterialMarkupRulesQueryResult = NonNullable<Awaited<ReturnType<typeof listMaterialMarkupRules>>>
+export type ListMaterialMarkupRulesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List per-category material markup rules (admin only)
+ */
+
+export function useListMaterialMarkupRules<TData = Awaited<ReturnType<typeof listMaterialMarkupRules>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMaterialMarkupRules>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMaterialMarkupRulesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpsertMaterialMarkupRuleUrl = () => {
+
+
+
+
+  return `/api/billing/material-markup-rules`
+}
+
+/**
+ * @summary Create or update a per-category material markup rule (admin only)
+ */
+export const upsertMaterialMarkupRule = async (upsertMaterialMarkupRuleInput: UpsertMaterialMarkupRuleInput, options?: RequestInit): Promise<MaterialMarkupRule> => {
+
+  return customFetch<MaterialMarkupRule>(getUpsertMaterialMarkupRuleUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      upsertMaterialMarkupRuleInput,)
+  }
+);}
+
+
+
+
+export const getUpsertMaterialMarkupRuleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertMaterialMarkupRule>>, TError,{data: BodyType<UpsertMaterialMarkupRuleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertMaterialMarkupRule>>, TError,{data: BodyType<UpsertMaterialMarkupRuleInput>}, TContext> => {
+
+const mutationKey = ['upsertMaterialMarkupRule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertMaterialMarkupRule>>, {data: BodyType<UpsertMaterialMarkupRuleInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  upsertMaterialMarkupRule(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpsertMaterialMarkupRuleMutationResult = NonNullable<Awaited<ReturnType<typeof upsertMaterialMarkupRule>>>
+    export type UpsertMaterialMarkupRuleMutationBody = BodyType<UpsertMaterialMarkupRuleInput>
+    export type UpsertMaterialMarkupRuleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create or update a per-category material markup rule (admin only)
+ */
+export const useUpsertMaterialMarkupRule = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertMaterialMarkupRule>>, TError,{data: BodyType<UpsertMaterialMarkupRuleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof upsertMaterialMarkupRule>>,
+        TError,
+        {data: BodyType<UpsertMaterialMarkupRuleInput>},
+        TContext
+      > => {
+      return useMutation(getUpsertMaterialMarkupRuleMutationOptions(options));
+    }
+
+export const getDeleteMaterialMarkupRuleUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/material-markup-rules/${id}`
+}
+
+/**
+ * @summary Delete a per-category material markup rule (admin only)
+ */
+export const deleteMaterialMarkupRule = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteMaterialMarkupRuleUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteMaterialMarkupRuleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMaterialMarkupRule>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteMaterialMarkupRule>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteMaterialMarkupRule'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteMaterialMarkupRule>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteMaterialMarkupRule(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteMaterialMarkupRuleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteMaterialMarkupRule>>>
+
+    export type DeleteMaterialMarkupRuleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a per-category material markup rule (admin only)
+ */
+export const useDeleteMaterialMarkupRule = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMaterialMarkupRule>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteMaterialMarkupRule>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteMaterialMarkupRuleMutationOptions(options));
     }
 
 export const getListUnbilledCustomersUrl = () => {

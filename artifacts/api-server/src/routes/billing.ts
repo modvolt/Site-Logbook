@@ -9,6 +9,7 @@ import {
   SendInvoiceReminderBody,
   ParseBankStatementBody,
   ConfirmBankPaymentsBody,
+  UpsertMaterialMarkupRuleBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import {
@@ -26,6 +27,9 @@ import {
   serializeSettings,
   updateBillingSettings,
   getBillingSummary,
+  listMaterialMarkupRules,
+  upsertMaterialMarkupRule,
+  deleteMaterialMarkupRule,
   listUnbilledCustomers,
   getUnbilledCustomerDetail,
   listInvoices,
@@ -141,6 +145,49 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-category material markup rules
+// ---------------------------------------------------------------------------
+
+router.get("/billing/material-markup-rules", async (_req, res): Promise<void> => {
+  res.json({ rules: await listMaterialMarkupRules() });
+});
+
+router.put("/billing/material-markup-rules", async (req, res): Promise<void> => {
+  const parsed = UpsertMaterialMarkupRuleBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  try {
+    const rule = await upsertMaterialMarkupRule({
+      category: parsed.data.category,
+      markupPercent: parsed.data.markupPercent,
+    });
+    res.json(rule);
+  } catch (err) {
+    handleError(err, "Uložení přirážky kategorie selhalo.", res);
+  }
+});
+
+router.delete("/billing/material-markup-rules/:id", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID pravidla." });
+    return;
+  }
+  try {
+    const ok = await deleteMaterialMarkupRule(id);
+    if (!ok) {
+      res.status(404).json({ error: "Pravidlo nenalezeno." });
+      return;
+    }
+    res.status(204).end();
+  } catch (err) {
+    handleError(err, "Smazání přirážky kategorie selhalo.", res);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Unbilled (done jobs grouped by customer)
 // ---------------------------------------------------------------------------
 
@@ -201,6 +248,7 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
     jobIds: d.jobIds ?? undefined,
     billFineJobIds: d.billFineJobIds ?? undefined,
     materialMarkupPercent: d.materialMarkupPercent ?? undefined,
+    materialMarkupOverrides: d.materialMarkupOverrides ?? undefined,
     vatModeDefault: d.vatModeDefault ?? undefined,
     issueDate: d.issueDate ?? undefined,
     taxableSupplyDate: d.taxableSupplyDate ?? undefined,
