@@ -26,7 +26,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import {
-  getOpenAiConfig,
+  resolveOpenAiConfig,
   isSupportedForAi,
   extractFromFile,
 } from "./openai-extraction";
@@ -98,7 +98,7 @@ async function processOne(jobId: number): Promise<void> {
       return;
     }
 
-    const cfg = getOpenAiConfig();
+    const cfg = await resolveOpenAiConfig();
 
     // Decide whether AI extraction should run for this document. We skip when:
     // AI is off, the file type is unsupported, there is no stored file, or the

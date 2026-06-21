@@ -10,9 +10,10 @@ OpenAI is unconfigured (documents then route to manual `needs_review`).
 ## Three-state gating (configured / enabled / ready)
 The status resolver reports three distinct booleans, and the UI/worker must keep
 them distinct:
-- `configured` = `OPENAI_API_KEY` present.
-- `enabled` = `OPENAI_DOCUMENT_EXTRACTION_ENABLED` is exactly `"true"`.
+- `configured` = an API key is present (saved in the DB singleton **or** `OPENAI_API_KEY`).
+- `enabled` = the `openai_settings` row's toggle when a row exists, else `OPENAI_DOCUMENT_EXTRACTION_ENABLED === "true"`.
 - `ready` = configured && enabled. **Only `ready` triggers a real OpenAI call.**
+- `source` = where the active key comes from: `db` (saved in UI), `env`, or `none`.
 
 **Why:** an operator can install the key but keep extraction off, or flip it off
 without removing the key. Collapsing these into one flag loses that control and
@@ -27,10 +28,15 @@ a human must confirm before it can affect money.
 
 ## Self-hosted key handling
 Off-Replit (Hetzner) there is no Replit AI proxy — the operator supplies their
-**own** `OPENAI_API_KEY`. The key is read from env only; never stored in the DB,
-never logged. `/billing/settings` (admin-only) shows status + a "test
-configuration" action that sends **no** real document (just verifies the key /
-connection) and returns a graceful Czech message when unconfigured.
+**own** OpenAI key. The key + model + on/off toggle are editable in the admin UI
+and stored in the `openai_settings` DB singleton (id=1), with the `OPENAI_*` env
+vars as a per-field fallback (a saved DB value wins). `resolveOpenAiConfig()` is
+async and reads the row inside try/catch → env-only if the table is missing
+(pre-migration), so env-based deploys keep working. The key is **write-only**
+(never returned by the API) and never logged. `/billing/settings` (admin-only)
+shows status + a "test configuration" action that sends **no** real document
+(just verifies the key / connection) and returns a graceful Czech message when
+unconfigured.
 
 ## Worker trigger conditions
 Extraction runs in the queue worker only when: `ready` && doc type is pdf/image

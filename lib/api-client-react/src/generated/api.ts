@@ -71,6 +71,7 @@ import type {
   DeviceCredential,
   DeviceCredentialInput,
   DeviceCredentialUpdate,
+  DocumentExtractionInput,
   DocumentExtractionStatus,
   DocumentExtractionTestResult,
   EmailImportAccount,
@@ -11895,6 +11896,77 @@ export function useGetDocumentExtractionStatus<TData = Awaited<ReturnType<typeof
 
 
 
+
+export const getUpdateDocumentExtractionUrl = () => {
+
+
+
+
+  return `/api/billing/ai-extraction`
+}
+
+/**
+ * @summary Update the OpenAI document-extraction configuration (admin only)
+ */
+export const updateDocumentExtraction = async (documentExtractionInput: DocumentExtractionInput, options?: RequestInit): Promise<DocumentExtractionStatus> => {
+
+  return customFetch<DocumentExtractionStatus>(getUpdateDocumentExtractionUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      documentExtractionInput,)
+  }
+);}
+
+
+
+
+export const getUpdateDocumentExtractionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDocumentExtraction>>, TError,{data: BodyType<DocumentExtractionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateDocumentExtraction>>, TError,{data: BodyType<DocumentExtractionInput>}, TContext> => {
+
+const mutationKey = ['updateDocumentExtraction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateDocumentExtraction>>, {data: BodyType<DocumentExtractionInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateDocumentExtraction(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateDocumentExtractionMutationResult = NonNullable<Awaited<ReturnType<typeof updateDocumentExtraction>>>
+    export type UpdateDocumentExtractionMutationBody = BodyType<DocumentExtractionInput>
+    export type UpdateDocumentExtractionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the OpenAI document-extraction configuration (admin only)
+ */
+export const useUpdateDocumentExtraction = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDocumentExtraction>>, TError,{data: BodyType<DocumentExtractionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateDocumentExtraction>>,
+        TError,
+        {data: BodyType<DocumentExtractionInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateDocumentExtractionMutationOptions(options));
+    }
 
 export const getTestDocumentExtractionUrl = () => {
 

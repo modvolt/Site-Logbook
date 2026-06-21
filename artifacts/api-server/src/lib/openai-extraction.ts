@@ -14,19 +14,23 @@
  *
  * Self-hosted production runs on the operator's own infrastructure (Hetzner),
  * where the Replit AI proxy is unavailable, so this uses the operator's own
- * OPENAI_API_KEY against the public OpenAI API. The key is read from the
- * environment only and is never persisted or logged.
+ * OpenAI API key against the public OpenAI API. The key may be saved in the
+ * Settings UI (DB singleton) or provided via OPENAI_API_KEY; it is never
+ * returned by the API or logged.
  */
 import OpenAI from "openai";
 import { z } from "zod/v4";
+import { eq } from "drizzle-orm";
+import { db, openaiSettingsTable } from "@workspace/db";
 
 // ---------------------------------------------------------------------------
-// Configuration (environment only)
+// Configuration (DB singleton with environment fallback)
 // ---------------------------------------------------------------------------
 
 /** Below this overall confidence we flag the document for closer human review. */
 export const CONFIDENCE_REVIEW_THRESHOLD = 0.7;
 
+const SETTINGS_ID = 1;
 const DEFAULT_MODEL = "gpt-4o";
 // OpenAI itself caps inline inputs (~32 MB per PDF, ~20 MB per image), so this is
 // set to OpenAI's practical PDF ceiling. Raising OPENAI_MAX_FILE_MB above that has
@@ -44,6 +48,13 @@ export interface OpenAiConfig {
   model: string;
   maxFileMb: number;
   timeoutMs: number;
+  /** Where the active API key comes from: saved settings, env fallback, or none. */
+  source: "db" | "env" | "none";
+}
+
+/** Internal: config plus the resolved API key (never exposed by the API). */
+interface ResolvedOpenAiConfig extends OpenAiConfig {
+  apiKey: string | null;
 }
 
 function parsePositiveNumber(raw: string | undefined, fallback: number): number {
@@ -53,34 +64,64 @@ function parsePositiveNumber(raw: string | undefined, fallback: number): number 
 }
 
 /**
- * Resolve the current configuration from the environment. Never throws — safe to
- * call on any request to report status.
+ * Resolve the current configuration from the DB singleton (id = 1), falling back
+ * to the OPENAI_* environment variables for any field the operator has not set in
+ * the Settings UI. Never throws — safe to call on any request to report status.
+ *
+ * - API key: the saved key wins; otherwise OPENAI_API_KEY.
+ * - Master switch (`enabled`): the saved row's toggle when a row exists,
+ *   otherwise OPENAI_DOCUMENT_EXTRACTION_ENABLED === "true".
+ * - Model: the saved model, else OPENAI_DOCUMENT_MODEL, else the default.
  */
-export function getOpenAiConfig(): OpenAiConfig {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+export async function resolveOpenAiConfig(): Promise<ResolvedOpenAiConfig> {
+  let row: typeof openaiSettingsTable.$inferSelect | undefined;
+  try {
+    [row] = await db
+      .select()
+      .from(openaiSettingsTable)
+      .where(eq(openaiSettingsTable.id, SETTINGS_ID));
+  } catch {
+    // Table may not exist yet (pre-migration) — fall back to env only.
+    row = undefined;
+  }
+
+  const dbKey = row?.apiKey?.trim() || null;
+  const envKey = process.env.OPENAI_API_KEY?.trim() || null;
+  const apiKey = dbKey ?? envKey;
   const configured = Boolean(apiKey);
-  // Default OFF: extraction only runs when the operator opts in explicitly.
-  const enabled =
-    configured && process.env.OPENAI_DOCUMENT_EXTRACTION_ENABLED === "true";
+  const source: "db" | "env" | "none" = dbKey ? "db" : envKey ? "env" : "none";
+
+  // Default OFF: extraction only runs when the operator opts in explicitly
+  // (the Settings toggle once a row exists, otherwise the env flag).
+  const enabled = row
+    ? row.enabled
+    : process.env.OPENAI_DOCUMENT_EXTRACTION_ENABLED === "true";
+
+  const model =
+    row?.model?.trim() ||
+    process.env.OPENAI_DOCUMENT_MODEL?.trim() ||
+    DEFAULT_MODEL;
+
   return {
+    apiKey,
     configured,
     enabled,
     ready: configured && enabled,
-    model: process.env.OPENAI_DOCUMENT_MODEL?.trim() || DEFAULT_MODEL,
+    model,
     maxFileMb: parsePositiveNumber(process.env.OPENAI_MAX_FILE_MB, DEFAULT_MAX_FILE_MB),
     timeoutMs: parsePositiveNumber(
       process.env.OPENAI_REQUEST_TIMEOUT_MS,
       DEFAULT_TIMEOUT_MS,
     ),
+    source,
   };
 }
 
-function getClient(cfg: OpenAiConfig): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
+function getClient(cfg: ResolvedOpenAiConfig): OpenAI {
+  if (!cfg.apiKey) {
     throw new Error("OPENAI_API_KEY není nastaven.");
   }
-  return new OpenAI({ apiKey, timeout: cfg.timeoutMs });
+  return new OpenAI({ apiKey: cfg.apiKey, timeout: cfg.timeoutMs });
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +411,7 @@ export async function extractFromFile(
   contentType: string | null | undefined,
   fileName: string | null | undefined,
 ): Promise<ExtractionRaw> {
-  const cfg = getOpenAiConfig();
+  const cfg = await resolveOpenAiConfig();
   if (!cfg.configured) {
     throw new Error("OpenAI není nakonfigurováno (chybí OPENAI_API_KEY).");
   }
@@ -461,7 +502,7 @@ export interface TestResult {
  * uploading any customer document. Never throws — returns a result object.
  */
 export async function testConfiguration(): Promise<TestResult> {
-  const cfg = getOpenAiConfig();
+  const cfg = await resolveOpenAiConfig();
   if (!cfg.configured) {
     return {
       ok: false,

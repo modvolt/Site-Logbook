@@ -2593,12 +2593,37 @@ export interface ApprovedCostLine {
   totalWithoutVat: number;
 }
 
+/**
+ * Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none".
+ */
+export type DocumentExtractionStatusSource = typeof DocumentExtractionStatusSource[keyof typeof DocumentExtractionStatusSource];
+
+
+export const DocumentExtractionStatusSource = {
+  db: 'db',
+  env: 'env',
+  none: 'none',
+} as const;
+
 export interface DocumentExtractionStatus {
   configured: boolean;
   enabled: boolean;
   ready: boolean;
   model: string;
   maxFileMb: number;
+  /** Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none". */
+  source: DocumentExtractionStatusSource;
+}
+
+export interface DocumentExtractionInput {
+  enabled: boolean;
+  /** @nullable */
+  model: string | null;
+  /**
+     * Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting / null keeps the existing key.
+     * @nullable
+     */
+  apiKey?: string | null;
 }
 
 export interface DocumentExtractionTestResult {

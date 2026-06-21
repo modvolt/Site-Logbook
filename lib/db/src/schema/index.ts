@@ -20,6 +20,7 @@ export * from "./device-credentials";
 export * from "./audit-log";
 export * from "./time-entries";
 export * from "./email-settings";
+export * from "./openai-settings";
 export * from "./email-import-settings";
 export * from "./email-import-log";
 export * from "./backup-log";

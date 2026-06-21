@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { DocumentExtractionStatusSource } from './documentExtractionStatusSource';
 
 export interface DocumentExtractionStatus {
   configured: boolean;
@@ -12,4 +13,6 @@ export interface DocumentExtractionStatus {
   ready: boolean;
   model: string;
   maxFileMb: number;
+  /** Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none". */
+  source: DocumentExtractionStatusSource;
 }

@@ -7,6 +7,7 @@ import {
   useGetDocumentExtractionStatus,
   getGetDocumentExtractionStatusQueryKey,
   useTestDocumentExtraction,
+  useUpdateDocumentExtraction,
   type BillingSettings,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -102,9 +103,72 @@ export default function BillingSettings() {
     query: { queryKey: getGetDocumentExtractionStatusQueryKey() },
   });
   const testAi = useTestDocumentExtraction();
+  const updateAi = useUpdateDocumentExtraction();
   const [aiTestMsg, setAiTestMsg] = useState<{ ok: boolean; message: string } | null>(
     null,
   );
+  const [aiForm, setAiForm] = useState<{
+    enabled: boolean;
+    apiKey: string;
+    model: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (aiStatus && !aiForm) {
+      setAiForm({ enabled: aiStatus.enabled, apiKey: "", model: aiStatus.model });
+    }
+  }, [aiStatus, aiForm]);
+
+  const handleSaveAi = () => {
+    if (!aiForm) return;
+    const apiKeyTyped = aiForm.apiKey.trim();
+    updateAi.mutate(
+      {
+        data: {
+          enabled: aiForm.enabled,
+          model: aiForm.model.trim() || null,
+          // Write-only: send the typed key, or null to keep the stored one.
+          apiKey: apiKeyTyped === "" ? null : apiKeyTyped,
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetDocumentExtractionStatusQueryKey(),
+          });
+          setAiForm((p) => (p ? { ...p, apiKey: "" } : p));
+          setAiTestMsg(null);
+          toast({ title: "Nastavení AI uloženo" });
+        },
+        onError: () =>
+          toast({ title: "Nepodařilo se uložit nastavení AI", variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleClearAiKey = () => {
+    if (!aiForm) return;
+    updateAi.mutate(
+      {
+        data: {
+          enabled: aiForm.enabled,
+          model: aiForm.model.trim() || null,
+          apiKey: "", // empty string explicitly clears the stored key
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getGetDocumentExtractionStatusQueryKey(),
+          });
+          setAiForm((p) => (p ? { ...p, apiKey: "" } : p));
+          toast({ title: "API klíč odebrán" });
+        },
+        onError: () =>
+          toast({ title: "Nepodařilo se odebrat klíč", variant: "destructive" }),
+      },
+    );
+  };
 
   const handleTestAi = () => {
     setAiTestMsg(null);
@@ -354,17 +418,74 @@ export default function BillingSettings() {
               <Sparkles className="h-5 w-5" /> AI vytěžování dokladů (OpenAI)
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Volitelné. Při nahrání PDF nebo fotografie dokladu se hlavička a
               položky předvyplní pomocí OpenAI. Návrh se vždy uloží jen{" "}
               <strong>ke kontrole</strong> – nikdy se neschválí automaticky.
             </p>
 
-            {aiLoading || !aiStatus ? (
-              <Skeleton className="h-20 w-full" />
+            {aiLoading || !aiStatus || !aiForm ? (
+              <Skeleton className="h-40 w-full" />
             ) : (
               <>
+                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div>
+                    <Label className="font-medium">Zapnout AI vytěžování</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Po zapnutí se nahrané doklady automaticky předvyplní.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={aiForm.enabled}
+                    onCheckedChange={(v) =>
+                      setAiForm((p) => (p ? { ...p, enabled: v } : p))
+                    }
+                  />
+                </div>
+
+                <Field label="OpenAI API klíč">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    value={aiForm.apiKey}
+                    onChange={(e) =>
+                      setAiForm((p) => (p ? { ...p, apiKey: e.target.value } : p))
+                    }
+                    placeholder={
+                      aiStatus.configured
+                        ? "Klíč je uložen – zadejte nový pro změnu"
+                        : "sk-..."
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Klíč získáte na platform.openai.com. Z bezpečnostních důvodů se
+                    uložený klíč nikdy nezobrazuje.
+                    {aiStatus.source === "db" && (
+                      <>
+                        {" "}
+                        <button
+                          type="button"
+                          className="underline hover:text-foreground"
+                          onClick={handleClearAiKey}
+                        >
+                          Odebrat uložený klíč
+                        </button>
+                      </>
+                    )}
+                  </p>
+                </Field>
+
+                <Field label="Model">
+                  <Input
+                    value={aiForm.model}
+                    onChange={(e) =>
+                      setAiForm((p) => (p ? { ...p, model: e.target.value } : p))
+                    }
+                    placeholder="gpt-4o"
+                  />
+                </Field>
+
                 <div className="rounded-md border divide-y">
                   <StatusRow
                     label="Stav"
@@ -379,12 +500,18 @@ export default function BillingSettings() {
                     neutral={aiStatus.configured && !aiStatus.ready}
                   />
                   <StatusRow
-                    label="API klíč (OPENAI_API_KEY)"
-                    value={aiStatus.configured ? "Nastaven" : "Chybí"}
+                    label="API klíč"
+                    value={
+                      aiStatus.configured
+                        ? aiStatus.source === "env"
+                          ? "Nastaven (proměnná prostředí)"
+                          : "Uložen"
+                        : "Chybí"
+                    }
                     ok={aiStatus.configured}
                   />
                   <div className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">Model</span>
+                    <span className="text-muted-foreground">Aktivní model</span>
                     <span className="font-mono text-xs">{aiStatus.model}</span>
                   </div>
                   <div className="flex items-center justify-between px-3 py-2 text-sm">
@@ -393,23 +520,15 @@ export default function BillingSettings() {
                   </div>
                 </div>
 
-                {!aiStatus.configured && (
-                  <p className="text-xs text-muted-foreground">
-                    Nastavte proměnnou prostředí <code>OPENAI_API_KEY</code> (a
-                    volitelně <code>OPENAI_DOCUMENT_MODEL</code>) a zapněte
-                    vytěžování pomocí{" "}
-                    <code>OPENAI_DOCUMENT_EXTRACTION_ENABLED=true</code>. Aplikace
-                    funguje i bez OpenAI – doklady se pak připraví k ruční kontrole.
-                  </p>
-                )}
-                {aiStatus.configured && !aiStatus.enabled && (
-                  <p className="text-xs text-muted-foreground">
-                    Vytěžování je vypnuté. Zapnete jej proměnnou prostředí{" "}
-                    <code>OPENAI_DOCUMENT_EXTRACTION_ENABLED=true</code>.
-                  </p>
-                )}
-
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button onClick={handleSaveAi} disabled={updateAi.isPending}>
+                    {updateAi.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Uložit nastavení AI
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={handleTestAi}
@@ -422,9 +541,6 @@ export default function BillingSettings() {
                     )}
                     Otestovat konfiguraci
                   </Button>
-                  <span className="text-xs text-muted-foreground">
-                    Ověří spojení s OpenAI bez odeslání jakéhokoli dokladu.
-                  </span>
                 </div>
 
                 {aiTestMsg && (
@@ -443,6 +559,12 @@ export default function BillingSettings() {
                     <span>{aiTestMsg.message}</span>
                   </div>
                 )}
+
+                <p className="text-xs text-muted-foreground">
+                  Aplikace funguje i bez OpenAI – doklady se pak připraví k ruční
+                  kontrole. Klíč lze místo uložení zde nastavit i proměnnou
+                  prostředí <code>OPENAI_API_KEY</code>.
+                </p>
               </>
             )}
           </CardContent>

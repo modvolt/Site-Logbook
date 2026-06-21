@@ -4222,6 +4222,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateDocumentExtraction
+      tags: [billing]
+      summary: Update the OpenAI document-extraction configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentExtractionInput"
+      responses:
+        "200":
+          description: Updated AI extraction status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentExtractionStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /billing/ai-extraction/test:
     post:
@@ -7327,7 +7356,7 @@ components:
 
     DocumentExtractionStatus:
       type: object
-      required: [configured, enabled, ready, model, maxFileMb]
+      required: [configured, enabled, ready, model, maxFileMb, source]
       properties:
         configured:
           type: boolean
@@ -7339,6 +7368,26 @@ components:
           type: string
         maxFileMb:
           type: number
+        source:
+          type: string
+          enum: [db, env, none]
+          description: >-
+            Which source provides the API key: "db" (saved in Settings), "env"
+            (OPENAI_API_KEY fallback), or "none".
+
+    DocumentExtractionInput:
+      type: object
+      required: [enabled, model]
+      properties:
+        enabled:
+          type: boolean
+        model:
+          type: ["string", "null"]
+        apiKey:
+          type: ["string", "null"]
+          description: >-
+            Write-only. A non-empty string sets the OpenAI API key, an empty
+            string clears it, and omitting / null keeps the existing key.
 
     DocumentExtractionTestResult:
       type: object

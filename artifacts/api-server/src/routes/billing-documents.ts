@@ -38,9 +38,12 @@ import {
   type Actor,
 } from "../lib/cost-document-service";
 import {
-  getOpenAiConfig,
+  resolveOpenAiConfig,
   testConfiguration as testAiConfiguration,
 } from "../lib/openai-extraction";
+import { db, openaiSettingsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { UpdateDocumentExtractionBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -52,15 +55,65 @@ router.use("/billing/ai-extraction", requireRole("admin"));
 
 // --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
 
-router.get("/billing/ai-extraction", (_req, res): void => {
-  const cfg = getOpenAiConfig();
-  res.json({
+const OPENAI_SETTINGS_ID = 1;
+
+function serializeExtractionStatus(cfg: {
+  configured: boolean;
+  enabled: boolean;
+  ready: boolean;
+  model: string;
+  maxFileMb: number;
+  source: "db" | "env" | "none";
+}) {
+  return {
     configured: cfg.configured,
     enabled: cfg.enabled,
     ready: cfg.ready,
     model: cfg.model,
     maxFileMb: cfg.maxFileMb,
-  });
+    source: cfg.source,
+  };
+}
+
+router.get("/billing/ai-extraction", async (_req, res): Promise<void> => {
+  const cfg = await resolveOpenAiConfig();
+  res.json(serializeExtractionStatus(cfg));
+});
+
+// Save the OpenAI configuration (API key + model + master switch) into the DB
+// singleton so it can be set from the Settings UI without redeploying. The key
+// is write-only: a non-empty string sets it, "" clears it, null/omitted keeps it.
+router.put("/billing/ai-extraction", async (req, res): Promise<void> => {
+  const parsed = UpdateDocumentExtractionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const d = parsed.data;
+
+  const [existing] = await db
+    .select()
+    .from(openaiSettingsTable)
+    .where(eq(openaiSettingsTable.id, OPENAI_SETTINGS_ID));
+
+  const apiKey =
+    typeof d.apiKey === "string" ? d.apiKey.trim() || null : existing?.apiKey ?? null;
+
+  const values: typeof openaiSettingsTable.$inferInsert = {
+    id: OPENAI_SETTINGS_ID,
+    enabled: d.enabled,
+    apiKey,
+    model: d.model?.trim() || null,
+    updatedAt: new Date(),
+  };
+
+  await db
+    .insert(openaiSettingsTable)
+    .values(values)
+    .onConflictDoUpdate({ target: openaiSettingsTable.id, set: values });
+
+  const cfg = await resolveOpenAiConfig();
+  res.json(serializeExtractionStatus(cfg));
 });
 
 // Verifies the API key + model are reachable. Sends NO real document.

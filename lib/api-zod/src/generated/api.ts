@@ -5098,7 +5098,27 @@ export const GetDocumentExtractionStatusResponse = zod.object({
   "enabled": zod.boolean(),
   "ready": zod.boolean(),
   "model": zod.string(),
-  "maxFileMb": zod.number()
+  "maxFileMb": zod.number(),
+  "source": zod.enum(['db', 'env', 'none']).describe('Which source provides the API key: \"db\" (saved in Settings), \"env\" (OPENAI_API_KEY fallback), or \"none\".')
+})
+
+
+/**
+ * @summary Update the OpenAI document-extraction configuration (admin only)
+ */
+export const UpdateDocumentExtractionBody = zod.object({
+  "enabled": zod.boolean(),
+  "model": zod.string().nullable(),
+  "apiKey": zod.string().nullish().describe('Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting \/ null keeps the existing key.')
+})
+
+export const UpdateDocumentExtractionResponse = zod.object({
+  "configured": zod.boolean(),
+  "enabled": zod.boolean(),
+  "ready": zod.boolean(),
+  "model": zod.string(),
+  "maxFileMb": zod.number(),
+  "source": zod.enum(['db', 'env', 'none']).describe('Which source provides the API key: \"db\" (saved in Settings), \"env\" (OPENAI_API_KEY fallback), or \"none\".')
 })
 
 
