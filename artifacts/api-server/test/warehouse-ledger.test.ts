@@ -20,7 +20,7 @@ import {
   netSignedForSources,
   listItemMovements,
 } from "../src/lib/warehouse-service";
-import { approveDocument, setDocumentStatus } from "../src/lib/cost-document-service";
+import { approveDocument, setDocumentStatus, splitLine } from "../src/lib/cost-document-service";
 
 /**
  * Stock-movement ledger engine (DB-backed).
@@ -447,5 +447,90 @@ describe("activity material issue lifecycle", () => {
 
     // The source's net contribution is fully on B now.
     expect(await netSignedForSources(db, "activity_material", [materialId])).toBeCloseTo(-30, 2);
+  });
+});
+
+describe("cost-document line split", () => {
+  /** The current line ids of a document, in sort order. */
+  async function docLineIds(documentId: number): Promise<number[]> {
+    const rows = await db
+      .select({ id: billingDocumentLinesTable.id })
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, documentId))
+      .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
+    return rows.map((r) => r.id);
+  }
+
+  it("splitting an approved stock line keeps the item quantity and ledger intact", async () => {
+    const itemId = await makeItem({ name: `Trubka ${TAG}`, code: `SKU-SPLIT-${TAG}` });
+    const { docId, lineId } = await makeStockDoc({
+      description: `Trubka ${TAG}`,
+      quantity: "40",
+      supplierSku: `SKU-SPLIT-${TAG}`,
+    });
+
+    // Approve → příjem: the matched item gains the whole line quantity.
+    await approveDocument(docId, actor);
+    expect(await expectConsistent(itemId)).toBeCloseTo(40, 2);
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(40, 2);
+
+    // Split 40 → 25 + 15. The original line id is destroyed and replaced by
+    // two sibling part lines. Stock must not change: the old line's receipt is
+    // reversed and the two new parts naskladní the same total.
+    await splitLine(docId, lineId, [{ quantity: 25 }, { quantity: 15 }], actor);
+
+    // The matched item's cached quantity is unchanged AND equals the signed
+    // ledger sum — no double-receipt, no drift.
+    expect(await expectConsistent(itemId)).toBeCloseTo(40, 2);
+
+    // The original line's contribution is fully reversed (it no longer exists),
+    // so it must net to zero — nothing orphaned against the dead id.
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(0, 2);
+
+    // The replacement part lines now carry the full +40 between them.
+    const partIds = await docLineIds(docId);
+    expect(partIds).toHaveLength(2);
+    expect(partIds).not.toContain(lineId);
+    expect(
+      await netSignedForSources(db, "billing_document_line", partIds),
+    ).toBeCloseTo(40, 2);
+
+    // The whole ledger for the item still nets to exactly +40 across every
+    // source (old receipt + its storno + the two new part receipts).
+    expect(await ledgerSum(itemId)).toBeCloseTo(40, 2);
+  });
+
+  it("splitting into three parts with uneven quantities stays consistent", async () => {
+    const itemId = await makeItem({ name: `Kabel3 ${TAG}`, code: `SKU-3-${TAG}` });
+    const { docId, lineId } = await makeStockDoc({
+      description: `Kabel3 ${TAG}`,
+      quantity: "12.5",
+      supplierSku: `SKU-3-${TAG}`,
+    });
+
+    await approveDocument(docId, actor);
+    expect(await expectConsistent(itemId)).toBeCloseTo(12.5, 2);
+
+    await splitLine(
+      docId,
+      lineId,
+      [{ quantity: 5 }, { quantity: 4.5 }, { quantity: 3 }],
+      actor,
+    );
+
+    expect(await expectConsistent(itemId)).toBeCloseTo(12.5, 2);
+    expect(
+      await netSignedForSources(db, "billing_document_line", [lineId]),
+    ).toBeCloseTo(0, 2);
+
+    const partIds = await docLineIds(docId);
+    expect(partIds).toHaveLength(3);
+    expect(
+      await netSignedForSources(db, "billing_document_line", partIds),
+    ).toBeCloseTo(12.5, 2);
   });
 });
