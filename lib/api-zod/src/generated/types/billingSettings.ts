@@ -32,6 +32,8 @@ export interface BillingSettings {
   vatModeDefault: BillingSettingsVatModeDefault;
   /** @nullable */
   invoiceFooterNote?: string | null;
+  /** Default percent markup applied to material lines when proposing an invoice (0 = no markup) */
+  materialMarkupPercent?: number;
   numberPrefix: string;
   numberFormat: string;
   /** @nullable */

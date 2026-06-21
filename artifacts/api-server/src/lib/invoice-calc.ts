@@ -97,6 +97,29 @@ export function computeLine(
   };
 }
 
+/**
+ * Resolve the effective material markup percent for an invoice. An explicit
+ * per-invoice value (when provided) wins over the saved settings default;
+ * negative or non-finite values collapse to 0 (no markup). `0` provided
+ * explicitly stays `0` (the user opted out of the saved default).
+ */
+export function resolveMaterialMarkup(
+  explicit: number | null | undefined,
+  fallback: number | string | null | undefined,
+): number {
+  const raw = explicit ?? num(fallback);
+  return Number.isFinite(raw) && raw > 0 ? round2(raw) : 0;
+}
+
+/**
+ * Apply a percent markup to a material unit price. A markup of 0 (or less)
+ * leaves the price unchanged. Result is rounded to 2 decimals.
+ */
+export function applyMaterialMarkup(unitPrice: number, markupPercent: number): number {
+  const factor = markupPercent > 0 ? 1 + markupPercent / 100 : 1;
+  return round2(num(unitPrice) * factor);
+}
+
 export interface InvoiceTotals {
   subtotalWithoutVat: number;
   totalVat: number;

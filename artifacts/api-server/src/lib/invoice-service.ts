@@ -16,6 +16,8 @@ import {
 import {
   computeLine,
   deriveJobSourceLinks,
+  applyMaterialMarkup,
+  resolveMaterialMarkup,
   num,
   round2,
   sumTotals,
@@ -130,6 +132,7 @@ export function serializeSettings(row: BillingSettings) {
     vatPayer: row.vatPayer,
     vatModeDefault: row.vatModeDefault as VatMode,
     invoiceFooterNote: row.invoiceFooterNote,
+    materialMarkupPercent: num(row.materialMarkupPercent),
     numberPrefix: row.numberPrefix,
     numberFormat: row.numberFormat,
     numberYear: row.numberYear,
@@ -155,6 +158,7 @@ export interface BillingSettingsInput {
   vatPayer?: boolean;
   vatModeDefault?: VatMode;
   invoiceFooterNote?: string | null;
+  materialMarkupPercent?: number;
   numberPrefix?: string;
   numberFormat?: string;
   numberYear?: number | null;
@@ -185,6 +189,12 @@ export async function updateBillingSettings(
   assign("vatPayer", "vatPayer");
   assign("vatModeDefault", "vatModeDefault");
   assign("invoiceFooterNote", "invoiceFooterNote");
+  if (input.materialMarkupPercent !== undefined) {
+    if (!Number.isFinite(input.materialMarkupPercent) || input.materialMarkupPercent < 0) {
+      throw appError(400, "Přirážka na materiál nesmí být záporná.");
+    }
+    set.materialMarkupPercent = String(round2(input.materialMarkupPercent));
+  }
   assign("numberPrefix", "numberPrefix");
   assign("numberFormat", "numberFormat");
   if (input.numberNextSeq !== undefined && input.numberNextSeq < 1) {
@@ -553,6 +563,7 @@ async function buildProposedLines(
   billFineJobIds: number[],
   customerId: number,
   invoiceVatMode: VatMode,
+  materialMarkupPercent = 0,
 ): Promise<{ lines: RawLine[]; jobAmounts: Map<number, number> }> {
   const lines: RawLine[] = [];
   const jobAmounts = new Map<number, number>();
@@ -634,7 +645,8 @@ async function buildProposedLines(
         description: m.name,
         quantity: round2(num(m.quantity ?? 1)),
         unit: m.unit ?? "ks",
-        unitPriceWithoutVat: round2(num(m.pricePerUnit)),
+        // Material lines (and only these) carry the optional percent markup.
+        unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), materialMarkupPercent),
         vatMode: invoiceVatMode,
       });
     }
@@ -750,6 +762,7 @@ export interface InvoiceCreateInput {
   customerId: number;
   jobIds?: number[];
   billFineJobIds?: number[];
+  materialMarkupPercent?: number;
   vatModeDefault?: VatMode;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
@@ -774,6 +787,12 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
     input.vatModeDefault ?? (settings.vatModeDefault as VatMode);
   const jobIds = input.jobIds ?? [];
   const billFineJobIds = input.billFineJobIds ?? [];
+  // Material markup: explicit per-invoice value wins, otherwise the saved
+  // default from billing settings. Negative/invalid values fall back to 0.
+  const materialMarkupPercent = resolveMaterialMarkup(
+    input.materialMarkupPercent,
+    settings.materialMarkupPercent,
+  );
 
   const id = await db.transaction(async (tx) => {
     const { lines: proposed, jobAmounts } = await buildProposedLines(
@@ -782,6 +801,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
       billFineJobIds,
       input.customerId,
       vatModeDefault,
+      materialMarkupPercent,
     );
 
     const manual: RawLine[] = (input.lines ?? []).map((l) => ({

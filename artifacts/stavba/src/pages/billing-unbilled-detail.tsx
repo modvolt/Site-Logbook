@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import {
   useGetUnbilledCustomerDetail,
@@ -20,15 +20,28 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge } from "@/components/badges";
+import { Input } from "@/components/ui/input";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Building2, FileEdit, Inbox, Receipt } from "lucide-react";
+import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent } from "lucide-react";
 
-function jobOrientationalTotal(job: UnbilledJob, billFine: boolean): number {
-  let total = (job.price ?? 0) + (job.transportCost ?? 0) + (job.parking ?? 0);
+/** Material subtotal (purchase price, no markup) for a single job. */
+function jobMaterialTotal(job: UnbilledJob): number {
+  let total = 0;
   for (const m of job.materials) {
     if (m.quantity != null && m.pricePerUnit != null) total += m.quantity * m.pricePerUnit;
   }
+  return total;
+}
+
+function jobOrientationalTotal(
+  job: UnbilledJob,
+  billFine: boolean,
+  markupPercent = 0,
+): number {
+  let total = (job.price ?? 0) + (job.transportCost ?? 0) + (job.parking ?? 0);
+  const factor = markupPercent > 0 ? 1 + markupPercent / 100 : 1;
+  total += jobMaterialTotal(job) * factor;
   if (billFine) total += job.fines ?? 0;
   return total;
 }
@@ -60,6 +73,21 @@ export default function BillingUnbilledDetail() {
 
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [fines, setFines] = useState<Record<number, boolean>>({});
+  // Material markup (%) — prefilled with the saved default once settings load,
+  // editable per invoice. Empty string is treated as 0 (no markup).
+  const [markup, setMarkup] = useState<string>("");
+  const [markupTouched, setMarkupTouched] = useState(false);
+
+  useEffect(() => {
+    if (!markupTouched && settings) {
+      setMarkup(String(settings.materialMarkupPercent ?? 0));
+    }
+  }, [settings, markupTouched]);
+
+  const markupPercent = useMemo(() => {
+    const n = Number(markup);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [markup]);
 
   const jobs = data?.jobs ?? [];
   const costLines = approvedLines ?? [];
@@ -87,9 +115,19 @@ export default function BillingUnbilledDetail() {
     () =>
       jobs
         .filter((j) => isChecked(j.id))
-        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id]), 0),
-    [jobs, selected, fines],
+        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], markupPercent), 0),
+    [jobs, selected, fines, markupPercent],
   );
+
+  // Material purchase-price base across selected jobs + the markup amount it adds.
+  const selectedMaterialBase = useMemo(
+    () =>
+      jobs
+        .filter((j) => isChecked(j.id))
+        .reduce((sum, j) => sum + jobMaterialTotal(j), 0),
+    [jobs, selected],
+  );
+  const markupAmount = (selectedMaterialBase * markupPercent) / 100;
 
   const handleCreate = () => {
     if (chosenJobIds.length === 0 && costLines.length === 0) return;
@@ -111,6 +149,7 @@ export default function BillingUnbilledDetail() {
           customerId,
           jobIds: chosenJobIds,
           billFineJobIds,
+          materialMarkupPercent: markupPercent,
           vatModeDefault: settings?.vatModeDefault ?? "standard",
           ...(costLineInputs.length > 0 ? { lines: costLineInputs } : {}),
         },
@@ -291,6 +330,52 @@ export default function BillingUnbilledDetail() {
               <span className="text-muted-foreground">Náklady celkem bez DPH</span>
               <span className="font-bold">{fmtKc(costLinesTotal, 2)}</span>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedMaterialBase > 0 && (
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2 text-sm font-semibold">
+              <Percent className="h-4 w-4" />
+              Přirážka na materiál
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={markup}
+                onChange={(e) => {
+                  setMarkupTouched(true);
+                  setMarkup(e.target.value);
+                }}
+                className="max-w-[120px]"
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+            <div className="mt-3 space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Materiál (nákupní cena)</span>
+                <span>{fmtKc(selectedMaterialBase, 2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Přirážka ({markupPercent} %)</span>
+                <span className={markupAmount > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                  {markupAmount > 0 ? "+ " : ""}
+                  {fmtKc(markupAmount, 2)}
+                </span>
+              </div>
+              <div className="flex justify-between font-semibold pt-1 border-t">
+                <span>Materiál k fakturaci</span>
+                <span>{fmtKc(selectedMaterialBase + markupAmount, 2)}</span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Přirážka se přičte pouze k materiálu. Práce, doprava ani pokuty se
+              nemění.
+            </p>
           </CardContent>
         </Card>
       )}

@@ -127,6 +127,8 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
       iban: d.iban,
       bic: d.bic,
       invoiceFooterNote: d.invoiceFooterNote,
+      // materialMarkupPercent non-nullable: null = "leave unchanged".
+      materialMarkupPercent: d.materialMarkupPercent ?? undefined,
       // reminderEnabled non-nullable: null = "leave unchanged".
       reminderEnabled: d.reminderEnabled ?? undefined,
       // reminderDays nullable on input but normalized to a default if cleared.
@@ -198,6 +200,7 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
     customerId: d.customerId,
     jobIds: d.jobIds ?? undefined,
     billFineJobIds: d.billFineJobIds ?? undefined,
+    materialMarkupPercent: d.materialMarkupPercent ?? undefined,
     vatModeDefault: d.vatModeDefault ?? undefined,
     issueDate: d.issueDate ?? undefined,
     taxableSupplyDate: d.taxableSupplyDate ?? undefined,

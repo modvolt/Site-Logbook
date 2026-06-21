@@ -14,6 +14,11 @@ export interface InvoiceCreateInput {
   jobIds?: number[];
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
+  /**
+     * Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
+     * @nullable
+     */
+  materialMarkupPercent?: number | null;
   /** Extra manual lines appended after the auto-proposed ones */
   lines?: InvoiceLineInput[];
   /** @nullable */

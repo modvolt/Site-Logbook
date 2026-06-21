@@ -6748,6 +6748,9 @@ components:
           enum: [standard, reverse_charge, zero, non_vat]
         invoiceFooterNote:
           type: ["string", "null"]
+        materialMarkupPercent:
+          type: number
+          description: Default percent markup applied to material lines when proposing an invoice (0 = no markup)
         numberPrefix:
           type: string
         numberFormat:
@@ -6794,6 +6797,9 @@ components:
           type: ["string", "null"]
         invoiceFooterNote:
           type: ["string", "null"]
+        materialMarkupPercent:
+          type: ["number", "null"]
+          description: Default percent markup applied to material lines (0 = no markup)
         numberPrefix:
           type: ["string", "null"]
         numberFormat:
@@ -7081,6 +7087,9 @@ components:
           items:
             type: integer
           description: Subset of jobIds whose fines should also be billed (explicit opt-in)
+        materialMarkupPercent:
+          type: ["number", "null"]
+          description: Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
         lines:
           type: array
           items:

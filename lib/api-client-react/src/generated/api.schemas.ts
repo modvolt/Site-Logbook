@@ -1607,6 +1607,8 @@ export interface BillingSettings {
   vatModeDefault: BillingSettingsVatModeDefault;
   /** @nullable */
   invoiceFooterNote?: string | null;
+  /** Default percent markup applied to material lines when proposing an invoice (0 = no markup) */
+  materialMarkupPercent?: number;
   numberPrefix: string;
   numberFormat: string;
   /** @nullable */
@@ -1646,6 +1648,11 @@ export interface BillingSettingsInput {
   vatModeDefault?: string | null;
   /** @nullable */
   invoiceFooterNote?: string | null;
+  /**
+     * Default percent markup applied to material lines (0 = no markup)
+     * @nullable
+     */
+  materialMarkupPercent?: number | null;
   /** @nullable */
   numberPrefix?: string | null;
   /** @nullable */
@@ -1867,6 +1874,11 @@ export interface InvoiceCreateInput {
   jobIds?: number[];
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
+  /**
+     * Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted
+     * @nullable
+     */
+  materialMarkupPercent?: number | null;
   /** Extra manual lines appended after the auto-proposed ones */
   lines?: InvoiceLineInput[];
   /** @nullable */

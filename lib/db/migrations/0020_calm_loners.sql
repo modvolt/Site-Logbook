@@ -1,0 +1,1 @@
+ALTER TABLE "billing_settings" ADD COLUMN "material_markup_percent" numeric(6, 2) DEFAULT '0' NOT NULL;

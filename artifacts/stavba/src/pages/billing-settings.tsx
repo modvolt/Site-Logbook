@@ -56,6 +56,7 @@ type Form = {
   vatPayer: boolean;
   vatModeDefault: string;
   invoiceFooterNote: string;
+  materialMarkupPercent: string;
   numberPrefix: string;
   numberFormat: string;
   numberYear: string;
@@ -80,6 +81,7 @@ function toForm(s: BillingSettings): Form {
     vatPayer: s.vatPayer,
     vatModeDefault: s.vatModeDefault,
     invoiceFooterNote: s.invoiceFooterNote ?? "",
+    materialMarkupPercent: String(s.materialMarkupPercent ?? 0),
     numberPrefix: s.numberPrefix ?? "",
     numberFormat: s.numberFormat ?? "",
     numberYear: s.numberYear != null ? String(s.numberYear) : "",
@@ -241,6 +243,10 @@ export default function BillingSettings() {
           vatPayer: form.vatPayer,
           vatModeDefault: form.vatModeDefault,
           invoiceFooterNote: trimOrNull(form.invoiceFooterNote),
+          materialMarkupPercent:
+            form.materialMarkupPercent.trim() === ""
+              ? null
+              : Number(form.materialMarkupPercent),
           numberPrefix: trimOrNull(form.numberPrefix),
           numberFormat: trimOrNull(form.numberFormat),
           numberYear: form.numberYear.trim() === "" ? null : Number(form.numberYear),
@@ -381,6 +387,21 @@ export default function BillingSettings() {
                   ))}
                 </SelectContent>
               </Select>
+            </Field>
+            <Field label="Výchozí přirážka na materiál (%)">
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.materialMarkupPercent}
+                onChange={(e) => set("materialMarkupPercent", e.target.value)}
+                className="max-w-[160px]"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
+                0 = bez přirážky. Lze upravit i při vytváření konkrétní faktury.
+                Netýká se práce, dopravy ani pokut.
+              </p>
             </Field>
             <Field label="Patička faktury (poznámka)">
               <Textarea

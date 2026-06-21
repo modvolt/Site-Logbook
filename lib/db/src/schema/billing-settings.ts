@@ -1,4 +1,4 @@
-import { pgTable, integer, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, integer, text, boolean, timestamp, numeric } from "drizzle-orm/pg-core";
 
 /**
  * Singleton (id = 1) configuration for the invoicing module: supplier identity
@@ -30,6 +30,12 @@ export const billingSettingsTable = pgTable("billing_settings", {
   vatPayer: boolean("vat_payer").notNull().default(true),
   vatModeDefault: text("vat_mode_default").notNull().default("standard"),
   invoiceFooterNote: text("invoice_footer_note"),
+  // Default percent markup (marže) added to material unit prices when proposing
+  // invoice lines. Applies ONLY to material lines (never práce/doprava/pokuty).
+  // 0 = bill materials at purchase price 1:1. Overridable per invoice at create.
+  materialMarkupPercent: numeric("material_markup_percent", { precision: 6, scale: 2 })
+    .notNull()
+    .default("0"),
   // Number series.
   numberPrefix: text("number_prefix").notNull().default("FV"),
   numberFormat: text("number_format").notNull().default("{PREFIX}{YYYY}{SEQ4}"),
