@@ -1025,6 +1025,7 @@ export interface EmailImportSettings {
   secure: boolean;
   /** @nullable */
   username: string | null;
+  /** Comma-separated list of mailbox folders / Gmail labels to poll (e.g. "INBOX, Faktury"). Empty defaults to INBOX. */
   folder: string;
   markSeen: boolean;
   pollMinutes: number;
@@ -1048,6 +1049,7 @@ export interface EmailImportSettingsInput {
   secure: boolean;
   /** @nullable */
   username: string | null;
+  /** Comma-separated list of mailbox folders / Gmail labels to poll (e.g. "INBOX, Faktury"). Empty defaults to INBOX. */
   folder: string;
   markSeen: boolean;
   pollMinutes: number;
@@ -1060,8 +1062,9 @@ export interface EmailImportSettingsInput {
 
 export interface EmailImportTestResult {
   ok: boolean;
+  /** The folder(s) opened, comma-separated. */
   folder: string;
-  /** Total messages present in the opened folder. */
+  /** Total messages present across the opened folder(s). */
   messages: number;
 }
 

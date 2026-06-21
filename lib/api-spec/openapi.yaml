@@ -5858,6 +5858,9 @@ components:
           type: ["string", "null"]
         folder:
           type: string
+          description: >-
+            Comma-separated list of mailbox folders / Gmail labels to poll
+            (e.g. "INBOX, Faktury"). Empty defaults to INBOX.
         markSeen:
           type: boolean
         pollMinutes:
@@ -5894,6 +5897,9 @@ components:
           type: ["string", "null"]
         folder:
           type: string
+          description: >-
+            Comma-separated list of mailbox folders / Gmail labels to poll
+            (e.g. "INBOX, Faktury"). Empty defaults to INBOX.
         markSeen:
           type: boolean
         pollMinutes:
@@ -5912,9 +5918,10 @@ components:
           type: boolean
         folder:
           type: string
+          description: The folder(s) opened, comma-separated.
         messages:
           type: integer
-          description: Total messages present in the opened folder.
+          description: Total messages present across the opened folder(s).
 
     EmailImportPollResult:
       type: object

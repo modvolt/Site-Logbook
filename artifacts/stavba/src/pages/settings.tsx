@@ -873,13 +873,17 @@ function EmailImportCard() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="imap-folder">Složka</Label>
+                <Label htmlFor="imap-folder">Složky / štítky</Label>
                 <Input
                   id="imap-folder"
                   value={form.folder}
                   onChange={(e) => set("folder", e.target.value)}
-                  placeholder="INBOX"
+                  placeholder="INBOX, Faktury, Dodavatelé"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Více složek oddělte čárkou (např. „INBOX, Faktury"). U Gmailu
+                  odpovídají štítkům. Prázdné = INBOX.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="imap-poll">Interval (min)</Label>

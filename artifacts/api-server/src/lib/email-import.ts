@@ -43,7 +43,7 @@ export type ResolvedImapConfig = {
   secure: boolean;
   user?: string;
   pass?: string;
-  folder: string;
+  folders: string[];
   markSeen: boolean;
   pollMinutes: number;
 };
@@ -122,6 +122,19 @@ function resolveAttachmentType(
 // Config resolution (DB → env)
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse the configured folder field into a de-duplicated list of mailbox names.
+ * The field holds a comma-separated list (e.g. "INBOX, Faktury, Dodavatelé") so
+ * several Gmail labels / IMAP folders can be polled. Empty → ["INBOX"].
+ */
+function parseFolders(raw: string | null | undefined): string[] {
+  const list = (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length ? Array.from(new Set(list)) : ["INBOX"];
+}
+
 async function loadDbSettings() {
   const [row] = await db
     .select()
@@ -147,7 +160,7 @@ export async function resolveImapConfig(): Promise<ResolvedImapConfig | null> {
       secure: row.secure ?? true,
       user,
       pass: user ? row.password ?? undefined : undefined,
-      folder: row.folder?.trim() || "INBOX",
+      folders: parseFolders(row.folder),
       markSeen: row.markSeen ?? true,
       pollMinutes: row.pollMinutes ?? 15,
     };
@@ -167,7 +180,7 @@ export async function resolveImapConfig(): Promise<ResolvedImapConfig | null> {
     secure,
     user: user || undefined,
     pass: user ? process.env.IMAP_PASSWORD : undefined,
-    folder: process.env.IMAP_FOLDER?.trim() || "INBOX",
+    folders: parseFolders(process.env.IMAP_FOLDER),
     markSeen: process.env.IMAP_MARK_SEEN
       ? process.env.IMAP_MARK_SEEN === "true"
       : true,
@@ -213,8 +226,12 @@ export async function testImapConnection(): Promise<{ folder: string; messages: 
   const client = newClient(cfg);
   try {
     await client.connect();
-    const mailbox = await client.mailboxOpen(cfg.folder);
-    return { folder: cfg.folder, messages: mailbox.exists };
+    let total = 0;
+    for (const folder of cfg.folders) {
+      const mailbox = await client.mailboxOpen(folder);
+      total += mailbox.exists;
+    }
+    return { folder: cfg.folders.join(", "), messages: total };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(`Připojení k poštovní schránce selhalo: ${detail}`);
@@ -345,19 +362,43 @@ export async function pollOnce(): Promise<PollResult> {
     throw new Error(`Připojení k poštovní schránce selhalo: ${detail}`);
   }
 
-  const lock = await client.getMailboxLock(cfg.folder);
+  try {
+    // Read every configured folder/label in turn. A message carrying the same
+    // Message-ID across several Gmail labels is imported once thanks to the
+    // email_import_log dedupe. Each mailbox is locked independently.
+    for (const folder of cfg.folders) {
+      await pollFolder(client, folder, cfg, result);
+    }
+    return result;
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}
+
+/**
+ * Process one folder/label within an already-connected client: lock the mailbox,
+ * search unseen messages, and import supported attachments. Per-message failures
+ * are caught and logged so one bad message never aborts the folder or the batch.
+ */
+async function pollFolder(
+  client: ImapFlow,
+  folder: string,
+  cfg: ResolvedImapConfig,
+  result: PollResult,
+): Promise<void> {
+  const lock = await client.getMailboxLock(folder);
   try {
     // Only look at messages not yet marked \Seen. The email_import_log table is
     // the authoritative dedupe; \Seen just narrows the working set.
     const uids = await client.search({ seen: false }, { uid: true });
-    if (!uids || !uids.length) return result;
+    if (!uids || !uids.length) return;
 
     for await (const msg of client.fetch(
       uids,
       { uid: true, envelope: true, bodyStructure: true, internalDate: true },
       { uid: true },
     )) {
-      const messageId = messageIdOf(msg, cfg.folder);
+      const messageId = messageIdOf(msg, folder);
       if (await alreadyLogged(messageId)) continue;
 
       result.processed += 1;
@@ -469,10 +510,8 @@ export async function pollOnce(): Promise<PollResult> {
       }
     }
 
-    return result;
   } finally {
     lock.release();
-    await client.logout().catch(() => {});
   }
 }
 

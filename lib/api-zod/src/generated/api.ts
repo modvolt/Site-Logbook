@@ -1636,7 +1636,7 @@ export const GetEmailImportSettingsResponse = zod.object({
   "port": zod.number(),
   "secure": zod.boolean(),
   "username": zod.string().nullable(),
-  "folder": zod.string(),
+  "folder": zod.string().describe('Comma-separated list of mailbox folders \/ Gmail labels to poll (e.g. \"INBOX, Faktury\"). Empty defaults to INBOX.'),
   "markSeen": zod.boolean(),
   "pollMinutes": zod.number(),
   "passwordSet": zod.boolean().describe('Whether a password \/ app password is stored.'),
@@ -1656,7 +1656,7 @@ export const UpdateEmailImportSettingsBody = zod.object({
   "port": zod.number(),
   "secure": zod.boolean(),
   "username": zod.string().nullable(),
-  "folder": zod.string(),
+  "folder": zod.string().describe('Comma-separated list of mailbox folders \/ Gmail labels to poll (e.g. \"INBOX, Faktury\"). Empty defaults to INBOX.'),
   "markSeen": zod.boolean(),
   "pollMinutes": zod.number(),
   "password": zod.string().nullish().describe('Write-only. Provide a non-empty string to set the password, an empty string to clear it, or omit \/ null to keep the existing password.')
@@ -1668,7 +1668,7 @@ export const UpdateEmailImportSettingsResponse = zod.object({
   "port": zod.number(),
   "secure": zod.boolean(),
   "username": zod.string().nullable(),
-  "folder": zod.string(),
+  "folder": zod.string().describe('Comma-separated list of mailbox folders \/ Gmail labels to poll (e.g. \"INBOX, Faktury\"). Empty defaults to INBOX.'),
   "markSeen": zod.boolean(),
   "pollMinutes": zod.number(),
   "passwordSet": zod.boolean().describe('Whether a password \/ app password is stored.'),
@@ -1684,8 +1684,8 @@ export const UpdateEmailImportSettingsResponse = zod.object({
  */
 export const TestEmailImportConnectionResponse = zod.object({
   "ok": zod.boolean(),
-  "folder": zod.string(),
-  "messages": zod.number().describe('Total messages present in the opened folder.')
+  "folder": zod.string().describe('The folder(s) opened, comma-separated.'),
+  "messages": zod.number().describe('Total messages present across the opened folder(s).')
 })
 
 

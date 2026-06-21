@@ -8,7 +8,8 @@
 
 export interface EmailImportTestResult {
   ok: boolean;
+  /** The folder(s) opened, comma-separated. */
   folder: string;
-  /** Total messages present in the opened folder. */
+  /** Total messages present across the opened folder(s). */
   messages: number;
 }

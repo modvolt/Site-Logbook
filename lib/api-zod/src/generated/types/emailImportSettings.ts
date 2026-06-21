@@ -15,6 +15,7 @@ export interface EmailImportSettings {
   secure: boolean;
   /** @nullable */
   username: string | null;
+  /** Comma-separated list of mailbox folders / Gmail labels to poll (e.g. "INBOX, Faktury"). Empty defaults to INBOX. */
   folder: string;
   markSeen: boolean;
   pollMinutes: number;
