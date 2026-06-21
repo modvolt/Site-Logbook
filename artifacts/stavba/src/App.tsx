@@ -31,6 +31,7 @@ import ActivityDetail from "@/pages/activity-detail";
 import ActivityExport from "@/pages/activity-export";
 import MyOverview from "@/pages/my-overview";
 import Sklad from "@/pages/sklad";
+import SkladPohyby from "@/pages/sklad-pohyby";
 import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
 import AuditLog from "@/pages/audit-log";
@@ -102,6 +103,7 @@ function AuthenticatedApp() {
         <Route path="/pristupove-udaje/export/:id">{() => <WriteOnly component={PristupoveUdajeExport} />}</Route>
         <Route path="/pristupove-udaje">{() => <WriteOnly component={PristupoveUdaje} />}</Route>
         <Route path="/people" component={People} />
+        <Route path="/sklad/pohyby" component={SkladPohyby} />
         <Route path="/sklad" component={Sklad} />
         <Route path="/stroje" component={Stroje} />
         <Route path="/stroje/:id" component={StrojDetail} />

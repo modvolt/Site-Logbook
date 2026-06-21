@@ -1260,6 +1260,108 @@ paths:
         "404":
           description: Not found
 
+  /warehouse-items/{id}/movements:
+    get:
+      operationId: listWarehouseItemMovements
+      tags: [warehouse]
+      summary: List the stock movements (ledger) of one warehouse item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Movements (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WarehouseMovement"
+        "404":
+          description: Not found
+    post:
+      operationId: createWarehouseMovement
+      tags: [warehouse]
+      summary: Append a manual correction movement (příjem/výdej) to an item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarehouseMovementInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseMovement"
+        "400":
+          description: Invalid input
+        "404":
+          description: Not found
+
+  /warehouse-movements:
+    get:
+      operationId: listWarehouseMovements
+      tags: [warehouse]
+      summary: List all stock movements (kniha pohybů) with optional filters
+      parameters:
+        - name: warehouseItemId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: jobId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: billingDocumentId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [in, out]
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Movements (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WarehouseMovement"
+
   /dashboard/summary:
     get:
       operationId: getDashboardSummary
@@ -6296,8 +6398,6 @@ components:
           type: ["string", "null"]
         category:
           type: ["string", "null"]
-        quantity:
-          type: ["number", "null"]
         unit:
           type: ["string", "null"]
         purchasePrice:
@@ -6345,6 +6445,59 @@ components:
           type: integer
         skipped:
           type: integer
+
+    WarehouseMovement:
+      type: object
+      required: [id, warehouseItemId, direction, quantity, signedQuantity, sourceType, createdAt]
+      properties:
+        id:
+          type: integer
+        warehouseItemId:
+          type: integer
+        warehouseItemName:
+          type: ["string", "null"]
+        direction:
+          type: string
+          enum: [in, out]
+        quantity:
+          type: number
+        signedQuantity:
+          type: number
+        unitPrice:
+          type: ["number", "null"]
+        sourceType:
+          type: string
+        sourceId:
+          type: ["integer", "null"]
+        billingDocumentId:
+          type: ["integer", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        jobId:
+          type: ["integer", "null"]
+        jobTitle:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdByName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    WarehouseMovementInput:
+      type: object
+      required: [direction, quantity]
+      properties:
+        direction:
+          type: string
+          enum: [in, out]
+        quantity:
+          type: number
+          exclusiveMinimum: 0
+        unitPrice:
+          type: ["number", "null"]
+        note:
+          type: ["string", "null"]
 
     AuditLogEntry:
       type: object

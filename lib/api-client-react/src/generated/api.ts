@@ -119,6 +119,7 @@ import type {
   ListEmailImportMessagesParams,
   ListInvoicesParams,
   ListJobsParams,
+  ListWarehouseMovementsParams,
   LoginInput,
   Machine,
   MachineInput,
@@ -162,6 +163,8 @@ import type {
   WarehouseImportResult,
   WarehouseItem,
   WarehouseItemInput,
+  WarehouseMovement,
+  WarehouseMovementInput,
   WarehousePriceUpdateResult
 } from './api.schemas';
 
@@ -4431,6 +4434,239 @@ export const useDeleteWarehouseItem = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteWarehouseItemMutationOptions(options));
     }
+
+export const getListWarehouseItemMovementsUrl = (id: number,) => {
+
+
+
+
+  return `/api/warehouse-items/${id}/movements`
+}
+
+/**
+ * @summary List the stock movements (ledger) of one warehouse item
+ */
+export const listWarehouseItemMovements = async (id: number, options?: RequestInit): Promise<WarehouseMovement[]> => {
+
+  return customFetch<WarehouseMovement[]>(getListWarehouseItemMovementsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWarehouseItemMovementsQueryKey = (id: number,) => {
+    return [
+    `/api/warehouse-items/${id}/movements`
+    ] as const;
+    }
+
+
+export const getListWarehouseItemMovementsQueryOptions = <TData = Awaited<ReturnType<typeof listWarehouseItemMovements>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItemMovements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWarehouseItemMovementsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWarehouseItemMovements>>> = ({ signal }) => listWarehouseItemMovements(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItemMovements>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWarehouseItemMovementsQueryResult = NonNullable<Awaited<ReturnType<typeof listWarehouseItemMovements>>>
+export type ListWarehouseItemMovementsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List the stock movements (ledger) of one warehouse item
+ */
+
+export function useListWarehouseItemMovements<TData = Awaited<ReturnType<typeof listWarehouseItemMovements>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItemMovements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWarehouseItemMovementsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateWarehouseMovementUrl = (id: number,) => {
+
+
+
+
+  return `/api/warehouse-items/${id}/movements`
+}
+
+/**
+ * @summary Append a manual correction movement (příjem/výdej) to an item
+ */
+export const createWarehouseMovement = async (id: number,
+    warehouseMovementInput: WarehouseMovementInput, options?: RequestInit): Promise<WarehouseMovement> => {
+
+  return customFetch<WarehouseMovement>(getCreateWarehouseMovementUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      warehouseMovementInput,)
+  }
+);}
+
+
+
+
+export const getCreateWarehouseMovementMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementInput>}, TContext> => {
+
+const mutationKey = ['createWarehouseMovement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWarehouseMovement>>, {id: number;data: BodyType<WarehouseMovementInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createWarehouseMovement(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateWarehouseMovementMutationResult = NonNullable<Awaited<ReturnType<typeof createWarehouseMovement>>>
+    export type CreateWarehouseMovementMutationBody = BodyType<WarehouseMovementInput>
+    export type CreateWarehouseMovementMutationError = ErrorType<void>
+
+    /**
+ * @summary Append a manual correction movement (příjem/výdej) to an item
+ */
+export const useCreateWarehouseMovement = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createWarehouseMovement>>,
+        TError,
+        {id: number;data: BodyType<WarehouseMovementInput>},
+        TContext
+      > => {
+      return useMutation(getCreateWarehouseMovementMutationOptions(options));
+    }
+
+export const getListWarehouseMovementsUrl = (params?: ListWarehouseMovementsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/warehouse-movements?${stringifiedParams}` : `/api/warehouse-movements`
+}
+
+/**
+ * @summary List all stock movements (kniha pohybů) with optional filters
+ */
+export const listWarehouseMovements = async (params?: ListWarehouseMovementsParams, options?: RequestInit): Promise<WarehouseMovement[]> => {
+
+  return customFetch<WarehouseMovement[]>(getListWarehouseMovementsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWarehouseMovementsQueryKey = (params?: ListWarehouseMovementsParams,) => {
+    return [
+    `/api/warehouse-movements`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListWarehouseMovementsQueryOptions = <TData = Awaited<ReturnType<typeof listWarehouseMovements>>, TError = ErrorType<unknown>>(params?: ListWarehouseMovementsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseMovements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWarehouseMovementsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWarehouseMovements>>> = ({ signal }) => listWarehouseMovements(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWarehouseMovements>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWarehouseMovementsQueryResult = NonNullable<Awaited<ReturnType<typeof listWarehouseMovements>>>
+export type ListWarehouseMovementsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all stock movements (kniha pohybů) with optional filters
+ */
+
+export function useListWarehouseMovements<TData = Awaited<ReturnType<typeof listWarehouseMovements>>, TError = ErrorType<unknown>>(
+ params?: ListWarehouseMovementsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseMovements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWarehouseMovementsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getGetDashboardSummaryUrl = () => {
 

@@ -836,7 +836,14 @@ function LineCard({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Režim nákladu</Label>
+            <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+              Režim nákladu
+              {form.allocationType === "stock" && (
+                <span className="inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5">
+                  Sklad +{line.approved ? " (naskladněno)" : ""}
+                </span>
+              )}
+            </Label>
             <Select
               value={form.allocationType}
               onValueChange={(v) => set("allocationType", v)}

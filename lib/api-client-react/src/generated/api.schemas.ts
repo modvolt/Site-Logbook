@@ -741,8 +741,6 @@ export interface WarehouseItemInput {
   /** @nullable */
   category?: string | null;
   /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
   unit?: string | null;
   /** @nullable */
   purchasePrice?: number | null;
@@ -776,6 +774,60 @@ export interface WarehouseImportResult {
   created: number;
   updated: number;
   skipped: number;
+}
+
+export type WarehouseMovementDirection = typeof WarehouseMovementDirection[keyof typeof WarehouseMovementDirection];
+
+
+export const WarehouseMovementDirection = {
+  in: 'in',
+  out: 'out',
+} as const;
+
+export interface WarehouseMovement {
+  id: number;
+  warehouseItemId: number;
+  /** @nullable */
+  warehouseItemName?: string | null;
+  direction: WarehouseMovementDirection;
+  quantity: number;
+  signedQuantity: number;
+  /** @nullable */
+  unitPrice?: number | null;
+  sourceType: string;
+  /** @nullable */
+  sourceId?: number | null;
+  /** @nullable */
+  billingDocumentId?: number | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  jobTitle?: string | null;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  createdByName?: string | null;
+  createdAt: string;
+}
+
+export type WarehouseMovementInputDirection = typeof WarehouseMovementInputDirection[keyof typeof WarehouseMovementInputDirection];
+
+
+export const WarehouseMovementInputDirection = {
+  in: 'in',
+  out: 'out',
+} as const;
+
+export interface WarehouseMovementInput {
+  direction: WarehouseMovementInputDirection;
+  /** @exclusiveMinimum 0 */
+  quantity: number;
+  /** @nullable */
+  unitPrice?: number | null;
+  /** @nullable */
+  note?: string | null;
 }
 
 export interface DashboardSummary {
@@ -2812,6 +2864,24 @@ from: string;
  */
 to: string;
 };
+
+export type ListWarehouseMovementsParams = {
+warehouseItemId?: number;
+jobId?: number;
+billingDocumentId?: number;
+direction?: ListWarehouseMovementsDirection;
+from?: string;
+to?: string;
+limit?: number;
+};
+
+export type ListWarehouseMovementsDirection = typeof ListWarehouseMovementsDirection[keyof typeof ListWarehouseMovementsDirection];
+
+
+export const ListWarehouseMovementsDirection = {
+  in: 'in',
+  out: 'out',
+} as const;
 
 export type ListAuditLogsParams = {
 userId?: number;

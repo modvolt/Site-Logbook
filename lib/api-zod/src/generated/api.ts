@@ -1215,7 +1215,6 @@ export const CreateWarehouseItemBody = zod.object({
   "name": zod.string().min(1),
   "code": zod.string().nullish(),
   "category": zod.string().nullish(),
-  "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "purchasePrice": zod.number().nullish(),
   "salePrice": zod.number().nullish(),
@@ -1259,7 +1258,6 @@ export const UpdateWarehouseItemBody = zod.object({
   "name": zod.string().min(1),
   "code": zod.string().nullish(),
   "category": zod.string().nullish(),
-  "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "purchasePrice": zod.number().nullish(),
   "salePrice": zod.number().nullish(),
@@ -1286,6 +1284,87 @@ export const UpdateWarehouseItemResponse = zod.object({
 export const DeleteWarehouseItemParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
+/**
+ * @summary List the stock movements (ledger) of one warehouse item
+ */
+export const ListWarehouseItemMovementsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListWarehouseItemMovementsResponseItem = zod.object({
+  "id": zod.number(),
+  "warehouseItemId": zod.number(),
+  "warehouseItemName": zod.string().nullish(),
+  "direction": zod.enum(['in', 'out']),
+  "quantity": zod.number(),
+  "signedQuantity": zod.number(),
+  "unitPrice": zod.number().nullish(),
+  "sourceType": zod.string(),
+  "sourceId": zod.number().nullish(),
+  "billingDocumentId": zod.number().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "jobId": zod.number().nullish(),
+  "jobTitle": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdByName": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListWarehouseItemMovementsResponse = zod.array(ListWarehouseItemMovementsResponseItem)
+
+
+/**
+ * @summary Append a manual correction movement (příjem/výdej) to an item
+ */
+export const CreateWarehouseMovementParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const createWarehouseMovementBodyQuantityExclusiveMin = 0;
+
+
+
+export const CreateWarehouseMovementBody = zod.object({
+  "direction": zod.enum(['in', 'out']),
+  "quantity": zod.number().gt(createWarehouseMovementBodyQuantityExclusiveMin),
+  "unitPrice": zod.number().nullish(),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary List all stock movements (kniha pohybů) with optional filters
+ */
+export const ListWarehouseMovementsQueryParams = zod.object({
+  "warehouseItemId": zod.coerce.number().optional(),
+  "jobId": zod.coerce.number().optional(),
+  "billingDocumentId": zod.coerce.number().optional(),
+  "direction": zod.enum(['in', 'out']).optional(),
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const ListWarehouseMovementsResponseItem = zod.object({
+  "id": zod.number(),
+  "warehouseItemId": zod.number(),
+  "warehouseItemName": zod.string().nullish(),
+  "direction": zod.enum(['in', 'out']),
+  "quantity": zod.number(),
+  "signedQuantity": zod.number(),
+  "unitPrice": zod.number().nullish(),
+  "sourceType": zod.string(),
+  "sourceId": zod.number().nullish(),
+  "billingDocumentId": zod.number().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "jobId": zod.number().nullish(),
+  "jobTitle": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdByName": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListWarehouseMovementsResponse = zod.array(ListWarehouseMovementsResponseItem)
 
 
 /**

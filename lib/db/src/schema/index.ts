@@ -13,6 +13,7 @@ export * from "./activity-attachments";
 export * from "./activity-extra-works";
 export * from "./machines";
 export * from "./warehouse-items";
+export * from "./warehouse-movements";
 export * from "./customer-contacts";
 export * from "./customer-sites";
 export * from "./customer-site-attachments";

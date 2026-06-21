@@ -10,6 +10,11 @@ import {
   usersTable,
 } from "@workspace/db";
 import {
+  reconcileActivityMaterialStockMovement,
+  reconcileSourceMovements,
+  type Actor,
+} from "../lib/warehouse-service";
+import {
   CreateActivityBody,
   GetActivityParams,
   UpdateActivityParams,
@@ -40,6 +45,10 @@ const router: IRouter = Router();
 
 const toStr = (v: number | null | undefined): string | null | undefined =>
   v != null ? String(v) : (v as null | undefined);
+
+function actorOf(req: { auth?: { userId: number; name: string } }): Actor {
+  return { userId: req.auth?.userId ?? null, name: req.auth?.name ?? "Systém" };
+}
 
 async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
   let customerName: string | null = null;
@@ -288,15 +297,24 @@ router.post("/activities/:activityId/materials", requireAuth, async (req, res): 
     return;
   }
   const { quantity, pricePerUnit, ...rest } = parsed.data;
-  const [m] = await db
-    .insert(activityMaterialsTable)
-    .values({
-      activityId: params.data.activityId,
-      ...rest,
-      quantity: toStr(quantity),
-      pricePerUnit: toStr(pricePerUnit),
-    })
-    .returning();
+  const actor = actorOf(req);
+  const m = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(activityMaterialsTable)
+      .values({
+        activityId: params.data.activityId,
+        ...rest,
+        quantity: toStr(quantity),
+        pricePerUnit: toStr(pricePerUnit),
+      })
+      .returning();
+    await reconcileActivityMaterialStockMovement(
+      tx,
+      { id: created.id, name: created.name, quantity: created.quantity, pricePerUnit: created.pricePerUnit, jobId: null },
+      actor,
+    );
+    return created;
+  });
   res.status(201).json(serializeMaterial(m));
 });
 
@@ -316,16 +334,26 @@ router.patch("/activities/:activityId/materials/:materialId", requireAuth, async
   if (quantity !== undefined) updateData.quantity = toStr(quantity);
   if (pricePerUnit !== undefined) updateData.pricePerUnit = toStr(pricePerUnit);
 
-  const [m] = await db
-    .update(activityMaterialsTable)
-    .set(updateData)
-    .where(
-      and(
-        eq(activityMaterialsTable.id, params.data.materialId),
-        eq(activityMaterialsTable.activityId, params.data.activityId),
-      ),
-    )
-    .returning();
+  const actor = actorOf(req);
+  const m = await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(activityMaterialsTable)
+      .set(updateData)
+      .where(
+        and(
+          eq(activityMaterialsTable.id, params.data.materialId),
+          eq(activityMaterialsTable.activityId, params.data.activityId),
+        ),
+      )
+      .returning();
+    if (!updated) return null;
+    await reconcileActivityMaterialStockMovement(
+      tx,
+      { id: updated.id, name: updated.name, quantity: updated.quantity, pricePerUnit: updated.pricePerUnit, jobId: null },
+      actor,
+    );
+    return updated;
+  });
   if (!m) {
     res.status(404).json({ error: "Material not found" });
     return;
@@ -339,15 +367,22 @@ router.delete("/activities/:activityId/materials/:materialId", requireAuth, asyn
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [m] = await db
-    .delete(activityMaterialsTable)
-    .where(
-      and(
-        eq(activityMaterialsTable.id, params.data.materialId),
-        eq(activityMaterialsTable.activityId, params.data.activityId),
-      ),
-    )
-    .returning();
+  const actor = actorOf(req);
+  const m = await db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .delete(activityMaterialsTable)
+      .where(
+        and(
+          eq(activityMaterialsTable.id, params.data.materialId),
+          eq(activityMaterialsTable.activityId, params.data.activityId),
+        ),
+      )
+      .returning();
+    if (!deleted) return null;
+    // Reverse the stock issue only once we know this scoped row really existed.
+    await reconcileSourceMovements(tx, "activity_material", params.data.materialId, null, actor);
+    return deleted;
+  });
   if (!m) {
     res.status(404).json({ error: "Material not found" });
     return;

@@ -460,18 +460,23 @@ router.patch(
     }
     const d = parsed.data;
     try {
-      const detail = await updateLine(id, lineId, {
-        lineType: d.lineType,
-        description: d.description,
-        quantity: d.quantity,
-        unit: d.unit,
-        unitPriceWithoutVat: d.unitPriceWithoutVat,
-        vatRate: d.vatRate,
-        jobId: d.jobId,
-        allocationType: d.allocationType,
-        matchConfirmed: d.matchConfirmed,
-        approved: d.approved,
-      });
+      const detail = await updateLine(
+        id,
+        lineId,
+        {
+          lineType: d.lineType,
+          description: d.description,
+          quantity: d.quantity,
+          unit: d.unit,
+          unitPriceWithoutVat: d.unitPriceWithoutVat,
+          vatRate: d.vatRate,
+          jobId: d.jobId,
+          allocationType: d.allocationType,
+          matchConfirmed: d.matchConfirmed,
+          approved: d.approved,
+        },
+        actorOf(req),
+      );
       res.json(detail);
     } catch (error) {
       handleError(error, "Položku se nepodařilo upravit.", res);
@@ -502,6 +507,7 @@ router.post(
           jobId: p.jobId,
           allocationType: p.allocationType,
         })),
+        actorOf(req),
       );
       res.json(detail);
     } catch (error) {

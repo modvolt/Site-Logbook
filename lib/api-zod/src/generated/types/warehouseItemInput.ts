@@ -14,8 +14,6 @@ export interface WarehouseItemInput {
   /** @nullable */
   category?: string | null;
   /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
   unit?: string | null;
   /** @nullable */
   purchasePrice?: number | null;

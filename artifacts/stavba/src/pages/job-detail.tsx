@@ -912,6 +912,9 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
     query: { enabled: isExpanded, queryKey: getListWarehouseItemsQueryKey() }
   });
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
+  const stockNames = new Set(
+    (warehouseItems ?? []).map((w: any) => String(w.name).trim().toLowerCase()),
+  );
 
   const [newName, setNewName] = useState("");
   const [newQty, setNewQty] = useState("");
@@ -997,6 +1000,9 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
                     <span className="font-medium text-sm">{m.name}</span>
                     {m.sourceType && (
                       <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Z dokladu</span>
+                    )}
+                    {m.name && stockNames.has(String(m.name).trim().toLowerCase()) && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Sklad −</span>
                     )}
                     {(m.quantity != null || m.unit) && (
                       <span className="text-muted-foreground text-xs ml-2">{m.quantity} {m.unit}</span>

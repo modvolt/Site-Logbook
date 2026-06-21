@@ -40,6 +40,11 @@ import {
   rankJobsForReference,
   type MatchableDocument,
 } from "./document-matching";
+import {
+  reconcileDocumentStockMovements,
+  reconcileSourceMovements,
+  reconcileMaterialStockMovement,
+} from "./warehouse-service";
 
 const objectStorage = new ObjectStorageService();
 
@@ -59,6 +64,7 @@ export interface Actor {
 
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+const SYSTEM_ACTOR: Actor = { userId: null, name: "Systém" };
 const REBILL_ALLOC = "rebill";
 const VALID_ALLOC = new Set(["rebill", "internal", "stock", "not_rebilled"]);
 const VALID_LINE_TYPE = new Set(["material", "work", "transport", "other"]);
@@ -1287,6 +1293,7 @@ export async function updateLine(
   documentId: number,
   lineId: number,
   input: LineUpdateInput,
+  actor: Actor = SYSTEM_ACTOR,
 ) {
   return db.transaction(async (tx) => {
     const [line] = await tx
@@ -1345,7 +1352,11 @@ export async function updateLine(
       await recomputeLineTotals(tx, updated);
     }
     // Keep the job's materials in sync when editing a line of an approved doc.
-    await syncJobMaterialsForDocument(tx, documentId);
+    await syncJobMaterialsForDocument(tx, documentId, actor);
+    // The line id persists across an edit, so re-reconciling the document's stock
+    // receipts updates this line's movement (quantity / allocation change, or
+    // reverses it if it stopped being a stock line).
+    await reconcileDocumentStockMovements(tx, documentId, actor);
     return undefined;
   }).then(() => getDocument(documentId));
 }
@@ -1370,6 +1381,7 @@ export async function splitLine(
   documentId: number,
   lineId: number,
   parts: SplitPart[],
+  actor: Actor = SYSTEM_ACTOR,
 ) {
   if (parts.length < 2) throw appError(400, "Rozdělení vyžaduje alespoň dvě části.");
   return db.transaction(async (tx) => {
@@ -1403,13 +1415,30 @@ export async function splitLine(
     const vatRate = line.vatRate == null ? null : num(line.vatRate);
     const baseSort = line.sortOrder;
 
+    // The original line id is about to disappear, so the reconciles below (which
+    // key off the document's *current* line ids) can no longer see this line's
+    // movements. Reverse them explicitly first, or they orphan permanently:
+    //  - the line's own stock receipt (billing_document_line), and
+    //  - any propagated job material's stock issue (material) before its row is
+    //    deleted.
+    await reconcileSourceMovements(tx, "billing_document_line", lineId, null, actor);
+    const orphanMaterials = await tx
+      .select({ id: materialsTable.id })
+      .from(materialsTable)
+      .where(
+        and(
+          eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+          eq(materialsTable.sourceId, lineId),
+        ),
+      );
+    for (const m of orphanMaterials) {
+      await reconcileSourceMovements(tx, "material", m.id, null, actor);
+    }
+
     // Delete the original, insert the parts in its place.
     await tx
       .delete(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.id, lineId));
-    // The original line id is gone, so the reconcile in the sync below (which
-    // keys off the document's *current* line ids) can no longer see this line's
-    // propagated material — remove it explicitly to avoid an orphan.
     await tx.delete(materialsTable).where(
       and(
         eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
@@ -1442,8 +1471,11 @@ export async function splitLine(
       };
     });
     await tx.insert(billingDocumentLinesTable).values(values);
-    // The original line was replaced; re-sync sourced materials for the doc.
-    await syncJobMaterialsForDocument(tx, documentId);
+    // The original line was replaced; re-sync sourced materials for the doc and
+    // reconcile the document's stock receipts so the new part lines naskladní
+    // (the old line's movements were already reversed above).
+    await syncJobMaterialsForDocument(tx, documentId, actor);
+    await reconcileDocumentStockMovements(tx, documentId, actor);
     return undefined;
   }).then(() => getDocument(documentId));
 }
@@ -1473,6 +1505,7 @@ const MATERIAL_SOURCE_TYPE = "billing_document_line";
 export async function syncJobMaterialsForDocument(
   tx: DbOrTx,
   documentId: number,
+  actor: Actor = SYSTEM_ACTOR,
 ): Promise<void> {
   const [doc] = await tx
     .select()
@@ -1498,6 +1531,7 @@ export async function syncJobMaterialsForDocument(
         )
     : [];
   const desired = new Set<number>();
+  const affectedMaterialIds = new Set<number>();
 
   // Only an approved document propagates; otherwise the loop is skipped and any
   // previously-sourced materials below are reconciled away.
@@ -1525,7 +1559,7 @@ export async function syncJobMaterialsForDocument(
       // (source_type, source_id) WHERE source_type IS NOT NULL, so concurrent
       // approvals/edits of the same line converge instead of one failing the
       // unique constraint with a 500.
-      await tx
+      const [upserted] = await tx
         .insert(materialsTable)
         .values({
           ...values,
@@ -1536,7 +1570,9 @@ export async function syncJobMaterialsForDocument(
           target: [materialsTable.sourceType, materialsTable.sourceId],
           targetWhere: isNotNull(materialsTable.sourceType),
           set: values,
-        });
+        })
+        .returning({ id: materialsTable.id });
+      if (upserted) affectedMaterialIds.add(upserted.id);
     }
   }
 
@@ -1544,7 +1580,22 @@ export async function syncJobMaterialsForDocument(
     .filter((m) => m.sourceId == null || !desired.has(m.sourceId))
     .map((m) => m.id);
   if (toDelete.length) {
+    // Reverse the stock issue of each propagated material before removing it,
+    // then drop the material rows.
+    for (const materialId of toDelete) {
+      await reconcileSourceMovements(tx, "material", materialId, null, actor);
+    }
     await tx.delete(materialsTable).where(inArray(materialsTable.id, toDelete));
+  }
+
+  // Reconcile the stock issue (výdej) for every propagated material that still
+  // exists — a job material that matches a warehouse item draws it down.
+  for (const materialId of affectedMaterialIds) {
+    const [m] = await tx
+      .select()
+      .from(materialsTable)
+      .where(eq(materialsTable.id, materialId));
+    await reconcileMaterialStockMovement(tx, m ?? null, actor);
   }
 }
 
@@ -1579,7 +1630,9 @@ export async function approveDocument(id: number, actor: Actor) {
         ),
       );
     // Propagate the approved material lines into their jobs' materials lists.
-    await syncJobMaterialsForDocument(tx, id);
+    await syncJobMaterialsForDocument(tx, id, actor);
+    // Receive every stock-allocated line into the warehouse (příjem).
+    await reconcileDocumentStockMovements(tx, id, actor);
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -1736,7 +1789,9 @@ export async function setDocumentStatus(
         );
     }
     // Reconcile job materials (removes them when leaving "approved").
-    await syncJobMaterialsForDocument(tx, id);
+    await syncJobMaterialsForDocument(tx, id, actor);
+    // Reverse warehouse receipts when leaving "approved" (storno of příjem).
+    await reconcileDocumentStockMovements(tx, id, actor);
   });
   return getDocument(id);
 }
@@ -1774,18 +1829,36 @@ export async function deleteDocument(id: number, actor: Actor) {
   // lines), and audit — all or nothing. Materials must go first while the lines
   // still exist (materials reference lines by id, not via FK).
   await db.transaction(async (tx) => {
-    await tx.delete(materialsTable).where(
-      and(
-        eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
-        inArray(
-          materialsTable.sourceId,
-          tx
-            .select({ id: billingDocumentLinesTable.id })
-            .from(billingDocumentLinesTable)
-            .where(eq(billingDocumentLinesTable.documentId, id)),
-        ),
-      ),
-    );
+    const lines = await tx
+      .select({ id: billingDocumentLinesTable.id })
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, id));
+    const lineIds = lines.map((l) => l.id);
+    // Reverse the warehouse receipts of this document's stock lines (storno
+    // příjmu) — append reversing movements, never delete ledger history.
+    for (const lineId of lineIds) {
+      await reconcileSourceMovements(tx, "billing_document_line", lineId, null, actor);
+    }
+    // Reverse + remove the propagated job materials (and their stock issues).
+    const propagated = lineIds.length
+      ? await tx
+          .select({ id: materialsTable.id })
+          .from(materialsTable)
+          .where(
+            and(
+              eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+              inArray(materialsTable.sourceId, lineIds),
+            ),
+          )
+      : [];
+    for (const m of propagated) {
+      await reconcileSourceMovements(tx, "material", m.id, null, actor);
+    }
+    if (propagated.length) {
+      await tx
+        .delete(materialsTable)
+        .where(inArray(materialsTable.id, propagated.map((m) => m.id)));
+    }
     await tx.delete(billingDocumentsTable).where(eq(billingDocumentsTable.id, id));
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
