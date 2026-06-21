@@ -284,6 +284,24 @@ export interface Material {
   sourceType?: string | null;
   /** @nullable */
   sourceId?: number | null;
+  /** @nullable */
+  priceSource?: string | null;
+  /** @nullable */
+  priceSourceDocumentId?: number | null;
+  /** @nullable */
+  priceSourceLineId?: number | null;
+  /** @nullable */
+  priceSourceSupplierName?: string | null;
+  /** @nullable */
+  priceSourceDate?: string | null;
+  /** @nullable */
+  priceConfidence?: number | null;
+  /** @nullable */
+  adminNote?: string | null;
+  /** @nullable */
+  invoicedAt?: string | null;
+  /** @nullable */
+  invoicedInvoiceId?: number | null;
   createdAt: string;
 }
 
@@ -2359,6 +2377,26 @@ export interface CostDocumentReference {
   updatedAt: string;
 }
 
+export interface CostDocumentLinkedMaterial {
+  id: number;
+  jobId: number;
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  /** @nullable */
+  priceSource?: string | null;
+  /** @nullable */
+  priceConfidence?: number | null;
+  /** @nullable */
+  priceSourceLineId?: number | null;
+  /** @nullable */
+  invoicedInvoiceId?: number | null;
+}
+
 export interface CostDocumentFile {
   id: number;
   documentId: number;
@@ -2378,6 +2416,7 @@ export interface CostDocumentDetail {
   lines: CostDocumentLine[];
   duplicates: CostDocumentDuplicate[];
   references: CostDocumentReference[];
+  linkedMaterials?: CostDocumentLinkedMaterial[];
   files: CostDocumentFile[];
 }
 

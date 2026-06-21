@@ -263,6 +263,8 @@ export const billingDocumentLinesTable = pgTable(
     index("billing_document_lines_document_id_idx").on(t.documentId),
     index("billing_document_lines_job_id_idx").on(t.jobId),
     index("billing_document_lines_invoiced_invoice_id_idx").on(t.invoicedInvoiceId),
+    index("billing_document_lines_ean_idx").on(t.ean),
+    index("billing_document_lines_supplier_sku_idx").on(t.supplierSku),
   ],
 );
 

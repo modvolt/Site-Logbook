@@ -896,6 +896,14 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   );
 }
 
+const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
+  invoice: { label: "Z faktury", cls: "bg-emerald-100 text-emerald-700" },
+  delivery_note: { label: "Z dodacího listu", cls: "bg-blue-100 text-blue-700" },
+  awaiting_invoice: { label: "Čeká na fakturu", cls: "bg-amber-100 text-amber-700" },
+  stock_history: { label: "Ze skladové historie", cls: "bg-cyan-100 text-cyan-700" },
+  manual: { label: "Ručně", cls: "bg-muted text-muted-foreground" },
+};
+
 function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const { data: materials } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
@@ -998,11 +1006,24 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
                     {m.sourceType && (
                       <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Z dokladu</span>
                     )}
+                    {m.priceSource && PRICE_SOURCE_META[m.priceSource] && (
+                      <span className={`ml-2 inline-flex items-center rounded-full text-[10px] font-medium px-1.5 py-0.5 align-middle ${PRICE_SOURCE_META[m.priceSource].cls}`}>{PRICE_SOURCE_META[m.priceSource].label}</span>
+                    )}
+                    {m.invoicedInvoiceId != null && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-violet-100 text-violet-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Vyfakturováno</span>
+                    )}
                     {m.name && stockNames.has(String(m.name).trim().toLowerCase()) && (
                       <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Sklad −</span>
                     )}
                     {(m.quantity != null || m.unit) && (
                       <span className="text-muted-foreground text-xs ml-2">{m.quantity} {m.unit}</span>
+                    )}
+                    {(m.priceSourceSupplierName || m.priceConfidence != null || m.adminNote) && (
+                      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                        {m.priceSourceSupplierName && <span>{m.priceSourceSupplierName}</span>}
+                        {m.priceConfidence != null && <span>{m.priceSourceSupplierName ? " • " : ""}spolehlivost {Math.round(m.priceConfidence * 100)} %</span>}
+                        {m.adminNote && <span>{(m.priceSourceSupplierName || m.priceConfidence != null) ? " • " : ""}{m.adminNote}</span>}
+                      </div>
                     )}
                   </div>
                   {m.pricePerUnit != null && (

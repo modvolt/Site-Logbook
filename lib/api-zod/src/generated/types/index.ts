@@ -59,6 +59,7 @@ export * from './costDocumentLineUpdateInput';
 export * from './costDocumentLineUpdateInputAllocationType';
 export * from './costDocumentLineUpdateInputLineType';
 export * from './costDocumentLineVatMode';
+export * from './costDocumentLinkedMaterial';
 export * from './costDocumentMatchResult';
 export * from './costDocumentMatchResultCandidatesByRef';
 export * from './costDocumentReference';

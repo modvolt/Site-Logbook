@@ -39,3 +39,30 @@ never actually worked). **Fix:** split parts now carry `parentLineId = null` —
 provenance to a deleted row is impossible anyway, and the frontend never reads
 parentLineId (it only ever gated re-splitting). **How to apply:** never point a
 self-FK at a row deleted earlier in the same transaction; null it or reorder.
+
+## Invoice price-fill must revert symmetrically across the whole lifecycle
+
+When an approved invoice/credit note fills a price onto a DIFFERENT document's
+material (delivery-note "čeká na fakturu" material: `priceSourceDocumentId` =
+invoice, but the material's own `sourceId` line belongs to the delivery note),
+that fill is NOT removed by `syncJobMaterialsForDocument` (it keys off the
+invoice's own lines, which never created these materials). So every path that
+takes the invoice OUT of `approved` must explicitly roll the price back, or the
+system keeps offering/billing a price from a non-approved source.
+
+**Rule:** `revertInvoicePricePropagation(tx, documentId)` resets such materials
+to `awaiting_invoice` (price 0, clear all `priceSource*`), and is wired into
+`setDocumentStatus` (leaving `approved`) and `deleteDocument`. It skips
+materials already reserved on a customer invoice (`invoicedInvoiceId != null`).
+
+**The closing edge case:** because revert skips reserved materials, a doc
+un-approved/deleted WHILE its material sits on a customer draft would leave a
+stale price after the draft is later cancelled. So `releaseInvoicedMaterials`
+re-validates on release: if `priceSource='invoice'` and the source document is
+gone or no longer `approved`, it reverts the price then too.
+**Why:** "approved-only" price semantics must hold through un-approve, delete,
+AND deferred customer-invoice release — three separate exit points.
+**How to apply:** any new path that clears `invoicedInvoiceId` or changes a
+doc's approved state must keep material price provenance consistent with an
+actually-approved source. Quantity is never touched, so stock issues are
+unaffected; revert only reconciles defensively.

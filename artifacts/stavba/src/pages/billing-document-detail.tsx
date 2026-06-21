@@ -23,6 +23,7 @@ import {
   getListJobsQueryKey,
   getGetBillingSummaryQueryKey,
   type CostDocument,
+  type CostDocumentDetail,
   type CostDocumentLine,
   type CostDocumentReference,
   type CostDocumentReferenceJobCandidate,
@@ -450,6 +451,8 @@ export default function BillingDocumentDetail() {
         jobs={jobs ?? []}
         onChanged={invalidate}
       />
+
+      <AutoLinksSection linkedMaterials={data.linkedMaterials ?? []} />
 
       <WarehousePricesCard
         documentId={id}
@@ -1095,6 +1098,77 @@ function SplitDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Auto-links: materials this document propagated prices onto ("Automatické vazby")
+// ---------------------------------------------------------------------------
+
+const AUTO_LINK_SOURCE_LABEL: Record<string, string> = {
+  invoice: "Z faktury",
+  delivery_note: "Z dodacího listu",
+  awaiting_invoice: "Čeká na fakturu",
+  stock_history: "Ze skladové historie",
+  manual: "Ručně",
+};
+
+function AutoLinksSection({
+  linkedMaterials,
+}: {
+  linkedMaterials: NonNullable<CostDocumentDetail["linkedMaterials"]>;
+}) {
+  const [, navigate] = useLocation();
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h3 className="flex items-center gap-2 font-semibold">
+          <Link2 className="h-5 w-5" /> Automatické vazby
+        </h3>
+        {linkedMaterials.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Tento doklad zatím nedoplnil cenu žádnému materiálu. Po schválení
+            spárované faktury se zde zobrazí materiál s doplněnou cenou.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {linkedMaterials.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => navigate(`/jobs/${m.jobId}`)}
+                className="w-full flex items-center gap-2 p-2.5 bg-card border rounded-lg hover:bg-muted/50 transition-colors text-left"
+              >
+                <PackageCheck className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-sm">{m.name}</span>
+                  {m.priceSource && AUTO_LINK_SOURCE_LABEL[m.priceSource] && (
+                    <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">
+                      {AUTO_LINK_SOURCE_LABEL[m.priceSource]}
+                    </span>
+                  )}
+                  {m.invoicedInvoiceId != null && (
+                    <span className="ml-2 inline-flex items-center rounded-full bg-violet-100 text-violet-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">
+                      Vyfakturováno
+                    </span>
+                  )}
+                  <div className="text-[11px] text-muted-foreground">
+                    Zakázka #{m.jobId}
+                    {m.quantity != null ? ` • ${m.quantity} ${m.unit ?? ""}`.trimEnd() : ""}
+                    {m.priceConfidence != null ? ` • spolehlivost ${Math.round(m.priceConfidence * 100)} %` : ""}
+                  </div>
+                </div>
+                {m.pricePerUnit != null && (
+                  <span className="text-sm font-semibold text-emerald-600 shrink-0">
+                    {fmtKc(m.pricePerUnit)}/ks
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

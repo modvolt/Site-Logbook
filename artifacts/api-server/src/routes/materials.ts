@@ -29,6 +29,9 @@ function serializeMaterial(m: typeof materialsTable.$inferSelect) {
     ...m,
     quantity: m.quantity != null ? Number(m.quantity) : null,
     pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
+    priceConfidence: m.priceConfidence != null ? Number(m.priceConfidence) : null,
+    priceSourceDate: m.priceSourceDate != null ? m.priceSourceDate.toISOString() : null,
+    invoicedAt: m.invoicedAt != null ? m.invoicedAt.toISOString() : null,
     createdAt: m.createdAt.toISOString(),
   };
 }

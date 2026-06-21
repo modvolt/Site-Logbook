@@ -406,6 +406,15 @@ export const ListMaterialsResponseItem = zod.object({
   "sortOrder": zod.number(),
   "sourceType": zod.string().nullish(),
   "sourceId": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceSourceDocumentId": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "priceSourceSupplierName": zod.string().nullish(),
+  "priceSourceDate": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "adminNote": zod.string().nullish(),
+  "invoicedAt": zod.string().nullish(),
+  "invoicedInvoiceId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 export const ListMaterialsResponse = zod.array(ListMaterialsResponseItem)
@@ -459,6 +468,15 @@ export const UpdateMaterialResponse = zod.object({
   "sortOrder": zod.number(),
   "sourceType": zod.string().nullish(),
   "sourceId": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceSourceDocumentId": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "priceSourceSupplierName": zod.string().nullish(),
+  "priceSourceDate": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "adminNote": zod.string().nullish(),
+  "invoicedAt": zod.string().nullish(),
+  "invoicedInvoiceId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 
@@ -3521,6 +3539,18 @@ export const UploadCostDocumentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -3657,6 +3687,18 @@ export const GetCostDocumentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -3813,6 +3855,18 @@ export const UpdateCostDocumentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -3957,6 +4011,18 @@ export const ApproveCostDocumentResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4097,6 +4163,18 @@ export const SetCostDocumentStatusResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4233,6 +4311,18 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4383,6 +4473,18 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4528,6 +4630,18 @@ export const SplitCostDocumentLineResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4671,6 +4785,18 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4819,6 +4945,18 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -4956,6 +5094,18 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
   "files": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),

@@ -95,6 +95,24 @@ export function normalizeReferenceNumber(value: string): string {
 }
 
 /**
+ * Canonical form of a product/item NAME for matching — e.g. matching a supplier
+ * invoice line back to a warehouse item or a job material when no EAN/SKU is
+ * available. Strips Czech diacritics, lower-cases, and collapses any run of
+ * non-alphanumeric characters to a single space. Unlike
+ * `normalizeReferenceNumber` (which removes ALL separators), this keeps word
+ * boundaries so token overlap can be measured.
+ */
+export function normalizeItemName(value: string | null | undefined): string {
+  if (!value || typeof value !== "string") return "";
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
  * Extract all recognizable references from a block of document text.
  * Returns at most one reference per (type, normalized-number) pair, keeping the
  * highest confidence. Order of first appearance is preserved.

@@ -9,6 +9,7 @@ import type { CostDocument } from './costDocument';
 import type { CostDocumentDuplicate } from './costDocumentDuplicate';
 import type { CostDocumentFile } from './costDocumentFile';
 import type { CostDocumentLine } from './costDocumentLine';
+import type { CostDocumentLinkedMaterial } from './costDocumentLinkedMaterial';
 import type { CostDocumentReference } from './costDocumentReference';
 
 export interface CostDocumentDetail {
@@ -16,5 +17,6 @@ export interface CostDocumentDetail {
   lines: CostDocumentLine[];
   duplicates: CostDocumentDuplicate[];
   references: CostDocumentReference[];
+  linkedMaterials?: CostDocumentLinkedMaterial[];
   files: CostDocumentFile[];
 }

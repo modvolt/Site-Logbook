@@ -5369,6 +5369,24 @@ components:
           type: ["string", "null"]
         sourceId:
           type: ["integer", "null"]
+        priceSource:
+          type: ["string", "null"]
+        priceSourceDocumentId:
+          type: ["integer", "null"]
+        priceSourceLineId:
+          type: ["integer", "null"]
+        priceSourceSupplierName:
+          type: ["string", "null"]
+        priceSourceDate:
+          type: ["string", "null"]
+        priceConfidence:
+          type: ["number", "null"]
+        adminNote:
+          type: ["string", "null"]
+        invoicedAt:
+          type: ["string", "null"]
+        invoicedInvoiceId:
+          type: ["integer", "null"]
         createdAt:
           type: string
 
@@ -7806,10 +7824,39 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CostDocumentReference"
+        linkedMaterials:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentLinkedMaterial"
         files:
           type: array
           items:
             $ref: "#/components/schemas/CostDocumentFile"
+
+    CostDocumentLinkedMaterial:
+      type: object
+      required: [id, jobId, name]
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        pricePerUnit:
+          type: ["number", "null"]
+        priceSource:
+          type: ["string", "null"]
+        priceConfidence:
+          type: ["number", "null"]
+        priceSourceLineId:
+          type: ["integer", "null"]
+        invoicedInvoiceId:
+          type: ["integer", "null"]
 
     CostDocumentDuplicateConflict:
       type: object

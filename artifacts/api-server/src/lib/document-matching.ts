@@ -10,7 +10,7 @@
  */
 
 import { round2 } from "./invoice-calc";
-import { normalizeReferenceNumber } from "./reference-extractor";
+import { normalizeReferenceNumber, normalizeItemName } from "./reference-extractor";
 
 export type MatchStrength = "strong" | "medium" | "weak" | "none";
 
@@ -242,4 +242,110 @@ export function rankJobsForReference(
     .map((job) => ({ job, match: scoreReferenceToJob(referenceNumber, job, opts) }))
     .filter((c) => c.match.score > 0)
     .sort((a, b) => b.match.score - a.match.score);
+}
+
+/**
+ * A product line on a document (invoice line, delivery-note line) or a job
+ * material — anything that may identify the same physical item across papers.
+ */
+export interface MatchableLine {
+  /** Barcode; the strongest identifier. */
+  ean?: string | null;
+  /** Supplier's article/catalogue number. */
+  supplierSku?: string | null;
+  /** Free-text description / name. */
+  description?: string | null;
+  /** Pre-normalized name (skips re-normalizing `description` when supplied). */
+  normalizedName?: string | null;
+  /** Quantity, used only as a tie-breaker on top of a name match. */
+  quantity?: number | null;
+}
+
+/** Digits-only form of an EAN/GTIN for comparison (drops spaces/dashes). */
+function eanDigits(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = value.replace(/\D/g, "");
+  return d.length >= 8 ? d : null;
+}
+
+/** Canonical SKU form (upper-case, separator-free). */
+function skuKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const k = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return k || null;
+}
+
+function nameOf(line: MatchableLine): string {
+  return (line.normalizedName ?? "").trim() || normalizeItemName(line.description);
+}
+
+/** Token Jaccard similarity (0..1) of two normalized item names. */
+function nameSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const ta = new Set(a.split(" ").filter(Boolean));
+  const tb = new Set(b.split(" ").filter(Boolean));
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  const union = ta.size + tb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+/** Whether two quantities are within ~2% (tie-breaker only). */
+function quantitiesClose(
+  a: number | null | undefined,
+  b: number | null | undefined,
+): boolean {
+  if (a == null || b == null) return false;
+  if (a <= 0 || b <= 0) return a === b;
+  return Math.abs(a - b) / Math.max(a, b) <= 0.02;
+}
+
+/**
+ * Score how likely two product lines describe the SAME item, in priority order:
+ *   1. EAN equal              → 1.0  (strong, safe to auto-confirm)
+ *   2. supplier SKU equal     → 0.9  (strong)
+ *   3. exact normalized name  → 0.6, +0.2 if quantities also line up (≤0.8)
+ *   4. partial name overlap   → 0.3..0.55 (weak/medium, NEVER auto-confirm)
+ *
+ * Name-only similarity intentionally tops out below the strong band: a name
+ * match alone must never auto-confirm a price link.
+ */
+export function scoreLineMatch(a: MatchableLine, b: MatchableLine): ScoredMatch {
+  const eanA = eanDigits(a.ean);
+  const eanB = eanDigits(b.ean);
+  if (eanA && eanB && eanA === eanB) {
+    return { score: 1, strength: "strong", reasons: ["Shodný EAN"] };
+  }
+
+  const skuA = skuKey(a.supplierSku);
+  const skuB = skuKey(b.supplierSku);
+  if (skuA && skuB && skuA === skuB) {
+    return { score: 0.9, strength: strengthFromScore(0.9), reasons: ["Shodný kód dodavatele"] };
+  }
+
+  const nameA = nameOf(a);
+  const nameB = nameOf(b);
+  const sim = nameSimilarity(nameA, nameB);
+  if (sim >= 1) {
+    const reasons = ["Shodný název položky"];
+    let score = 0.6;
+    if (quantitiesClose(a.quantity, b.quantity)) {
+      score = 0.8;
+      reasons.push("Souhlasí množství");
+    }
+    return { score, strength: strengthFromScore(score), reasons };
+  }
+  if (sim >= 0.34) {
+    // Map 0.34..1 → 0.3..0.55, capped well below the strong band.
+    const score = round2(0.3 + 0.25 * ((sim - 0.34) / (1 - 0.34)));
+    return {
+      score,
+      strength: strengthFromScore(score),
+      reasons: ["Podobný název položky"],
+    };
+  }
+
+  return { score: 0, strength: "none", reasons: [] };
 }

@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface Material {
+export interface CostDocumentLinkedMaterial {
   id: number;
   jobId: number;
   name: string;
@@ -16,29 +16,12 @@ export interface Material {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
-  done: boolean;
-  sortOrder: number;
-  /** @nullable */
-  sourceType?: string | null;
-  /** @nullable */
-  sourceId?: number | null;
   /** @nullable */
   priceSource?: string | null;
   /** @nullable */
-  priceSourceDocumentId?: number | null;
+  priceConfidence?: number | null;
   /** @nullable */
   priceSourceLineId?: number | null;
   /** @nullable */
-  priceSourceSupplierName?: string | null;
-  /** @nullable */
-  priceSourceDate?: string | null;
-  /** @nullable */
-  priceConfidence?: number | null;
-  /** @nullable */
-  adminNote?: string | null;
-  /** @nullable */
-  invoicedAt?: string | null;
-  /** @nullable */
   invoicedInvoiceId?: number | null;
-  createdAt: string;
 }

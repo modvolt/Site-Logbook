@@ -21,6 +21,7 @@ import {
   jobsTable,
   materialsTable,
   warehouseItemsTable,
+  warehousePriceHistoryTable,
   auditLogTable,
   type BillingDocument,
   type BillingDocumentLine,
@@ -38,8 +39,12 @@ import {
 import {
   scoreDeliveryNoteToInvoice,
   rankJobsForReference,
+  scoreLineMatch,
   type MatchableDocument,
+  type MatchableLine,
 } from "./document-matching";
+import { normalizeItemName } from "./reference-extractor";
+import { resolveDocumentLinkingConfig } from "./document-linking-config";
 import {
   reconcileDocumentStockMovements,
   reconcileSourceMovements,
@@ -896,11 +901,41 @@ export async function getDocument(id: number) {
     .where(eq(billingDocumentFilesTable.documentId, id))
     .orderBy(billingDocumentFilesTable.id);
 
+  // Job materials whose price was propagated from this document (auto-links).
+  const linkedMaterials = await db
+    .select({
+      id: materialsTable.id,
+      jobId: materialsTable.jobId,
+      name: materialsTable.name,
+      quantity: materialsTable.quantity,
+      unit: materialsTable.unit,
+      pricePerUnit: materialsTable.pricePerUnit,
+      priceSource: materialsTable.priceSource,
+      priceConfidence: materialsTable.priceConfidence,
+      priceSourceLineId: materialsTable.priceSourceLineId,
+      invoicedInvoiceId: materialsTable.invoicedInvoiceId,
+    })
+    .from(materialsTable)
+    .where(eq(materialsTable.priceSourceDocumentId, id))
+    .orderBy(materialsTable.id);
+
   return {
     document: serializeDocument(doc),
     lines: lines.map(serializeLine),
     duplicates,
     references: references.map(serializeReference),
+    linkedMaterials: linkedMaterials.map((m) => ({
+      id: m.id,
+      jobId: m.jobId,
+      name: m.name,
+      quantity: m.quantity != null ? Number(m.quantity) : null,
+      unit: m.unit,
+      pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
+      priceSource: m.priceSource,
+      priceConfidence: m.priceConfidence != null ? Number(m.priceConfidence) : null,
+      priceSourceLineId: m.priceSourceLineId,
+      invoicedInvoiceId: m.invoicedInvoiceId,
+    })),
     files: files.map((f) => ({
       id: f.id,
       documentId: f.documentId,
@@ -1039,6 +1074,7 @@ export async function deleteReference(documentId: number, referenceId: number) {
  * ranked candidates so the UI can offer alternatives.
  */
 export async function matchDocumentReferences(documentId: number) {
+  const cfg = resolveDocumentLinkingConfig();
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
@@ -1080,11 +1116,22 @@ export async function matchDocumentReferences(documentId: number) {
     }));
     const best = ranked[0];
     if (best && best.match.score > 0) {
+      // Only attach a job suggestion when auto-linking is on and the score
+      // clears the link threshold; only auto-confirm when explicitly enabled
+      // and the score clears the (higher) confirm threshold. Otherwise the
+      // suggestion is recorded as confidence only, leaving the link for an
+      // admin to confirm.
+      const linkable = cfg.autoLinkEnabled && best.match.score >= cfg.autoLinkMinScore;
+      const confirmable =
+        linkable &&
+        cfg.autoConfirmEnabled &&
+        best.match.score >= cfg.autoConfirmMinScore;
       await db
         .update(billingDocumentReferencesTable)
         .set({
-          matchedJobId: best.job.id,
+          matchedJobId: linkable ? best.job.id : null,
           matchConfidence: String(best.match.score),
+          ...(confirmable ? { matchConfirmed: 1 } : {}),
           updatedAt: new Date(),
         })
         .where(eq(billingDocumentReferencesTable.id, ref.id));
@@ -1506,12 +1553,17 @@ export async function syncJobMaterialsForDocument(
   tx: DbOrTx,
   documentId: number,
   actor: Actor = SYSTEM_ACTOR,
+  opts: { excludeSourceLineIds?: Set<number> } = {},
 ): Promise<void> {
+  const exclude = opts.excludeSourceLineIds ?? new Set<number>();
   const [doc] = await tx
     .select()
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, documentId));
   if (!doc) return;
+  // An invoice/credit note prices its own lines authoritatively; a delivery note
+  // (or other) only provisionally — with no price it is "awaiting invoice".
+  const isInvoiceDoc = doc.docType === "invoice" || doc.docType === "credit_note";
 
   const lines = await tx
     .select()
@@ -1540,10 +1592,25 @@ export async function syncJobMaterialsForDocument(
       if (line.feeType) continue;
       if (line.lineType !== "material") continue;
       if (line.allocationType === "stock") continue;
+      // Skip lines whose price was already propagated onto a pre-existing
+      // (delivery-note) material — creating a second material here would
+      // duplicate the item and double-issue stock.
+      if (exclude.has(line.id)) continue;
       const jobId = line.jobId ?? doc.jobId;
       if (jobId == null) continue;
 
       desired.add(line.id);
+      // `unit_price_without_vat` is NOT NULL (default 0), so a delivery note
+      // with no price arrives as 0 — treat 0 as "no price yet". An invoice
+      // prices authoritatively (even a genuine 0).
+      const priceNum =
+        line.unitPriceWithoutVat == null ? 0 : num(line.unitPriceWithoutVat);
+      const hasPrice = priceNum > 0;
+      const priceSource = isInvoiceDoc
+        ? "invoice"
+        : hasPrice
+          ? "delivery_note"
+          : "awaiting_invoice";
       const values = {
         jobId,
         name: line.description,
@@ -1551,9 +1618,13 @@ export async function syncJobMaterialsForDocument(
           line.quantity == null ? null : String(round2(num(line.quantity))),
         unit: line.unit ?? null,
         pricePerUnit:
-          line.unitPriceWithoutVat == null
-            ? null
-            : String(round2(num(line.unitPriceWithoutVat))),
+          isInvoiceDoc || hasPrice ? String(round2(priceNum)) : null,
+        priceSource,
+        priceSourceDocumentId: documentId,
+        priceSourceLineId: line.id,
+        priceSourceSupplierName: doc.supplierName ?? null,
+        priceSourceDate: doc.issueDate ? new Date(doc.issueDate) : null,
+        priceConfidence: isInvoiceDoc ? "1.00" : null,
       };
       // Atomic upsert keyed on the partial unique index
       // (source_type, source_id) WHERE source_type IS NOT NULL, so concurrent
@@ -1600,6 +1671,271 @@ export async function syncJobMaterialsForDocument(
 }
 
 // ---------------------------------------------------------------------------
+// Approved invoice → fill price on pre-existing (delivery-note) job materials
+// ---------------------------------------------------------------------------
+
+export interface PricePropagationResult {
+  /** Invoice line IDs that filled an existing material (must be skipped by sync
+   * so they don't also create a duplicate material). */
+  consumedLineIds: Set<number>;
+  /** How many existing materials had their price filled/refreshed. */
+  filled: number;
+}
+
+/**
+ * When an APPROVED invoice / credit note is *confirmed-linked* to a job, fill
+ * the purchase price onto the job's already-existing materials (typically
+ * created earlier from a delivery note with no price — "čeká na fakturu").
+ *
+ * Matching: each invoice material line is matched against the existing
+ * materials of the confirmed job(s) using `scoreLineMatch` on the material's
+ * own source document line (so EAN/SKU carry through), requiring at least the
+ * configured auto-link score. A mere partial name similarity scores below that
+ * threshold and is therefore NEVER applied — it stays a suggestion.
+ *
+ * Only updates (never inserts) and is idempotent: re-running writes the same
+ * values; an existing material already priced from a *different* invoice line is
+ * left untouched. Returns the set of invoice line IDs that were consumed so the
+ * caller can exclude them from `syncJobMaterialsForDocument` (avoiding a
+ * duplicate invoice-sourced material + double stock issue).
+ *
+ * Never creates a stock movement directly — only the reconcile* helpers do, and
+ * the filled material's quantity is unchanged so its existing issue still holds.
+ */
+export async function propagateInvoicePricesToJobMaterials(
+  tx: DbOrTx,
+  documentId: number,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<PricePropagationResult> {
+  const empty: PricePropagationResult = {
+    consumedLineIds: new Set<number>(),
+    filled: 0,
+  };
+  const cfg = resolveDocumentLinkingConfig();
+  if (!cfg.autoLinkEnabled) return empty;
+
+  const [doc] = await tx
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) return empty;
+  if (doc.status !== "approved") return empty;
+  if (doc.docType !== "invoice" && doc.docType !== "credit_note") return empty;
+
+  // Confirmed target jobs: an explicit document→job link, plus any reference
+  // whose match has been confirmed. Without a confirmed link we do nothing.
+  const targetJobIds = new Set<number>();
+  if (doc.jobId != null) targetJobIds.add(doc.jobId);
+  const refs = await tx
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, documentId));
+  for (const ref of refs) {
+    if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
+      targetJobIds.add(ref.matchedJobId);
+    }
+  }
+  if (targetJobIds.size === 0) return empty;
+
+  // Invoice material lines that can carry a price.
+  const invoiceLines = (
+    await tx
+      .select()
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, documentId))
+  ).filter(
+    (l) =>
+      !l.feeType &&
+      l.lineType === "material" &&
+      l.allocationType !== "stock" &&
+      l.unitPriceWithoutVat != null &&
+      num(l.unitPriceWithoutVat) > 0,
+  );
+  if (invoiceLines.length === 0) return empty;
+
+  // Existing materials of the target jobs that came from a DIFFERENT document
+  // (i.e. the earlier delivery note), so we fill them rather than duplicate.
+  const jobMaterials = (
+    await tx
+      .select()
+      .from(materialsTable)
+      .where(inArray(materialsTable.jobId, Array.from(targetJobIds)))
+  ).filter((m) => m.sourceType === MATERIAL_SOURCE_TYPE && m.sourceId != null);
+  if (jobMaterials.length === 0) return empty;
+
+  // Load each material's own source line to recover EAN/SKU for matching
+  // (materials themselves only store a free-text name).
+  const sourceLineIds = jobMaterials
+    .map((m) => m.sourceId)
+    .filter((id): id is number => id != null);
+  const sourceLines = sourceLineIds.length
+    ? await tx
+        .select()
+        .from(billingDocumentLinesTable)
+        .where(inArray(billingDocumentLinesTable.id, sourceLineIds))
+    : [];
+  const sourceLineById = new Map(sourceLines.map((l) => [l.id, l]));
+
+  // A material is a fill candidate only when its OWN source line belongs to a
+  // DIFFERENT document (the earlier delivery note). Keying off the source
+  // document (not the mutable priceSourceDocumentId) keeps re-approve
+  // idempotent: an already-filled material is still recognised as the same
+  // delivery-note material on the second run, so it is re-consumed rather than
+  // duplicated by sync. Materials whose source line is THIS invoice are skipped.
+  const candidateMaterials = jobMaterials.filter((m) => {
+    const src = m.sourceId != null ? sourceLineById.get(m.sourceId) : undefined;
+    return src != null && src.documentId !== documentId;
+  });
+  if (candidateMaterials.length === 0) return empty;
+
+  const materialMatchable = (m: (typeof candidateMaterials)[number]): MatchableLine => {
+    const src = m.sourceId != null ? sourceLineById.get(m.sourceId) : undefined;
+    return {
+      ean: src?.ean ?? null,
+      supplierSku: src?.supplierSku ?? null,
+      description: m.name,
+      quantity: m.quantity == null ? null : num(m.quantity),
+    };
+  };
+
+  const consumedLineIds = new Set<number>();
+  const usedMaterialIds = new Set<number>();
+  let filled = 0;
+
+  for (const line of invoiceLines) {
+    const lineMatchable: MatchableLine = {
+      ean: line.ean,
+      supplierSku: line.supplierSku,
+      description: line.description,
+      quantity: line.quantity == null ? null : num(line.quantity),
+    };
+
+    let best: { material: (typeof candidateMaterials)[number]; score: number } | null =
+      null;
+    for (const m of candidateMaterials) {
+      if (usedMaterialIds.has(m.id)) continue;
+      const score = scoreLineMatch(lineMatchable, materialMatchable(m)).score;
+      if (score >= cfg.autoLinkMinScore && (!best || score > best.score)) {
+        best = { material: m, score };
+      }
+    }
+    if (!best) continue;
+
+    const m = best.material;
+    // Leave a material already priced from another invoice line untouched
+    // (stable + idempotent). Re-running with the same line refreshes in place.
+    if (
+      m.priceSource === "invoice" &&
+      m.priceSourceLineId != null &&
+      m.priceSourceLineId !== line.id
+    ) {
+      continue;
+    }
+
+    usedMaterialIds.add(m.id);
+    consumedLineIds.add(line.id);
+    await tx
+      .update(materialsTable)
+      .set({
+        pricePerUnit: String(round2(num(line.unitPriceWithoutVat))),
+        priceSource: "invoice",
+        priceSourceDocumentId: documentId,
+        priceSourceLineId: line.id,
+        priceSourceSupplierName: doc.supplierName ?? null,
+        priceSourceDate: doc.issueDate ? new Date(doc.issueDate) : null,
+        priceConfidence: best.score.toFixed(2),
+      })
+      .where(eq(materialsTable.id, m.id));
+    filled++;
+
+    // Quantity is unchanged, so the material's stock issue is already correct;
+    // reconcile defensively in case it now matches a warehouse item by name.
+    const [refreshed] = await tx
+      .select()
+      .from(materialsTable)
+      .where(eq(materialsTable.id, m.id));
+    await reconcileMaterialStockMovement(tx, refreshed ?? null, actor);
+  }
+
+  return { consumedLineIds, filled };
+}
+
+/**
+ * Reverse {@link propagateInvoicePricesToJobMaterials}: when an invoice / credit
+ * note leaves "approved" (un-approve, ignore, mark duplicate, delete), the
+ * prices it had filled onto OTHER documents' materials (typically the earlier
+ * delivery note's "čeká na fakturu" materials) must be rolled back so the system
+ * never offers/bills a price sourced from a now-unapproved document.
+ *
+ * Only materials whose `priceSourceDocumentId === documentId` are affected, and
+ * only when their OWN `sourceId` line belongs to a DIFFERENT document (i.e. the
+ * fill targets — never a material that this invoice itself created via sync,
+ * which `syncJobMaterialsForDocument` already removes). The price reverts to the
+ * pre-fill "awaiting invoice" state (price 0, source `awaiting_invoice`) and all
+ * provenance fields are cleared. Quantity is untouched, so the existing stock
+ * issue still holds; we reconcile defensively. Never creates a stock movement
+ * directly. Idempotent: a second run finds nothing to revert.
+ */
+export async function revertInvoicePricePropagation(
+  tx: DbOrTx,
+  documentId: number,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<{ reverted: number }> {
+  // Materials this document had priced, that are NOT invoiced to a customer
+  // (a customer-invoiced material keeps its captured price) and whose own
+  // source line belongs to a different document.
+  const priced = await tx
+    .select()
+    .from(materialsTable)
+    .where(
+      and(
+        eq(materialsTable.priceSourceDocumentId, documentId),
+        isNull(materialsTable.invoicedInvoiceId),
+      ),
+    );
+  if (priced.length === 0) return { reverted: 0 };
+
+  const sourceLineIds = priced
+    .map((m) => m.sourceId)
+    .filter((id): id is number => id != null);
+  const sourceLines = sourceLineIds.length
+    ? await tx
+        .select()
+        .from(billingDocumentLinesTable)
+        .where(inArray(billingDocumentLinesTable.id, sourceLineIds))
+    : [];
+  const sourceLineById = new Map(sourceLines.map((l) => [l.id, l]));
+
+  let reverted = 0;
+  for (const m of priced) {
+    const src = m.sourceId != null ? sourceLineById.get(m.sourceId) : undefined;
+    // Skip materials this very document created (sync handles those); only roll
+    // back fills onto a different document's material.
+    if (src != null && src.documentId === documentId) continue;
+    await tx
+      .update(materialsTable)
+      .set({
+        pricePerUnit: "0",
+        priceSource: "awaiting_invoice",
+        priceSourceDocumentId: null,
+        priceSourceLineId: null,
+        priceSourceSupplierName: null,
+        priceSourceDate: null,
+        priceConfidence: null,
+      })
+      .where(eq(materialsTable.id, m.id));
+    reverted++;
+
+    const [refreshed] = await tx
+      .select()
+      .from(materialsTable)
+      .where(eq(materialsTable.id, m.id));
+    await reconcileMaterialStockMovement(tx, refreshed ?? null, actor);
+  }
+  return { reverted };
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle: approve / ignore / set status / requeue / delete
 // ---------------------------------------------------------------------------
 
@@ -1629,10 +1965,22 @@ export async function approveDocument(id: number, actor: Actor) {
           eq(billingDocumentLinesTable.allocationType, REBILL_ALLOC),
         ),
       );
+    // Fill prices onto pre-existing (delivery-note) materials when this is a
+    // confirmed-linked invoice; capture which lines were consumed so sync does
+    // not also create a duplicate invoice-sourced material for them.
+    const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
+      tx,
+      id,
+      actor,
+    );
     // Propagate the approved material lines into their jobs' materials lists.
-    await syncJobMaterialsForDocument(tx, id, actor);
+    await syncJobMaterialsForDocument(tx, id, actor, {
+      excludeSourceLineIds: consumedLineIds,
+    });
     // Receive every stock-allocated line into the warehouse (příjem).
     await reconcileDocumentStockMovements(tx, id, actor);
+    // Update warehouse catalogue fields + purchase price + append price history.
+    await applyWarehouseCatalogAndPriceHistory(tx, id, actor);
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -1661,11 +2009,157 @@ export interface WarehousePriceUpdate {
 }
 
 /**
- * Push the purchase prices from an APPROVED document's product lines onto the
- * matching warehouse items. Each line is matched to a warehouse item by code
- * (supplier SKU / EAN) first, then by case-insensitive name. Fee/discount lines
- * are skipped. This is an explicit admin action (not automatic on approve) so
- * the operator stays in control of price history. Returns what was updated.
+ * Shared core (transaction-aware): push the purchase prices from an APPROVED
+ * document's product lines onto the matching warehouse items, enrich the item's
+ * catalogue fields (EAN / supplier SKU / supplier / manufacturer / normalized
+ * name) when they are still empty, and append a row to the warehouse purchase-
+ * price history. Each line is matched by code (supplier SKU / EAN) first, then
+ * by case-insensitive name. Fee/discount/non-material lines are skipped.
+ *
+ * Idempotent: the item price is overwritten with the latest, catalogue fields
+ * are only filled when empty (never clobbered), and the price-history row is
+ * keyed by `billingDocumentLineId` (partial unique) so re-running ON CONFLICT
+ * DO UPDATE refreshes the same row instead of duplicating. Creates NO stock
+ * movement — only item metadata + history.
+ */
+async function applyWarehouseCatalogAndPriceHistory(
+  tx: DbOrTx,
+  documentId: number,
+  actor: Actor,
+): Promise<{ updated: WarehousePriceUpdate[]; skipped: number }> {
+  const [doc] = await tx
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  const updated: WarehousePriceUpdate[] = [];
+  let skipped = 0;
+  if (!doc || doc.status !== "approved") return { updated, skipped };
+
+  const lines = await tx
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, documentId));
+
+  const items = await tx.select().from(warehouseItemsTable);
+  const byCode = new Map<string, (typeof items)[number]>();
+  const byName = new Map<string, (typeof items)[number]>();
+  for (const it of items) {
+    if (it.code) byCode.set(it.code.trim().toLowerCase(), it);
+    if (it.ean) byCode.set(it.ean.trim().toLowerCase(), it);
+    if (it.supplierSku) byCode.set(it.supplierSku.trim().toLowerCase(), it);
+    byName.set(it.name.trim().toLowerCase(), it);
+  }
+
+  for (const line of lines) {
+    // Skip fees, discounts and non-material lines — they are not stock items.
+    if (line.feeType || line.lineType !== "material") {
+      skipped++;
+      continue;
+    }
+    const codeKeys = [line.supplierSku, line.ean]
+      .filter((c): c is string => !!c)
+      .map((c) => c.trim().toLowerCase());
+    let item = codeKeys.map((k) => byCode.get(k)).find(Boolean);
+    let matchedBy: "code" | "name" = "code";
+    if (!item) {
+      item = byName.get(line.description.trim().toLowerCase());
+      matchedBy = "name";
+    }
+    if (!item) {
+      skipped++;
+      continue;
+    }
+    const newPrice = round2(num(line.unitPriceWithoutVat));
+    const oldPrice = item.purchasePrice == null ? null : num(item.purchasePrice);
+    // Fill catalogue fields only when empty (never clobber operator data).
+    const catalogue: Record<string, string> = {};
+    if (!item.ean && line.ean) catalogue.ean = line.ean;
+    if (!item.supplierSku && line.supplierSku)
+      catalogue.supplierSku = line.supplierSku;
+    if (!item.supplierName && doc.supplierName)
+      catalogue.supplierName = doc.supplierName;
+    if (!item.supplierIc && doc.supplierIc) catalogue.supplierIc = doc.supplierIc;
+    if (!item.manufacturer && line.manufacturer)
+      catalogue.manufacturer = line.manufacturer;
+    if (!item.normalizedName)
+      catalogue.normalizedName = normalizeItemName(item.name);
+    await tx
+      .update(warehouseItemsTable)
+      .set({ purchasePrice: String(newPrice), ...catalogue })
+      .where(eq(warehouseItemsTable.id, item.id));
+    // Mark the line as having flowed to stock for audit.
+    await tx
+      .update(billingDocumentLinesTable)
+      .set({ warehouseState: "assigned_to_stock", updatedAt: new Date() })
+      .where(eq(billingDocumentLinesTable.id, line.id));
+    // Append (idempotently) to the purchase-price history.
+    const historyValues = {
+      warehouseItemId: item.id,
+      billingDocumentId: documentId,
+      billingDocumentLineId: line.id,
+      purchasePrice: String(newPrice),
+      currency: doc.currency ?? "CZK",
+      supplierName: doc.supplierName ?? null,
+      supplierIc: doc.supplierIc ?? null,
+      ean: line.ean ?? null,
+      supplierSku: line.supplierSku ?? null,
+      documentNumber: doc.documentNumber ?? null,
+      documentDate: doc.issueDate ? new Date(doc.issueDate) : null,
+      createdByUserId: actor.userId ?? null,
+      createdByName: actor.name ?? null,
+    };
+    await tx
+      .insert(warehousePriceHistoryTable)
+      .values(historyValues)
+      .onConflictDoUpdate({
+        target: warehousePriceHistoryTable.billingDocumentLineId,
+        targetWhere: isNotNull(warehousePriceHistoryTable.billingDocumentLineId),
+        set: {
+          warehouseItemId: historyValues.warehouseItemId,
+          billingDocumentId: historyValues.billingDocumentId,
+          purchasePrice: historyValues.purchasePrice,
+          currency: historyValues.currency,
+          supplierName: historyValues.supplierName,
+          supplierIc: historyValues.supplierIc,
+          ean: historyValues.ean,
+          supplierSku: historyValues.supplierSku,
+          documentNumber: historyValues.documentNumber,
+          documentDate: historyValues.documentDate,
+        },
+      });
+    updated.push({
+      lineId: line.id,
+      warehouseItemId: item.id,
+      itemName: item.name,
+      oldPrice,
+      newPrice,
+      matchedBy,
+    });
+  }
+
+  if (updated.length) {
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "update",
+      entityType: "warehouse_items",
+      entityId: documentId,
+      summary: `Nákupní ceny aktualizovány z dokladu${
+        doc.documentNumber ? ` ${doc.documentNumber}` : ""
+      }: ${updated.length} položek`,
+      method: "POST",
+      path: `/billing/documents/${documentId}/apply-warehouse-prices`,
+    });
+  }
+
+  return { updated, skipped };
+}
+
+/**
+ * Explicit admin action: push purchase prices + catalogue + price history from
+ * an approved document to the warehouse. Wraps the shared core in a transaction
+ * and enforces the approved-status precondition (the automatic call on approve
+ * runs the same core inside the approve transaction).
  */
 export async function updateWarehousePricesFromDocument(
   documentId: number,
@@ -1679,81 +2173,9 @@ export async function updateWarehousePricesFromDocument(
   if (doc.status !== "approved") {
     throw appError(409, "Ceny do skladu lze přenést až po schválení dokladu.");
   }
-
-  const lines = await db
-    .select()
-    .from(billingDocumentLinesTable)
-    .where(eq(billingDocumentLinesTable.documentId, documentId));
-
-  const items = await db.select().from(warehouseItemsTable);
-  const byCode = new Map<string, (typeof items)[number]>();
-  const byName = new Map<string, (typeof items)[number]>();
-  for (const it of items) {
-    if (it.code) byCode.set(it.code.trim().toLowerCase(), it);
-    byName.set(it.name.trim().toLowerCase(), it);
-  }
-
-  const updated: WarehousePriceUpdate[] = [];
-  let skipped = 0;
-
-  await db.transaction(async (tx) => {
-    for (const line of lines) {
-      // Skip fees, discounts and non-material lines — they are not stock items.
-      if (line.feeType || line.lineType !== "material") {
-        skipped++;
-        continue;
-      }
-      const codeKeys = [line.supplierSku, line.ean]
-        .filter((c): c is string => !!c)
-        .map((c) => c.trim().toLowerCase());
-      let item = codeKeys.map((k) => byCode.get(k)).find(Boolean);
-      let matchedBy: "code" | "name" = "code";
-      if (!item) {
-        item = byName.get(line.description.trim().toLowerCase());
-        matchedBy = "name";
-      }
-      if (!item) {
-        skipped++;
-        continue;
-      }
-      const newPrice = round2(num(line.unitPriceWithoutVat));
-      const oldPrice = item.purchasePrice == null ? null : num(item.purchasePrice);
-      await tx
-        .update(warehouseItemsTable)
-        .set({ purchasePrice: String(newPrice) })
-        .where(eq(warehouseItemsTable.id, item.id));
-      // Mark the line as having flowed to stock for audit.
-      await tx
-        .update(billingDocumentLinesTable)
-        .set({ warehouseState: "assigned_to_stock", updatedAt: new Date() })
-        .where(eq(billingDocumentLinesTable.id, line.id));
-      updated.push({
-        lineId: line.id,
-        warehouseItemId: item.id,
-        itemName: item.name,
-        oldPrice,
-        newPrice,
-        matchedBy,
-      });
-    }
-
-    if (updated.length) {
-      await tx.insert(auditLogTable).values({
-        actorUserId: actor.userId,
-        actorName: actor.name,
-        action: "update",
-        entityType: "warehouse_items",
-        entityId: documentId,
-        summary: `Nákupní ceny aktualizovány z dokladu${
-          doc.documentNumber ? ` ${doc.documentNumber}` : ""
-        }: ${updated.length} položek`,
-        method: "POST",
-        path: `/billing/documents/${documentId}/apply-warehouse-prices`,
-      });
-    }
-  });
-
-  return { updated, skipped };
+  return db.transaction((tx) =>
+    applyWarehouseCatalogAndPriceHistory(tx, documentId, actor),
+  );
 }
 
 export async function setDocumentStatus(
@@ -1787,6 +2209,11 @@ export async function setDocumentStatus(
             isNull(billingDocumentLinesTable.invoicedInvoiceId),
           ),
         );
+    }
+    // Roll back any prices this invoice had filled onto OTHER documents'
+    // materials (delivery-note "čeká na fakturu") before they're re-offered.
+    if (doc.status === "approved") {
+      await revertInvoicePricePropagation(tx, id, actor);
     }
     // Reconcile job materials (removes them when leaving "approved").
     await syncJobMaterialsForDocument(tx, id, actor);
@@ -1859,6 +2286,9 @@ export async function deleteDocument(id: number, actor: Actor) {
         .delete(materialsTable)
         .where(inArray(materialsTable.id, propagated.map((m) => m.id)));
     }
+    // Roll back any prices this document filled onto OTHER documents' materials
+    // (delivery-note fills) so a deleted invoice never leaves a stale price.
+    await revertInvoicePricePropagation(tx, id, actor);
     await tx.delete(billingDocumentsTable).where(eq(billingDocumentsTable.id, id));
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -2026,6 +2456,79 @@ export async function releaseInvoicedLines(
     .update(billingDocumentLinesTable)
     .set({ invoicedInvoiceId: null, updatedAt: new Date() })
     .where(eq(billingDocumentLinesTable.invoicedInvoiceId, invoiceId));
+}
+
+/**
+ * Reserve job materials onto a customer invoice so they aren't offered or billed
+ * twice. Purely a provenance flag — it NEVER touches warehouse stock (the stock
+ * issue happened when the material was created/reconciled).
+ */
+export async function markMaterialsInvoiced(
+  tx: DbOrTx,
+  invoiceId: number,
+  materialIds: number[],
+): Promise<void> {
+  if (!materialIds.length) return;
+  await tx
+    .update(materialsTable)
+    .set({ invoicedInvoiceId: invoiceId, invoicedAt: new Date() })
+    .where(inArray(materialsTable.id, materialIds));
+}
+
+/**
+ * Release any job materials tied to an invoice (storno / draft delete).
+ *
+ * On release a material becomes offerable again, so its price provenance must be
+ * re-validated: if it was priced from a cost document that has since been deleted
+ * or left "approved" (the un-approve/delete revert deliberately skipped it while
+ * it was reserved on the customer invoice), roll its price back to
+ * "awaiting_invoice" here so a stale price from a non-approved source is never
+ * re-offered. Quantity is unchanged, so the existing stock issue still holds.
+ */
+export async function releaseInvoicedMaterials(
+  tx: DbOrTx,
+  invoiceId: number,
+): Promise<void> {
+  const released = await tx
+    .select()
+    .from(materialsTable)
+    .where(eq(materialsTable.invoicedInvoiceId, invoiceId));
+
+  await tx
+    .update(materialsTable)
+    .set({ invoicedInvoiceId: null, invoicedAt: null })
+    .where(eq(materialsTable.invoicedInvoiceId, invoiceId));
+
+  for (const m of released) {
+    if (m.priceSource !== "invoice") continue;
+    // A null priceSourceDocumentId on an invoice-sourced price means the source
+    // doc was deleted (FK ON DELETE SET NULL) → invalid provenance, must revert.
+    if (m.priceSourceDocumentId != null) {
+      const [src] = await tx
+        .select({ status: billingDocumentsTable.status })
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.id, m.priceSourceDocumentId));
+      // Source still approved → price is legitimately captured, leave it.
+      if (src && src.status === "approved") continue;
+    }
+    await tx
+      .update(materialsTable)
+      .set({
+        pricePerUnit: "0",
+        priceSource: "awaiting_invoice",
+        priceSourceDocumentId: null,
+        priceSourceLineId: null,
+        priceSourceSupplierName: null,
+        priceSourceDate: null,
+        priceConfidence: null,
+      })
+      .where(eq(materialsTable.id, m.id));
+    const [refreshed] = await tx
+      .select()
+      .from(materialsTable)
+      .where(eq(materialsTable.id, m.id));
+    await reconcileMaterialStockMovement(tx, refreshed ?? null, SYSTEM_ACTOR);
+  }
 }
 
 // ---------------------------------------------------------------------------
