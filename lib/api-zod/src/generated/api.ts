@@ -5099,6 +5099,9 @@ export const GetDocumentExtractionStatusResponse = zod.object({
   "ready": zod.boolean(),
   "model": zod.string(),
   "maxFileMb": zod.number(),
+  "requestTimeoutMs": zod.number(),
+  "confidenceThreshold": zod.number().describe('Below this overall confidence (0–1) a result is flagged for review.'),
+  "systemPrompt": zod.string().describe('The active system prompt that instructs the model how to read documents.'),
   "source": zod.enum(['db', 'env', 'none']).describe('Which source provides the API key: \"db\" (saved in Settings), \"env\" (OPENAI_API_KEY fallback), or \"none\".')
 })
 
@@ -5109,6 +5112,10 @@ export const GetDocumentExtractionStatusResponse = zod.object({
 export const UpdateDocumentExtractionBody = zod.object({
   "enabled": zod.boolean(),
   "model": zod.string().nullable(),
+  "systemPrompt": zod.string().nullish().describe('Instructions for the model. An empty string \/ null resets it to the built-in default prompt.'),
+  "maxFileMb": zod.number().nullish().describe('Max upload size sent to OpenAI; null falls back to env\/default.'),
+  "requestTimeoutMs": zod.number().nullish().describe('Per-request timeout in ms; null falls back to env\/default.'),
+  "confidenceThreshold": zod.number().nullish().describe('Review threshold (0–1); null falls back to env\/default.'),
   "apiKey": zod.string().nullish().describe('Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting \/ null keeps the existing key.')
 })
 
@@ -5118,6 +5125,9 @@ export const UpdateDocumentExtractionResponse = zod.object({
   "ready": zod.boolean(),
   "model": zod.string(),
   "maxFileMb": zod.number(),
+  "requestTimeoutMs": zod.number(),
+  "confidenceThreshold": zod.number().describe('Below this overall confidence (0–1) a result is flagged for review.'),
+  "systemPrompt": zod.string().describe('The active system prompt that instructs the model how to read documents.'),
   "source": zod.enum(['db', 'env', 'none']).describe('Which source provides the API key: \"db\" (saved in Settings), \"env\" (OPENAI_API_KEY fallback), or \"none\".')
 })
 

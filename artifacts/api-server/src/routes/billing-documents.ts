@@ -63,6 +63,9 @@ function serializeExtractionStatus(cfg: {
   ready: boolean;
   model: string;
   maxFileMb: number;
+  timeoutMs: number;
+  systemPrompt: string;
+  confidenceThreshold: number;
   source: "db" | "env" | "none";
 }) {
   return {
@@ -71,6 +74,9 @@ function serializeExtractionStatus(cfg: {
     ready: cfg.ready,
     model: cfg.model,
     maxFileMb: cfg.maxFileMb,
+    requestTimeoutMs: cfg.timeoutMs,
+    confidenceThreshold: cfg.confidenceThreshold,
+    systemPrompt: cfg.systemPrompt,
     source: cfg.source,
   };
 }
@@ -99,11 +105,22 @@ router.put("/billing/ai-extraction", async (req, res): Promise<void> => {
   const apiKey =
     typeof d.apiKey === "string" ? d.apiKey.trim() || null : existing?.apiKey ?? null;
 
+  const toIntOrNull = (v: number | null | undefined): number | null =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : null;
+
   const values: typeof openaiSettingsTable.$inferInsert = {
     id: OPENAI_SETTINGS_ID,
     enabled: d.enabled,
     apiKey,
     model: d.model?.trim() || null,
+    systemPrompt: d.systemPrompt?.trim() || null,
+    maxFileMb: toIntOrNull(d.maxFileMb),
+    requestTimeoutMs: toIntOrNull(d.requestTimeoutMs),
+    confidenceThreshold:
+      typeof d.confidenceThreshold === "number" &&
+      Number.isFinite(d.confidenceThreshold)
+        ? Math.min(1, Math.max(0, d.confidenceThreshold))
+        : null,
     updatedAt: new Date(),
   };
 

@@ -1,4 +1,11 @@
-import { pgTable, integer, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  integer,
+  text,
+  boolean,
+  timestamp,
+  real,
+} from "drizzle-orm/pg-core";
 
 /**
  * OpenAI document-extraction configuration. Stored as a single row (id = 1) so
@@ -18,6 +25,12 @@ export const openaiSettingsTable = pgTable("openai_settings", {
   enabled: boolean("enabled").notNull().default(false),
   apiKey: text("api_key"),
   model: text("model"),
+  // Advanced, optional overrides. NULL on any field falls back to the OPENAI_*
+  // env var (or the built-in default) so existing env-based deploys are unchanged.
+  systemPrompt: text("system_prompt"),
+  maxFileMb: integer("max_file_mb"),
+  requestTimeoutMs: integer("request_timeout_ms"),
+  confidenceThreshold: real("confidence_threshold"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

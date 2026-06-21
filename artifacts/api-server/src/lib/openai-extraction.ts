@@ -48,6 +48,10 @@ export interface OpenAiConfig {
   model: string;
   maxFileMb: number;
   timeoutMs: number;
+  /** System prompt that instructs the model how to read documents. */
+  systemPrompt: string;
+  /** Below this overall confidence (0–1) a result is flagged for review. */
+  confidenceThreshold: number;
   /** Where the active API key comes from: saved settings, env fallback, or none. */
   source: "db" | "env" | "none";
 }
@@ -102,17 +106,44 @@ export async function resolveOpenAiConfig(): Promise<ResolvedOpenAiConfig> {
     process.env.OPENAI_DOCUMENT_MODEL?.trim() ||
     DEFAULT_MODEL;
 
+  const maxFileMb =
+    row?.maxFileMb && row.maxFileMb > 0
+      ? row.maxFileMb
+      : parsePositiveNumber(process.env.OPENAI_MAX_FILE_MB, DEFAULT_MAX_FILE_MB);
+
+  const timeoutMs =
+    row?.requestTimeoutMs && row.requestTimeoutMs > 0
+      ? row.requestTimeoutMs
+      : parsePositiveNumber(
+          process.env.OPENAI_REQUEST_TIMEOUT_MS,
+          DEFAULT_TIMEOUT_MS,
+        );
+
+  const systemPrompt = row?.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT;
+
+  // Threshold is a 0..1 value, so 0 (never warn) is legitimate — parsePositiveNumber
+  // would reject it. Accept any finite env number, then clamp; invalid → default.
+  const envThreshold = process.env.OPENAI_CONFIDENCE_THRESHOLD?.trim();
+  const rawThreshold =
+    row?.confidenceThreshold != null
+      ? row.confidenceThreshold
+      : envThreshold
+        ? Number(envThreshold)
+        : CONFIDENCE_REVIEW_THRESHOLD;
+  const confidenceThreshold = Number.isFinite(rawThreshold)
+    ? Math.min(1, Math.max(0, rawThreshold))
+    : CONFIDENCE_REVIEW_THRESHOLD;
+
   return {
     apiKey,
     configured,
     enabled,
     ready: configured && enabled,
     model,
-    maxFileMb: parsePositiveNumber(process.env.OPENAI_MAX_FILE_MB, DEFAULT_MAX_FILE_MB),
-    timeoutMs: parsePositiveNumber(
-      process.env.OPENAI_REQUEST_TIMEOUT_MS,
-      DEFAULT_TIMEOUT_MS,
-    ),
+    maxFileMb,
+    timeoutMs,
+    systemPrompt,
+    confidenceThreshold,
     source,
   };
 }
@@ -295,12 +326,15 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * for YYYY-MM-DD but we never trust it blindly), and add a low-confidence
  * warning so the reviewer is explicitly told to double-check.
  */
-export function normalizeResult(result: ExtractionResult): ExtractionResult {
+export function normalizeResult(
+  result: ExtractionResult,
+  threshold: number = CONFIDENCE_REVIEW_THRESHOLD,
+): ExtractionResult {
   const cleanDate = (d: string | null): string | null =>
     d && ISO_DATE.test(d) ? d : null;
 
   const warnings = [...result.warnings];
-  if (result.confidence < CONFIDENCE_REVIEW_THRESHOLD) {
+  if (result.confidence < threshold) {
     warnings.push(
       `Nízká důvěryhodnost automatického vytěžení (${Math.round(
         result.confidence * 100,
@@ -322,7 +356,7 @@ export function normalizeResult(result: ExtractionResult): ExtractionResult {
 // Prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `Jsi přesný asistent pro vytěžování českých účetních dokladů (faktury, účtenky, dodací listy, dobropisy) pro stavební firmu.
+const DEFAULT_SYSTEM_PROMPT = `Jsi přesný asistent pro vytěžování českých účetních dokladů (faktury, účtenky, dodací listy, dobropisy) pro stavební firmu.
 
 Z přiloženého dokladu vyčti údaje a vrať VÝHRADNĚ jeden JSON objekt (žádný další text, žádné markdown bloky) s tímto tvarem:
 {
@@ -457,7 +491,7 @@ export async function extractFromFile(
     model: cfg.model,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: cfg.systemPrompt },
       { role: "user", content: userContent },
     ],
   });
@@ -480,7 +514,7 @@ export async function extractFromFile(
   }
 
   return {
-    result: normalizeResult(validated.data),
+    result: normalizeResult(validated.data, cfg.confidenceThreshold),
     rawText,
     model: completion.model || cfg.model,
   };

@@ -111,25 +111,53 @@ export default function BillingSettings() {
     enabled: boolean;
     apiKey: string;
     model: string;
+    systemPrompt: string;
+    maxFileMb: string;
+    timeoutMs: string;
+    confidence: string;
   } | null>(null);
 
   useEffect(() => {
     if (aiStatus && !aiForm) {
-      setAiForm({ enabled: aiStatus.enabled, apiKey: "", model: aiStatus.model });
+      setAiForm({
+        enabled: aiStatus.enabled,
+        apiKey: "",
+        model: aiStatus.model,
+        systemPrompt: aiStatus.systemPrompt,
+        maxFileMb: String(aiStatus.maxFileMb),
+        timeoutMs: String(aiStatus.requestTimeoutMs),
+        confidence: String(aiStatus.confidenceThreshold),
+      });
     }
   }, [aiStatus, aiForm]);
+
+  // Build the full payload from the current form. Always include every field so
+  // saving (or clearing the key) never wipes the other advanced overrides.
+  const buildAiData = (form: NonNullable<typeof aiForm>, apiKey: string | null) => {
+    const num = (s: string): number | null => {
+      const t = s.trim();
+      if (t === "") return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    return {
+      enabled: form.enabled,
+      model: form.model.trim() || null,
+      systemPrompt: form.systemPrompt.trim() || null,
+      maxFileMb: num(form.maxFileMb),
+      requestTimeoutMs: num(form.timeoutMs),
+      confidenceThreshold: num(form.confidence),
+      apiKey,
+    };
+  };
 
   const handleSaveAi = () => {
     if (!aiForm) return;
     const apiKeyTyped = aiForm.apiKey.trim();
     updateAi.mutate(
       {
-        data: {
-          enabled: aiForm.enabled,
-          model: aiForm.model.trim() || null,
-          // Write-only: send the typed key, or null to keep the stored one.
-          apiKey: apiKeyTyped === "" ? null : apiKeyTyped,
-        },
+        // Write-only key: send the typed key, or null to keep the stored one.
+        data: buildAiData(aiForm, apiKeyTyped === "" ? null : apiKeyTyped),
       },
       {
         onSuccess: () => {
@@ -149,13 +177,8 @@ export default function BillingSettings() {
   const handleClearAiKey = () => {
     if (!aiForm) return;
     updateAi.mutate(
-      {
-        data: {
-          enabled: aiForm.enabled,
-          model: aiForm.model.trim() || null,
-          apiKey: "", // empty string explicitly clears the stored key
-        },
-      },
+      // empty string explicitly clears the stored key
+      { data: buildAiData(aiForm, "") },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({
@@ -486,6 +509,65 @@ export default function BillingSettings() {
                   />
                 </Field>
 
+                <Field label="Instrukce pro AI (prompt)">
+                  <Textarea
+                    rows={10}
+                    className="font-mono text-xs"
+                    value={aiForm.systemPrompt}
+                    onChange={(e) =>
+                      setAiForm((p) => (p ? { ...p, systemPrompt: e.target.value } : p))
+                    }
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Pokročilé. Určuje, jak AI čte doklady a jaká pole vrací.
+                    Neměňte názvy polí v JSON. Prázdné pole obnoví výchozí
+                    instrukce.
+                  </p>
+                </Field>
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field label="Max. velikost souboru (MB)">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={aiForm.maxFileMb}
+                      onChange={(e) =>
+                        setAiForm((p) => (p ? { ...p, maxFileMb: e.target.value } : p))
+                      }
+                      placeholder="32"
+                    />
+                  </Field>
+                  <Field label="Časový limit (ms)">
+                    <Input
+                      type="number"
+                      min={1000}
+                      step={1000}
+                      value={aiForm.timeoutMs}
+                      onChange={(e) =>
+                        setAiForm((p) => (p ? { ...p, timeoutMs: e.target.value } : p))
+                      }
+                      placeholder="60000"
+                    />
+                  </Field>
+                  <Field label="Práh spolehlivosti (0–1)">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={aiForm.confidence}
+                      onChange={(e) =>
+                        setAiForm((p) => (p ? { ...p, confidence: e.target.value } : p))
+                      }
+                      placeholder="0.7"
+                    />
+                  </Field>
+                </div>
+                <p className="-mt-2 text-xs text-muted-foreground">
+                  Výsledky pod prahem spolehlivosti se označí k pečlivé kontrole.
+                  Prázdná pole použijí výchozí hodnoty.
+                </p>
+
                 <div className="rounded-md border divide-y">
                   <StatusRow
                     label="Stav"
@@ -513,10 +595,6 @@ export default function BillingSettings() {
                   <div className="flex items-center justify-between px-3 py-2 text-sm">
                     <span className="text-muted-foreground">Aktivní model</span>
                     <span className="font-mono text-xs">{aiStatus.model}</span>
-                  </div>
-                  <div className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">Max. velikost souboru</span>
-                    <span>{aiStatus.maxFileMb} MB</span>
                   </div>
                 </div>
 

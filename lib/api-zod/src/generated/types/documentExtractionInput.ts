@@ -11,6 +11,26 @@ export interface DocumentExtractionInput {
   /** @nullable */
   model: string | null;
   /**
+     * Instructions for the model. An empty string / null resets it to the built-in default prompt.
+     * @nullable
+     */
+  systemPrompt?: string | null;
+  /**
+     * Max upload size sent to OpenAI; null falls back to env/default.
+     * @nullable
+     */
+  maxFileMb?: number | null;
+  /**
+     * Per-request timeout in ms; null falls back to env/default.
+     * @nullable
+     */
+  requestTimeoutMs?: number | null;
+  /**
+     * Review threshold (0–1); null falls back to env/default.
+     * @nullable
+     */
+  confidenceThreshold?: number | null;
+  /**
      * Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting / null keeps the existing key.
      * @nullable
      */

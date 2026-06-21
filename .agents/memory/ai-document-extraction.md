@@ -28,12 +28,21 @@ a human must confirm before it can affect money.
 
 ## Self-hosted key handling
 Off-Replit (Hetzner) there is no Replit AI proxy — the operator supplies their
-**own** OpenAI key. The key + model + on/off toggle are editable in the admin UI
-and stored in the `openai_settings` DB singleton (id=1), with the `OPENAI_*` env
-vars as a per-field fallback (a saved DB value wins). `resolveOpenAiConfig()` is
-async and reads the row inside try/catch → env-only if the table is missing
-(pre-migration), so env-based deploys keep working. The key is **write-only**
-(never returned by the API) and never logged. `/billing/settings` (admin-only)
+**own** OpenAI key. The key + model + on/off toggle **plus all advanced AI
+variables** (system prompt, max file MB, request timeout ms, confidence
+threshold) are editable in the admin UI and stored in the `openai_settings` DB
+singleton (id=1), with the `OPENAI_*` env vars (and a built-in default for the
+prompt/threshold) as a **per-field** fallback — a non-null saved DB value wins,
+otherwise env, otherwise default. `resolveOpenAiConfig()` is async and reads the
+row inside try/catch → env-only if the table is missing (pre-migration), so
+env-based deploys keep working. The key is **write-only** (never returned by the
+API) and never logged; the prompt/numbers are non-secret and **are** returned by
+the status endpoint so the form prefills with the active values.
+
+**Gotcha:** because the PUT writes the *whole* settings row, any save (including
+"clear API key") must resend every advanced field, or omitted fields go null and
+silently reset to env/default. The frontend builds one shared payload from form
+state for both save and clear-key to avoid this. `/billing/settings` (admin-only)
 shows status + a "test configuration" action that sends **no** real document
 (just verifies the key / connection) and returns a graceful Czech message when
 unconfigured.

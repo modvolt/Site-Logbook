@@ -2611,6 +2611,11 @@ export interface DocumentExtractionStatus {
   ready: boolean;
   model: string;
   maxFileMb: number;
+  requestTimeoutMs: number;
+  /** Below this overall confidence (0–1) a result is flagged for review. */
+  confidenceThreshold: number;
+  /** The active system prompt that instructs the model how to read documents. */
+  systemPrompt: string;
   /** Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none". */
   source: DocumentExtractionStatusSource;
 }
@@ -2619,6 +2624,26 @@ export interface DocumentExtractionInput {
   enabled: boolean;
   /** @nullable */
   model: string | null;
+  /**
+     * Instructions for the model. An empty string / null resets it to the built-in default prompt.
+     * @nullable
+     */
+  systemPrompt?: string | null;
+  /**
+     * Max upload size sent to OpenAI; null falls back to env/default.
+     * @nullable
+     */
+  maxFileMb?: number | null;
+  /**
+     * Per-request timeout in ms; null falls back to env/default.
+     * @nullable
+     */
+  requestTimeoutMs?: number | null;
+  /**
+     * Review threshold (0–1); null falls back to env/default.
+     * @nullable
+     */
+  confidenceThreshold?: number | null;
   /**
      * Write-only. A non-empty string sets the OpenAI API key, an empty string clears it, and omitting / null keeps the existing key.
      * @nullable

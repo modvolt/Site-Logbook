@@ -58,18 +58,26 @@ auto-approved — it is saved as a `needs_review` suggestion (`ai_raw_json`,
 `ai_confidence`, `ai_model`) for an admin to confirm; confidence < 0.7 is flagged.
 The app works fully without OpenAI (documents route to manual review). Self-hosted
 prod uses the operator's **own** OpenAI key (no Replit proxy off-Replit). The key,
-model, and on/off switch are editable in the admin UI (`/billing/settings`) and
-stored in a DB singleton (`openai_settings`, id=1) with the `OPENAI_*` env vars as
-a per-field fallback (a saved value wins; otherwise env). The key is **write-only**
-(never returned by the API) and never logged. Status + a no-document "test
-configuration" action live on `/billing/settings` (admin-only). The env vars below
-remain valid as fallbacks/defaults for deployments that prefer env config:
+model, on/off switch, **and all advanced AI variables** (system prompt, max file
+MB, request timeout ms, confidence/review threshold) are editable in the admin UI
+(`/billing/settings`) and stored in a DB singleton (`openai_settings`, id=1) with
+the `OPENAI_*` env vars (and built-in code defaults) as a per-field fallback (a
+non-null saved value wins; otherwise env; otherwise default). The API key is
+**write-only** (never returned by the API) and never logged; the other fields are
+non-secret and are returned by the status endpoint so the form prefills with the
+active values. The PUT writes the whole row, so the UI always resends every field
+(even on "clear key") to avoid silently resetting an omitted field to its default.
+Status + a no-document "test configuration" action live on `/billing/settings`
+(admin-only). The env vars below remain valid as fallbacks/defaults for deployments
+that prefer env config:
 
 - `OPENAI_API_KEY` — operator's OpenAI key (fallback when not saved in the admin UI); empty disables extraction
 - `OPENAI_DOCUMENT_EXTRACTION_ENABLED` — master switch fallback before any UI save; runs only when exactly `true` (default `false`). Once a row is saved, the UI toggle takes over.
 - `OPENAI_DOCUMENT_MODEL` — vision/file-capable model (default `gpt-4o`)
 - `OPENAI_MAX_FILE_MB` — max input file size sent to OpenAI (default `32`). OpenAI itself caps inputs (~32 MB per PDF, ~20 MB per image), so going higher has no real effect.
 - `OPENAI_REQUEST_TIMEOUT_MS` — per-request timeout in ms (default `60000`)
+- `OPENAI_CONFIDENCE_THRESHOLD` — review threshold 0–1 (default `0.7`); results below it are flagged for closer review
+- The system prompt has no env var — its fallback is the built-in `DEFAULT_SYSTEM_PROMPT` in `openai-extraction.ts`; edit it in the UI or there.
 
 ### Gmail / Google Workspace import (OAuth)
 

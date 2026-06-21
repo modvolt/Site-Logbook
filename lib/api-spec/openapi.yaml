@@ -7356,7 +7356,18 @@ components:
 
     DocumentExtractionStatus:
       type: object
-      required: [configured, enabled, ready, model, maxFileMb, source]
+      required:
+        [
+          configured,
+          enabled,
+          ready,
+          model,
+          maxFileMb,
+          requestTimeoutMs,
+          confidenceThreshold,
+          systemPrompt,
+          source,
+        ]
       properties:
         configured:
           type: boolean
@@ -7368,6 +7379,14 @@ components:
           type: string
         maxFileMb:
           type: number
+        requestTimeoutMs:
+          type: number
+        confidenceThreshold:
+          type: number
+          description: Below this overall confidence (0–1) a result is flagged for review.
+        systemPrompt:
+          type: string
+          description: The active system prompt that instructs the model how to read documents.
         source:
           type: string
           enum: [db, env, none]
@@ -7383,6 +7402,20 @@ components:
           type: boolean
         model:
           type: ["string", "null"]
+        systemPrompt:
+          type: ["string", "null"]
+          description: >-
+            Instructions for the model. An empty string / null resets it to the
+            built-in default prompt.
+        maxFileMb:
+          type: ["number", "null"]
+          description: Max upload size sent to OpenAI; null falls back to env/default.
+        requestTimeoutMs:
+          type: ["number", "null"]
+          description: Per-request timeout in ms; null falls back to env/default.
+        confidenceThreshold:
+          type: ["number", "null"]
+          description: Review threshold (0–1); null falls back to env/default.
         apiKey:
           type: ["string", "null"]
           description: >-

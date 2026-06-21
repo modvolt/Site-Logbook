@@ -99,6 +99,13 @@
       "when": 1782032663451,
       "tag": "0013_legal_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782033832511,
+      "tag": "0014_mean_colonel_america",
+      "breakpoints": true
     }
   ]
 }

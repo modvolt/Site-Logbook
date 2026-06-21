@@ -13,6 +13,11 @@ export interface DocumentExtractionStatus {
   ready: boolean;
   model: string;
   maxFileMb: number;
+  requestTimeoutMs: number;
+  /** Below this overall confidence (0–1) a result is flagged for review. */
+  confidenceThreshold: number;
+  /** The active system prompt that instructs the model how to read documents. */
+  systemPrompt: string;
   /** Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none". */
   source: DocumentExtractionStatusSource;
 }
