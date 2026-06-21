@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FileDropZone } from "@/components/file-drop-zone";
+import { UploadProgressBar } from "@/components/upload-progress-bar";
 import { useToast } from "@/hooks/use-toast";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import {
@@ -37,12 +38,14 @@ import {
 import {
   uploadCostDocument,
   DuplicateCostDocumentError,
+  isZipArchive,
+  expandZipArchive,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
 import { ArrowLeft, FileText, Inbox, Sparkles, Upload } from "lucide-react";
 
 const UPLOAD_ACCEPT =
-  "image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.xml,.isdoc,.isdocx";
+  "image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.xml,.isdoc,.isdocx,.zip,application/zip";
 
 const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
   status: "needs_review",
@@ -67,6 +70,9 @@ export default function BillingDocuments() {
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [isUploading, setIsUploading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [conflict, setConflict] = useState<{
     message: string;
@@ -113,9 +119,81 @@ export default function BillingDocuments() {
     }
   };
 
-  const handleFiles = async (files: File[]) => {
-    if (files.length === 0 || isUploading) return;
-    await doUpload(files[0], false);
+  const handleFiles = async (selected: File[]) => {
+    if (selected.length === 0 || isUploading) return;
+    setIsUploading(true);
+    try {
+      // Expand any ZIP archives into their supported contents. .isdocx stays
+      // a single document (isZipArchive returns false for it).
+      const expanded: File[] = [];
+      let zipSkipped = 0;
+      let zipFailed = 0;
+      for (const file of selected) {
+        if (isZipArchive(file)) {
+          try {
+            const { files, skipped } = await expandZipArchive(file);
+            expanded.push(...files);
+            zipSkipped += skipped;
+          } catch {
+            zipFailed++;
+          }
+        } else {
+          expanded.push(file);
+        }
+      }
+
+      if (expanded.length === 0) {
+        toast({
+          title: zipFailed > 0 ? "ZIP nelze otevřít" : "Žádné podporované doklady",
+          description: zipFailed > 0
+            ? "Archiv je poškozený nebo prázdný."
+            : zipSkipped > 0
+              ? `V archivu nebyly žádné podporované soubory (přeskočeno ${zipSkipped}).`
+              : "Vyberte PDF, foto nebo e-fakturu (ISDOC/XML).",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // A single document with no archive problems keeps the original flow:
+      // navigate to its detail and offer the "nahrát i přesto" duplicate dialog.
+      if (expanded.length === 1 && zipFailed === 0) {
+        await doUpload(expanded[0], false);
+        return;
+      }
+
+      // Batch: upload sequentially, skipping exact duplicates, then summarise.
+      let ok = 0;
+      let dup = 0;
+      let failed = 0;
+      setProgress({ done: 0, total: expanded.length });
+      for (let i = 0; i < expanded.length; i++) {
+        try {
+          await uploadCostDocument(expanded[i]);
+          ok++;
+        } catch (err) {
+          if (err instanceof DuplicateCostDocumentError) dup++;
+          else failed++;
+        }
+        setProgress({ done: i + 1, total: expanded.length });
+      }
+      refresh();
+      const hadProblems = failed > 0 || zipFailed > 0;
+      const parts = [`Nahráno ${ok}`];
+      if (dup > 0) parts.push(`přeskočeno ${dup} duplicit`);
+      if (zipSkipped > 0) parts.push(`${zipSkipped} nepodporovaných`);
+      if (failed > 0) parts.push(`${failed} chyb`);
+      if (zipFailed > 0)
+        parts.push(`${zipFailed} ${zipFailed === 1 ? "archiv nešel rozbalit" : "archivů nešlo rozbalit"}`);
+      toast({
+        title: hadProblems ? "Nahrávání dokončeno s chybami" : "Doklady nahrány",
+        description: `${parts.join(", ")}.`,
+        variant: hadProblems ? "destructive" : undefined,
+      });
+    } finally {
+      setProgress(null);
+      setIsUploading(false);
+    }
   };
 
   const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,6 +244,7 @@ export default function BillingDocuments() {
         accept={UPLOAD_ACCEPT}
         ref={fileInputRef}
         onChange={handleInputChange}
+        multiple
         className="hidden"
       />
       <div className="space-y-3 mb-5">
@@ -175,14 +254,24 @@ export default function BillingDocuments() {
           className="w-full h-12 text-base"
         >
           <Upload className="h-5 w-5 mr-2" />
-          {isUploading ? "Nahrávám…" : "Nahrát doklad"}
+          {isUploading
+            ? progress
+              ? `Nahrávám… (${progress.done}/${progress.total})`
+              : "Nahrávám…"
+            : "Nahrát doklady"}
         </Button>
+        <UploadProgressBar
+          isUploading={isUploading}
+          progress={
+            progress ? Math.round((progress.done / progress.total) * 100) : 0
+          }
+        />
         <FileDropZone
           onFiles={handleFiles}
           accept={UPLOAD_ACCEPT}
-          multiple={false}
+          multiple
           disabled={isUploading}
-          label="Sem přetáhněte doklad (PDF, foto, ISDOC/XML)"
+          label="Sem přetáhněte doklady (PDF, foto, ISDOC/XML nebo ZIP)"
         />
       </div>
 

@@ -1,3 +1,4 @@
+import { unzip } from "fflate";
 import type {
   CostDocumentDetail,
   CostDocumentDuplicate,
@@ -27,6 +28,92 @@ export function costDocumentContentType(file: File): string {
   if (name.endsWith(".isdoc") || name.endsWith(".xml")) return "application/xml";
   if (name.endsWith(".isdocx")) return "application/zip";
   return file.type || "application/octet-stream";
+}
+
+/** File extensions the cost-document upload endpoint accepts. */
+const SUPPORTED_DOC_EXTENSIONS = [
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".xml",
+  ".isdoc",
+  ".isdocx",
+];
+
+function isSupportedDocName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return SUPPORTED_DOC_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/**
+ * Is this file a ZIP archive we should expand into individual documents?
+ * `.isdocx` is also a zip container but is a single e-invoice document, so it is
+ * deliberately uploaded as-is and never treated as an archive to unpack.
+ */
+export function isZipArchive(file: File): boolean {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".isdocx")) return false;
+  return (
+    name.endsWith(".zip") ||
+    file.type === "application/zip" ||
+    file.type === "application/x-zip-compressed"
+  );
+}
+
+function guessMimeFromName(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".isdocx")) return "application/zip";
+  if (lower.endsWith(".xml") || lower.endsWith(".isdoc")) return "application/xml";
+  return "application/octet-stream";
+}
+
+export interface ExpandZipResult {
+  /** Supported documents extracted from the archive. */
+  files: File[];
+  /** Number of entries skipped because they are not supported document types. */
+  skipped: number;
+}
+
+/**
+ * Expand a ZIP archive client-side into the supported documents it contains.
+ * Directories, macOS resource forks (`__MACOSX/`), dotfiles, empty entries and
+ * unsupported file types are skipped. Nested archives are NOT recursed into —
+ * a `.zip` inside the archive counts as an unsupported (skipped) entry, while a
+ * `.isdocx` is kept as a single e-invoice document. Each extracted file is then
+ * uploaded through the normal single-file path (same dedup + extraction queue).
+ */
+export async function expandZipArchive(zip: File): Promise<ExpandZipResult> {
+  const buf = new Uint8Array(await zip.arrayBuffer());
+  const entries = await new Promise<Record<string, Uint8Array>>(
+    (resolve, reject) => {
+      unzip(buf, (err, data) => (err ? reject(err) : resolve(data)));
+    },
+  );
+
+  const files: File[] = [];
+  let skipped = 0;
+  for (const [path, bytes] of Object.entries(entries)) {
+    if (path.endsWith("/")) continue; // directory entry
+    if (path.startsWith("__MACOSX/")) continue; // macOS resource fork
+    const base = path.split("/").pop() ?? path;
+    if (!base || base.startsWith(".")) continue; // hidden / dotfiles
+    if (!isSupportedDocName(base) || bytes.length === 0) {
+      skipped++;
+      continue;
+    }
+    // Copy into a fresh ArrayBuffer-backed view so the bytes satisfy BlobPart
+    // (fflate returns Uint8Array<ArrayBufferLike>, which TS rejects directly).
+    const copy = new Uint8Array(bytes.length);
+    copy.set(bytes);
+    files.push(new File([copy], base, { type: guessMimeFromName(base) }));
+  }
+  return { files, skipped };
 }
 
 export interface UploadCostDocumentOptions {
