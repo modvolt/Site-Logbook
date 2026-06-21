@@ -2620,6 +2620,8 @@ export interface DocumentExtractionStatus {
   confidenceThreshold: number;
   /** The active system prompt that instructs the model how to read documents. */
   systemPrompt: string;
+  /** The built-in default system prompt, so the UI can offer a reset to the latest default rules. */
+  defaultSystemPrompt: string;
   /** Which source provides the API key: "db" (saved in Settings), "env" (OPENAI_API_KEY fallback), or "none". */
   source: DocumentExtractionStatusSource;
 }

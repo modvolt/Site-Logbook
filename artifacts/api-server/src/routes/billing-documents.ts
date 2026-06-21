@@ -40,6 +40,7 @@ import {
 import {
   resolveOpenAiConfig,
   testConfiguration as testAiConfiguration,
+  DEFAULT_SYSTEM_PROMPT,
 } from "../lib/openai-extraction";
 import { db, openaiSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -77,6 +78,9 @@ function serializeExtractionStatus(cfg: {
     requestTimeoutMs: cfg.timeoutMs,
     confidenceThreshold: cfg.confidenceThreshold,
     systemPrompt: cfg.systemPrompt,
+    // The built-in default prompt, so the UI can offer "reset to default"
+    // even when an operator has saved a custom prompt that hides new rules.
+    defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
     source: cfg.source,
   };
 }

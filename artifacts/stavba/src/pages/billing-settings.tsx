@@ -519,10 +519,28 @@ export default function BillingSettings() {
                     }
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Pokročilé. Určuje, jak AI čte doklady a jaká pole vrací.
-                    Neměňte názvy polí v JSON. Prázdné pole obnoví výchozí
-                    instrukce.
+                    Pokročilé. Určuje, jak AI čte doklady a jaká pole vrací
+                    (mj. rozpoznání typu dokladu: faktura, dodací list, účtenka,
+                    dobropis). Neměňte názvy polí v JSON. Prázdné pole obnoví
+                    výchozí instrukce.
                   </p>
+                  {aiStatus?.defaultSystemPrompt &&
+                    aiForm.systemPrompt.trim() !==
+                      aiStatus.defaultSystemPrompt.trim() && (
+                      <button
+                        type="button"
+                        className="mt-1 text-xs text-primary underline underline-offset-2"
+                        onClick={() =>
+                          setAiForm((p) =>
+                            p
+                              ? { ...p, systemPrompt: aiStatus.defaultSystemPrompt }
+                              : p,
+                          )
+                        }
+                      >
+                        Načíst výchozí instrukce (s aktuálními pravidly)
+                      </button>
+                    )}
                 </Field>
 
                 <div className="grid gap-4 sm:grid-cols-3">

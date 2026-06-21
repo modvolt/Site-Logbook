@@ -5106,6 +5106,7 @@ export const GetDocumentExtractionStatusResponse = zod.object({
   "requestTimeoutMs": zod.number(),
   "confidenceThreshold": zod.number().describe('Below this overall confidence (0–1) a result is flagged for review.'),
   "systemPrompt": zod.string().describe('The active system prompt that instructs the model how to read documents.'),
+  "defaultSystemPrompt": zod.string().describe('The built-in default system prompt, so the UI can offer a reset to the latest default rules.'),
   "source": zod.enum(['db', 'env', 'none']).describe('Which source provides the API key: \"db\" (saved in Settings), \"env\" (OPENAI_API_KEY fallback), or \"none\".')
 })
 
@@ -5132,6 +5133,7 @@ export const UpdateDocumentExtractionResponse = zod.object({
   "requestTimeoutMs": zod.number(),
   "confidenceThreshold": zod.number().describe('Below this overall confidence (0–1) a result is flagged for review.'),
   "systemPrompt": zod.string().describe('The active system prompt that instructs the model how to read documents.'),
+  "defaultSystemPrompt": zod.string().describe('The built-in default system prompt, so the UI can offer a reset to the latest default rules.'),
   "source": zod.enum(['db', 'env', 'none']).describe('Which source provides the API key: \"db\" (saved in Settings), \"env\" (OPENAI_API_KEY fallback), or \"none\".')
 })
 
