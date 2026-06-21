@@ -414,6 +414,7 @@ Pravidla:
   - Když si typem nejsi jistý, zvol nejpravděpodobnější variantu, sniž "confidence" a důvod nejistoty uveď ve "warnings".
 - Čísla vracej jako čísla (tečka jako desetinný oddělovač), bez měny a mezer.
 - Pokud údaj v dokladu není nebo je nečitelný, vrať null (a zmiň to ve "warnings"). NIKDY si údaje nevymýšlej.
+- U dodacího listu ("delivery_note") NEUVÁDĚJ do "warnings" chybějící variabilní symbol, datum splatnosti ani částku k úhradě (s DPH) — u dodacího listu je jejich absence běžná a očekávaná, není to chyba. Případnou nečitelnost položek nebo dodavatele hlaste normálně.
 - Datumy převeď do formátu YYYY-MM-DD.
 - "lineType" odhadni podle popisu položky (materiál vs. práce vs. doprava vs. ostatní).
 - U položek vyplň "supplierSku", "ean", "manufacturer", jsou-li v dokladu (typické pro dodavatele DEK, Schrack, Varnet, K&V).

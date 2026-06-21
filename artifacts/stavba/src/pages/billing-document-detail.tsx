@@ -63,6 +63,8 @@ import {
   COST_DOC_REFERENCE_TYPE_LABELS,
   COST_DOC_REFERENCE_SOURCE_LABELS,
   CostDocStatusBadge,
+  isPaymentDocument,
+  filterWarningsForDocType,
 } from "@/lib/cost-document-format";
 import {
   ArrowLeft,
@@ -79,6 +81,7 @@ import {
   Scissors,
   Sparkles,
   Trash2,
+  Truck,
   Wand2,
   X,
 } from "lucide-react";
@@ -227,10 +230,14 @@ export default function BillingDocumentDetail() {
   };
 
   const fileHref = attachmentUrl(doc.objectPath);
-  const warnings = (doc.warnings ?? "")
-    .split("\n")
-    .map((w) => w.trim())
-    .filter(Boolean);
+  const warnings = filterWarningsForDocType(
+    (doc.warnings ?? "")
+      .split("\n")
+      .map((w) => w.trim())
+      .filter(Boolean),
+    doc.docType,
+  );
+  const isPayment = isPaymentDocument(doc.docType);
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -345,6 +352,19 @@ export default function BillingDocumentDetail() {
                 údaje před schválením zkontrolujte.
               </p>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isPayment && (
+        <Card className="mb-4 border-sky-300 bg-sky-50 dark:bg-sky-900/20">
+          <CardContent className="p-4 flex items-start gap-2 text-sm text-sky-800 dark:text-sky-200">
+            <Truck className="h-4 w-4 shrink-0 mt-0.5" />
+            <p>
+              Dodací list — nejde o platební doklad. Variabilní symbol, datum
+              splatnosti ani částka k úhradě se u něj běžně neuvádějí; jejich
+              chybějící hodnoty nejsou chybou a nebrání schválení.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -502,6 +522,11 @@ function DocumentHeaderForm({
   const set = (k: keyof typeof form, v: string) =>
     setForm((p) => ({ ...p, [k]: v }));
 
+  // A delivery note is not a payment document — its variable symbol, due date
+  // and amount-to-pay are normally absent, so label them as optional there.
+  const isPayment = isPaymentDocument(form.docType);
+  const optionalForDelivery = isPayment ? "" : " (u dodacího listu se neuvádí)";
+
   const handleSave = () => {
     const input: CostDocumentUpdateInput = {
       docType: form.docType as CostDocumentUpdateInput["docType"],
@@ -553,7 +578,7 @@ function DocumentHeaderForm({
               onChange={(e) => set("supplierName", e.target.value)}
             />
           </Field>
-          <Field label="Variabilní symbol">
+          <Field label={`Variabilní symbol${optionalForDelivery}`}>
             <Input
               value={form.variableSymbol}
               onChange={(e) => set("variableSymbol", e.target.value)}
@@ -585,7 +610,7 @@ function DocumentHeaderForm({
               onChange={(e) => set("taxableSupplyDate", e.target.value)}
             />
           </Field>
-          <Field label="Datum splatnosti">
+          <Field label={`Datum splatnosti${optionalForDelivery}`}>
             <Input
               type="date"
               value={form.dueDate}
@@ -611,7 +636,7 @@ function DocumentHeaderForm({
               onChange={(e) => set("totalVat", e.target.value)}
             />
           </Field>
-          <Field label="Celkem s DPH">
+          <Field label={`Celkem s DPH${optionalForDelivery}`}>
             <Input
               type="number"
               inputMode="decimal"

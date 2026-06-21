@@ -21,6 +21,8 @@ import {
   AI_CONFIDENCE_LOW,
   AiConfidenceBadge,
   COST_DOC_TYPE_LABELS,
+  isPaymentDocument,
+  filterWarningsForDocType,
 } from "@/lib/cost-document-format";
 import {
   ArrowLeft,
@@ -29,6 +31,7 @@ import {
   Loader2,
   Pencil,
   Sparkles,
+  Truck,
   XCircle,
 } from "lucide-react";
 
@@ -40,10 +43,13 @@ const QUEUE_PARAMS: ListCostDocumentsParams = {
 };
 
 function docWarnings(doc: CostDocument): string[] {
-  return (doc.warnings ?? "")
-    .split("\n")
-    .map((w) => w.trim())
-    .filter(Boolean);
+  return filterWarningsForDocType(
+    (doc.warnings ?? "")
+      .split("\n")
+      .map((w) => w.trim())
+      .filter(Boolean),
+    doc.docType,
+  );
 }
 
 function isHighConfidence(doc: CostDocument): boolean {
@@ -323,6 +329,7 @@ function ReviewCard({
 }) {
   const low = doc.aiConfidence != null && doc.aiConfidence < AI_CONFIDENCE_LOW;
   const warnings = docWarnings(doc);
+  const isPayment = isPaymentDocument(doc.docType);
 
   return (
     <Card
@@ -361,11 +368,29 @@ function ReviewCard({
                 </p>
               </button>
               <div className="text-right shrink-0">
-                <div className="font-bold">{fmtKc(doc.totalWithVat ?? null, 0)}</div>
-                {doc.variableSymbol && (
-                  <div className="text-xs text-muted-foreground">
-                    VS {doc.variableSymbol}
-                  </div>
+                {isPayment ? (
+                  <>
+                    <div className="font-bold">
+                      {fmtKc(doc.totalWithVat ?? null, 0)}
+                    </div>
+                    {doc.variableSymbol && (
+                      <div className="text-xs text-muted-foreground">
+                        VS {doc.variableSymbol}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                      <Truck className="h-3 w-3 shrink-0" />
+                      Dodací list
+                    </span>
+                    {doc.totalWithVat != null && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {fmtKc(doc.totalWithVat, 0)}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

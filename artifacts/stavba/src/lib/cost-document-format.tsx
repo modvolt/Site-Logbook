@@ -35,6 +35,40 @@ export const COST_DOC_TYPE_LABELS: Record<string, string> = {
   credit_note: "Dobropis",
 };
 
+/**
+ * Whether a document type is a payment document (carries variable symbol, due
+ * date and an amount to pay). A delivery note (`delivery_note`) is NOT a payment
+ * document — those fields are normally absent and their absence is expected.
+ */
+export function isPaymentDocument(docType: string | null | undefined): boolean {
+  return docType !== "delivery_note";
+}
+
+/** Czech phrases identifying a warning about a missing payment-only field. */
+const PAYMENT_FIELD_WARNING_HINTS = [
+  "variabiln", // variabilní symbol
+  "splatnost", // datum splatnosti
+  "k úhradě", // částka k úhradě
+  "úhrad", // úhrada / k úhradě
+];
+
+/**
+ * Drop warnings about missing payment-only fields (variable symbol, due date,
+ * amount to pay) for non-payment documents such as delivery notes, where their
+ * absence is normal and should not add noise to the review. Payment documents
+ * keep every warning.
+ */
+export function filterWarningsForDocType(
+  warnings: string[],
+  docType: string | null | undefined,
+): string[] {
+  if (isPaymentDocument(docType)) return warnings;
+  return warnings.filter((w) => {
+    const lower = w.toLowerCase();
+    return !PAYMENT_FIELD_WARNING_HINTS.some((hint) => lower.includes(hint));
+  });
+}
+
 export const COST_DOC_LINE_TYPE_LABELS: Record<string, string> = {
   material: "Materiál",
   work: "Práce",
