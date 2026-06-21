@@ -40,29 +40,26 @@ provenance to a deleted row is impossible anyway, and the frontend never reads
 parentLineId (it only ever gated re-splitting). **How to apply:** never point a
 self-FK at a row deleted earlier in the same transaction; null it or reorder.
 
-## Invoice price-fill must revert symmetrically across the whole lifecycle
+## Invoice-filled prices must revert when the source stops being approved
 
-When an approved invoice/credit note fills a price onto a DIFFERENT document's
-material (delivery-note "čeká na fakturu" material: `priceSourceDocumentId` =
-invoice, but the material's own `sourceId` line belongs to the delivery note),
-that fill is NOT removed by `syncJobMaterialsForDocument` (it keys off the
-invoice's own lines, which never created these materials). So every path that
-takes the invoice OUT of `approved` must explicitly roll the price back, or the
-system keeps offering/billing a price from a non-approved source.
+An approved invoice can fill a price onto a material that another document
+created (a delivery-note "čeká na fakturu" material). That fill is invisible to
+the per-document material sync, so every exit from the approved state must undo
+it independently, or the app keeps offering a price whose source is gone.
 
-**Rule:** `revertInvoicePricePropagation(tx, documentId)` resets such materials
-to `awaiting_invoice` (price 0, clear all `priceSource*`), and is wired into
-`setDocumentStatus` (leaving `approved`) and `deleteDocument`. It skips
-materials already reserved on a customer invoice (`invoicedInvoiceId != null`).
-
-**The closing edge case:** because revert skips reserved materials, a doc
-un-approved/deleted WHILE its material sits on a customer draft would leave a
-stale price after the draft is later cancelled. So `releaseInvoicedMaterials`
-re-validates on release: if `priceSource='invoice'` and the source document is
-gone or no longer `approved`, it reverts the price then too.
-**Why:** "approved-only" price semantics must hold through un-approve, delete,
-AND deferred customer-invoice release — three separate exit points.
-**How to apply:** any new path that clears `invoicedInvoiceId` or changes a
-doc's approved state must keep material price provenance consistent with an
-actually-approved source. Quantity is never touched, so stock issues are
-unaffected; revert only reconciles defensively.
+**Rule:** the three exit points — un-approve, document delete, and the deferred
+release of a customer invoice that had reserved the material — must each restore
+such a material to a non-billable "awaiting invoice" state.
+**Why:** "approved-only" pricing has to hold even when the events arrive out of
+order (e.g. source doc deleted while the material sits on a customer draft; the
+draft is cancelled only later). A reserved material is skipped by the
+un-approve/delete revert, so the release path re-validates provenance itself.
+**Critical detail:** clearing to awaiting-invoice means setting the price to
+NULL, not 0 — the invoice-proposal/unbilled queries offer any material whose
+price is non-null, so a 0 price is still billed as a 0 line. Also: price
+propagation targets only confirmed links, so it must NOT be gated on the
+auto-link *suggestion* toggle, or manual-confirmed links silently stop pricing.
+**How to apply:** any new path that clears a customer-invoice reservation or
+changes a cost doc's approved state must keep material price provenance
+consistent with an actually-approved source. Quantity is never touched, so stock
+issues are unaffected; revert only reconciles defensively.

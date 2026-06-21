@@ -1711,8 +1711,11 @@ export async function propagateInvoicePricesToJobMaterials(
     consumedLineIds: new Set<number>(),
     filled: 0,
   };
+  // NOTE: `autoLinkEnabled` only governs unsolicited link *suggestions*. Price
+  // propagation runs against CONFIRMED targets (explicit doc.jobId or a
+  // matchConfirmed reference), so it must work even when suggestions are off —
+  // gating it here would silently break manual-confirmed propagation.
   const cfg = resolveDocumentLinkingConfig();
-  if (!cfg.autoLinkEnabled) return empty;
 
   const [doc] = await tx
     .select()
@@ -1915,7 +1918,7 @@ export async function revertInvoicePricePropagation(
     await tx
       .update(materialsTable)
       .set({
-        pricePerUnit: "0",
+        pricePerUnit: null,
         priceSource: "awaiting_invoice",
         priceSourceDocumentId: null,
         priceSourceLineId: null,
@@ -2514,7 +2517,7 @@ export async function releaseInvoicedMaterials(
     await tx
       .update(materialsTable)
       .set({
-        pricePerUnit: "0",
+        pricePerUnit: null,
         priceSource: "awaiting_invoice",
         priceSourceDocumentId: null,
         priceSourceLineId: null,

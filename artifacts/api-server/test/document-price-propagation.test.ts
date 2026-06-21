@@ -20,7 +20,11 @@ import {
   syncJobMaterialsForDocument,
   propagateInvoicePricesToJobMaterials,
 } from "../src/lib/cost-document-service";
-import { createDraft, deleteDraft } from "../src/lib/invoice-service";
+import {
+  createDraft,
+  deleteDraft,
+  getUnbilledCustomerDetail,
+} from "../src/lib/invoice-service";
 
 /**
  * Task #124 — invoice price propagation pipeline (DB-backed).
@@ -381,9 +385,19 @@ describe("invoice price propagation", () => {
 
     const [reverted] = await jobMaterials(jobId);
     expect(reverted.priceSource).toBe("awaiting_invoice");
-    expect(Number(reverted.pricePerUnit)).toBe(0);
+    // Price is cleared to null (NOT 0) so the material is non-billable until a
+    // trustworthy price source reappears.
+    expect(reverted.pricePerUnit).toBeNull();
     expect(reverted.priceSourceDocumentId).toBeNull();
     expect(reverted.priceSourceLineId).toBeNull();
+
+    // A reverted "čeká na fakturu" material must NOT be offered for billing.
+    await db.update(jobsTable).set({ status: "done" }).where(eq(jobsTable.id, jobId));
+    const unbilled = await getUnbilledCustomerDetail(customerId);
+    const offeredMaterialIds = unbilled.jobs
+      .flatMap((j) => j.materials)
+      .map((m) => m.id);
+    expect(offeredMaterialIds).not.toContain(reverted.id);
 
     // Stock movements unchanged (quantity never moved).
     const movesAfter = await db
@@ -439,7 +453,7 @@ describe("invoice price propagation", () => {
     const [released] = await jobMaterials(jobId);
     expect(released.invoicedInvoiceId).toBeNull();
     expect(released.priceSource).toBe("awaiting_invoice");
-    expect(Number(released.pricePerUnit)).toBe(0);
+    expect(released.pricePerUnit).toBeNull();
     expect(released.priceSourceDocumentId).toBeNull();
   });
 
@@ -490,7 +504,7 @@ describe("invoice price propagation", () => {
     const [released] = await jobMaterials(jobId);
     expect(released.invoicedInvoiceId).toBeNull();
     expect(released.priceSource).toBe("awaiting_invoice");
-    expect(Number(released.pricePerUnit)).toBe(0);
+    expect(released.pricePerUnit).toBeNull();
   });
 
   it("scenario 9: material API serialization exposes the price-source provenance fields", async () => {
