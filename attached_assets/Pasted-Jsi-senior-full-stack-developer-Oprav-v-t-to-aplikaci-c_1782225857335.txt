@@ -1,0 +1,110 @@
+Jsi senior full-stack developer. Oprav v této aplikaci chybu v IMAP importu e-mailů z Gmailu.
+
+Kontext problému:
+V administraci aplikace je nastavení importu dokladů přes IMAP. UI u pole „Složky / štítky“ uvádí, že lze zadat více složek oddělených čárkou, například:
+
+Faktury dek, Faktury elkov
+
+Po vyplnění více štítků ale test připojení selže chybou:
+
+HTTP 502: Připojení k poštovní schránce selhalo: Command failed
+
+Příčina:
+Backend aktuálně bere hodnotu `folder` jako jeden název IMAP složky/štítku a volá něco jako:
+
+await client.mailboxOpen(cfg.folder);
+
+nebo:
+
+await client.getMailboxLock(cfg.folder);
+
+Tím pádem se aplikace u Gmailu pokusí otevřít jednu složku s doslovným názvem:
+
+Faktury dek, Faktury elkov
+
+Taková složka samozřejmě neexistuje, proto IMAP příkaz selže.
+
+Požadovaná oprava:
+1. Najdi implementaci IMAP importu, pravděpodobně v:
+   - artifacts/api-server/src/lib/email-import.ts
+   - případně související routes/services pro test připojení a ruční import.
+
+2. Přidej helper funkci, která rozdělí nastavené složky/štítky podle čárky:
+
+   - vstup: string `folder`
+   - rozdělit podle `,`
+   - každou položku `trim()`
+   - odstranit prázdné položky
+   - pokud po rozdělení nezůstane nic, použít `INBOX`
+
+   Příklad:
+
+   function configuredFolders(folder: string): string[] {
+     const folders = folder
+       .split(",")
+       .map((part) => part.trim())
+       .filter(Boolean);
+
+     return folders.length ? folders : ["INBOX"];
+   }
+
+3. Uprav test připojení:
+   - místo otevření jedné složky musí projít všechny složky z `configuredFolders(cfg.folder)`
+   - pro každou složku zavolat `client.mailboxOpen(folder)`
+   - pokud některá složka neexistuje nebo selže, vrať jasnou chybu s názvem problematické složky, např.:
+     `Nelze otevřít IMAP složku/štítek "Faktury elkov". Zkontrolujte přesný název štítku v Gmailu.`
+   - zachovej stávající HTTP status logiku, ale zlepši text chyby tak, aby uživatel neviděl jen obecné `Command failed`.
+
+4. Uprav ruční import / automatický import:
+   - import musí postupně projít všechny nastavené složky/štítky
+   - pro každou složku samostatně otevřít mailbox / získat lock
+   - načíst relevantní zprávy stejně jako doposud
+   - označování jako přečtené zachovat podle stávající konfigurace
+   - zajistit, aby duplicitní e-maily nebyly importovány vícekrát, pokud se jedna zpráva nachází ve více štítcích. Použij existující deduplikační mechanismus, například Message-ID, UID + mailbox, Gmail message id, hash nebo jiný již existující unikátní identifikátor.
+
+5. Zachovej zpětnou kompatibilitu:
+   - pokud je v `folder` pouze `INBOX`, chování musí zůstat stejné
+   - pokud je v `folder` jeden Gmail štítek, chování musí zůstat stejné
+   - pokud je v `folder` více štítků oddělených čárkou, musí se importovat všechny
+
+6. UI:
+   - text nápovědy u pole „Složky / štítky“ už správně říká, že více složek se odděluje čárkou; ponech ho, případně lehce zpřesni:
+     `Více složek / Gmail štítků oddělte čárkou, např. INBOX, Faktury, Dodavatelé/K&V. Názvy musí přesně odpovídat štítkům v Gmailu.`
+   - pokud tlačítko „Otestovat připojení“ používá pouze uloženou konfiguraci, přidej buď upozornění, že je potřeba nejdřív uložit nastavení, nebo uprav test tak, aby testoval aktuálně vyplněné hodnoty z formuláře.
+
+7. Gmail specifika:
+   - IMAP server: imap.gmail.com
+   - port: 993
+   - SSL/TLS: true
+   - uživatelské jméno: e-mail
+   - heslo: Gmail App Password, ne běžné heslo
+   - názvy štítků jsou case-sensitive / musí přesně odpovídat tomu, co Gmail přes IMAP vrací
+   - pro vnořené štítky může Gmail používat formát podobný `Rodič/Dítě`
+
+8. Přidej lepší logging:
+   - při testu/importu zalogovat seznam složek, které se budou otevírat
+   - při chybě zalogovat konkrétní složku, ve které nastal problém
+   - nikdy nelogovat heslo, app password ani jiné secrets
+
+9. Ověření:
+   - spusť TypeScript kontrolu / build
+   - spusť existující testy, pokud v projektu jsou
+   - ověř, že aplikace stále startuje
+   - ověř, že hodnota:
+     `INBOX`
+     funguje
+   - ověř, že hodnota:
+     `Faktury dek`
+     funguje
+   - ověř, že hodnota:
+     `Faktury dek, Faktury elkov`
+     se zpracuje jako dvě samostatné složky
+
+10. Výstup:
+   - ukaž mi přesný diff změněných souborů
+   - stručně vysvětli, kde byla chyba
+   - napiš, jaké hodnoty mám potom zadat v administraci aplikace
+   - neměň nesouvisející části aplikace
+   - nepřepisuj architekturu aplikace
+   - nepřidávej závislosti, pokud to není nutné
+   - nesahej na secrets ani na produkční env proměnné

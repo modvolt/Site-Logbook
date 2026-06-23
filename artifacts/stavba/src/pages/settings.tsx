@@ -881,8 +881,10 @@ function EmailImportCard() {
                   placeholder="INBOX, Faktury, Dodavatelé"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Více složek oddělte čárkou (např. „INBOX, Faktury"). U Gmailu
-                  odpovídají štítkům. Prázdné = INBOX.
+                  Více složek / Gmail štítků oddělte čárkou (např. „INBOX,
+                  Faktury, Dodavatelé/Faktury"). Názvy musí přesně odpovídat
+                  štítkům v Gmailu (rozlišují velká/malá písmena). Prázdné =
+                  INBOX.
                 </p>
               </div>
               <div className="space-y-2">
@@ -926,6 +928,11 @@ function EmailImportCard() {
                 <RefreshCw className="h-4 w-4" />
                 {pollMutation.isPending ? "Načítání…" : "Načíst nyní"}
               </Button>
+              <p className="w-full text-xs text-muted-foreground">
+                „Otestovat připojení" a „Načíst nyní" používají naposledy{" "}
+                <strong>uložené</strong> nastavení. Po změně polí proto nejdřív
+                klikněte na „Uložit nastavení".
+              </p>
             </div>
 
             <div className="space-y-2 border-t pt-4">

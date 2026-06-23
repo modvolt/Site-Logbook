@@ -226,15 +226,35 @@ export async function testImapConnection(): Promise<{ folder: string; messages: 
   const client = newClient(cfg);
   try {
     await client.connect();
+  } catch (err) {
+    await client.logout().catch(() => {});
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Připojení k poštovní schránce selhalo: ${detail}`);
+  }
+
+  try {
+    logger.info(
+      { folders: cfg.folders },
+      "Test IMAP: otevírám nakonfigurované složky/štítky",
+    );
     let total = 0;
     for (const folder of cfg.folders) {
-      const mailbox = await client.mailboxOpen(folder);
+      let mailbox;
+      try {
+        mailbox = await client.mailboxOpen(folder);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { folder, detail },
+          "Test IMAP: složku/štítek nelze otevřít",
+        );
+        throw new Error(
+          `Nelze otevřít IMAP složku/štítek „${folder}“. Zkontrolujte přesný název štítku v Gmailu (názvy rozlišují velká/malá písmena a u Gmailu odpovídají štítkům; vnořené štítky mají tvar „Rodič/Dítě“).`,
+        );
+      }
       total += mailbox.exists;
     }
     return { folder: cfg.folders.join(", "), messages: total };
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Připojení k poštovní schránce selhalo: ${detail}`);
   } finally {
     await client.logout().catch(() => {});
   }
@@ -366,8 +386,33 @@ export async function pollOnce(): Promise<PollResult> {
     // Read every configured folder/label in turn. A message carrying the same
     // Message-ID across several Gmail labels is imported once thanks to the
     // email_import_log dedupe. Each mailbox is locked independently.
+    logger.info(
+      { folders: cfg.folders },
+      "Import e-mailů: čtu nakonfigurované složky/štítky",
+    );
+    const failedFolders: string[] = [];
     for (const folder of cfg.folders) {
-      await pollFolder(client, folder, cfg, result);
+      try {
+        await pollFolder(client, folder, cfg, result);
+      } catch (err) {
+        // One missing/unopenable folder (e.g. a mistyped Gmail label) must not
+        // abort the whole import — log it, remember it, and keep going so the
+        // other configured folders are still processed.
+        const detail = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { folder, detail },
+          "Import e-mailů: složku/štítek nelze zpracovat (přeskakuji)",
+        );
+        failedFolders.push(folder);
+      }
+    }
+    // If every configured folder failed to open, surface a clear, named error so
+    // the manual-import action doesn't silently report "0 imported".
+    if (failedFolders.length === cfg.folders.length) {
+      const names = failedFolders.map((f) => `„${f}“`).join(", ");
+      throw new Error(
+        `Nelze otevřít IMAP složku/štítek ${names}. Zkontrolujte přesný název štítku v Gmailu.`,
+      );
     }
     return result;
   } finally {

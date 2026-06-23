@@ -22,3 +22,14 @@ in multiple folders CAN be imported more than once. More likely in multi-folder 
 per-folder-lock pattern. If true cross-label dedupe for header-less mail is needed,
 switch the fallback key off `<folder>` (e.g. hash the body) — but that changes the
 log key and must stay backward-compatible.
+
+**Error UX (important):** a mistyped/nonexistent Gmail label makes ImapFlow throw a
+bare `Command failed` — users then wrongly conclude comma-splitting is broken. Both
+the test (`testImapConnection`) and the poll (`pollOnce`) must open each folder in
+its own try/catch and surface a CZ error **naming the offending folder**. The poll
+must NOT let one bad label abort the others — catch per folder, keep going, and only
+throw (named) when *every* folder failed (safe because `parseFolders` guarantees ≥1).
+
+**Test button caveat:** the Settings "Otestovat připojení"/"Načíst nyní" actions hit
+the backend which reads the **saved** DB config — they do NOT use unsaved form values.
+UI must tell the user to save first (no body is sent from the form).
