@@ -1,0 +1,1 @@
+ALTER TABLE "email_import_log" ADD COLUMN "attempts" integer DEFAULT 0 NOT NULL;

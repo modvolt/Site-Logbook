@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * `failed` is retried automatically on the next poll; `failed_permanent` exhausted the automatic-retry cap and is only re-attempted via the manual retry action.
+ */
 export type EmailImportLogEntryStatus = typeof EmailImportLogEntryStatus[keyof typeof EmailImportLogEntryStatus];
 
 
@@ -14,4 +17,5 @@ export const EmailImportLogEntryStatus = {
   no_attachments: 'no_attachments',
   skipped: 'skipped',
   failed: 'failed',
+  failed_permanent: 'failed_permanent',
 } as const;

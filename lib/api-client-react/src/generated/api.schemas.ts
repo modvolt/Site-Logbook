@@ -1095,6 +1095,9 @@ export interface EmailImportPollResult {
   noAttachments: number;
 }
 
+/**
+ * `failed` is retried automatically on the next poll; `failed_permanent` exhausted the automatic-retry cap and is only re-attempted via the manual retry action.
+ */
 export type EmailImportLogEntryStatus = typeof EmailImportLogEntryStatus[keyof typeof EmailImportLogEntryStatus];
 
 
@@ -1103,6 +1106,7 @@ export const EmailImportLogEntryStatus = {
   no_attachments: 'no_attachments',
   skipped: 'skipped',
   failed: 'failed',
+  failed_permanent: 'failed_permanent',
 } as const;
 
 export interface EmailImportLogEntry {
@@ -1114,7 +1118,10 @@ export interface EmailImportLogEntry {
   subject: string | null;
   /** @nullable */
   receivedAt: string | null;
+  /** `failed` is retried automatically on the next poll; `failed_permanent` exhausted the automatic-retry cap and is only re-attempted via the manual retry action. */
   status: EmailImportLogEntryStatus;
+  /** Number of automatic processing attempts so far. */
+  attempts: number;
   attachmentsTotal: number;
   attachmentsImported: number;
   /**
@@ -3017,6 +3024,10 @@ export const ListWarehouseMovementsDirection = {
   in: 'in',
   out: 'out',
 } as const;
+
+export type RetryEmailImportLog200 = {
+  ok: boolean;
+};
 
 export type ListAuditLogsParams = {
 userId?: number;

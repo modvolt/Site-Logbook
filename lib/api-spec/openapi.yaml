@@ -1812,6 +1812,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /email-import-log/{id}/retry:
+    post:
+      operationId: retryEmailImportLog
+      tags: [email-import]
+      summary: Re-arm a permanently-failed message for another import attempt (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The message was re-armed; it will be re-attempted on the next poll.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          description: The log entry is not in a permanently-failed state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: No such log entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users:
     get:
       operationId: listUsers
@@ -6097,6 +6138,7 @@ components:
           subject,
           receivedAt,
           status,
+          attempts,
           attachmentsTotal,
           attachmentsImported,
           documentIds,
@@ -6116,7 +6158,14 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [imported, no_attachments, skipped, failed]
+          enum: [imported, no_attachments, skipped, failed, failed_permanent]
+          description: >-
+            `failed` is retried automatically on the next poll; `failed_permanent`
+            exhausted the automatic-retry cap and is only re-attempted via the
+            manual retry action.
+        attempts:
+          type: integer
+          description: Number of automatic processing attempts so far.
         attachmentsTotal:
           type: integer
         attachmentsImported:

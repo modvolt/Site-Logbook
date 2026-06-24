@@ -16,7 +16,10 @@ export interface EmailImportLogEntry {
   subject: string | null;
   /** @nullable */
   receivedAt: string | null;
+  /** `failed` is retried automatically on the next poll; `failed_permanent` exhausted the automatic-retry cap and is only re-attempted via the manual retry action. */
   status: EmailImportLogEntryStatus;
+  /** Number of automatic processing attempts so far. */
+  attempts: number;
   attachmentsTotal: number;
   attachmentsImported: number;
   /**

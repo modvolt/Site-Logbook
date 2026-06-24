@@ -139,6 +139,7 @@ import type {
   PersonInput,
   ResetPasswordWithAnswersInput,
   RestoreResult,
+  RetryEmailImportLog200,
   SaveJobSheetInput,
   SecurityQuestionsStatus,
   SendCredentialsEmailInput,
@@ -6137,6 +6138,76 @@ export function useListEmailImportLog<TData = Awaited<ReturnType<typeof listEmai
 
 
 
+
+export const getRetryEmailImportLogUrl = (id: number,) => {
+
+
+
+
+  return `/api/email-import-log/${id}/retry`
+}
+
+/**
+ * @summary Re-arm a permanently-failed message for another import attempt (admin only)
+ */
+export const retryEmailImportLog = async (id: number, options?: RequestInit): Promise<RetryEmailImportLog200> => {
+
+  return customFetch<RetryEmailImportLog200>(getRetryEmailImportLogUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetryEmailImportLogMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryEmailImportLog>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryEmailImportLog>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['retryEmailImportLog'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryEmailImportLog>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retryEmailImportLog(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryEmailImportLogMutationResult = NonNullable<Awaited<ReturnType<typeof retryEmailImportLog>>>
+
+    export type RetryEmailImportLogMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-arm a permanently-failed message for another import attempt (admin only)
+ */
+export const useRetryEmailImportLog = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryEmailImportLog>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryEmailImportLog>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRetryEmailImportLogMutationOptions(options));
+    }
 
 export const getListUsersUrl = () => {
 

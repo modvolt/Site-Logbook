@@ -1729,7 +1729,8 @@ export const ListEmailImportLogResponseItem = zod.object({
   "sender": zod.string().nullable(),
   "subject": zod.string().nullable(),
   "receivedAt": zod.string().nullable(),
-  "status": zod.enum(['imported', 'no_attachments', 'skipped', 'failed']),
+  "status": zod.enum(['imported', 'no_attachments', 'skipped', 'failed', 'failed_permanent']).describe('`failed` is retried automatically on the next poll; `failed_permanent` exhausted the automatic-retry cap and is only re-attempted via the manual retry action.'),
+  "attempts": zod.number().describe('Number of automatic processing attempts so far.'),
   "attachmentsTotal": zod.number(),
   "attachmentsImported": zod.number(),
   "documentIds": zod.string().nullable().describe('Comma-separated billing_documents ids created from this message.'),
@@ -1737,6 +1738,18 @@ export const ListEmailImportLogResponseItem = zod.object({
   "createdAt": zod.string()
 })
 export const ListEmailImportLogResponse = zod.array(ListEmailImportLogResponseItem)
+
+
+/**
+ * @summary Re-arm a permanently-failed message for another import attempt (admin only)
+ */
+export const RetryEmailImportLogParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RetryEmailImportLogResponse = zod.object({
+  "ok": zod.boolean()
+})
 
 
 /**

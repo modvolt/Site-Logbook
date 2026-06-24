@@ -340,21 +340,40 @@ function messageIdOf(msg: FetchMessageObject, folder: string): string {
 }
 
 // Outcomes that are permanent: once a message reaches one of these it is never
-// reprocessed. A `failed` row is deliberately NOT terminal — it represents a
-// (often transient, e.g. "Connection not available") error and must be retried
-// on the next poll until it succeeds.
-const TERMINAL_STATUSES = new Set(["imported", "skipped", "no_attachments"]);
+// reprocessed automatically. A `failed` row is deliberately NOT terminal — it
+// represents a (often transient, e.g. "Connection not available") error and is
+// retried on the next poll until it succeeds OR the attempt cap is reached, at
+// which point it becomes `failed_permanent` (terminal) so a genuinely broken
+// message stops looping. An admin can still manually re-trigger a
+// `failed_permanent` message (see retryLogEntry).
+const TERMINAL_STATUSES = new Set([
+  "imported",
+  "skipped",
+  "no_attachments",
+  "failed_permanent",
+]);
 
-type ExistingLog = { id: number; status: string };
+// Maximum number of automatic processing attempts before a failing message is
+// settled into the terminal `failed_permanent` state. Transient errors that
+// resolve within this many polls still self-heal; a permanently broken message
+// (corrupt attachment, etc.) eventually stops being re-attempted on every poll.
+const MAX_IMPORT_ATTEMPTS = 5;
+
+type ExistingLog = { id: number; status: string; attempts: number };
 
 /**
- * Look up the existing log row for a message, if any. Returns its id and status
- * so the caller can (a) skip terminal outcomes and (b) update the row in place
- * on a retry instead of inserting a second row (message_id is unique-indexed).
+ * Look up the existing log row for a message, if any. Returns its id, status and
+ * attempt count so the caller can (a) skip terminal outcomes, (b) update the row
+ * in place on a retry instead of inserting a second row (message_id is
+ * unique-indexed), and (c) cap the number of automatic retries.
  */
 async function findExistingLog(messageId: string): Promise<ExistingLog | null> {
   const [row] = await db
-    .select({ id: emailImportLogTable.id, status: emailImportLogTable.status })
+    .select({
+      id: emailImportLogTable.id,
+      status: emailImportLogTable.status,
+      attempts: emailImportLogTable.attempts,
+    })
     .from(emailImportLogTable)
     .where(eq(emailImportLogTable.messageId, messageId))
     .limit(1);
@@ -518,10 +537,12 @@ async function pollFolder(
     for (const msg of messages) {
       const messageId = messageIdOf(msg, folder);
       const existing = await findExistingLog(messageId);
-      // Terminal outcomes (imported/skipped/no_attachments) are deduped forever.
-      // A prior `failed` row is retried: we fall through and update it in place.
+      // Terminal outcomes (imported/skipped/no_attachments/failed_permanent) are
+      // deduped forever. A prior `failed` row is retried: we fall through and
+      // update it in place.
       if (existing && TERMINAL_STATUSES.has(existing.status)) continue;
       const existingId = existing?.id ?? null;
+      const priorAttempts = existing?.attempts ?? 0;
 
       result.processed += 1;
       const sender = senderOf(msg);
@@ -611,16 +632,27 @@ async function pollFolder(
       } catch (err) {
         const message = err instanceof Error ? err.message : "neznámá chyba";
         result.failed += 1;
+        // Count this attempt and decide whether to keep retrying. Below the cap
+        // the row stays `failed` (retried on the next poll, so transient errors
+        // self-heal); at the cap it becomes the terminal `failed_permanent` so a
+        // genuinely broken message stops being re-attempted forever and is
+        // surfaced for manual attention (an admin can still re-trigger it).
+        const attempts = priorAttempts + 1;
+        const permanent = attempts >= MAX_IMPORT_ATTEMPTS;
         // Record/refresh the failure so it is visible; do NOT mark \Seen so a
-        // later poll retries it. On a repeated failure this updates the existing
-        // row in place (no duplicate history, no unique-index violation).
+        // later poll retries it (terminal rows are skipped by the dedupe). On a
+        // repeated failure this updates the existing row in place (no duplicate
+        // history, no unique-index violation).
         await writeLog(existingId, {
           messageId,
           sender,
           subject,
           receivedAt,
-          status: "failed",
-          error: message,
+          status: permanent ? "failed_permanent" : "failed",
+          attempts,
+          error: permanent
+            ? `${message} (po ${attempts} pokusech, další automatické pokusy zastaveny)`
+            : message,
         }).catch((logErr) =>
           logger.error(
             { err: logErr, messageId },
@@ -671,6 +703,28 @@ export async function pollAndRecord(): Promise<PollResult> {
       .catch(() => {});
     throw err;
   }
+}
+
+/**
+ * Manually re-arm a `failed_permanent` log row so the importer attempts it again.
+ * Resets the attempt counter to 0 and flips the status back to the non-terminal
+ * `failed`, so the next poll (the message is still unseen — failures never get
+ * marked \Seen) re-downloads and re-ingests it with a fresh retry budget. Used by
+ * the admin "retry anyway" action once the underlying cause is fixed. Returns
+ * false when no such row exists or it is not in the `failed_permanent` state.
+ */
+export async function retryLogEntry(id: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: emailImportLogTable.id, status: emailImportLogTable.status })
+    .from(emailImportLogTable)
+    .where(eq(emailImportLogTable.id, id))
+    .limit(1);
+  if (!row || row.status !== "failed_permanent") return false;
+  await db
+    .update(emailImportLogTable)
+    .set({ status: "failed", attempts: 0 })
+    .where(eq(emailImportLogTable.id, id));
+  return true;
 }
 
 // ---------------------------------------------------------------------------

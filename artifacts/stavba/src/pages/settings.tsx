@@ -19,6 +19,7 @@ import {
   useTestEmailImportConnection,
   usePollEmailImport,
   useListEmailImportLog,
+  useRetryEmailImportLog,
   getGetEmailImportSettingsQueryKey,
   getListEmailImportLogQueryKey,
   type EmailImportSettingsInput,
@@ -111,7 +112,8 @@ const IMPORT_STATUS_LABELS: Record<string, string> = {
   imported: "Naimportováno",
   no_attachments: "Bez příloh",
   skipped: "Přeskočeno (duplicita)",
-  failed: "Chyba",
+  failed: "Chyba (zkusí se znovu)",
+  failed_permanent: "Trvalá chyba",
 };
 
 function formatBytes(bytes: number | null): string {
@@ -643,6 +645,29 @@ function EmailImportCard() {
   const updateMutation = useUpdateEmailImportSettings();
   const testMutation = useTestEmailImportConnection();
   const pollMutation = usePollEmailImport();
+  const retryMutation = useRetryEmailImportLog();
+
+  function handleRetry(id: number) {
+    retryMutation.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListEmailImportLogQueryKey() });
+          toast({
+            title: "Zpráva zařazena k opakování",
+            description: "Při příštím načtení se importér pokusí zprávu zpracovat znovu.",
+          });
+        },
+        onError: (err) => {
+          toast({
+            title: "Opakování se nezdařilo",
+            description: err instanceof Error ? err.message : "Neznámá chyba.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  }
 
   const [form, setForm] = useState<EmailImportForm>(EMPTY_EMAIL_IMPORT_FORM);
   const [passwordSet, setPasswordSet] = useState(false);
@@ -952,11 +977,13 @@ function EmailImportCard() {
                         </span>
                         <span
                           className={
-                            entry.status === "failed"
-                              ? "text-destructive shrink-0"
-                              : entry.status === "imported"
-                                ? "text-emerald-600 dark:text-emerald-400 shrink-0"
-                                : "text-muted-foreground shrink-0"
+                            entry.status === "failed_permanent"
+                              ? "text-destructive font-medium shrink-0"
+                              : entry.status === "failed"
+                                ? "text-amber-600 dark:text-amber-400 shrink-0"
+                                : entry.status === "imported"
+                                  ? "text-emerald-600 dark:text-emerald-400 shrink-0"
+                                  : "text-muted-foreground shrink-0"
                           }
                         >
                           {IMPORT_STATUS_LABELS[entry.status] ?? entry.status}
@@ -968,9 +995,31 @@ function EmailImportCard() {
                         {new Date(entry.createdAt).toLocaleString("cs-CZ")}
                         {entry.status === "imported" &&
                           ` · ${entry.attachmentsImported}/${entry.attachmentsTotal} příloh`}
+                        {(entry.status === "failed" ||
+                          entry.status === "failed_permanent") &&
+                          entry.attempts > 0 &&
+                          ` · ${entry.attempts}. pokus`}
                       </div>
                       {entry.error && (
                         <div className="text-destructive">{entry.error}</div>
+                      )}
+                      {entry.status === "failed_permanent" && (
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <span className="text-muted-foreground">
+                            Automatické pokusy zastaveny — vyžaduje pozornost.
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 shrink-0"
+                            disabled={retryMutation.isPending}
+                            onClick={() => handleRetry(entry.id)}
+                          >
+                            <RotateCcw className="mr-1 h-3 w-3" />
+                            Zkusit znovu
+                          </Button>
+                        </div>
                       )}
                     </div>
                   ))}

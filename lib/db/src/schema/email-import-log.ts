@@ -17,10 +17,12 @@ import {
  * supplier invoice is never silently dropped.
  *
  * status:
- *   imported       — at least one attachment became a cost document
- *   no_attachments — message had no supported attachments (informational)
- *   skipped        — every attachment was a duplicate of an existing document
- *   failed         — processing errored (see `error`)
+ *   imported         — at least one attachment became a cost document
+ *   no_attachments   — message had no supported attachments (informational)
+ *   skipped          — every attachment was a duplicate of an existing document
+ *   failed           — processing errored (see `error`); retried on the next poll
+ *   failed_permanent — processing errored too many times (see `attempts`); no
+ *                      longer retried automatically until an admin re-triggers it
  */
 export const emailImportLogTable = pgTable(
   "email_import_log",
@@ -33,6 +35,10 @@ export const emailImportLogTable = pgTable(
     subject: text("subject"),
     receivedAt: timestamp("received_at"),
     status: text("status").notNull(),
+    // Number of processing attempts so far. A failure increments this; once it
+    // reaches the cap the message is marked `failed_permanent` and no longer
+    // retried automatically. An admin "retry anyway" action resets it to 0.
+    attempts: integer("attempts").notNull().default(0),
     attachmentsTotal: integer("attachments_total").notNull().default(0),
     attachmentsImported: integer("attachments_imported").notNull().default(0),
     // Comma-separated billing_documents ids created from this message.

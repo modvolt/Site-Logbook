@@ -11,6 +11,7 @@ import { requireRole } from "../middlewares/auth";
 import {
   testImapConnection,
   pollAndRecord,
+  retryLogEntry,
 } from "../lib/email-import";
 
 const router: IRouter = Router();
@@ -142,6 +143,7 @@ router.get("/email-import-log", async (_req, res): Promise<void> => {
       subject: r.subject,
       receivedAt: r.receivedAt ? r.receivedAt.toISOString() : null,
       status: r.status,
+      attempts: r.attempts,
       attachmentsTotal: r.attachmentsTotal,
       attachmentsImported: r.attachmentsImported,
       documentIds: r.documentIds,
@@ -149,6 +151,23 @@ router.get("/email-import-log", async (_req, res): Promise<void> => {
       createdAt: r.createdAt.toISOString(),
     })),
   );
+});
+
+router.post("/email-import-log/:id/retry", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ error: "Neplatné ID záznamu." });
+    return;
+  }
+  const rearmed = await retryLogEntry(id);
+  if (!rearmed) {
+    res.status(400).json({
+      error:
+        "Opakovat lze jen zprávy ve stavu „Trvalá chyba“. Záznam buď neexistuje, nebo je v jiném stavu.",
+    });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 export default router;
