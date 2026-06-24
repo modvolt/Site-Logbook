@@ -8,6 +8,9 @@ import {
   getGetDocumentExtractionStatusQueryKey,
   useTestDocumentExtraction,
   useUpdateDocumentExtraction,
+  useGetDocumentLinking,
+  getGetDocumentLinkingQueryKey,
+  useUpdateDocumentLinking,
   useListMaterialMarkupRules,
   getListMaterialMarkupRulesQueryKey,
   useUpsertMaterialMarkupRule,
@@ -219,6 +222,59 @@ export default function BillingSettings() {
         toast({ title: "Test selhal", variant: "destructive" });
       },
     });
+  };
+
+  const { data: linkStatus, isLoading: linkLoading } = useGetDocumentLinking({
+    query: { queryKey: getGetDocumentLinkingQueryKey() },
+  });
+  const updateLink = useUpdateDocumentLinking();
+  const [linkForm, setLinkForm] = useState<{
+    autoLinkEnabled: boolean;
+    autoConfirmEnabled: boolean;
+    autoLinkMinScore: string;
+    autoConfirmMinScore: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (linkStatus && !linkForm) {
+      setLinkForm({
+        autoLinkEnabled: linkStatus.autoLinkEnabled,
+        autoConfirmEnabled: linkStatus.autoConfirmEnabled,
+        autoLinkMinScore: String(linkStatus.autoLinkMinScore),
+        autoConfirmMinScore: String(linkStatus.autoConfirmMinScore),
+      });
+    }
+  }, [linkStatus, linkForm]);
+
+  const handleSaveLink = () => {
+    if (!linkForm) return;
+    const num = (s: string): number | null => {
+      const t = s.trim();
+      if (t === "") return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    updateLink.mutate(
+      {
+        data: {
+          autoLinkEnabled: linkForm.autoLinkEnabled,
+          autoConfirmEnabled: linkForm.autoConfirmEnabled,
+          autoLinkMinScore: num(linkForm.autoLinkMinScore),
+          autoConfirmMinScore: num(linkForm.autoConfirmMinScore),
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetDocumentLinkingQueryKey() });
+          toast({ title: "Nastavení propojení uloženo" });
+        },
+        onError: () =>
+          toast({
+            title: "Nepodařilo se uložit nastavení propojení",
+            variant: "destructive",
+          }),
+      },
+    );
   };
 
   const [form, setForm] = useState<Form | null>(null);
@@ -691,6 +747,114 @@ export default function BillingSettings() {
                   kontrole. Klíč lze místo uložení zde nastavit i proměnnou
                   prostředí <code>OPENAI_API_KEY</code>.
                 </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-5 w-5" /> Automatické propojování dokladů
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Po schválení dokladu se jeho položky mohou automaticky napárovat k
+              zakázce a přenést cena materiálu. Napárování je vždy jen{" "}
+              <strong>návrh ke kontrole</strong> – potvrzení necháte na sobě,
+              pokud nezapnete automatické potvrzování.
+            </p>
+
+            {linkLoading || !linkStatus || !linkForm ? (
+              <Skeleton className="h-40 w-full" />
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div>
+                    <Label className="font-medium">
+                      Automaticky navrhovat propojení
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Doklad se sám napáruje k zakázce jako návrh (nikdy se
+                      nepotvrdí automaticky).
+                    </p>
+                  </div>
+                  <Switch
+                    checked={linkForm.autoLinkEnabled}
+                    onCheckedChange={(v) =>
+                      setLinkForm((p) => (p ? { ...p, autoLinkEnabled: v } : p))
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div>
+                    <Label className="font-medium">
+                      Automaticky potvrzovat silné shody
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Při velmi vysoké shodě se propojení potvrdí bez ruční
+                      kontroly. Doporučujeme nechat vypnuté.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={linkForm.autoConfirmEnabled}
+                    onCheckedChange={(v) =>
+                      setLinkForm((p) =>
+                        p ? { ...p, autoConfirmEnabled: v } : p,
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Práh pro návrh (0–1)">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={linkForm.autoLinkMinScore}
+                      onChange={(e) =>
+                        setLinkForm((p) =>
+                          p ? { ...p, autoLinkMinScore: e.target.value } : p,
+                        )
+                      }
+                      placeholder="0.6"
+                    />
+                  </Field>
+                  <Field label="Práh pro potvrzení (0–1)">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={linkForm.autoConfirmMinScore}
+                      onChange={(e) =>
+                        setLinkForm((p) =>
+                          p ? { ...p, autoConfirmMinScore: e.target.value } : p,
+                        )
+                      }
+                      placeholder="0.9"
+                    />
+                  </Field>
+                </div>
+                <p className="-mt-2 text-xs text-muted-foreground">
+                  Vyšší hodnota = přísnější párování. Prázdné pole použije
+                  výchozí hodnotu.
+                </p>
+
+                <div className="flex justify-end">
+                  <Button onClick={handleSaveLink} disabled={updateLink.isPending}>
+                    {updateLink.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Uložit nastavení propojení
+                  </Button>
+                </div>
               </>
             )}
           </CardContent>

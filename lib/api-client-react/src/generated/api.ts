@@ -74,6 +74,8 @@ import type {
   DocumentExtractionInput,
   DocumentExtractionStatus,
   DocumentExtractionTestResult,
+  DocumentLinkingInput,
+  DocumentLinkingStatus,
   EmailImportAccount,
   EmailImportImportResult,
   EmailImportLabelList,
@@ -12493,6 +12495,154 @@ export const useTestDocumentExtraction = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getTestDocumentExtractionMutationOptions(options));
+    }
+
+export const getGetDocumentLinkingUrl = () => {
+
+
+
+
+  return `/api/billing/document-linking`
+}
+
+/**
+ * @summary Automatic document-linking configuration (admin only)
+ */
+export const getDocumentLinking = async ( options?: RequestInit): Promise<DocumentLinkingStatus> => {
+
+  return customFetch<DocumentLinkingStatus>(getGetDocumentLinkingUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDocumentLinkingQueryKey = () => {
+    return [
+    `/api/billing/document-linking`
+    ] as const;
+    }
+
+
+export const getGetDocumentLinkingQueryOptions = <TData = Awaited<ReturnType<typeof getDocumentLinking>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDocumentLinking>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDocumentLinkingQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDocumentLinking>>> = ({ signal }) => getDocumentLinking({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDocumentLinking>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDocumentLinkingQueryResult = NonNullable<Awaited<ReturnType<typeof getDocumentLinking>>>
+export type GetDocumentLinkingQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Automatic document-linking configuration (admin only)
+ */
+
+export function useGetDocumentLinking<TData = Awaited<ReturnType<typeof getDocumentLinking>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDocumentLinking>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDocumentLinkingQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateDocumentLinkingUrl = () => {
+
+
+
+
+  return `/api/billing/document-linking`
+}
+
+/**
+ * @summary Update the automatic document-linking configuration (admin only)
+ */
+export const updateDocumentLinking = async (documentLinkingInput: DocumentLinkingInput, options?: RequestInit): Promise<DocumentLinkingStatus> => {
+
+  return customFetch<DocumentLinkingStatus>(getUpdateDocumentLinkingUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      documentLinkingInput,)
+  }
+);}
+
+
+
+
+export const getUpdateDocumentLinkingMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDocumentLinking>>, TError,{data: BodyType<DocumentLinkingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateDocumentLinking>>, TError,{data: BodyType<DocumentLinkingInput>}, TContext> => {
+
+const mutationKey = ['updateDocumentLinking'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateDocumentLinking>>, {data: BodyType<DocumentLinkingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateDocumentLinking(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateDocumentLinkingMutationResult = NonNullable<Awaited<ReturnType<typeof updateDocumentLinking>>>
+    export type UpdateDocumentLinkingMutationBody = BodyType<DocumentLinkingInput>
+    export type UpdateDocumentLinkingMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the automatic document-linking configuration (admin only)
+ */
+export const useUpdateDocumentLinking = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDocumentLinking>>, TError,{data: BodyType<DocumentLinkingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateDocumentLinking>>,
+        TError,
+        {data: BodyType<DocumentLinkingInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateDocumentLinkingMutationOptions(options));
     }
 
 export const getGetEmailImportStatusUrl = () => {

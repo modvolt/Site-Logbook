@@ -15,6 +15,9 @@
  * `autoLinkMinScore`) is never applied — it stays a suggestion for a human.
  */
 
+import { db, documentLinkingSettingsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+
 export interface DocumentLinkingConfig {
   autoLinkEnabled: boolean;
   autoConfirmEnabled: boolean;
@@ -45,10 +48,9 @@ function envScore(value: string | undefined, fallback: number): number {
 
 /**
  * Resolve the active config from the environment, falling back to the built-in
- * conservative defaults. Pure aside from reading `process.env`; safe to call per
- * request.
+ * conservative defaults. Pure aside from reading `process.env`.
  */
-export function resolveDocumentLinkingConfig(
+export function resolveDocumentLinkingConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): DocumentLinkingConfig {
   return {
@@ -65,6 +67,37 @@ export function resolveDocumentLinkingConfig(
       env.DOCUMENT_AUTO_CONFIRM_MIN_SCORE,
       DEFAULTS.autoConfirmMinScore,
     ),
+  };
+}
+
+function clamp01(n: number): number {
+  return Math.min(1, Math.max(0, n));
+}
+
+export const DOCUMENT_LINKING_SETTINGS_ID = 1;
+
+/**
+ * Resolve the active config, preferring the DB singleton (admin-editable in the
+ * Settings UI) and falling back to the env/defaults. Once a row is saved, the
+ * two switches are taken from the UI; the score thresholds fall back per-field
+ * to env/default when left blank (NULL).
+ */
+export async function resolveDocumentLinkingConfig(): Promise<DocumentLinkingConfig> {
+  const envCfg = resolveDocumentLinkingConfigFromEnv();
+  const [row] = await db
+    .select()
+    .from(documentLinkingSettingsTable)
+    .where(eq(documentLinkingSettingsTable.id, DOCUMENT_LINKING_SETTINGS_ID));
+  if (!row) return envCfg;
+  return {
+    autoLinkEnabled: row.autoLinkEnabled,
+    autoConfirmEnabled: row.autoConfirmEnabled,
+    autoLinkMinScore:
+      row.autoLinkMinScore != null ? clamp01(row.autoLinkMinScore) : envCfg.autoLinkMinScore,
+    autoConfirmMinScore:
+      row.autoConfirmMinScore != null
+        ? clamp01(row.autoConfirmMinScore)
+        : envCfg.autoConfirmMinScore,
   };
 }
 

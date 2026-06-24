@@ -5431,6 +5431,37 @@ export const TestDocumentExtractionResponse = zod.object({
 
 
 /**
+ * @summary Automatic document-linking configuration (admin only)
+ */
+export const GetDocumentLinkingResponse = zod.object({
+  "autoLinkEnabled": zod.boolean().describe('Write a suggested job\/material link automatically (never confirms).'),
+  "autoConfirmEnabled": zod.boolean().describe('Additionally confirm a strong link automatically (off by default).'),
+  "autoLinkMinScore": zod.number().describe('0–1 minimum score to write a suggested link.'),
+  "autoConfirmMinScore": zod.number().describe('0–1 minimum score to auto-confirm a link.'),
+  "source": zod.enum(['db', 'env']).describe('Which source provides the configuration: \"db\" (saved in Settings) or \"env\" (DOCUMENT_\* env vars \/ built-in defaults before any save).')
+})
+
+
+/**
+ * @summary Update the automatic document-linking configuration (admin only)
+ */
+export const UpdateDocumentLinkingBody = zod.object({
+  "autoLinkEnabled": zod.boolean(),
+  "autoConfirmEnabled": zod.boolean(),
+  "autoLinkMinScore": zod.number().nullish().describe('0–1 threshold; null falls back to env\/default.'),
+  "autoConfirmMinScore": zod.number().nullish().describe('0–1 threshold; null falls back to env\/default.')
+})
+
+export const UpdateDocumentLinkingResponse = zod.object({
+  "autoLinkEnabled": zod.boolean().describe('Write a suggested job\/material link automatically (never confirms).'),
+  "autoConfirmEnabled": zod.boolean().describe('Additionally confirm a strong link automatically (off by default).'),
+  "autoLinkMinScore": zod.number().describe('0–1 minimum score to write a suggested link.'),
+  "autoConfirmMinScore": zod.number().describe('0–1 minimum score to auto-confirm a link.'),
+  "source": zod.enum(['db', 'env']).describe('Which source provides the configuration: \"db\" (saved in Settings) or \"env\" (DOCUMENT_\* env vars \/ built-in defaults before any save).')
+})
+
+
+/**
  * @summary Gmail import status + connected account (admin only)
  */
 export const GetEmailImportStatusResponse = zod.object({

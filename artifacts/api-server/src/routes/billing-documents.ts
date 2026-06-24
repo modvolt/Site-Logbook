@@ -42,9 +42,16 @@ import {
   testConfiguration as testAiConfiguration,
   DEFAULT_SYSTEM_PROMPT,
 } from "../lib/openai-extraction";
-import { db, openaiSettingsTable } from "@workspace/db";
+import { db, openaiSettingsTable, documentLinkingSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { UpdateDocumentExtractionBody } from "@workspace/api-zod";
+import {
+  UpdateDocumentExtractionBody,
+  UpdateDocumentLinkingBody,
+} from "@workspace/api-zod";
+import {
+  resolveDocumentLinkingConfig,
+  DOCUMENT_LINKING_SETTINGS_ID,
+} from "../lib/document-linking-config";
 
 const router: IRouter = Router();
 
@@ -53,6 +60,7 @@ const router: IRouter = Router();
 router.use("/billing/documents", requireRole("admin"));
 router.use("/billing/approved-lines", requireRole("admin"));
 router.use("/billing/ai-extraction", requireRole("admin"));
+router.use("/billing/document-linking", requireRole("admin"));
 
 // --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
 
@@ -148,6 +156,63 @@ router.post("/billing/ai-extraction/test", async (req, res): Promise<void> => {
       error: err instanceof Error ? err.message : "Test konfigurace OpenAI selhal.",
     });
   }
+});
+
+// --- Automatic document linking — admin-only status + config ---------------
+
+// Returns the active config plus where it came from ("db" once saved, else the
+// "env"/built-in defaults), mirroring the AI-extraction status shape.
+router.get("/billing/document-linking", async (_req, res): Promise<void> => {
+  const [row] = await db
+    .select()
+    .from(documentLinkingSettingsTable)
+    .where(eq(documentLinkingSettingsTable.id, DOCUMENT_LINKING_SETTINGS_ID));
+  const cfg = await resolveDocumentLinkingConfig();
+  res.json({
+    autoLinkEnabled: cfg.autoLinkEnabled,
+    autoConfirmEnabled: cfg.autoConfirmEnabled,
+    autoLinkMinScore: cfg.autoLinkMinScore,
+    autoConfirmMinScore: cfg.autoConfirmMinScore,
+    source: row ? "db" : "env",
+  });
+});
+
+// Save the linking configuration into the DB singleton so an admin can toggle it
+// from the Settings UI without redeploying. The two switches always win once a
+// row exists; the thresholds are nullable and fall back per-field to env/default.
+router.put("/billing/document-linking", async (req, res): Promise<void> => {
+  const parsed = UpdateDocumentLinkingBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const d = parsed.data;
+
+  const toScoreOrNull = (v: number | null | undefined): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : null;
+
+  const values: typeof documentLinkingSettingsTable.$inferInsert = {
+    id: DOCUMENT_LINKING_SETTINGS_ID,
+    autoLinkEnabled: d.autoLinkEnabled,
+    autoConfirmEnabled: d.autoConfirmEnabled,
+    autoLinkMinScore: toScoreOrNull(d.autoLinkMinScore),
+    autoConfirmMinScore: toScoreOrNull(d.autoConfirmMinScore),
+    updatedAt: new Date(),
+  };
+
+  await db
+    .insert(documentLinkingSettingsTable)
+    .values(values)
+    .onConflictDoUpdate({ target: documentLinkingSettingsTable.id, set: values });
+
+  const cfg = await resolveDocumentLinkingConfig();
+  res.json({
+    autoLinkEnabled: cfg.autoLinkEnabled,
+    autoConfirmEnabled: cfg.autoConfirmEnabled,
+    autoLinkMinScore: cfg.autoLinkMinScore,
+    autoConfirmMinScore: cfg.autoConfirmMinScore,
+    source: "db",
+  });
 });
 
 // Same hard cap as the generic upload route (see routes/storage.ts). Keep nginx's

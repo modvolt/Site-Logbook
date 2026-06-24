@@ -1074,7 +1074,7 @@ export async function deleteReference(documentId: number, referenceId: number) {
  * ranked candidates so the UI can offer alternatives.
  */
 export async function matchDocumentReferences(documentId: number) {
-  const cfg = resolveDocumentLinkingConfig();
+  const cfg = await resolveDocumentLinkingConfig();
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
@@ -1715,7 +1715,7 @@ export async function propagateInvoicePricesToJobMaterials(
   // propagation runs against CONFIRMED targets (explicit doc.jobId or a
   // matchConfirmed reference), so it must work even when suggestions are off —
   // gating it here would silently break manual-confirmed propagation.
-  const cfg = resolveDocumentLinkingConfig();
+  const cfg = await resolveDocumentLinkingConfig();
 
   const [doc] = await tx
     .select()

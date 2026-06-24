@@ -2809,6 +2809,45 @@ export interface DocumentExtractionTestResult {
   message: string;
 }
 
+/**
+ * Which source provides the configuration: "db" (saved in Settings) or "env" (DOCUMENT_* env vars / built-in defaults before any save).
+ */
+export type DocumentLinkingStatusSource = typeof DocumentLinkingStatusSource[keyof typeof DocumentLinkingStatusSource];
+
+
+export const DocumentLinkingStatusSource = {
+  db: 'db',
+  env: 'env',
+} as const;
+
+export interface DocumentLinkingStatus {
+  /** Write a suggested job/material link automatically (never confirms). */
+  autoLinkEnabled: boolean;
+  /** Additionally confirm a strong link automatically (off by default). */
+  autoConfirmEnabled: boolean;
+  /** 0–1 minimum score to write a suggested link. */
+  autoLinkMinScore: number;
+  /** 0–1 minimum score to auto-confirm a link. */
+  autoConfirmMinScore: number;
+  /** Which source provides the configuration: "db" (saved in Settings) or "env" (DOCUMENT_* env vars / built-in defaults before any save). */
+  source: DocumentLinkingStatusSource;
+}
+
+export interface DocumentLinkingInput {
+  autoLinkEnabled: boolean;
+  autoConfirmEnabled: boolean;
+  /**
+     * 0–1 threshold; null falls back to env/default.
+     * @nullable
+     */
+  autoLinkMinScore?: number | null;
+  /**
+     * 0–1 threshold; null falls back to env/default.
+     * @nullable
+     */
+  autoConfirmMinScore?: number | null;
+}
+
 export interface EmailImportAccount {
   id: number;
   provider: string;
