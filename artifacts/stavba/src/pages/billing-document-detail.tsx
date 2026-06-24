@@ -1537,7 +1537,7 @@ function WarehousePricesCard({
   const handleApply = () => {
     if (
       !confirm(
-        "Přenést nákupní ceny z položek tohoto dokladu do skladu? Aktualizují se ceny odpovídajících skladových položek.",
+        "Přenést nákupní ceny z položek tohoto dokladu do skladu? Aktualizují se ceny odpovídajících skladových karet a chybějící se automaticky založí.",
       )
     )
       return;
@@ -1548,7 +1548,7 @@ function WarehousePricesCard({
           onApplied();
           toast({
             title: "Ceny přeneseny do skladu",
-            description: `Aktualizováno ${res.updated.length} položek, přeskočeno ${res.skipped}.`,
+            description: `Aktualizováno ${res.updated.length - res.created} položek, nově založeno ${res.created}, přeskočeno ${res.skipped}.`,
           });
         },
         onError: (err) =>
@@ -1569,8 +1569,8 @@ function WarehousePricesCard({
             <PackageCheck className="h-4 w-4" /> Sklad
           </p>
           <p className="text-muted-foreground">
-            Přenést nákupní ceny materiálových položek do odpovídajících
-            skladových karet.
+            Přenést nákupní ceny materiálových položek do skladových karet;
+            chybějící karty se automaticky založí.
           </p>
         </div>
         <Button variant="outline" onClick={handleApply} disabled={apply.isPending}>

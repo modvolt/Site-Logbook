@@ -10,4 +10,5 @@ import type { WarehousePriceUpdateItem } from './warehousePriceUpdateItem';
 export interface WarehousePriceUpdateResult {
   updated: WarehousePriceUpdateItem[];
   skipped: number;
+  created: number;
 }

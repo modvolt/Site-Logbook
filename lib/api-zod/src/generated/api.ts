@@ -5347,9 +5347,10 @@ export const ApplyCostDocumentWarehousePricesResponse = zod.object({
   "itemName": zod.string(),
   "oldPrice": zod.number().nullish(),
   "newPrice": zod.number(),
-  "matchedBy": zod.enum(['code', 'name'])
+  "matchedBy": zod.enum(['code', 'name', 'created'])
 })),
-  "skipped": zod.number()
+  "skipped": zod.number(),
+  "created": zod.number()
 })
 
 

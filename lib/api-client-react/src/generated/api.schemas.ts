@@ -2707,6 +2707,7 @@ export type WarehousePriceUpdateItemMatchedBy = typeof WarehousePriceUpdateItemM
 export const WarehousePriceUpdateItemMatchedBy = {
   code: 'code',
   name: 'name',
+  created: 'created',
 } as const;
 
 export interface WarehousePriceUpdateItem {
@@ -2722,6 +2723,7 @@ export interface WarehousePriceUpdateItem {
 export interface WarehousePriceUpdateResult {
   updated: WarehousePriceUpdateItem[];
   skipped: number;
+  created: number;
 }
 
 export interface ApprovedCostLine {

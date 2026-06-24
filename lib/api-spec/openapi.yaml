@@ -8332,17 +8332,19 @@ components:
           type: number
         matchedBy:
           type: string
-          enum: [code, name]
+          enum: [code, name, created]
 
     WarehousePriceUpdateResult:
       type: object
-      required: [updated, skipped]
+      required: [updated, skipped, created]
       properties:
         updated:
           type: array
           items:
             $ref: "#/components/schemas/WarehousePriceUpdateItem"
         skipped:
+          type: integer
+        created:
           type: integer
 
     ApprovedCostLine:

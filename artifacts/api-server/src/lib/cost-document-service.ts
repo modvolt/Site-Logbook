@@ -2036,7 +2036,7 @@ export interface WarehousePriceUpdate {
   itemName: string;
   oldPrice: number | null;
   newPrice: number;
-  matchedBy: "code" | "name";
+  matchedBy: "code" | "name" | "created";
 }
 
 /**
@@ -2057,14 +2057,15 @@ async function applyWarehouseCatalogAndPriceHistory(
   tx: DbOrTx,
   documentId: number,
   actor: Actor,
-): Promise<{ updated: WarehousePriceUpdate[]; skipped: number }> {
+): Promise<{ updated: WarehousePriceUpdate[]; skipped: number; created: number }> {
   const [doc] = await tx
     .select()
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, documentId));
   const updated: WarehousePriceUpdate[] = [];
   let skipped = 0;
-  if (!doc || doc.status !== "approved") return { updated, skipped };
+  let created = 0;
+  if (!doc || doc.status !== "approved") return { updated, skipped, created };
 
   const lines = await tx
     .select()
@@ -2091,33 +2092,67 @@ async function applyWarehouseCatalogAndPriceHistory(
       .filter((c): c is string => !!c)
       .map((c) => c.trim().toLowerCase());
     let item = codeKeys.map((k) => byCode.get(k)).find(Boolean);
-    let matchedBy: "code" | "name" = "code";
+    let matchedBy: "code" | "name" | "created" = "code";
     if (!item) {
       item = byName.get(line.description.trim().toLowerCase());
       matchedBy = "name";
     }
-    if (!item) {
-      skipped++;
-      continue;
-    }
     const newPrice = round2(num(line.unitPriceWithoutVat));
-    const oldPrice = item.purchasePrice == null ? null : num(item.purchasePrice);
-    // Fill catalogue fields only when empty (never clobber operator data).
-    const catalogue: Record<string, string> = {};
-    if (!item.ean && line.ean) catalogue.ean = line.ean;
-    if (!item.supplierSku && line.supplierSku)
-      catalogue.supplierSku = line.supplierSku;
-    if (!item.supplierName && doc.supplierName)
-      catalogue.supplierName = doc.supplierName;
-    if (!item.supplierIc && doc.supplierIc) catalogue.supplierIc = doc.supplierIc;
-    if (!item.manufacturer && line.manufacturer)
-      catalogue.manufacturer = line.manufacturer;
-    if (!item.normalizedName)
-      catalogue.normalizedName = normalizeItemName(item.name);
-    await tx
-      .update(warehouseItemsTable)
-      .set({ purchasePrice: String(newPrice), ...catalogue })
-      .where(eq(warehouseItemsTable.id, item.id));
+    let oldPrice: number | null = null;
+    if (item) {
+      oldPrice = item.purchasePrice == null ? null : num(item.purchasePrice);
+      // Fill catalogue fields only when empty (never clobber operator data).
+      const catalogue: Record<string, string> = {};
+      if (!item.ean && line.ean) catalogue.ean = line.ean;
+      if (!item.supplierSku && line.supplierSku)
+        catalogue.supplierSku = line.supplierSku;
+      if (!item.supplierName && doc.supplierName)
+        catalogue.supplierName = doc.supplierName;
+      if (!item.supplierIc && doc.supplierIc)
+        catalogue.supplierIc = doc.supplierIc;
+      if (!item.manufacturer && line.manufacturer)
+        catalogue.manufacturer = line.manufacturer;
+      if (!item.normalizedName)
+        catalogue.normalizedName = normalizeItemName(item.name);
+      await tx
+        .update(warehouseItemsTable)
+        .set({ purchasePrice: String(newPrice), ...catalogue })
+        .where(eq(warehouseItemsTable.id, item.id));
+    } else {
+      // No matching warehouse card yet — auto-create one so "Aktualizovat ceny"
+      // also zakládá chybějící skladové karty instead of silently skipping the
+      // line. Catalogue card only: quantity stays 0 and NO stock movement is
+      // created — a rebill / job material is not received into stock, so we
+      // never fabricate a příjem here.
+      matchedBy = "created";
+      const code = (line.supplierSku ?? line.ean ?? "")?.trim() || null;
+      const [createdItem] = await tx
+        .insert(warehouseItemsTable)
+        .values({
+          name: line.description,
+          code,
+          unit: line.unit ?? null,
+          quantity: "0",
+          purchasePrice: String(newPrice),
+          ean: line.ean ?? null,
+          supplierSku: line.supplierSku ?? null,
+          supplierName: doc.supplierName ?? null,
+          supplierIc: doc.supplierIc ?? null,
+          manufacturer: line.manufacturer ?? null,
+          normalizedName: normalizeItemName(line.description),
+        })
+        .returning();
+      if (!createdItem) {
+        skipped++;
+        continue;
+      }
+      item = createdItem;
+      // Keep the in-memory maps current so a later line with the same code/name
+      // updates this new card instead of creating a duplicate.
+      if (code) byCode.set(code.toLowerCase(), createdItem);
+      byName.set(createdItem.name.trim().toLowerCase(), createdItem);
+      created++;
+    }
     // Mark the line as having flowed to stock for audit.
     await tx
       .update(billingDocumentLinesTable)
@@ -2177,13 +2212,15 @@ async function applyWarehouseCatalogAndPriceHistory(
       entityId: documentId,
       summary: `Nákupní ceny aktualizovány z dokladu${
         doc.documentNumber ? ` ${doc.documentNumber}` : ""
-      }: ${updated.length} položek`,
+      }: ${updated.length} položek${
+        created ? ` (z toho ${created} nově založeno)` : ""
+      }`,
       method: "POST",
       path: `/billing/documents/${documentId}/apply-warehouse-prices`,
     });
   }
 
-  return { updated, skipped };
+  return { updated, skipped, created };
 }
 
 /**
@@ -2195,7 +2232,7 @@ async function applyWarehouseCatalogAndPriceHistory(
 export async function updateWarehousePricesFromDocument(
   documentId: number,
   actor: Actor,
-): Promise<{ updated: WarehousePriceUpdate[]; skipped: number }> {
+): Promise<{ updated: WarehousePriceUpdate[]; skipped: number; created: number }> {
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)

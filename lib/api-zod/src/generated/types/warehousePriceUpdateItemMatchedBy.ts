@@ -12,4 +12,5 @@ export type WarehousePriceUpdateItemMatchedBy = typeof WarehousePriceUpdateItemM
 export const WarehousePriceUpdateItemMatchedBy = {
   code: 'code',
   name: 'name',
+  created: 'created',
 } as const;
