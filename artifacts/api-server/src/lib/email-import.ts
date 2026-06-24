@@ -196,6 +196,15 @@ function newClient(cfg: ResolvedImapConfig): ImapFlow {
     auth: cfg.user ? { user: cfg.user, pass: cfg.pass ?? "" } : { user: "", pass: "" },
     // Silence imapflow's own pino logger; we log outcomes ourselves.
     logger: false,
+    // We poll explicitly and never rely on server-pushed updates, so there is no
+    // reason to let ImapFlow auto-enter IDLE in the gaps between our commands.
+    // With IDLE running, the per-message slow work below (S3 upload + DB
+    // transaction in `ingestFile`) can outlast the server's IDLE window; the
+    // next command then has to break a connection the server already dropped and
+    // fails with "Connection not available". Disabling auto-idle keeps the
+    // connection quietly usable across that slow work (socketTimeout still
+    // guards a truly dead socket).
+    disableAutoIdle: true,
   });
   // ImapFlow is an EventEmitter that emits an 'error' event on socket-level
   // failures (e.g. "Socket timeout" / ETIMEOUT) which can fire AFTER connect()
@@ -330,13 +339,46 @@ function messageIdOf(msg: FetchMessageObject, folder: string): string {
   return `uid:${msg.uid}@${folder}`;
 }
 
-async function alreadyLogged(messageId: string): Promise<boolean> {
+// Outcomes that are permanent: once a message reaches one of these it is never
+// reprocessed. A `failed` row is deliberately NOT terminal — it represents a
+// (often transient, e.g. "Connection not available") error and must be retried
+// on the next poll until it succeeds.
+const TERMINAL_STATUSES = new Set(["imported", "skipped", "no_attachments"]);
+
+type ExistingLog = { id: number; status: string };
+
+/**
+ * Look up the existing log row for a message, if any. Returns its id and status
+ * so the caller can (a) skip terminal outcomes and (b) update the row in place
+ * on a retry instead of inserting a second row (message_id is unique-indexed).
+ */
+async function findExistingLog(messageId: string): Promise<ExistingLog | null> {
   const [row] = await db
-    .select({ id: emailImportLogTable.id })
+    .select({ id: emailImportLogTable.id, status: emailImportLogTable.status })
     .from(emailImportLogTable)
     .where(eq(emailImportLogTable.messageId, messageId))
     .limit(1);
-  return Boolean(row);
+  return row ?? null;
+}
+
+/**
+ * Persist a message's outcome. On a first attempt (`existingId === null`) this
+ * inserts a new row; on a retry of a previously `failed` message it UPDATES the
+ * existing row in place so history shows exactly one row per message reflecting
+ * the latest attempt — and so the unique index on `message_id` is never hit.
+ */
+async function writeLog(
+  existingId: number | null,
+  values: typeof emailImportLogTable.$inferInsert,
+): Promise<void> {
+  if (existingId != null) {
+    await db
+      .update(emailImportLogTable)
+      .set(values)
+      .where(eq(emailImportLogTable.id, existingId));
+    return;
+  }
+  await db.insert(emailImportLogTable).values(values);
 }
 
 async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
@@ -464,9 +506,22 @@ async function pollFolder(
       messages.push(msg);
     }
 
+    // UIDs to mark \Seen once every message in this folder is fully processed.
+    // We defer all \Seen writes to a single batch after the loop so the slow
+    // per-message ingest (S3 upload + DB transaction) never sits between two
+    // IMAP commands on this connection — issuing a flag write right after that
+    // slow work is exactly what dropped the socket ("Connection not available").
+    // Only terminal outcomes are collected here; a failed message stays unseen
+    // so the next poll's `seen:false` search re-attempts it.
+    const seenUids: string[] = [];
+
     for (const msg of messages) {
       const messageId = messageIdOf(msg, folder);
-      if (await alreadyLogged(messageId)) continue;
+      const existing = await findExistingLog(messageId);
+      // Terminal outcomes (imported/skipped/no_attachments) are deduped forever.
+      // A prior `failed` row is retried: we fall through and update it in place.
+      if (existing && TERMINAL_STATUSES.has(existing.status)) continue;
+      const existingId = existing?.id ?? null;
 
       result.processed += 1;
       const sender = senderOf(msg);
@@ -481,7 +536,7 @@ async function pollFolder(
         );
 
         if (!attachments.length) {
-          await db.insert(emailImportLogTable).values({
+          await writeLog(existingId, {
             messageId,
             sender,
             subject,
@@ -489,20 +544,19 @@ async function pollFolder(
             status: "no_attachments",
             attachmentsTotal: 0,
             attachmentsImported: 0,
+            documentIds: null,
+            error: null,
           });
           result.noAttachments += 1;
-          if (cfg.markSeen) {
-            await client.messageFlagsAdd(
-              { uid: String(msg.uid) },
-              ["\\Seen"],
-              { uid: true },
-            );
-          }
+          if (cfg.markSeen) seenUids.push(String(msg.uid));
           continue;
         }
 
-        const createdIds: number[] = [];
-        let importedCount = 0;
+        // Phase 1 (IMAP, back-to-back): download every attachment's bytes up
+        // front, before any slow work. Keeping all IMAP commands together — and
+        // separate from the ingest below — stops the slow S3/DB work from
+        // sitting between two commands on the busy connection.
+        const downloaded: { fileName: string; contentType: string; buffer: Buffer }[] = [];
         for (const att of attachments) {
           const contentType = resolveAttachmentType(att.contentType, att.fileName)!;
           const { content } = await client.download(String(msg.uid), att.part, {
@@ -510,12 +564,18 @@ async function pollFolder(
           });
           const buffer = await streamToBuffer(content);
           if (!buffer.length) continue;
+          downloaded.push({ fileName: att.fileName, contentType, buffer });
+        }
 
+        // Phase 2 (slow, no IMAP commands): ingest the buffered attachments.
+        const createdIds: number[] = [];
+        let importedCount = 0;
+        for (const d of downloaded) {
           const ingest = await ingestFile(
-            buffer,
+            d.buffer,
             {
-              fileName: att.fileName,
-              contentType,
+              fileName: d.fileName,
+              contentType: d.contentType,
               source: "email",
               sourceRef: sender,
             },
@@ -532,7 +592,7 @@ async function pollFolder(
             ? "imported"
             : // had supported attachments but all were duplicates
               "skipped";
-        await db.insert(emailImportLogTable).values({
+        await writeLog(existingId, {
           messageId,
           sender,
           subject,
@@ -541,42 +601,47 @@ async function pollFolder(
           attachmentsTotal: attachments.length,
           attachmentsImported: importedCount,
           documentIds: createdIds.length ? createdIds.join(",") : null,
+          // Clear any error left over from a prior failed attempt of this message.
+          error: null,
         });
         if (importedCount > 0) result.imported += 1;
         else result.skipped += 1;
 
-        if (cfg.markSeen) {
-          await client.messageFlagsAdd(
-            { uid: String(msg.uid) },
-            ["\\Seen"],
-            { uid: true },
-          );
-        }
+        if (cfg.markSeen) seenUids.push(String(msg.uid));
       } catch (err) {
         const message = err instanceof Error ? err.message : "neznámá chyba";
         result.failed += 1;
-        // Record the failure so it is visible; do NOT mark \Seen so a fixed
-        // config can retry. Re-poll dedupe still holds via the logged messageId.
-        await db
-          .insert(emailImportLogTable)
-          .values({
-            messageId,
-            sender,
-            subject,
-            receivedAt,
-            status: "failed",
-            error: message,
-          })
-          .catch((logErr) =>
-            logger.error(
-              { err: logErr, messageId },
-              "Failed to write email_import_log failure row",
-            ),
-          );
+        // Record/refresh the failure so it is visible; do NOT mark \Seen so a
+        // later poll retries it. On a repeated failure this updates the existing
+        // row in place (no duplicate history, no unique-index violation).
+        await writeLog(existingId, {
+          messageId,
+          sender,
+          subject,
+          receivedAt,
+          status: "failed",
+          error: message,
+        }).catch((logErr) =>
+          logger.error(
+            { err: logErr, messageId },
+            "Failed to write email_import_log failure row",
+          ),
+        );
         logger.error({ err, messageId }, "Email import: message failed");
       }
     }
 
+    // Flush all \Seen flags in one batch now that every slow ingest is done.
+    if (seenUids.length) {
+      await client
+        .messageFlagsAdd({ uid: seenUids.join(",") }, ["\\Seen"], { uid: true })
+        .catch((err) =>
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "Nepodařilo se označit zprávy jako přečtené (\\Seen)",
+          ),
+        );
+    }
   } finally {
     lock.release();
   }
