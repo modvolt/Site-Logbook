@@ -238,21 +238,30 @@ export async function testImapConnection(): Promise<{ folder: string; messages: 
       "Test IMAP: otevírám nakonfigurované složky/štítky",
     );
     let total = 0;
+    const failedFolders: string[] = [];
     for (const folder of cfg.folders) {
-      let mailbox;
       try {
-        mailbox = await client.mailboxOpen(folder);
+        const mailbox = await client.mailboxOpen(folder);
+        total += mailbox.exists;
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         logger.error(
           { folder, detail },
           "Test IMAP: složku/štítek nelze otevřít",
         );
-        throw new Error(
-          `Nelze otevřít IMAP složku/štítek „${folder}“. Zkontrolujte přesný název štítku v Gmailu (názvy rozlišují velká/malá písmena a u Gmailu odpovídají štítkům; vnořené štítky mají tvar „Rodič/Dítě“).`,
-        );
+        failedFolders.push(folder);
       }
-      total += mailbox.exists;
+    }
+    if (failedFolders.length > 0) {
+      const names = failedFolders.map((f) => `„${f}“`).join(", ");
+      const plural = failedFolders.length > 1;
+      throw new Error(
+        `Nelze otevřít ${plural ? "tyto IMAP složky/štítky" : "IMAP složku/štítek"}: ${names}. ` +
+          `Zkontrolujte přesný název v Gmailu vlevo v seznamu štítků — názvy rozlišují velká a malá písmena ` +
+          `(např. „Faktury DEK“, ne „Faktury dek“). Štítky se NEpíší s předponou „INBOX/“ — INBOX je samostatná ` +
+          `složka. Předponu „Rodič/Dítě“ použijte jen u skutečně vnořených štítků. ` +
+          `V Gmailu musí být navíc u štítku zapnuté zobrazení přes IMAP (Nastavení → Štítky → „Zobrazit v IMAP“).`,
+      );
     }
     return { folder: cfg.folders.join(", "), messages: total };
   } finally {

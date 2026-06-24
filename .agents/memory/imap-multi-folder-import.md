@@ -29,6 +29,15 @@ the test (`testImapConnection`) and the poll (`pollOnce`) must open each folder 
 its own try/catch and surface a CZ error **naming the offending folder**. The poll
 must NOT let one bad label abort the others — catch per folder, keep going, and only
 throw (named) when *every* folder failed (safe because `parseFolders` guarantees ≥1).
+`testImapConnection` likewise probes **all** folders and reports **every** bad one in
+one message (don't stop at the first) so the user fixes them in a single pass.
+
+**Gmail-over-IMAP label naming (real user gotcha):** Gmail labels are exposed as
+IMAP folders by their **exact label name** — NOT prefixed with `INBOX/`. INBOX is a
+separate folder; `INBOX/Faktury DEK` means a sublabel "Faktury DEK" *under* INBOX,
+which doesn't exist → "cannot open". Names are case-sensitive (`Faktury DEK` ≠
+`Faktury dek`). `Rodič/Dítě` slash form is only for genuinely nested labels. The
+label must also have "Show in IMAP" enabled in Gmail (Settings → Labels).
 
 **Test button caveat:** the Settings "Otestovat připojení"/"Načíst nyní" actions hit
 the backend which reads the **saved** DB config — they do NOT use unsaved form values.
