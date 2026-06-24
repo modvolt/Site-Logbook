@@ -1547,7 +1547,13 @@ const MATERIAL_SOURCE_TYPE = "billing_document_line";
  *
  * Skipped: fee lines, non-material line types, and stock-allocated lines (those
  * go to the warehouse, not a job). A line's job is its own `jobId`, falling back
- * to the document's `jobId`. Must run inside the caller's transaction.
+ * to the document's header `jobId`, and finally — when the document has no header
+ * job — to a SINGLE confirmed reference's `matchedJobId` (a confirmed reference
+ * is a real link, so the document's own lines that match no existing material are
+ * still auto-created on that job). Ambiguous links (several distinct
+ * confirmed-reference jobs) get no fallback, mirroring the target set of
+ * {@link propagateInvoicePricesToJobMaterials}. Must run inside the caller's
+ * transaction.
  */
 export async function syncJobMaterialsForDocument(
   tx: DbOrTx,
@@ -1564,6 +1570,28 @@ export async function syncJobMaterialsForDocument(
   // An invoice/credit note prices its own lines authoritatively; a delivery note
   // (or other) only provisionally — with no price it is "awaiting invoice".
   const isInvoiceDoc = doc.docType === "invoice" || doc.docType === "credit_note";
+
+  // Fallback job for lines that carry no own `jobId` and a document with no
+  // header `jobId`: a SINGLE confirmed reference (matchConfirmed=1) is the link,
+  // so the document's own unmatched lines are still created on that job. Several
+  // distinct confirmed-reference jobs are ambiguous → no fallback (skip), which
+  // matches the target-job set used by propagateInvoicePricesToJobMaterials.
+  let fallbackJobId: number | null = doc.jobId ?? null;
+  if (fallbackJobId == null) {
+    const refs = await tx
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(eq(billingDocumentReferencesTable.documentId, documentId));
+    const refJobIds = new Set<number>();
+    for (const ref of refs) {
+      if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
+        refJobIds.add(ref.matchedJobId);
+      }
+    }
+    if (refJobIds.size === 1) {
+      fallbackJobId = refJobIds.values().next().value ?? null;
+    }
+  }
 
   const lines = await tx
     .select()
@@ -1596,7 +1624,7 @@ export async function syncJobMaterialsForDocument(
       // (delivery-note) material — creating a second material here would
       // duplicate the item and double-issue stock.
       if (exclude.has(line.id)) continue;
-      const jobId = line.jobId ?? doc.jobId;
+      const jobId = line.jobId ?? fallbackJobId;
       if (jobId == null) continue;
 
       desired.add(line.id);
