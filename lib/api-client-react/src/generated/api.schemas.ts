@@ -2195,6 +2195,18 @@ export const CostDocumentStatus = {
   duplicate: 'duplicate',
 } as const;
 
+/**
+ * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
+ * @nullable
+ */
+export type CostDocumentMaterialState = typeof CostDocumentMaterialState[keyof typeof CostDocumentMaterialState] | null;
+
+
+export const CostDocumentMaterialState = {
+  assigned: 'assigned',
+  approved: 'approved',
+} as const;
+
 export type CostDocumentDocType = typeof CostDocumentDocType[keyof typeof CostDocumentDocType];
 
 
@@ -2218,6 +2230,11 @@ export const CostDocumentSource = {
 export interface CostDocument {
   id: number;
   status: CostDocumentStatus;
+  /**
+     * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
+     * @nullable
+     */
+  materialState?: CostDocumentMaterialState;
   docType: CostDocumentDocType;
   source: CostDocumentSource;
   /** @nullable */

@@ -35,6 +35,7 @@ import {
   COST_DOC_STATUS_LABELS,
   COST_DOC_TYPE_LABELS,
   CostDocStatusBadge,
+  MaterialStateBadge,
 } from "@/lib/cost-document-format";
 import {
   uploadCostDocument,
@@ -391,6 +392,7 @@ function DocumentCard({
                 {doc.supplierName || doc.fileName || "Doklad bez dodavatele"}
               </p>
               <CostDocStatusBadge status={doc.status} />
+              <MaterialStateBadge state={doc.materialState} />
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}

@@ -62,6 +62,7 @@ export * from './costDocumentLineVatMode';
 export * from './costDocumentLinkedMaterial';
 export * from './costDocumentMatchResult';
 export * from './costDocumentMatchResultCandidatesByRef';
+export * from './costDocumentMaterialState';
 export * from './costDocumentReference';
 export * from './costDocumentReferenceCreateInput';
 export * from './costDocumentReferenceCreateInputReferenceType';

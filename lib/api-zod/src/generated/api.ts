@@ -3419,6 +3419,7 @@ export const ListCostDocumentsQueryParams = zod.object({
 export const ListCostDocumentsResponseItem = zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -3493,6 +3494,7 @@ export const UploadCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -3641,6 +3643,7 @@ export const GetCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -3809,6 +3812,7 @@ export const UpdateCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -3965,6 +3969,7 @@ export const ApproveCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -4117,6 +4122,7 @@ export const SetCostDocumentStatusResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -4265,6 +4271,7 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -4427,6 +4434,7 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -4584,6 +4592,7 @@ export const SplitCostDocumentLineResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -4739,6 +4748,7 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -4899,6 +4909,7 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -5048,6 +5059,7 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -5196,6 +5208,7 @@ export const MatchCostDocumentReferencesResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
@@ -5654,6 +5667,7 @@ export const AnalyzeJobDocumentsResponse = zod.object({
   "created": zod.array(zod.object({
   "id": zod.number(),
   "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),

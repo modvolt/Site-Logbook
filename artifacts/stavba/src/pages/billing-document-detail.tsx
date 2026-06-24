@@ -65,6 +65,7 @@ import {
   COST_DOC_REFERENCE_TYPE_LABELS,
   COST_DOC_REFERENCE_SOURCE_LABELS,
   CostDocStatusBadge,
+  MaterialStateBadge,
   isPaymentDocument,
   filterWarningsForDocType,
 } from "@/lib/cost-document-format";
@@ -260,6 +261,7 @@ export default function BillingDocumentDetail() {
             </h1>
             <div className="flex items-center gap-2 mt-0.5">
               <CostDocStatusBadge status={doc.status} />
+              <MaterialStateBadge state={doc.materialState} />
               <span className="text-sm text-muted-foreground">
                 {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
               </span>

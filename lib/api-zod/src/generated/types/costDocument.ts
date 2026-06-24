@@ -6,12 +6,18 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CostDocumentDocType } from './costDocumentDocType';
+import type { CostDocumentMaterialState } from './costDocumentMaterialState';
 import type { CostDocumentSource } from './costDocumentSource';
 import type { CostDocumentStatus } from './costDocumentStatus';
 
 export interface CostDocument {
   id: number;
   status: CostDocumentStatus;
+  /**
+     * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
+     * @nullable
+     */
+  materialState?: CostDocumentMaterialState;
   docType: CostDocumentDocType;
   source: CostDocumentSource;
   /** @nullable */

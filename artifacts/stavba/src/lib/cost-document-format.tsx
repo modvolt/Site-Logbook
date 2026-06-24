@@ -115,6 +115,40 @@ export function CostDocStatusBadge({ status }: { status: string }) {
   );
 }
 
+/**
+ * Derived material-assignment state shown next to the document status:
+ * - "assigned"  → all material lines have their job assignment confirmed,
+ * - "approved"  → all material lines are approved.
+ * Distinct hues (blue / violet) so it never reads as the green doc status.
+ */
+export const COST_DOC_MATERIAL_STATE_LABELS: Record<string, string> = {
+  assigned: "Materiál přiřazen",
+  approved: "Materiál odsouhlasen",
+};
+
+const COST_DOC_MATERIAL_STATE_CLASSES: Record<string, string> = {
+  assigned: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  approved:
+    "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+};
+
+export function MaterialStateBadge({
+  state,
+}: {
+  state: string | null | undefined;
+}) {
+  if (!state || !COST_DOC_MATERIAL_STATE_LABELS[state]) return null;
+  const cls =
+    COST_DOC_MATERIAL_STATE_CLASSES[state] ?? "bg-muted text-muted-foreground";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}
+    >
+      {COST_DOC_MATERIAL_STATE_LABELS[state]}
+    </span>
+  );
+}
+
 /** Compact badge showing the AI extraction confidence; amber when low (<0.7). */
 export function AiConfidenceBadge({
   confidence,

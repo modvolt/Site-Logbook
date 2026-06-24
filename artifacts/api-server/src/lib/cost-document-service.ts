@@ -211,10 +211,42 @@ export async function findDuplicates(probe: DuplicateProbe): Promise<DuplicateMa
 // Serialization
 // ---------------------------------------------------------------------------
 
-function serializeDocument(row: BillingDocument) {
+/**
+ * Derived, document-level material state aggregated from the document's
+ * **material** lines (lineType "material", excluding fee lines):
+ * - "approved"  → every material line is approved ("odsouhlasen"),
+ * - "assigned"  → every material line has its job assignment confirmed
+ *                 (matchConfirmed) but they are not all approved yet,
+ * - null        → no material lines, or a mix where neither holds for all.
+ * Purely derived (no DB column); shown as a badge next to the document status.
+ */
+export type MaterialState = "assigned" | "approved" | null;
+
+function deriveMaterialState(
+  lines: {
+    lineType: string | null;
+    feeType: string | null;
+    matchConfirmed: number;
+    approved: number;
+  }[],
+): MaterialState {
+  const material = lines.filter(
+    (l) => l.lineType === "material" && !l.feeType,
+  );
+  if (material.length === 0) return null;
+  if (material.every((l) => l.approved > 0)) return "approved";
+  if (material.every((l) => l.matchConfirmed > 0)) return "assigned";
+  return null;
+}
+
+function serializeDocument(
+  row: BillingDocument,
+  materialState: MaterialState = null,
+) {
   return {
     id: row.id,
     status: row.status,
+    materialState,
     docType: row.docType,
     source: row.source,
     sourceRef: row.sourceRef,
@@ -863,7 +895,34 @@ export async function listDocuments(filters: DocumentFilters) {
     .from(billingDocumentsTable)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(...orderBy);
-  return rows.map(serializeDocument);
+
+  // Aggregate the per-document material state in one extra query (the list rows
+  // carry no lines). Group the relevant line columns in JS and derive the badge
+  // state per document.
+  const stateById = new Map<number, MaterialState>();
+  const ids = rows.map((r) => r.id);
+  if (ids.length) {
+    const lineRows = await db
+      .select({
+        documentId: billingDocumentLinesTable.documentId,
+        lineType: billingDocumentLinesTable.lineType,
+        feeType: billingDocumentLinesTable.feeType,
+        matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+        approved: billingDocumentLinesTable.approved,
+      })
+      .from(billingDocumentLinesTable)
+      .where(inArray(billingDocumentLinesTable.documentId, ids));
+    const grouped = new Map<number, typeof lineRows>();
+    for (const lr of lineRows) {
+      const arr = grouped.get(lr.documentId) ?? [];
+      arr.push(lr);
+      grouped.set(lr.documentId, arr);
+    }
+    for (const [docId, ls] of grouped)
+      stateById.set(docId, deriveMaterialState(ls));
+  }
+
+  return rows.map((r) => serializeDocument(r, stateById.get(r.id) ?? null));
 }
 
 export async function getDocument(id: number) {
@@ -920,7 +979,7 @@ export async function getDocument(id: number) {
     .orderBy(materialsTable.id);
 
   return {
-    document: serializeDocument(doc),
+    document: serializeDocument(doc, deriveMaterialState(lines)),
     lines: lines.map(serializeLine),
     duplicates,
     references: references.map(serializeReference),
