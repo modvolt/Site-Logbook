@@ -447,11 +447,24 @@ async function pollFolder(
     const uids = await client.search({ seen: false }, { uid: true });
     if (!uids || !uids.length) return;
 
+    // Drain the streaming fetch FULLY into memory before issuing any other IMAP
+    // command. ImapFlow keeps the connection busy for the whole duration of a
+    // streaming `fetch`; calling `client.download()` / `messageFlagsAdd()` while
+    // the iterator is still open interleaves a second command on that busy
+    // connection and drops the socket ("Connection not available"). The
+    // per-message body below does slow work (S3 upload + DB transaction in
+    // `ingestFile`), which keeps the stream open long enough to reliably trip
+    // this — so we buffer the lightweight metadata first, then process.
+    const messages: FetchMessageObject[] = [];
     for await (const msg of client.fetch(
       uids,
       { uid: true, envelope: true, bodyStructure: true, internalDate: true },
       { uid: true },
     )) {
+      messages.push(msg);
+    }
+
+    for (const msg of messages) {
       const messageId = messageIdOf(msg, folder);
       if (await alreadyLogged(messageId)) continue;
 
