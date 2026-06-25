@@ -1208,8 +1208,29 @@ export const DeleteMachineParams = zod.object({
 
 
 /**
+ * @summary Get warehouse dashboard summary stats
+ */
+export const GetWarehouseSummaryResponse = zod.object({
+  "stockValue": zod.number().describe('Total value of stock (quantity \* purchasePrice)'),
+  "itemCount": zod.number().describe('Total number of warehouse items'),
+  "itemsBelowMin": zod.number().describe('Items where quantity <= minQuantity'),
+  "itemsWithoutPrice": zod.number().describe('Items without a purchase price'),
+  "movementsToday": zod.number().describe('Number of stock movements recorded today'),
+  "waitingForInvoice": zod.number().describe('Pending billing documents with stock-allocated lines')
+})
+
+
+/**
  * @summary List all warehouse items
  */
+export const ListWarehouseItemsQueryParams = zod.object({
+  "category": zod.coerce.string().optional(),
+  "supplierName": zod.coerce.string().optional(),
+  "belowMin": zod.coerce.boolean().optional(),
+  "noPrice": zod.coerce.boolean().optional(),
+  "changedAfter": zod.date().optional().describe('Filter items that had any movement on or after this date (YYYY-MM-DD)')
+})
+
 export const ListWarehouseItemsResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -1220,6 +1241,11 @@ export const ListWarehouseItemsResponseItem = zod.object({
   "purchasePrice": zod.number().nullish(),
   "salePrice": zod.number().nullish(),
   "minQuantity": zod.number().nullish(),
+  "ean": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "latestPriceDate": zod.string().nullish().describe('ISO date of the most recent purchase-price record'),
   "createdAt": zod.string()
 })
 export const ListWarehouseItemsResponse = zod.array(ListWarehouseItemsResponseItem)
@@ -1294,6 +1320,11 @@ export const UpdateWarehouseItemResponse = zod.object({
   "purchasePrice": zod.number().nullish(),
   "salePrice": zod.number().nullish(),
   "minQuantity": zod.number().nullish(),
+  "ean": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "latestPriceDate": zod.string().nullish().describe('ISO date of the most recent purchase-price record'),
   "createdAt": zod.string()
 })
 
@@ -1304,6 +1335,33 @@ export const UpdateWarehouseItemResponse = zod.object({
 export const DeleteWarehouseItemParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
+/**
+ * @summary List the purchase-price history of one warehouse item
+ */
+export const ListWarehouseItemPriceHistoryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListWarehouseItemPriceHistoryResponseItem = zod.object({
+  "id": zod.number(),
+  "warehouseItemId": zod.number(),
+  "billingDocumentId": zod.number().nullish(),
+  "billingDocumentLineId": zod.number().nullish(),
+  "purchasePrice": zod.number(),
+  "currency": zod.string(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "documentDate": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdByName": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListWarehouseItemPriceHistoryResponse = zod.array(ListWarehouseItemPriceHistoryResponseItem)
 
 
 /**
@@ -1349,7 +1407,16 @@ export const CreateWarehouseMovementBody = zod.object({
   "direction": zod.enum(['in', 'out']),
   "quantity": zod.number().gt(createWarehouseMovementBodyQuantityExclusiveMin),
   "unitPrice": zod.number().nullish(),
-  "note": zod.string().nullish()
+  "note": zod.string().nullish(),
+  "idempotencyKey": zod.string().nullish().describe('Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate')
+})
+
+
+/**
+ * @summary Cancel (storno) the last manual movement of an item
+ */
+export const CancelLastWarehouseMovementParams = zod.object({
+  "id": zod.coerce.number()
 })
 
 

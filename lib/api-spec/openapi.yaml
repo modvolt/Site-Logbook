@@ -1195,11 +1195,52 @@ paths:
         "404":
           description: Not found
 
+  /warehouse-summary:
+    get:
+      operationId: getWarehouseSummary
+      tags: [warehouse]
+      summary: Get warehouse dashboard summary stats
+      responses:
+        "200":
+          description: Warehouse summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseSummary"
+
   /warehouse-items:
     get:
       operationId: listWarehouseItems
       tags: [warehouse]
       summary: List all warehouse items
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: supplierName
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: belowMin
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: noPrice
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: changedAfter
+          in: query
+          required: false
+          description: "Filter items that had any movement on or after this date (YYYY-MM-DD)"
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: Warehouse items
@@ -1288,6 +1329,29 @@ paths:
         "404":
           description: Not found
 
+  /warehouse-items/{id}/price-history:
+    get:
+      operationId: listWarehouseItemPriceHistory
+      tags: [warehouse]
+      summary: List the purchase-price history of one warehouse item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Price history (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WarehousePriceHistory"
+        "404":
+          description: Not found
+
   /warehouse-items/{id}/movements:
     get:
       operationId: listWarehouseItemMovements
@@ -1337,6 +1401,35 @@ paths:
           description: Invalid input
         "404":
           description: Not found
+        "409":
+          description: Duplicate idempotency key (movement already recorded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseMovement"
+
+  /warehouse-items/{id}/movements/cancel-last:
+    post:
+      operationId: cancelLastWarehouseMovement
+      tags: [warehouse]
+      summary: Cancel (storno) the last manual movement of an item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Reversal movement created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseMovement"
+        "404":
+          description: No cancellable manual movement found
+        "409":
+          description: Last movement already reversed
 
   /warehouse-movements:
     get:
@@ -6637,6 +6730,64 @@ components:
         notes:
           type: ["string", "null"]
 
+    WarehouseSummary:
+      type: object
+      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, movementsToday, waitingForInvoice]
+      properties:
+        stockValue:
+          type: number
+          description: Total value of stock (quantity * purchasePrice)
+        itemCount:
+          type: integer
+          description: Total number of warehouse items
+        itemsBelowMin:
+          type: integer
+          description: Items where quantity <= minQuantity
+        itemsWithoutPrice:
+          type: integer
+          description: Items without a purchase price
+        movementsToday:
+          type: integer
+          description: Number of stock movements recorded today
+        waitingForInvoice:
+          type: integer
+          description: Pending billing documents with stock-allocated lines
+
+    WarehousePriceHistory:
+      type: object
+      required: [id, warehouseItemId, purchasePrice, currency, createdAt]
+      properties:
+        id:
+          type: integer
+        warehouseItemId:
+          type: integer
+        billingDocumentId:
+          type: ["integer", "null"]
+        billingDocumentLineId:
+          type: ["integer", "null"]
+        purchasePrice:
+          type: number
+        currency:
+          type: string
+        supplierName:
+          type: ["string", "null"]
+        supplierIc:
+          type: ["string", "null"]
+        ean:
+          type: ["string", "null"]
+        supplierSku:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        documentDate:
+          type: ["string", "null"]
+        note:
+          type: ["string", "null"]
+        createdByName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
     WarehouseItem:
       type: object
       required: [id, name, quantity, createdAt]
@@ -6659,6 +6810,17 @@ components:
           type: ["number", "null"]
         minQuantity:
           type: ["number", "null"]
+        ean:
+          type: ["string", "null"]
+        supplierSku:
+          type: ["string", "null"]
+        supplierName:
+          type: ["string", "null"]
+        supplierIc:
+          type: ["string", "null"]
+        latestPriceDate:
+          type: ["string", "null"]
+          description: ISO date of the most recent purchase-price record
         createdAt:
           type: string
 
@@ -6773,6 +6935,9 @@ components:
           type: ["number", "null"]
         note:
           type: ["string", "null"]
+        idempotencyKey:
+          type: ["string", "null"]
+          description: Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate
 
     AuditLogEntry:
       type: object

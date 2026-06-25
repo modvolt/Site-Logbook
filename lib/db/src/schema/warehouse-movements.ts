@@ -6,7 +6,9 @@ import {
   numeric,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { warehouseItemsTable } from "./warehouse-items";
@@ -61,6 +63,10 @@ export const warehouseMovementsTable = pgTable(
     }),
 
     note: text("note"),
+    // Optional client-generated idempotency key. If the same key is submitted
+    // again for the same item, the handler returns the existing movement (409)
+    // instead of inserting a duplicate. Null for automatic/system movements.
+    idempotencyKey: text("idempotency_key"),
     createdByUserId: integer("created_by_user_id").references(
       () => usersTable.id,
       { onDelete: "set null" },
@@ -74,6 +80,10 @@ export const warehouseMovementsTable = pgTable(
     index("warehouse_movements_billing_document_id_idx").on(t.billingDocumentId),
     index("warehouse_movements_job_id_idx").on(t.jobId),
     index("warehouse_movements_created_at_idx").on(t.createdAt),
+    // Partial unique index: non-null idempotency keys must be unique per item.
+    uniqueIndex("warehouse_movements_idempotency_key_idx")
+      .on(t.warehouseItemId, t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} is not null`),
   ],
 );
 

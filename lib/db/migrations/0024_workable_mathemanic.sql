@@ -1,0 +1,2 @@
+ALTER TABLE "warehouse_movements" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "warehouse_movements_idempotency_key_idx" ON "warehouse_movements" USING btree ("warehouse_item_id","idempotency_key") WHERE "warehouse_movements"."idempotency_key" is not null;

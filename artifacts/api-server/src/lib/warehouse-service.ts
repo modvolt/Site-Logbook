@@ -370,7 +370,13 @@ export async function reconcileActivityMaterialStockMovement(
 export async function createManualMovement(
   db: typeof import("@workspace/db").db,
   warehouseItemId: number,
-  input: { direction: "in" | "out"; quantity: number; unitPrice?: number | null; note?: string | null },
+  input: {
+    direction: "in" | "out";
+    quantity: number;
+    unitPrice?: number | null;
+    note?: string | null;
+    idempotencyKey?: string | null;
+  },
   actor: Actor,
 ): Promise<WarehouseMovement> {
   const qty = round2(input.quantity);
@@ -392,6 +398,7 @@ export async function createManualMovement(
           input.unitPrice == null ? null : String(round2(input.unitPrice)),
         sourceType: "manual",
         sourceId: null,
+        idempotencyKey: input.idempotencyKey ?? null,
         note: input.note?.trim() || "Ruční korekce",
         createdByUserId: actor.userId,
         createdByName: actor.name,

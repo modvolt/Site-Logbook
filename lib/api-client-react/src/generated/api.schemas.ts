@@ -732,6 +732,21 @@ export interface MachineUpdate {
   notes?: string | null;
 }
 
+export interface WarehouseSummary {
+  /** Total value of stock (quantity * purchasePrice) */
+  stockValue: number;
+  /** Total number of warehouse items */
+  itemCount: number;
+  /** Items where quantity <= minQuantity */
+  itemsBelowMin: number;
+  /** Items without a purchase price */
+  itemsWithoutPrice: number;
+  /** Number of stock movements recorded today */
+  movementsToday: number;
+  /** Pending billing documents with stock-allocated lines */
+  waitingForInvoice: number;
+}
+
 export interface WarehouseItem {
   id: number;
   name: string;
@@ -748,6 +763,19 @@ export interface WarehouseItem {
   salePrice?: number | null;
   /** @nullable */
   minQuantity?: number | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /**
+     * ISO date of the most recent purchase-price record
+     * @nullable
+     */
+  latestPriceDate?: string | null;
   createdAt: string;
 }
 
@@ -792,6 +820,34 @@ export interface WarehouseImportResult {
   created: number;
   updated: number;
   skipped: number;
+}
+
+export interface WarehousePriceHistory {
+  id: number;
+  warehouseItemId: number;
+  /** @nullable */
+  billingDocumentId?: number | null;
+  /** @nullable */
+  billingDocumentLineId?: number | null;
+  purchasePrice: number;
+  currency: string;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  documentDate?: string | null;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  createdByName?: string | null;
+  createdAt: string;
 }
 
 export type WarehouseMovementDirection = typeof WarehouseMovementDirection[keyof typeof WarehouseMovementDirection];
@@ -846,6 +902,11 @@ export interface WarehouseMovementInput {
   unitPrice?: number | null;
   /** @nullable */
   note?: string | null;
+  /**
+     * Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate
+     * @nullable
+     */
+  idempotencyKey?: string | null;
 }
 
 export interface DashboardSummary {
@@ -3124,6 +3185,17 @@ from: string;
  * ISO date string (YYYY-MM-DD), inclusive
  */
 to: string;
+};
+
+export type ListWarehouseItemsParams = {
+category?: string;
+supplierName?: string;
+belowMin?: boolean;
+noPrice?: boolean;
+/**
+ * Filter items that had any movement on or after this date (YYYY-MM-DD)
+ */
+changedAfter?: string;
 };
 
 export type ListWarehouseMovementsParams = {

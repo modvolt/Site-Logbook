@@ -37,7 +37,7 @@ export default function JobForm() {
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
   const { data: customers } = useListCustomers({ query: { queryKey: getListCustomersQueryKey() } });
   const { data: existingJobs } = useListJobs(undefined, { query: { queryKey: getListJobsQueryKey() } });
-  const { data: warehouseItems } = useListWarehouseItems({ query: { queryKey: getListWarehouseItemsQueryKey() } });
+  const { data: warehouseItems } = useListWarehouseItems(undefined, { query: { queryKey: getListWarehouseItemsQueryKey() } });
 
   const titleSuggestions = (existingJobs ?? []).map(j => j.title);
   const materialSuggestions = (warehouseItems ?? []).map(w => w.name);

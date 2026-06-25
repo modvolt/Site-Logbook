@@ -22,5 +22,18 @@ export interface WarehouseItem {
   salePrice?: number | null;
   /** @nullable */
   minQuantity?: number | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /**
+     * ISO date of the most recent purchase-price record
+     * @nullable
+     */
+  latestPriceDate?: string | null;
   createdAt: string;
 }

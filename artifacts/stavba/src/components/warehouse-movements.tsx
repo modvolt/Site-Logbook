@@ -1,12 +1,16 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   useListWarehouseItemMovements,
   useCreateWarehouseMovement,
+  useCancelLastWarehouseMovement,
+  useListWarehouseItemPriceHistory,
   getListWarehouseItemMovementsQueryKey,
   getListWarehouseItemsQueryKey,
   getListWarehouseMovementsQueryKey,
+  getListWarehouseItemPriceHistoryQueryKey,
+  getGetWarehouseSummaryQueryKey,
 } from "@workspace/api-client-react";
-import type { WarehouseMovement } from "@workspace/api-client-react";
+import type { WarehouseMovement, WarehousePriceHistory } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import {
@@ -16,6 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DecimalInput, decimalError } from "@/components/decimal-input";
@@ -30,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowDownToLine, ArrowUpFromLine, History } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, History, RotateCcw, TrendingDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -57,6 +62,25 @@ const fmtDateTime = (iso: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+const fmtDate = (iso: string | null | undefined) =>
+  iso
+    ? new Date(iso).toLocaleDateString("cs-CZ", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    : "—";
+
+const fmtKc = (v: number | null | undefined) =>
+  v != null ? `${v.toLocaleString("cs-CZ")} Kč` : "—";
+
+/** Generate a client-side UUID for idempotency. */
+function newIdempotencyKey(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /** A single movement row, used both in the per-item history and the book. */
 export function MovementRow({
@@ -111,6 +135,29 @@ export function MovementRow({
   );
 }
 
+/** Price history row. */
+function PriceHistoryRow({ ph }: { ph: WarehousePriceHistory }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-2.5 border-b last:border-0">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">
+          {ph.supplierName ?? "Neznámý dodavatel"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {ph.documentNumber ? `Doklad ${ph.documentNumber}` : ""}
+          {ph.documentNumber && ph.documentDate ? " · " : ""}
+          {ph.documentDate ? fmtDate(ph.documentDate) : ""}
+        </p>
+        {ph.note && <p className="text-xs text-muted-foreground truncate">{ph.note}</p>}
+        <p className="text-xs text-muted-foreground">{fmtDate(ph.createdAt)}</p>
+      </div>
+      <div className="font-semibold shrink-0 tabular-nums text-primary">
+        {fmtKc(ph.purchasePrice)}
+      </div>
+    </div>
+  );
+}
+
 /** Per-item movement history + manual correction form. */
 export function ItemMovementHistoryDialog({
   itemId,
@@ -130,28 +177,43 @@ export function ItemMovementHistoryDialog({
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: movements, isLoading } = useListWarehouseItemMovements(itemId, {
+  const { data: movements, isLoading: movLoading } = useListWarehouseItemMovements(itemId, {
     query: {
       queryKey: getListWarehouseItemMovementsQueryKey(itemId),
       enabled: open,
     },
   });
 
+  const { data: priceHistory, isLoading: priceLoading } = useListWarehouseItemPriceHistory(
+    itemId,
+    {
+      query: {
+        queryKey: getListWarehouseItemPriceHistoryQueryKey(itemId),
+        enabled: open,
+      },
+    },
+  );
+
   const createMovement = useCreateWarehouseMovement();
+  const cancelLast = useCancelLastWarehouseMovement();
 
   const [direction, setDirection] = useState<"in" | "out">("in");
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
+  // Idempotency key: generated once per form-fill; reset after successful submit.
+  const [idemKey, setIdemKey] = useState<string>(() => newIdempotencyKey());
 
   const qty = Number(quantity.replace(",", "."));
   const qtyValid = Number.isFinite(qty) && qty > 0;
   const quantityErr = decimalError(quantity, { positiveOnly: true });
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     invalidateData(queryClient, "warehouse");
-  };
+    queryClient.invalidateQueries({ queryKey: getGetWarehouseSummaryQueryKey() });
+  }, [queryClient]);
 
   const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [lastSaved, setLastSaved] = useState<{ direction: "in" | "out"; qty: number } | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -166,7 +228,12 @@ export function ItemMovementHistoryDialog({
         createMovement.mutate(
           {
             id: itemId,
-            data: { direction, quantity: qty, note: note.trim() || null },
+            data: {
+              direction,
+              quantity: qty,
+              note: note.trim() || null,
+              idempotencyKey: idemKey,
+            },
           },
           {
             onSuccess: () => {
@@ -174,6 +241,8 @@ export function ItemMovementHistoryDialog({
               setQuantity("");
               setNote("");
               setDirection("in");
+              // Reset idempotency key for the next movement
+              setIdemKey(newIdempotencyKey());
               refresh();
               toast({ title: "Pohyb zaznamenán" });
               setLastSaved(saved);
@@ -181,9 +250,16 @@ export function ItemMovementHistoryDialog({
               savedTimerRef.current = setTimeout(() => setLastSaved(null), 4000);
               resolve();
             },
-            onError: (err) => {
-              toast({ title: "Nepodařilo se zaznamenat pohyb", variant: "destructive" });
-              reject(err);
+            onError: (err: any) => {
+              // 409 = idempotent duplicate — treat as success to avoid confusing the user
+              if (err?.status === 409) {
+                toast({ title: "Pohyb byl již zaznamenán" });
+                setIdemKey(newIdempotencyKey());
+                resolve();
+              } else {
+                toast({ title: "Nepodařilo se zaznamenat pohyb", variant: "destructive" });
+                reject(err);
+              }
             },
           },
         );
@@ -192,6 +268,36 @@ export function ItemMovementHistoryDialog({
       setSubmitting(false);
     }
   };
+
+  const handleCancelLast = async () => {
+    if (cancelling || cancelLast.isPending) return;
+    if (!confirm("Stornovat poslední ruční pohyb? Tato akce přidá opačný pohyb do knihy.")) return;
+    setCancelling(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        cancelLast.mutate(
+          { id: itemId },
+          {
+            onSuccess: () => {
+              refresh();
+              toast({ title: "Pohyb stornován" });
+              resolve();
+            },
+            onError: (err: any) => {
+              const msg = err?.data?.error ?? err?.message ?? "Nepodařilo se stornovat pohyb.";
+              toast({ title: "Storno selhalo", description: msg, variant: "destructive" });
+              reject(err);
+            },
+          },
+        );
+      });
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // Has at least one manual movement that can be reversed
+  const hasManualMovements = movements?.some((m) => m.sourceType === "manual");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -235,44 +341,97 @@ export function ItemMovementHistoryDialog({
               className="h-11"
             />
             <div className="flex items-center justify-between gap-3">
-              {lastSaved ? (
-                <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  ✓ {lastSaved.direction === "in" ? "+" : "−"}{lastSaved.qty} {unit ?? ""} uloženo
-                </span>
-              ) : (
-                <span />
-              )}
-              <Button type="submit" disabled={!qtyValid || submitting || createMovement.isPending}>
-                {submitting || createMovement.isPending ? "Ukládám pohyb…" : "Zaznamenat pohyb"}
-              </Button>
+              <div className="flex items-center gap-2">
+                {lastSaved ? (
+                  <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    ✓ {lastSaved.direction === "in" ? "+" : "−"}{lastSaved.qty} {unit ?? ""} uloženo
+                  </span>
+                ) : (
+                  <span />
+                )}
+              </div>
+              <div className="flex gap-2">
+                {hasManualMovements && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 text-xs gap-1"
+                    disabled={cancelling || cancelLast.isPending}
+                    onClick={handleCancelLast}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    {cancelling || cancelLast.isPending ? "Stornuji…" : "Storno posl."}
+                  </Button>
+                )}
+                <Button type="submit" disabled={!qtyValid || submitting || createMovement.isPending}>
+                  {submitting || createMovement.isPending ? "Ukládám pohyb…" : "Zaznamenat pohyb"}
+                </Button>
+              </div>
             </div>
           </form>
         )}
 
-        <ScrollArea className="max-h-[50vh] pr-3">
-          {isLoading ? (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-14 w-full" />
-              ))}
-            </div>
-          ) : movements && movements.length > 0 ? (
-            <div>
-              {movements.map((m) => (
-                <MovementRow key={m.id} m={m} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-center py-8 text-muted-foreground text-sm">
-              Zatím žádné pohyby.
-            </p>
-          )}
-        </ScrollArea>
+        <Tabs defaultValue="movements">
+          <TabsList className="w-full">
+            <TabsTrigger value="movements" className="flex-1">
+              Pohyby <Badge variant="secondary" className="ml-1 h-5 px-1 text-xs">{movements?.length ?? 0}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="prices" className="flex-1">
+              <TrendingDown className="h-3 w-3 mr-1" />
+              Historie cen
+              {priceHistory && priceHistory.length > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 px-1 text-xs">{priceHistory.length}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="movements" className="mt-0">
+            <ScrollArea className="max-h-[40vh] pr-3">
+              {movLoading ? (
+                <div className="space-y-2 pt-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-14 w-full" />
+                  ))}
+                </div>
+              ) : movements && movements.length > 0 ? (
+                <div>
+                  {movements.map((m) => (
+                    <MovementRow key={m.id} m={m} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center py-8 text-muted-foreground text-sm">
+                  Zatím žádné pohyby.
+                </p>
+              )}
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="prices" className="mt-0">
+            <ScrollArea className="max-h-[40vh] pr-3">
+              {priceLoading ? (
+                <div className="space-y-2 pt-2">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-14 w-full" />
+                  ))}
+                </div>
+              ) : priceHistory && priceHistory.length > 0 ? (
+                <div>
+                  {priceHistory.map((ph) => (
+                    <PriceHistoryRow key={ph.id} ph={ph} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center py-8 text-muted-foreground text-sm">
+                  Žádná cenová historie.
+                </p>
+              )}
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
-          <Badge variant="secondary" className="mr-auto">
-            {movements?.length ?? 0} pohybů
-          </Badge>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Zavřít
           </Button>

@@ -29,7 +29,7 @@ export default function SkladPohyby() {
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
 
-  const { data: items } = useListWarehouseItems({
+  const { data: items } = useListWarehouseItems(undefined, {
     query: { queryKey: getListWarehouseItemsQueryKey() },
   });
 

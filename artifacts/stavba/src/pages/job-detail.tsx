@@ -931,7 +931,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const deleteMaterial = useDeleteMaterial();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: warehouseItems } = useListWarehouseItems({
+  const { data: warehouseItems } = useListWarehouseItems(undefined, {
     query: { enabled: isExpanded, queryKey: getListWarehouseItemsQueryKey() }
   });
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);

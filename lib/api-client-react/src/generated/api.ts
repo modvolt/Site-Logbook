@@ -122,6 +122,7 @@ import type {
   ListEmailImportMessagesParams,
   ListInvoicesParams,
   ListJobsParams,
+  ListWarehouseItemsParams,
   ListWarehouseMovementsParams,
   LoginInput,
   Machine,
@@ -173,7 +174,9 @@ import type {
   WarehouseItemInput,
   WarehouseMovement,
   WarehouseMovementInput,
-  WarehousePriceUpdateResult
+  WarehousePriceHistory,
+  WarehousePriceUpdateResult,
+  WarehouseSummary
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -4082,20 +4085,20 @@ export const useDeleteMachine = <TError = ErrorType<void>,
       return useMutation(getDeleteMachineMutationOptions(options));
     }
 
-export const getListWarehouseItemsUrl = () => {
+export const getGetWarehouseSummaryUrl = () => {
 
 
 
 
-  return `/api/warehouse-items`
+  return `/api/warehouse-summary`
 }
 
 /**
- * @summary List all warehouse items
+ * @summary Get warehouse dashboard summary stats
  */
-export const listWarehouseItems = async ( options?: RequestInit): Promise<WarehouseItem[]> => {
+export const getWarehouseSummary = async ( options?: RequestInit): Promise<WarehouseSummary> => {
 
-  return customFetch<WarehouseItem[]>(getListWarehouseItemsUrl(),
+  return customFetch<WarehouseSummary>(getGetWarehouseSummaryUrl(),
   {
     ...options,
     method: 'GET'
@@ -4108,23 +4111,107 @@ export const listWarehouseItems = async ( options?: RequestInit): Promise<Wareho
 
 
 
-export const getListWarehouseItemsQueryKey = () => {
+export const getGetWarehouseSummaryQueryKey = () => {
     return [
-    `/api/warehouse-items`
+    `/api/warehouse-summary`
     ] as const;
     }
 
 
-export const getListWarehouseItemsQueryOptions = <TData = Awaited<ReturnType<typeof listWarehouseItems>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetWarehouseSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getWarehouseSummary>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListWarehouseItemsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetWarehouseSummaryQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWarehouseItems>>> = ({ signal }) => listWarehouseItems({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouseSummary>>> = ({ signal }) => getWarehouseSummary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWarehouseSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWarehouseSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getWarehouseSummary>>>
+export type GetWarehouseSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get warehouse dashboard summary stats
+ */
+
+export function useGetWarehouseSummary<TData = Awaited<ReturnType<typeof getWarehouseSummary>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWarehouseSummaryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListWarehouseItemsUrl = (params?: ListWarehouseItemsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/warehouse-items?${stringifiedParams}` : `/api/warehouse-items`
+}
+
+/**
+ * @summary List all warehouse items
+ */
+export const listWarehouseItems = async (params?: ListWarehouseItemsParams, options?: RequestInit): Promise<WarehouseItem[]> => {
+
+  return customFetch<WarehouseItem[]>(getListWarehouseItemsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWarehouseItemsQueryKey = (params?: ListWarehouseItemsParams,) => {
+    return [
+    `/api/warehouse-items`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListWarehouseItemsQueryOptions = <TData = Awaited<ReturnType<typeof listWarehouseItems>>, TError = ErrorType<unknown>>(params?: ListWarehouseItemsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWarehouseItemsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWarehouseItems>>> = ({ signal }) => listWarehouseItems(params, { signal, ...requestOptions });
 
 
 
@@ -4142,11 +4229,11 @@ export type ListWarehouseItemsQueryError = ErrorType<unknown>
  */
 
 export function useListWarehouseItems<TData = Awaited<ReturnType<typeof listWarehouseItems>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListWarehouseItemsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListWarehouseItemsQueryOptions(options)
+  const queryOptions = getListWarehouseItemsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -4443,6 +4530,83 @@ export const useDeleteWarehouseItem = <TError = ErrorType<void>,
       return useMutation(getDeleteWarehouseItemMutationOptions(options));
     }
 
+export const getListWarehouseItemPriceHistoryUrl = (id: number,) => {
+
+
+
+
+  return `/api/warehouse-items/${id}/price-history`
+}
+
+/**
+ * @summary List the purchase-price history of one warehouse item
+ */
+export const listWarehouseItemPriceHistory = async (id: number, options?: RequestInit): Promise<WarehousePriceHistory[]> => {
+
+  return customFetch<WarehousePriceHistory[]>(getListWarehouseItemPriceHistoryUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWarehouseItemPriceHistoryQueryKey = (id: number,) => {
+    return [
+    `/api/warehouse-items/${id}/price-history`
+    ] as const;
+    }
+
+
+export const getListWarehouseItemPriceHistoryQueryOptions = <TData = Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWarehouseItemPriceHistoryQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>> = ({ signal }) => listWarehouseItemPriceHistory(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWarehouseItemPriceHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>>
+export type ListWarehouseItemPriceHistoryQueryError = ErrorType<void>
+
+
+/**
+ * @summary List the purchase-price history of one warehouse item
+ */
+
+export function useListWarehouseItemPriceHistory<TData = Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWarehouseItemPriceHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWarehouseItemPriceHistoryQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getListWarehouseItemMovementsUrl = (id: number,) => {
 
 
@@ -4547,7 +4711,7 @@ export const createWarehouseMovement = async (id: number,
 
 
 
-export const getCreateWarehouseMovementMutationOptions = <TError = ErrorType<void>,
+export const getCreateWarehouseMovementMutationOptions = <TError = ErrorType<void | WarehouseMovement>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementInput>}, TContext> => {
 
@@ -4576,12 +4740,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateWarehouseMovementMutationResult = NonNullable<Awaited<ReturnType<typeof createWarehouseMovement>>>
     export type CreateWarehouseMovementMutationBody = BodyType<WarehouseMovementInput>
-    export type CreateWarehouseMovementMutationError = ErrorType<void>
+    export type CreateWarehouseMovementMutationError = ErrorType<void | WarehouseMovement>
 
     /**
  * @summary Append a manual correction movement (příjem/výdej) to an item
  */
-export const useCreateWarehouseMovement = <TError = ErrorType<void>,
+export const useCreateWarehouseMovement = <TError = ErrorType<void | WarehouseMovement>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createWarehouseMovement>>,
@@ -4590,6 +4754,76 @@ export const useCreateWarehouseMovement = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCreateWarehouseMovementMutationOptions(options));
+    }
+
+export const getCancelLastWarehouseMovementUrl = (id: number,) => {
+
+
+
+
+  return `/api/warehouse-items/${id}/movements/cancel-last`
+}
+
+/**
+ * @summary Cancel (storno) the last manual movement of an item
+ */
+export const cancelLastWarehouseMovement = async (id: number, options?: RequestInit): Promise<WarehouseMovement> => {
+
+  return customFetch<WarehouseMovement>(getCancelLastWarehouseMovementUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCancelLastWarehouseMovementMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelLastWarehouseMovement>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelLastWarehouseMovement>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['cancelLastWarehouseMovement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelLastWarehouseMovement>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  cancelLastWarehouseMovement(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelLastWarehouseMovementMutationResult = NonNullable<Awaited<ReturnType<typeof cancelLastWarehouseMovement>>>
+
+    export type CancelLastWarehouseMovementMutationError = ErrorType<void>
+
+    /**
+ * @summary Cancel (storno) the last manual movement of an item
+ */
+export const useCancelLastWarehouseMovement = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelLastWarehouseMovement>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelLastWarehouseMovement>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getCancelLastWarehouseMovementMutationOptions(options));
     }
 
 export const getListWarehouseMovementsUrl = (params?: ListWarehouseMovementsParams,) => {

@@ -526,7 +526,7 @@ function MaterialsSection({
   onChange: () => void;
 }) {
   const { toast } = useToast();
-  const { data: warehouseItems } = useListWarehouseItems({ query: { queryKey: getListWarehouseItemsQueryKey() } });
+  const { data: warehouseItems } = useListWarehouseItems(undefined, { query: { queryKey: getListWarehouseItemsQueryKey() } });
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });

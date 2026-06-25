@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { eq, count } from "drizzle-orm";
+import { and, count, eq, isNull, lte, sql, desc, ilike } from "drizzle-orm";
 import { db, warehouseItemsTable } from "@workspace/db";
 import { warehouseMovementsTable } from "@workspace/db";
 import { warehousePriceHistoryTable } from "@workspace/db";
+import { billingDocumentsTable, billingDocumentLinesTable } from "@workspace/db";
 import {
   CreateWarehouseItemBody,
   UpdateWarehouseItemParams,
@@ -13,6 +14,9 @@ import {
   CreateWarehouseMovementParams,
   CreateWarehouseMovementBody,
   ListWarehouseMovementsQueryParams,
+  ListWarehouseItemsQueryParams,
+  ListWarehouseItemPriceHistoryParams,
+  CancelLastWarehouseMovementParams,
 } from "@workspace/api-zod";
 import {
   listItemMovements,
@@ -21,6 +25,7 @@ import {
   type Actor,
   type AppError,
 } from "../lib/warehouse-service";
+import { num, round2 } from "../lib/invoice-calc";
 
 const router: IRouter = Router();
 
@@ -33,7 +38,10 @@ function actorOf(req: { auth?: { userId: number; name: string } }): Actor {
 
 const NUMERIC_FIELDS = ["quantity", "purchasePrice", "salePrice", "minQuantity"] as const;
 
-function serializeWarehouseItem(w: typeof warehouseItemsTable.$inferSelect) {
+function serializeWarehouseItem(
+  w: typeof warehouseItemsTable.$inferSelect,
+  latestPriceDate?: string | null,
+) {
   return {
     ...w,
     quantity: w.quantity != null ? Number(w.quantity) : 0,
@@ -41,6 +49,7 @@ function serializeWarehouseItem(w: typeof warehouseItemsTable.$inferSelect) {
     salePrice: w.salePrice != null ? Number(w.salePrice) : null,
     minQuantity: w.minQuantity != null ? Number(w.minQuantity) : null,
     createdAt: w.createdAt.toISOString(),
+    latestPriceDate: latestPriceDate ?? null,
   };
 }
 
@@ -52,9 +61,111 @@ function numericToStrings(data: Record<string, unknown>): Record<string, unknown
   return out;
 }
 
-router.get("/warehouse-items", async (_req, res): Promise<void> => {
-  const items = await db.select().from(warehouseItemsTable).orderBy(warehouseItemsTable.name);
-  res.json(items.map(serializeWarehouseItem));
+// ---------------------------------------------------------------------------
+// Warehouse summary
+// ---------------------------------------------------------------------------
+
+router.get("/warehouse-summary", async (_req, res): Promise<void> => {
+  const [agg] = await db
+    .select({
+      itemCount: count(),
+      itemsBelowMin: sql<number>`sum(case when ${warehouseItemsTable.minQuantity} is not null and ${warehouseItemsTable.quantity} <= ${warehouseItemsTable.minQuantity} then 1 else 0 end)`.mapWith(Number),
+      itemsWithoutPrice: sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null then 1 else 0 end)`.mapWith(Number),
+      stockValue: sql<number>`coalesce(sum(${warehouseItemsTable.quantity} * ${warehouseItemsTable.purchasePrice}), 0)`.mapWith(Number),
+    })
+    .from(warehouseItemsTable);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const [movRow] = await db
+    .select({ c: count() })
+    .from(warehouseMovementsTable)
+    .where(sql`${warehouseMovementsTable.createdAt} >= ${todayStart}`);
+
+  // Count billing documents with stock-allocated lines that are not yet approved
+  const [waitRow] = await db
+    .select({ c: count() })
+    .from(billingDocumentsTable)
+    .where(
+      and(
+        sql`${billingDocumentsTable.status} in ('needs_review', 'awaiting_approval', 'pending')`,
+        sql`exists (
+          select 1 from ${billingDocumentLinesTable}
+          where ${billingDocumentLinesTable.documentId} = ${billingDocumentsTable.id}
+            and ${billingDocumentLinesTable.lineType} = 'material'
+            and ${billingDocumentLinesTable.allocationType} = 'stock'
+        )`,
+      ),
+    );
+
+  res.json({
+    stockValue: round2(num(agg?.stockValue ?? 0)),
+    itemCount: Number(agg?.itemCount ?? 0),
+    itemsBelowMin: Number(agg?.itemsBelowMin ?? 0),
+    itemsWithoutPrice: Number(agg?.itemsWithoutPrice ?? 0),
+    movementsToday: Number(movRow?.c ?? 0),
+    waitingForInvoice: Number(waitRow?.c ?? 0),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Warehouse items list + create
+// ---------------------------------------------------------------------------
+
+router.get("/warehouse-items", async (req, res): Promise<void> => {
+  const query = ListWarehouseItemsQueryParams.safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: query.error.message });
+    return;
+  }
+  const { category, supplierName, belowMin, noPrice, changedAfter } = query.data;
+
+  const conds = [];
+  if (category) conds.push(ilike(warehouseItemsTable.category, `%${category}%`));
+  if (supplierName) conds.push(ilike(warehouseItemsTable.supplierName, `%${supplierName}%`));
+  if (belowMin === true) {
+    conds.push(
+      and(
+        sql`${warehouseItemsTable.minQuantity} is not null`,
+        lte(warehouseItemsTable.quantity, warehouseItemsTable.minQuantity!),
+      )!,
+    );
+  }
+  if (noPrice === true) {
+    conds.push(isNull(warehouseItemsTable.purchasePrice));
+  }
+  if (changedAfter) {
+    const since = new Date(`${changedAfter}T00:00:00`);
+    conds.push(
+      sql`exists (
+        select 1 from ${warehouseMovementsTable}
+        where ${warehouseMovementsTable.warehouseItemId} = ${warehouseItemsTable.id}
+          and ${warehouseMovementsTable.createdAt} >= ${since}
+      )`,
+    );
+  }
+
+  // Fetch latest price dates for all items in one query
+  const priceRows = await db
+    .select({
+      warehouseItemId: warehousePriceHistoryTable.warehouseItemId,
+      latestDate: sql<string>`max(${warehousePriceHistoryTable.createdAt})`,
+    })
+    .from(warehousePriceHistoryTable)
+    .groupBy(warehousePriceHistoryTable.warehouseItemId);
+
+  const priceDateMap = new Map<number, string>();
+  for (const r of priceRows) {
+    if (r.latestDate) priceDateMap.set(r.warehouseItemId, new Date(r.latestDate).toISOString());
+  }
+
+  const items = await db
+    .select()
+    .from(warehouseItemsTable)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(warehouseItemsTable.name);
+
+  res.json(items.map((item) => serializeWarehouseItem(item, priceDateMap.get(item.id) ?? null)));
 });
 
 router.post("/warehouse-items", async (req, res): Promise<void> => {
@@ -68,8 +179,12 @@ router.post("/warehouse-items", async (req, res): Promise<void> => {
     .insert(warehouseItemsTable)
     .values(numericToStrings(parsed.data) as any)
     .returning();
-  res.status(201).json(serializeWarehouseItem(item));
+  res.status(201).json(serializeWarehouseItem(item, null));
 });
+
+// ---------------------------------------------------------------------------
+// Warehouse import
+// ---------------------------------------------------------------------------
 
 router.post("/warehouse-items/import", async (req, res): Promise<void> => {
   const parsed = ImportWarehouseItemsBody.safeParse(req.body);
@@ -98,8 +213,6 @@ router.post("/warehouse-items/import", async (req, res): Promise<void> => {
         continue;
       }
       const code = raw.code?.trim() || null;
-      // Only include fields the caller actually provided, so a partial supplier
-      // file (e.g. just code + price) updates those fields without wiping the rest.
       const provided: Record<string, unknown> = { name };
       if (raw.category !== undefined) provided.category = raw.category;
       if (raw.unit !== undefined) provided.unit = raw.unit;
@@ -130,6 +243,10 @@ router.post("/warehouse-items/import", async (req, res): Promise<void> => {
   res.json({ created, updated, skipped });
 });
 
+// ---------------------------------------------------------------------------
+// Warehouse item update + delete
+// ---------------------------------------------------------------------------
+
 router.patch("/warehouse-items/:id", async (req, res): Promise<void> => {
   const params = UpdateWarehouseItemParams.safeParse(req.params);
   if (!params.success) {
@@ -154,7 +271,7 @@ router.patch("/warehouse-items/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(serializeWarehouseItem(item));
+  res.json(serializeWarehouseItem(item, null));
 });
 
 router.delete("/warehouse-items/:id", async (req, res): Promise<void> => {
@@ -202,6 +319,41 @@ router.delete("/warehouse-items/:id", async (req, res): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
+// Price history
+// ---------------------------------------------------------------------------
+
+router.get("/warehouse-items/:id/price-history", async (req, res): Promise<void> => {
+  const params = ListWarehouseItemPriceHistoryParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [item] = await db
+    .select({ id: warehouseItemsTable.id })
+    .from(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, params.data.id));
+  if (!item) {
+    res.status(404).json({ error: "Warehouse item not found" });
+    return;
+  }
+
+  const rows = await db
+    .select()
+    .from(warehousePriceHistoryTable)
+    .where(eq(warehousePriceHistoryTable.warehouseItemId, params.data.id))
+    .orderBy(desc(warehousePriceHistoryTable.createdAt));
+
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      purchasePrice: Number(r.purchasePrice),
+      documentDate: r.documentDate ? r.documentDate.toISOString() : null,
+      createdAt: r.createdAt.toISOString(),
+    })),
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Stock movements (ledger / kniha pohybů)
 // ---------------------------------------------------------------------------
 
@@ -222,6 +374,85 @@ router.get("/warehouse-items/:id/movements", async (req, res): Promise<void> => 
   res.json(await listItemMovements(db, params.data.id));
 });
 
+router.post("/warehouse-items/:id/movements/cancel-last", async (req, res): Promise<void> => {
+  const params = CancelLastWarehouseMovementParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const actor = actorOf(req);
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Find the latest manual movement for this item that hasn't been reversed
+      const [last] = await tx
+        .select()
+        .from(warehouseMovementsTable)
+        .where(
+          and(
+            eq(warehouseMovementsTable.warehouseItemId, params.data.id),
+            eq(warehouseMovementsTable.sourceType, "manual"),
+          ),
+        )
+        .orderBy(desc(warehouseMovementsTable.createdAt), desc(warehouseMovementsTable.id))
+        .limit(1);
+
+      if (!last) {
+        throw Object.assign(new Error("Žádný ruční pohyb k stornování."), { statusCode: 404 });
+      }
+
+      // If the last movement is itself a storno, refuse to storno a storno
+      if (last.note && /^Storno pohybu #\d+/.test(last.note)) {
+        throw Object.assign(
+          new Error("Poslední pohyb je již storno — nelze stornovat znovu."),
+          { statusCode: 409 },
+        );
+      }
+
+      // Insert a reversal movement (opposite direction, same quantity)
+      const reverseDirection: "in" | "out" = last.direction === "in" ? "out" : "in";
+      const [reversal] = await tx
+        .insert(warehouseMovementsTable)
+        .values({
+          warehouseItemId: last.warehouseItemId,
+          direction: reverseDirection,
+          quantity: last.quantity,
+          unitPrice: last.unitPrice,
+          sourceType: "manual",
+          sourceId: null,
+          note: `Storno pohybu #${last.id}`,
+          createdByUserId: actor.userId,
+          createdByName: actor.name,
+        })
+        .returning();
+
+      // Recompute quantity
+      const qRes = (await tx.execute(sql`
+        select coalesce(sum(case when direction = 'in' then quantity else -quantity end), 0) as qty
+        from warehouse_movements
+        where warehouse_item_id = ${params.data.id}
+      `)) as unknown as { rows: Array<{ qty: string | number }> };
+      const qty = round2(num(qRes.rows[0]?.qty ?? 0));
+      await tx
+        .update(warehouseItemsTable)
+        .set({ quantity: String(qty) })
+        .where(eq(warehouseItemsTable.id, params.data.id));
+
+      return reversal;
+    });
+
+    const [serialized] = await listMovements(db, {
+      warehouseItemId: params.data.id,
+      limit: 1,
+    });
+    res.status(201).json(serialized ?? result);
+  } catch (err) {
+    const e = err as AppError;
+    res.status(e.statusCode ?? 500).json({ error: e.message });
+  }
+});
+
 router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> => {
   const params = CreateWarehouseMovementParams.safeParse(req.params);
   if (!params.success) {
@@ -233,8 +464,34 @@ router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> =>
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+
+  // Idempotency: if key provided, check for existing movement first
+  const idempotencyKey = (parsed.data as any).idempotencyKey ?? null;
+  if (idempotencyKey) {
+    const [existing] = await db
+      .select({ id: warehouseMovementsTable.id })
+      .from(warehouseMovementsTable)
+      .where(
+        and(
+          eq(warehouseMovementsTable.warehouseItemId, params.data.id),
+          eq(warehouseMovementsTable.idempotencyKey, idempotencyKey),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      const [serialized] = await listMovements(db, {
+        warehouseItemId: params.data.id,
+        limit: 500,
+      });
+      const found = (await listMovements(db, { warehouseItemId: params.data.id, limit: 1000 }))
+        .find((m) => m.id === existing.id);
+      res.status(409).json(found ?? serialized);
+      return;
+    }
+  }
+
   try {
-    const movement = await createManualMovement(
+    await createManualMovement(
       db,
       params.data.id,
       {
@@ -242,6 +499,7 @@ router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> =>
         quantity: parsed.data.quantity,
         unitPrice: parsed.data.unitPrice ?? null,
         note: parsed.data.note ?? null,
+        idempotencyKey,
       },
       actorOf(req),
     );
@@ -250,8 +508,13 @@ router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> =>
       warehouseItemId: params.data.id,
       limit: 1,
     });
-    res.status(201).json(serialized ?? { ...movement });
+    res.status(201).json(serialized);
   } catch (err) {
+    // PG unique violation (23505) = duplicate idempotency key raced past pre-check
+    if ((err as any)?.code === "23505") {
+      res.status(409).json({ error: "Pohyb s tímto klíčem byl již zaznamenán (duplicitní požadavek)." });
+      return;
+    }
     const e = err as AppError;
     res.status(e.statusCode ?? 500).json({ error: e.message });
   }

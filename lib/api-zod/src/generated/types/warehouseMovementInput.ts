@@ -15,4 +15,9 @@ export interface WarehouseMovementInput {
   unitPrice?: number | null;
   /** @nullable */
   note?: string | null;
+  /**
+     * Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate
+     * @nullable
+     */
+  idempotencyKey?: string | null;
 }
