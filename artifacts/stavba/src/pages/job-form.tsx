@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
 import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed, MapPin } from "lucide-react";
-import { DecimalInput, parseDecimal } from "@/components/decimal-input";
+import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -231,6 +231,10 @@ export default function JobForm() {
     });
   };
 
+  const newMatQtyError = decimalError(newMaterial.quantity);
+  const newMatPriceError = decimalError(newMaterial.pricePerUnit);
+  const newMatHasErrors = !!(newMatQtyError || newMatPriceError);
+
   return (
     <div className="flex flex-col min-h-screen bg-background pb-20 md:pb-0">
       <div className="sticky top-0 z-10 bg-card border-b p-4 flex items-center gap-4">
@@ -238,7 +242,7 @@ export default function JobForm() {
           <ArrowLeft className="h-6 w-6" />
         </Button>
         <h1 className="text-xl font-bold flex-1">Nová zakázka</h1>
-        <Button onClick={handleSubmit} disabled={createJob.isPending} className="h-10 px-4">
+        <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="h-10 px-4">
           <Save className="h-5 w-5 mr-2" /> Uložit
         </Button>
       </div>
@@ -537,6 +541,7 @@ export default function JobForm() {
                   onChange={v => setNewMaterial(p => ({ ...p, quantity: v }))}
                   placeholder="Množství"
                   className="h-10"
+                  error={newMatQtyError}
                 />
                 <Input
                   value={newMaterial.unit}
@@ -549,9 +554,10 @@ export default function JobForm() {
                   onChange={v => setNewMaterial(p => ({ ...p, pricePerUnit: v }))}
                   placeholder="Kč/ks"
                   className="h-10"
+                  error={newMatPriceError}
                 />
               </div>
-              <Button type="button" onClick={addMaterial} disabled={!newMaterial.name.trim()} variant="secondary" className="h-11 w-full">
+              <Button type="button" onClick={addMaterial} disabled={!newMaterial.name.trim() || newMatHasErrors} variant="secondary" className="h-11 w-full">
                 <Plus className="h-4 w-4 mr-2" /> Přidat materiál
               </Button>
             </div>
@@ -562,7 +568,7 @@ export default function JobForm() {
       </div>
       
       <div className="md:hidden fixed bottom-16 left-0 right-0 p-4 bg-background border-t">
-        <Button onClick={handleSubmit} disabled={createJob.isPending} className="w-full h-14 text-lg font-bold">
+        <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="w-full h-14 text-lg font-bold">
           <Save className="h-6 w-6 mr-2" /> Uložit zakázku
         </Button>
       </div>

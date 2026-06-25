@@ -991,6 +991,7 @@ function SplitDialog({
 
   const total = parts.reduce((s, p) => s + (parseDecimal(p.quantity) ?? 0), 0);
   const balanced = Math.abs(total - line.quantity) < 0.0001;
+  const anyPartInvalid = parts.some((p) => !!decimalError(p.quantity));
 
   const setPart = (i: number, patch: Partial<SplitPart>) =>
     setParts((p) => p.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
