@@ -235,6 +235,11 @@ export default function JobForm() {
   const newMatPriceError = decimalError(newMaterial.pricePerUnit);
   const newMatHasErrors = !!(newMatQtyError || newMatPriceError);
 
+  const recurrenceError = formData.type === "service_call"
+    ? decimalError(formData.recurrenceIntervalDays, { positiveOnly: true, integerOnly: true })
+    : undefined;
+  const formHasErrors = !!(newMatHasErrors || recurrenceError);
+
   return (
     <div className="flex flex-col min-h-screen bg-background pb-20 md:pb-0">
       <div className="sticky top-0 z-10 bg-card border-b p-4 flex items-center gap-4">
@@ -243,7 +248,7 @@ export default function JobForm() {
         </Button>
         <h1 className="text-xl font-bold flex-1">Nová zakázka</h1>
         <div className="flex flex-col items-end">
-          <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="h-10 px-4">
+          <Button onClick={handleSubmit} disabled={createJob.isPending || formHasErrors} className="h-10 px-4">
             <Save className="h-5 w-5 mr-2" /> Uložit
           </Button>
           {newMatHasErrors && (
@@ -297,19 +302,20 @@ export default function JobForm() {
               <Label htmlFor="recurrenceIntervalDays" className="text-base flex items-center gap-1.5">
                 <RefreshCw className="h-4 w-4 text-red-500" /> Opakovat servis
               </Label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">každých</span>
-                <Input
-                  id="recurrenceIntervalDays"
-                  name="recurrenceIntervalDays"
-                  type="number"
-                  min="1"
-                  value={formData.recurrenceIntervalDays}
-                  onChange={handleChange}
-                  placeholder="např. 30"
-                  className="h-12 w-28 text-base"
-                />
-                <span className="text-sm text-muted-foreground">dní</span>
+              <div className="flex items-start gap-2">
+                <span className="text-sm text-muted-foreground mt-3.5">každých</span>
+                <div className="flex flex-col">
+                  <DecimalInput
+                    id="recurrenceIntervalDays"
+                    value={formData.recurrenceIntervalDays}
+                    onChange={(val) => setFormData(prev => ({ ...prev, recurrenceIntervalDays: val }))}
+                    placeholder="např. 30"
+                    inputMode="numeric"
+                    className="h-12 w-28 text-base"
+                    error={recurrenceError}
+                  />
+                </div>
+                <span className="text-sm text-muted-foreground mt-3.5">dní</span>
               </div>
               <p className="text-xs text-muted-foreground">
                 Po dokončení se automaticky vytvoří další výjezd o tolik dní později. Nechte prázdné pro jednorázový výjezd.
@@ -573,7 +579,7 @@ export default function JobForm() {
       </div>
       
       <div className="md:hidden fixed bottom-16 left-0 right-0 p-4 bg-background border-t">
-        <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="w-full h-14 text-lg font-bold">
+        <Button onClick={handleSubmit} disabled={createJob.isPending || formHasErrors} className="w-full h-14 text-lg font-bold">
           <Save className="h-6 w-6 mr-2" /> Uložit zakázku
         </Button>
         {newMatHasErrors && (
