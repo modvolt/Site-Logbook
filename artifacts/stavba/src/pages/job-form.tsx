@@ -242,9 +242,14 @@ export default function JobForm() {
           <ArrowLeft className="h-6 w-6" />
         </Button>
         <h1 className="text-xl font-bold flex-1">Nová zakázka</h1>
-        <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="h-10 px-4">
-          <Save className="h-5 w-5 mr-2" /> Uložit
-        </Button>
+        <div className="flex flex-col items-end">
+          <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="h-10 px-4">
+            <Save className="h-5 w-5 mr-2" /> Uložit
+          </Button>
+          {newMatHasErrors && (
+            <p className="text-xs text-destructive mt-1">Opravte chybné pole materiálu</p>
+          )}
+        </div>
       </div>
 
       <div className="p-4 md:p-8 max-w-2xl mx-auto w-full flex-1">
@@ -571,6 +576,9 @@ export default function JobForm() {
         <Button onClick={handleSubmit} disabled={createJob.isPending || newMatHasErrors} className="w-full h-14 text-lg font-bold">
           <Save className="h-6 w-6 mr-2" /> Uložit zakázku
         </Button>
+        {newMatHasErrors && (
+          <p className="text-xs text-destructive text-center mt-2">Opravte chybné pole materiálu výše</p>
+        )}
       </div>
     </div>
   );
