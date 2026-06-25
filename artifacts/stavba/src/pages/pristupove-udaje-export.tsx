@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -61,6 +62,8 @@ export default function PristupoveUdajeExport() {
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [sendTo, setSendTo] = useState("");
   const [sendToError, setSendToError] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
   const { toast } = useToast();
   const sendEmail = useSendCredentialsEmail();
   const auditExport = useAuditCredentialExport();
@@ -132,9 +135,18 @@ export default function PristupoveUdajeExport() {
 
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+  const defaultSubject = "Přístupové údaje";
+  const defaultBody = (companyName: string | undefined) =>
+    `Dobrý den${companyName ? `, ${companyName}` : ""},\n\n` +
+    `v příloze zasíláme přehled přístupových údajů k Vašim zařízením.\n\n` +
+    `Tento dokument obsahuje citlivé údaje, uchovávejte jej prosím bezpečně.\n\n` +
+    `S pozdravem,\nModvolt s.r.o.`;
+
   const handleOpenSendDialog = () => {
     setSendTo(customer?.email?.trim() ?? "");
     setSendToError("");
+    setEmailSubject(defaultSubject);
+    setEmailBody(defaultBody(customer?.companyName));
     setSendDialogOpen(true);
   };
 
@@ -153,7 +165,15 @@ export default function PristupoveUdajeExport() {
     if (!element) return;
     try {
       const pdfBase64 = await jobSheetPdfBase64(element);
-      const result = await sendEmail.mutateAsync({ id: customerId, data: { pdfBase64, to } });
+      const result = await sendEmail.mutateAsync({
+        id: customerId,
+        data: {
+          pdfBase64,
+          to,
+          subject: emailSubject.trim() || undefined,
+          message: emailBody.trim() || undefined,
+        },
+      });
       setSendDialogOpen(false);
       toast({
         title: "E-mail odeslán",
@@ -225,11 +245,7 @@ export default function PristupoveUdajeExport() {
             disabled={sendEmail.isPending}
             className="shrink-0"
           >
-            {sendEmail.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Mail className="h-4 w-4 mr-2" />
-            )}
+            <Mail className="h-4 w-4 mr-2" />
             Odeslat e-mailem
           </Button>
           <Button onClick={() => window.print()} className="shrink-0">
@@ -265,11 +281,11 @@ export default function PristupoveUdajeExport() {
 
       {/* Send email dialog */}
       <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Odeslat přístupové údaje e-mailem</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label htmlFor="send-to">Komu (e-mail)</Label>
               <Input
@@ -290,6 +306,29 @@ export default function PristupoveUdajeExport() {
                 <p className="text-sm text-destructive">{sendToError}</p>
               )}
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email-subject">Předmět</Label>
+              <Input
+                id="email-subject"
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="Předmět e-mailu"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="email-body">Zpráva</Label>
+              <Textarea
+                id="email-body"
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                rows={8}
+                placeholder="Text e-mailu"
+                className="resize-y font-mono text-sm"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              PDF s přístupovými údaji bude přiloženo jako příloha.
+            </p>
           </div>
           <DialogFooter>
             <Button
