@@ -12,6 +12,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DecimalInput } from "@/components/decimal-input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -137,8 +138,8 @@ export default function Sklad() {
       <Input value={f.name} onChange={(e) => set({ ...f, name: e.target.value })} placeholder="Název *" className="h-12 bg-background md:col-span-2" />
       <Input value={f.code} onChange={(e) => set({ ...f, code: e.target.value })} placeholder="Kód / katalogové číslo" className="h-12 bg-background" />
       <Input value={f.unit} onChange={(e) => set({ ...f, unit: e.target.value })} placeholder="Jednotka (ks, m, kg…)" className="h-12 bg-background" />
-      <Input inputMode="decimal" value={f.salePrice} onChange={(e) => set({ ...f, salePrice: e.target.value })} placeholder="Prodejní cena (Kč)" className="h-12 bg-background" />
-      <Input inputMode="decimal" value={f.minQuantity} onChange={(e) => set({ ...f, minQuantity: e.target.value })} placeholder="Min. množství (alert)" className="h-12 bg-background" />
+      <DecimalInput value={f.salePrice} onChange={(v) => set({ ...f, salePrice: v })} placeholder="Prodejní cena (Kč)" className="h-12 bg-background" />
+      <DecimalInput value={f.minQuantity} onChange={(v) => set({ ...f, minQuantity: v })} placeholder="Min. množství (alert)" className="h-12 bg-background" />
     </div>
   );
 
