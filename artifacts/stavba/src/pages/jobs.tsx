@@ -7,13 +7,14 @@ import {
   useUpdateMyPreferences,
   getGetMyPreferencesQueryKey,
 } from "@workspace/api-client-react";
+import type { ListJobsParams } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
 import { sortJobsDoneLast } from "@/lib/job-sort";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Download, Calendar, Save, Pencil, Trash2 } from "lucide-react";
+import { Search, Download, Calendar, Save, Pencil, Trash2, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,17 @@ import {
 } from "@/lib/export-presets";
 
 const EXPORT_COLUMNS_STORAGE_KEY = "stavba.exportColumns.v1";
+
+type Segment = "in_progress" | "ready_to_bill" | "problematic" | "without_customer" | "without_price" | "cancelled";
+
+const SEGMENTS: { key: Segment; label: string; className: string }[] = [
+  { key: "in_progress", label: "Rozpracované", className: "border-amber-400 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100" },
+  { key: "ready_to_bill", label: "K fakturaci", className: "border-green-500 text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100" },
+  { key: "problematic", label: "Problémové", className: "border-red-400 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 hover:bg-red-100" },
+  { key: "without_customer", label: "Bez zákazníka", className: "border-orange-400 text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100" },
+  { key: "without_price", label: "Bez ceny", className: "border-violet-400 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100" },
+  { key: "cancelled", label: "Archiv", className: "border-gray-400 text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100" },
+];
 
 function sanitizeColumns(raw: unknown): ExportColumnKey[] | null {
   if (!Array.isArray(raw)) return null;
@@ -67,6 +79,7 @@ function readStatusFromSearch(search: string): string {
 export default function Jobs() {
   const search_ = useSearch();
   const [status, setStatus] = useState<string>(() => readStatusFromSearch(search_));
+  const [segment, setSegment] = useState<Segment | null>(null);
 
   useEffect(() => {
     setStatus(readStatusFromSearch(search_));
@@ -155,8 +168,6 @@ export default function Jobs() {
     },
   });
 
-  // One-time hydration: if authenticated, prefer server value; otherwise mark
-  // local state as authoritative immediately.
   useEffect(() => {
     if (isHydrated) return;
     if (!isAuthenticated) {
@@ -171,9 +182,6 @@ export default function Jobs() {
 
   const { mutate: saveServerPrefs } = useUpdateMyPreferences();
 
-  // Persist user-driven changes. Local storage is always written; server is
-  // updated only when authenticated and hydration has completed, so the
-  // initial server snapshot is never overwritten by stale local state.
   const persistColumns = useCallback(
     (next: ExportColumnKey[]) => {
       setSelectedColumns(next);
@@ -201,15 +209,22 @@ export default function Jobs() {
     [isAuthenticated, isHydrated, saveServerPrefs, queryClient]
   );
 
+  const queryParams: ListJobsParams = segment
+    ? { segment }
+    : status !== "all"
+    ? { status }
+    : {};
+
   const { data: jobs, isLoading } = useListJobs(
-    status !== "all" ? { status } : {},
-    { query: { queryKey: getListJobsQueryKey(status !== "all" ? { status } : {}) } }
+    queryParams,
+    { query: { queryKey: getListJobsQueryKey(queryParams) } }
   );
 
   const filtered = jobs?.filter(j =>
     j.title.toLowerCase().includes(search.toLowerCase()) ||
     (j.clientSite || "").toLowerCase().includes(search.toLowerCase()) ||
-    (j.customerCompanyName || "").toLowerCase().includes(search.toLowerCase())
+    (j.customerCompanyName || "").toLowerCase().includes(search.toLowerCase()) ||
+    ((j as any).shortName || "").toLowerCase().includes(search.toLowerCase())
   );
 
   const { data: exportJobs } = useListJobs(
@@ -295,14 +310,51 @@ export default function Jobs() {
     }
   }
 
+  function handleSegmentClick(key: Segment) {
+    if (segment === key) {
+      setSegment(null);
+    } else {
+      setSegment(key);
+      setStatus("all");
+    }
+  }
+
+  function handleStatusChange(value: string) {
+    setStatus(value);
+    setSegment(null);
+  }
+
+  const activeSegmentConfig = segment ? SEGMENTS.find(s => s.key === segment) : null;
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Všechny zakázky</h1>
         <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} className="gap-2">
           <Download className="h-4 w-4" />
           Export
         </Button>
+      </div>
+
+      {/* Segment chips */}
+      <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
+        {SEGMENTS.map(seg => (
+          <button
+            key={seg.key}
+            type="button"
+            onClick={() => handleSegmentClick(seg.key)}
+            className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+              segment === seg.key
+                ? seg.className + " ring-2 ring-offset-1 ring-current"
+                : "border-border text-muted-foreground bg-background hover:bg-muted"
+            }`}
+          >
+            {seg.label}
+            {segment === seg.key && (
+              <X className="w-3 h-3 ml-0.5 opacity-70" />
+            )}
+          </button>
+        ))}
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -315,9 +367,11 @@ export default function Jobs() {
             className="pl-10 h-12 text-base"
           />
         </div>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-[150px] h-12">
-            <SelectValue placeholder="Stav" />
+        <Select value={segment ? "__segment" : status} onValueChange={v => { if (v !== "__segment") handleStatusChange(v); }}>
+          <SelectTrigger className={`w-[150px] h-12 ${activeSegmentConfig ? activeSegmentConfig.className + " border" : ""}`}>
+            <SelectValue>
+              {activeSegmentConfig ? activeSegmentConfig.label : undefined}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Vše</SelectItem>

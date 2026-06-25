@@ -1,6 +1,6 @@
 {
-  "id": "fa91f35d-a501-48d2-99a5-ec467a162c92",
-  "prevId": "3bcbfe3f-a230-4711-a7d0-47e6b07dfa62",
+  "id": "0a08711f-99c5-44ae-9c57-6558d91b622c",
+  "prevId": "fa91f35d-a501-48d2-99a5-ec467a162c92",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -119,6 +119,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "short_name": {
+          "name": "short_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "type": {
           "name": "type",

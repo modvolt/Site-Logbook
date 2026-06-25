@@ -176,6 +176,13 @@
       "when": 1782426036821,
       "tag": "0024_workable_mathemanic",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782426833516,
+      "tag": "0025_tan_cobalt_man",
+      "breakpoints": true
     }
   ]
 }

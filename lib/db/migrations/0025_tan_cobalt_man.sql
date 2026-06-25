@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "short_name" text;

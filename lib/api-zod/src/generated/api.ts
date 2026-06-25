@@ -31,6 +31,7 @@ export const ListJobsQueryParams = zod.object({
 export const ListJobsResponseItem = zod.object({
   "id": zod.number(),
   "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
@@ -62,6 +63,8 @@ export const ListJobsResponseItem = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "createdAt": zod.string()
 })
 export const ListJobsResponse = zod.array(ListJobsResponseItem)
@@ -75,6 +78,7 @@ export const ListJobsResponse = zod.array(ListJobsResponseItem)
 
 export const CreateJobBody = zod.object({
   "title": zod.string().min(1),
+  "shortName": zod.string().nullish(),
   "type": zod.string(),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish(),
@@ -117,6 +121,7 @@ export const GetJobParams = zod.object({
 export const GetJobResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
@@ -148,6 +153,8 @@ export const GetJobResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "createdAt": zod.string()
 })
 
@@ -164,6 +171,7 @@ export const UpdateJobParams = zod.object({
 
 export const UpdateJobBody = zod.object({
   "title": zod.string().min(1).optional(),
+  "shortName": zod.string().nullish(),
   "type": zod.string().optional(),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish(),
@@ -191,6 +199,7 @@ export const UpdateJobBody = zod.object({
 export const UpdateJobResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
@@ -222,6 +231,8 @@ export const UpdateJobResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "createdAt": zod.string()
 })
 
@@ -248,6 +259,7 @@ export const UpdateJobStatusBody = zod.object({
 export const UpdateJobStatusResponse = zod.object({
   "id": zod.number(),
   "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
@@ -279,6 +291,8 @@ export const UpdateJobStatusResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "createdAt": zod.string()
 })
 
@@ -1474,6 +1488,7 @@ export const GetDashboardSummaryResponse = zod.object({
 export const GetTodayJobsResponseItem = zod.object({
   "id": zod.number(),
   "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "clientSite": zod.string().nullish(),
   "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
@@ -1505,6 +1520,8 @@ export const GetTodayJobsResponseItem = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "createdAt": zod.string()
 })
 export const GetTodayJobsResponse = zod.array(GetTodayJobsResponseItem)

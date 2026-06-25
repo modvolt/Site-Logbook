@@ -5469,12 +5469,15 @@ components:
 
     Job:
       type: object
-      required: [id, title, type, date, status, sortOrder, createdAt]
+      required: [id, title, type, date, status, sortOrder, createdAt, billingLinked]
       properties:
         id:
           type: integer
         title:
           type: string
+        shortName:
+          type: ["string", "null"]
+          description: Short internal identifier / reference number shown on cards
         type:
           type: string
           description: "site_visit | consultation | planned_work | service_call | change | other"
@@ -5548,6 +5551,12 @@ components:
           type: integer
         materialCount:
           type: integer
+        materialTotalCost:
+          type: ["number", "null"]
+          description: Sum of (quantity * pricePerUnit) for all materials on the job; null if no priced materials
+        billingLinked:
+          type: boolean
+          description: True when the job is linked to at least one non-cancelled invoice
         createdAt:
           type: string
 
@@ -5568,6 +5577,8 @@ components:
         title:
           type: string
           minLength: 1
+        shortName:
+          type: ["string", "null"]
         type:
           type: string
         clientSite:
@@ -5617,6 +5628,8 @@ components:
         title:
           type: string
           minLength: 1
+        shortName:
+          type: ["string", "null"]
         type:
           type: string
         clientSite:

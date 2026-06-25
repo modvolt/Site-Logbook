@@ -9,6 +9,8 @@
 export interface JobUpdate {
   /** @minLength 1 */
   title?: string;
+  /** @nullable */
+  shortName?: string | null;
   type?: string;
   /** @nullable */
   clientSite?: string | null;

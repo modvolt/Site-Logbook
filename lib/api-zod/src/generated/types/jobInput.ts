@@ -9,6 +9,8 @@
 export interface JobInput {
   /** @minLength 1 */
   title: string;
+  /** @nullable */
+  shortName?: string | null;
   type: string;
   /** @nullable */
   clientSite?: string | null;

@@ -98,10 +98,26 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     .from(attachmentsTable)
     .where(eq(attachmentsTable.jobId, job.id));
 
-  const [materialCount] = await db
-    .select({ total: count() })
+  const [materialAgg] = await db
+    .select({
+      total: count(),
+      totalCost: sql<string | null>`sum(case when ${materialsTable.pricePerUnit} is not null and ${materialsTable.pricePerUnit} != '0' then coalesce(${materialsTable.quantity}, 1) * ${materialsTable.pricePerUnit}::numeric else null end)`,
+    })
     .from(materialsTable)
     .where(eq(materialsTable.jobId, job.id));
+
+  const [billingLink] = await db
+    .select({ jobId: invoiceSourceLinksTable.jobId })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .where(
+      and(
+        eq(invoiceSourceLinksTable.jobId, job.id),
+        isNotNull(invoiceSourceLinksTable.jobId),
+        ne(invoicesTable.status, "cancelled"),
+      ),
+    )
+    .limit(1);
 
   let assignedPersonName: string | null = null;
   if (job.assignedPersonId) {
@@ -125,6 +141,9 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     customerEmail = customer?.email ?? null;
   }
 
+  const rawCost = materialAgg?.totalCost;
+  const materialTotalCost = rawCost != null ? Number(rawCost) : null;
+
   return {
     ...job,
     hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
@@ -139,7 +158,9 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     taskCount: taskCounts?.total ?? 0,
     taskDoneCount: taskCounts?.done ?? 0,
     attachmentCount: attachmentCount?.total ?? 0,
-    materialCount: materialCount?.total ?? 0,
+    materialCount: materialAgg?.total ?? 0,
+    materialTotalCost,
+    billingLinked: billingLink != null,
     assignedPersonName,
     customerCompanyName,
     customerPhone,

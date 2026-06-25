@@ -9,6 +9,11 @@
 export interface Job {
   id: number;
   title: string;
+  /**
+     * Short internal identifier / reference number shown on cards
+     * @nullable
+     */
+  shortName?: string | null;
   /** site_visit | consultation | planned_work | service_call | change | other */
   type: string;
   /** @nullable */
@@ -85,5 +90,12 @@ export interface Job {
   taskDoneCount?: number;
   attachmentCount?: number;
   materialCount?: number;
+  /**
+     * Sum of (quantity * pricePerUnit) for all materials on the job; null if no priced materials
+     * @nullable
+     */
+  materialTotalCost?: number | null;
+  /** True when the job is linked to at least one non-cancelled invoice */
+  billingLinked: boolean;
   createdAt: string;
 }

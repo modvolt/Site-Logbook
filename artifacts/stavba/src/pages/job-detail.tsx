@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
-import { format } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey,
   useUpdateJobStatus, useUpdateJob, useDeleteJob,
@@ -23,7 +23,8 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
-  AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw
+  AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw,
+  Tag, Package, CircleDollarSign, UserX, Banknote, Image
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -115,6 +116,7 @@ export default function JobDetail() {
   const updateStatus = useUpdateJobStatus();
   const updateJob = useUpdateJob();
   const deleteJob = useDeleteJob();
+  const [statusSaveState, setStatusSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const elapsed = useJobTimer(job?.timerStartedAt);
   const isTimerRunning = !!job?.timerStartedAt;
@@ -150,12 +152,19 @@ export default function JobDetail() {
       });
       return;
     }
+    setStatusSaveState("saving");
     updateStatus.mutate({ id, data: { status: newStatus } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
         invalidateJobLists(queryClient);
-        toast({ title: "Stav změněn" });
-      }
+        setStatusSaveState("saved");
+        setTimeout(() => setStatusSaveState("idle"), 2000);
+      },
+      onError: () => {
+        setStatusSaveState("error");
+        setTimeout(() => setStatusSaveState("idle"), 3000);
+        toast({ title: "Nepodařilo se uložit stav", variant: "destructive" });
+      },
     });
   };
 
@@ -259,8 +268,31 @@ export default function JobDetail() {
             <Button variant="ghost" size="icon" onClick={() => window.history.back()} className="shrink-0">
               <ArrowLeft className="h-6 w-6" />
             </Button>
-            <h1 className="text-xl font-bold flex-1 truncate leading-tight">{job.title}</h1>
-            <StatusDropdown currentStatus={job.status} onChange={handleStatusChange} />
+            <div className="flex-1 min-w-0">
+              {(job as any).shortName && (
+                <div className="flex items-center gap-1 mb-0.5">
+                  <Tag className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{(job as any).shortName}</span>
+                </div>
+              )}
+              <h1 className="text-xl font-bold truncate leading-tight">{job.title}</h1>
+            </div>
+            <div className="shrink-0 flex flex-col items-end gap-1">
+              <StatusDropdown currentStatus={job.status} onChange={handleStatusChange} />
+              {statusSaveState === "saved" && (
+                <span className="text-xs font-medium text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Stav uložen
+                </span>
+              )}
+              {statusSaveState === "error" && (
+                <span className="text-xs font-medium text-destructive flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> Nepodařilo se
+                </span>
+              )}
+              {statusSaveState === "saving" && (
+                <span className="text-xs text-muted-foreground">Ukládám…</span>
+              )}
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -352,6 +384,7 @@ export default function JobDetail() {
         >
           <FileText className="w-4 h-4 mr-2" /> Zakázkový list (PDF / e-mail)
         </Button>
+        <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
@@ -407,6 +440,124 @@ function StatusDropdown({ currentStatus, onChange }: { currentStatus: string, on
   );
 }
 
+function JobReadinessPanel({ job, onEditInfo, onOpenBilling }: { job: any; onEditInfo: () => void; onOpenBilling: () => void }) {
+  const isActive = job.status === "planned" || job.status === "in_progress";
+  const isDone = job.status === "done";
+
+  const hasCustomer = !!job.customerId;
+  const hasHours = job.hoursSpent != null && Number(job.hoursSpent) > 0;
+  const materialCount = job.materialCount ?? 0;
+  const materialTotalCost = job.materialTotalCost as number | null;
+  const attachmentCount = job.attachmentCount ?? 0;
+  const billingLinked = !!job.billingLinked;
+
+  let billingLabel = "Čeká";
+  let billingColor = "text-muted-foreground";
+  if (job.status === "vyfakturovano" || billingLinked) {
+    billingLabel = "Vyfakturováno";
+    billingColor = "text-violet-600 dark:text-violet-400";
+  } else if (isDone && !billingLinked) {
+    billingLabel = "K fakturaci";
+    billingColor = "text-green-600 dark:text-green-400";
+  } else if (isActive) {
+    billingLabel = "Rozpracováno";
+    billingColor = "text-muted-foreground";
+  }
+
+  const inProgressDays = job.status === "in_progress" ? differenceInDays(new Date(), new Date(job.date)) : 0;
+
+  const rows: { icon: React.ReactNode; label: string; value: React.ReactNode; action?: React.ReactNode; ok?: boolean; warn?: boolean }[] = [
+    {
+      icon: <User className="w-4 h-4" />,
+      label: "Zákazník",
+      value: hasCustomer
+        ? <span className="font-medium text-foreground">{job.customerCompanyName || job.clientSite || "Přiřazen"}</span>
+        : <span className="text-orange-600 dark:text-orange-400 font-medium">Chybí</span>,
+      ok: hasCustomer,
+      warn: !hasCustomer && isActive,
+      action: (!hasCustomer && isActive) ? (
+        <button type="button" onClick={onEditInfo} className="text-xs text-primary hover:underline font-medium">
+          Doplnit
+        </button>
+      ) : undefined,
+    },
+    {
+      icon: <Clock className="w-4 h-4" />,
+      label: "Hodiny",
+      value: hasHours
+        ? <span className="font-medium text-foreground">{Number(job.hoursSpent).toFixed(2)} h{job.hoursFromPlan ? <span className="ml-1 text-xs text-blue-600">(dle plánu)</span> : ""}</span>
+        : <span className="text-muted-foreground">Nenaměřeno</span>,
+      ok: hasHours,
+    },
+    {
+      icon: <Package className="w-4 h-4" />,
+      label: "Materiál",
+      value: materialCount > 0
+        ? <span className="font-medium text-foreground">
+            {materialCount} pol.{materialTotalCost != null && materialTotalCost > 0 ? ` · ${materialTotalCost >= 1000 ? `${(materialTotalCost / 1000).toFixed(1)} tis. Kč` : `${Math.round(materialTotalCost)} Kč`}` : ""}
+          </span>
+        : <span className="text-muted-foreground">Bez materiálu</span>,
+      ok: materialCount > 0,
+    },
+    {
+      icon: <FileText className="w-4 h-4" />,
+      label: "Doklady / fotky",
+      value: attachmentCount > 0
+        ? <span className="font-medium text-foreground">{attachmentCount} soubor{attachmentCount === 1 ? "" : attachmentCount < 5 ? "y" : "ů"}</span>
+        : <span className="text-muted-foreground">Žádné</span>,
+      ok: attachmentCount > 0,
+    },
+    {
+      icon: <CircleDollarSign className="w-4 h-4" />,
+      label: "Fakturace",
+      value: <span className={`font-medium ${billingColor}`}>{billingLabel}</span>,
+      ok: billingLinked || job.status === "vyfakturovano",
+      warn: isDone && !billingLinked,
+      action: isDone && !billingLinked ? (
+        <button type="button" onClick={onOpenBilling} className="text-xs text-primary hover:underline font-medium">
+          Otevřít fakturaci
+        </button>
+      ) : undefined,
+    },
+  ];
+
+  if (inProgressDays > 0) {
+    rows.push({
+      icon: <AlertCircle className="w-4 h-4" />,
+      label: "Rozděláno",
+      value: <span className={`font-medium ${inProgressDays >= 14 ? "text-red-600 dark:text-red-400" : inProgressDays >= 7 ? "text-amber-600 dark:text-amber-400" : "text-foreground"}`}>
+        {inProgressDays} dní
+      </span>,
+      warn: inProgressDays >= 7,
+      ok: inProgressDays < 7,
+    });
+  }
+
+  const hasWarnings = rows.some(r => r.warn);
+
+  return (
+    <div className={`rounded-xl border bg-card shadow-sm overflow-hidden ${hasWarnings ? "border-amber-200 dark:border-amber-800/60" : "border-border"}`}>
+      <div className="px-4 py-3 border-b bg-muted/40 flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+        <span className="font-semibold text-sm">Připravenost zakázky</span>
+        {hasWarnings && <span className="ml-auto text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Vyžaduje pozornost</span>}
+      </div>
+      <div className="divide-y">
+        {rows.map((row, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+            <span className={`shrink-0 ${row.warn ? "text-amber-500" : row.ok ? "text-green-500" : "text-muted-foreground"}`}>
+              {row.icon}
+            </span>
+            <span className="text-sm text-muted-foreground w-28 shrink-0">{row.label}</span>
+            <span className="flex-1 text-sm">{row.value}</span>
+            {row.action && <span className="shrink-0">{row.action}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SectionCard({ title, icon: Icon, isExpanded, onToggle, children, summary }: any) {
   return (
     <Card className="overflow-hidden shadow-sm">
@@ -443,6 +594,20 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(job.notes || "");
+
+  const [editingShortName, setEditingShortName] = useState(false);
+  const [shortNameDraft, setShortNameDraft] = useState(job.shortName || "");
+
+  const saveShortName = () => {
+    updateJob.mutate({ id: job.id, data: { shortName: shortNameDraft.trim() || null } as any }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
+        setEditingShortName(false);
+        toast({ title: "Krátký název uložen" });
+      }
+    });
+  };
 
   const [editingAddress, setEditingAddress] = useState(false);
   const [addressDraft, setAddressDraft] = useState(job.address || "");
@@ -534,6 +699,34 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
       summary={job.notes ? "Obsahuje poznámky" : "Bez poznámek"}
     >
       <div className="p-4 space-y-4">
+        {/* Short name / reference number */}
+        <div className="col-span-2">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-muted-foreground text-sm flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Krátký název / číslo</p>
+            {!editingShortName ? (
+              <Button variant="ghost" size="sm" onClick={() => { setEditingShortName(true); setShortNameDraft(job.shortName || ""); }} className="h-7 text-xs">
+                <Edit3 className="w-3 h-3 mr-1" /> Upravit
+              </Button>
+            ) : (
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setEditingShortName(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
+                <Button size="sm" onClick={saveShortName} disabled={updateJob.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
+              </div>
+            )}
+          </div>
+          {editingShortName ? (
+            <Input
+              value={shortNameDraft}
+              onChange={e => setShortNameDraft(e.target.value)}
+              placeholder="Např. MOD-2024-001, Bytovka A, ..."
+              className="h-10 text-sm"
+              autoFocus
+              onKeyDown={e => { if (e.key === "Enter") saveShortName(); if (e.key === "Escape") setEditingShortName(false); }}
+            />
+          ) : (
+            <p className="text-sm font-medium">{job.shortName || <span className="text-muted-foreground italic">Nezadán</span>}</p>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
           <div className="col-span-2">
             <div className="flex items-center justify-between mb-1">
