@@ -108,7 +108,7 @@ export default function People() {
   });
 
   const { data: statsData } = useGetPeopleStats({
-    query: { queryKey: getGetPeopleStatsQueryKey(), refetchInterval: 60_000 },
+    query: { queryKey: getGetPeopleStatsQueryKey() },
   });
 
   const statsMap = new Map((statsData ?? []).map((s) => [s.personId, s]));

@@ -65,8 +65,12 @@ export function domainsForPath(relPath: string): ServerInvalidationDomain[] {
     add("jobs");
     // Material writes (`/jobs/:id/materials`) also move stock.
     if (p.includes("/materials")) add("warehouse");
+    // Timer start/stop changes a person's hasActiveTimer state.
+    if (p.includes("/time-entries")) add("people");
   } else if (p.startsWith("/activities")) {
     add("activities");
+    // Timer start/stop changes a person's hasActiveTimer state.
+    if (p.includes("/time-entries")) add("people");
   } else if (p.startsWith("/tasks")) {
     add("jobs");
   } else if (p.startsWith("/materials")) {
