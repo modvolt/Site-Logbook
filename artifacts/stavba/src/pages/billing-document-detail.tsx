@@ -978,6 +978,12 @@ function SplitDialog({
     { quantity: String(line.quantity - half), jobId: NONE, allocationType: line.allocationType },
   ]);
 
+  const partErrors = parts.map((p) => {
+    if (p.quantity.trim() === "") return "Zadejte množství";
+    return decimalError(p.quantity, { positiveOnly: true });
+  });
+  const hasErrors = partErrors.some(Boolean);
+
   const total = parts.reduce((s, p) => s + (parseDecimal(p.quantity) ?? 0), 0);
   const balanced = Math.abs(total - line.quantity) < 0.0001;
 
@@ -1056,6 +1062,7 @@ function SplitDialog({
                   <DecimalInput
                     value={part.quantity}
                     onChange={(v) => setPart(i, { quantity: v })}
+                    error={partErrors[i]}
                   />
                 </div>
                 <div className="space-y-1">
@@ -1112,7 +1119,7 @@ function SplitDialog({
           <Button variant="outline" onClick={onClose}>
             Zrušit
           </Button>
-          <Button onClick={submit} disabled={!balanced || splitMutation.isPending}>
+          <Button onClick={submit} disabled={hasErrors || !balanced || splitMutation.isPending}>
             Rozdělit
           </Button>
         </DialogFooter>
