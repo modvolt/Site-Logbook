@@ -33,6 +33,14 @@ type SiteForm = { name: string; address: string; contactPerson: string; phone: s
 const emptyContact: ContactForm = { name: "", role: "", phone: "", email: "" };
 const emptySite: SiteForm = { name: "", address: "", contactPerson: "", phone: "", note: "" };
 
+function extractServerError(err: unknown): string | null {
+  const msg =
+    (err as any)?.response?.data?.error ??
+    (err as any)?.data?.error ??
+    (err as any)?.message;
+  return typeof msg === "string" ? msg : null;
+}
+
 export default function CustomerDetail() {
   const params = useParams<{ id: string }>();
   const id = parseInt(params.id || "0", 10);
@@ -78,16 +86,21 @@ export default function CustomerDetail() {
   const [editForm, setEditForm] = useState({
     companyName: "", contactPerson: "", phone: "", email: "", ic: "", dic: "", address: "",
   });
+  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
 
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState<ContactForm>(emptyContact);
+  const [newContactErrors, setNewContactErrors] = useState<Record<string, string>>({});
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [editContact, setEditContact] = useState<ContactForm>(emptyContact);
+  const [editContactErrors, setEditContactErrors] = useState<Record<string, string>>({});
 
   const [showAddSite, setShowAddSite] = useState(false);
   const [newSite, setNewSite] = useState<SiteForm>(emptySite);
+  const [newSiteErrors, setNewSiteErrors] = useState<Record<string, string>>({});
   const [editingSiteId, setEditingSiteId] = useState<number | null>(null);
   const [editSite, setEditSite] = useState<SiteForm>(emptySite);
+  const [editSiteErrors, setEditSiteErrors] = useState<Record<string, string>>({});
 
   const invalidateContacts = () => invalidateData(queryClient, "customers");
   const invalidateSites = () => invalidateData(queryClient, "customers");
@@ -103,11 +116,16 @@ export default function CustomerDetail() {
       dic: customer.dic || "",
       address: customer.address || "",
     });
+    setEditFormErrors({});
     setEditing(true);
   };
 
   const handleSave = () => {
-    if (!editForm.companyName.trim()) return;
+    if (!editForm.companyName.trim()) {
+      setEditFormErrors({ companyName: "Název firmy je povinný" });
+      return;
+    }
+    setEditFormErrors({});
     updateCustomer.mutate(
       {
         id,
@@ -125,9 +143,17 @@ export default function CustomerDetail() {
         onSuccess: () => {
           invalidateData(queryClient, "customers");
           setEditing(false);
+          setEditFormErrors({});
           toast({ title: "Zákazník uložen" });
         },
-        onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
+        onError: (err) => {
+          const serverMsg = extractServerError(err);
+          if (serverMsg) {
+            setEditFormErrors({ companyName: serverMsg });
+          } else {
+            toast({ title: "Nepodařilo se uložit", variant: "destructive" });
+          }
+        },
       }
     );
   };
@@ -149,7 +175,11 @@ export default function CustomerDetail() {
   };
 
   const handleAddContact = () => {
-    if (!newContact.name.trim()) return;
+    if (!newContact.name.trim()) {
+      setNewContactErrors({ name: "Jméno kontaktu je povinné" });
+      return;
+    }
+    setNewContactErrors({});
     createContact.mutate(
       {
         customerId: id,
@@ -164,10 +194,18 @@ export default function CustomerDetail() {
         onSuccess: () => {
           invalidateContacts();
           setNewContact(emptyContact);
+          setNewContactErrors({});
           setShowAddContact(false);
           toast({ title: "Kontakt přidán" });
         },
-        onError: () => toast({ title: "Nepodařilo se přidat kontakt", variant: "destructive" }),
+        onError: (err) => {
+          const serverMsg = extractServerError(err);
+          if (serverMsg) {
+            setNewContactErrors({ name: serverMsg });
+          } else {
+            toast({ title: "Nepodařilo se přidat kontakt", variant: "destructive" });
+          }
+        },
       }
     );
   };
@@ -175,10 +213,15 @@ export default function CustomerDetail() {
   const startEditContact = (c: NonNullable<typeof contacts>[number]) => {
     setEditingContactId(c.id);
     setEditContact({ name: c.name, role: c.role || "", phone: c.phone || "", email: c.email || "" });
+    setEditContactErrors({});
   };
 
   const handleUpdateContact = (contactId: number) => {
-    if (!editContact.name.trim()) return;
+    if (!editContact.name.trim()) {
+      setEditContactErrors({ name: "Jméno kontaktu je povinné" });
+      return;
+    }
+    setEditContactErrors({});
     updateContact.mutate(
       {
         id: contactId,
@@ -193,9 +236,17 @@ export default function CustomerDetail() {
         onSuccess: () => {
           invalidateContacts();
           setEditingContactId(null);
+          setEditContactErrors({});
           toast({ title: "Kontakt upraven" });
         },
-        onError: () => toast({ title: "Nepodařilo se upravit kontakt", variant: "destructive" }),
+        onError: (err) => {
+          const serverMsg = extractServerError(err);
+          if (serverMsg) {
+            setEditContactErrors({ name: serverMsg });
+          } else {
+            toast({ title: "Nepodařilo se upravit kontakt", variant: "destructive" });
+          }
+        },
       }
     );
   };
@@ -213,7 +264,11 @@ export default function CustomerDetail() {
   };
 
   const handleAddSite = () => {
-    if (!newSite.name.trim()) return;
+    if (!newSite.name.trim()) {
+      setNewSiteErrors({ name: "Název stavby je povinný" });
+      return;
+    }
+    setNewSiteErrors({});
     createSite.mutate(
       {
         customerId: id,
@@ -229,10 +284,18 @@ export default function CustomerDetail() {
         onSuccess: () => {
           invalidateSites();
           setNewSite(emptySite);
+          setNewSiteErrors({});
           setShowAddSite(false);
           toast({ title: "Stavba přidána" });
         },
-        onError: () => toast({ title: "Nepodařilo se přidat stavbu", variant: "destructive" }),
+        onError: (err) => {
+          const serverMsg = extractServerError(err);
+          if (serverMsg) {
+            setNewSiteErrors({ name: serverMsg });
+          } else {
+            toast({ title: "Nepodařilo se přidat stavbu", variant: "destructive" });
+          }
+        },
       }
     );
   };
@@ -246,10 +309,15 @@ export default function CustomerDetail() {
       phone: s.phone || "",
       note: s.note || "",
     });
+    setEditSiteErrors({});
   };
 
   const handleUpdateSite = (siteId: number) => {
-    if (!editSite.name.trim()) return;
+    if (!editSite.name.trim()) {
+      setEditSiteErrors({ name: "Název stavby je povinný" });
+      return;
+    }
+    setEditSiteErrors({});
     updateSite.mutate(
       {
         id: siteId,
@@ -265,9 +333,17 @@ export default function CustomerDetail() {
         onSuccess: () => {
           invalidateSites();
           setEditingSiteId(null);
+          setEditSiteErrors({});
           toast({ title: "Stavba upravena" });
         },
-        onError: () => toast({ title: "Nepodařilo se upravit stavbu", variant: "destructive" }),
+        onError: (err) => {
+          const serverMsg = extractServerError(err);
+          if (serverMsg) {
+            setEditSiteErrors({ name: serverMsg });
+          } else {
+            toast({ title: "Nepodařilo se upravit stavbu", variant: "destructive" });
+          }
+        },
       }
     );
   };
@@ -344,10 +420,17 @@ export default function CustomerDetail() {
                   <label className="text-sm font-medium text-muted-foreground mb-1 block">Název firmy *</label>
                   <Input
                     value={editForm.companyName}
-                    onChange={(e) => setEditForm((p) => ({ ...p, companyName: e.target.value }))}
-                    className="h-11 text-base"
+                    onChange={(e) => {
+                      setEditForm((p) => ({ ...p, companyName: e.target.value }));
+                      if (editFormErrors.companyName) setEditFormErrors((p) => ({ ...p, companyName: "" }));
+                    }}
+                    className={`h-11 text-base${editFormErrors.companyName ? " border-destructive" : ""}`}
+                    aria-invalid={!!editFormErrors.companyName}
                     autoFocus
                   />
+                  {editFormErrors.companyName && (
+                    <p className="text-sm text-destructive mt-1">{editFormErrors.companyName}</p>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
@@ -410,10 +493,10 @@ export default function CustomerDetail() {
                   />
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <Button onClick={handleSave} disabled={!editForm.companyName.trim() || updateCustomer.isPending} className="h-10">
+                  <Button onClick={handleSave} disabled={updateCustomer.isPending} className="h-10">
                     <Save className="h-4 w-4 mr-2" /> Uložit
                   </Button>
-                  <Button variant="ghost" onClick={() => setEditing(false)} className="h-10">
+                  <Button variant="ghost" onClick={() => { setEditing(false); setEditFormErrors({}); }} className="h-10">
                     <X className="h-4 w-4 mr-2" /> Zrušit
                   </Button>
                 </div>
@@ -614,7 +697,7 @@ export default function CustomerDetail() {
             size="sm"
             variant="outline"
             className="h-9"
-            onClick={() => { setShowAddContact(true); setNewContact(emptyContact); }}
+            onClick={() => { setShowAddContact(true); setNewContact(emptyContact); setNewContactErrors({}); }}
           >
             <Plus className="h-4 w-4 mr-1" /> Přidat
           </Button>
@@ -623,13 +706,22 @@ export default function CustomerDetail() {
         {showAddContact && (
           <Card className="mb-3 border-primary/30 bg-primary/5">
             <CardContent className="p-4 space-y-3">
-              <Input
-                value={newContact.name}
-                onChange={(e) => setNewContact((p) => ({ ...p, name: e.target.value }))}
-                placeholder="Jméno *"
-                className="h-11"
-                autoFocus
-              />
+              <div>
+                <Input
+                  value={newContact.name}
+                  onChange={(e) => {
+                    setNewContact((p) => ({ ...p, name: e.target.value }));
+                    if (newContactErrors.name) setNewContactErrors((p) => ({ ...p, name: "" }));
+                  }}
+                  placeholder="Jméno *"
+                  className={`h-11${newContactErrors.name ? " border-destructive" : ""}`}
+                  aria-invalid={!!newContactErrors.name}
+                  autoFocus
+                />
+                {newContactErrors.name && (
+                  <p className="text-sm text-destructive mt-1">{newContactErrors.name}</p>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Input
                   value={newContact.role}
@@ -653,10 +745,10 @@ export default function CustomerDetail() {
                 className="h-11"
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleAddContact} disabled={!newContact.name.trim() || createContact.isPending} className="h-9">
+                <Button size="sm" onClick={handleAddContact} disabled={createContact.isPending} className="h-9">
                   <Save className="h-4 w-4 mr-1" /> Uložit
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setShowAddContact(false); setNewContact(emptyContact); }} className="h-9">
+                <Button size="sm" variant="ghost" onClick={() => { setShowAddContact(false); setNewContact(emptyContact); setNewContactErrors({}); }} className="h-9">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -673,13 +765,22 @@ export default function CustomerDetail() {
                 <CardContent className="p-4">
                   {editingContactId === c.id ? (
                     <div className="space-y-3">
-                      <Input
-                        value={editContact.name}
-                        onChange={(e) => setEditContact((p) => ({ ...p, name: e.target.value }))}
-                        placeholder="Jméno *"
-                        className="h-11"
-                        autoFocus
-                      />
+                      <div>
+                        <Input
+                          value={editContact.name}
+                          onChange={(e) => {
+                            setEditContact((p) => ({ ...p, name: e.target.value }));
+                            if (editContactErrors.name) setEditContactErrors((p) => ({ ...p, name: "" }));
+                          }}
+                          placeholder="Jméno *"
+                          className={`h-11${editContactErrors.name ? " border-destructive" : ""}`}
+                          aria-invalid={!!editContactErrors.name}
+                          autoFocus
+                        />
+                        {editContactErrors.name && (
+                          <p className="text-sm text-destructive mt-1">{editContactErrors.name}</p>
+                        )}
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <Input
                           value={editContact.role}
@@ -703,10 +804,10 @@ export default function CustomerDetail() {
                         className="h-11"
                       />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => handleUpdateContact(c.id)} disabled={!editContact.name.trim() || updateContact.isPending} className="h-9">
+                        <Button size="sm" onClick={() => handleUpdateContact(c.id)} disabled={updateContact.isPending} className="h-9">
                           <Save className="h-4 w-4 mr-1" /> Uložit
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingContactId(null)} className="h-9">
+                        <Button size="sm" variant="ghost" onClick={() => { setEditingContactId(null); setEditContactErrors({}); }} className="h-9">
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
@@ -763,7 +864,7 @@ export default function CustomerDetail() {
             size="sm"
             variant="outline"
             className="h-9"
-            onClick={() => { setShowAddSite(true); setNewSite(emptySite); }}
+            onClick={() => { setShowAddSite(true); setNewSite(emptySite); setNewSiteErrors({}); }}
           >
             <Plus className="h-4 w-4 mr-1" /> Přidat
           </Button>
@@ -772,13 +873,22 @@ export default function CustomerDetail() {
         {showAddSite && (
           <Card className="mb-3 border-primary/30 bg-primary/5">
             <CardContent className="p-4 space-y-3">
-              <Input
-                value={newSite.name}
-                onChange={(e) => setNewSite((p) => ({ ...p, name: e.target.value }))}
-                placeholder="Název stavby / pobočky *"
-                className="h-11"
-                autoFocus
-              />
+              <div>
+                <Input
+                  value={newSite.name}
+                  onChange={(e) => {
+                    setNewSite((p) => ({ ...p, name: e.target.value }));
+                    if (newSiteErrors.name) setNewSiteErrors((p) => ({ ...p, name: "" }));
+                  }}
+                  placeholder="Název stavby / pobočky *"
+                  className={`h-11${newSiteErrors.name ? " border-destructive" : ""}`}
+                  aria-invalid={!!newSiteErrors.name}
+                  autoFocus
+                />
+                {newSiteErrors.name && (
+                  <p className="text-sm text-destructive mt-1">{newSiteErrors.name}</p>
+                )}
+              </div>
               <Input
                 value={newSite.address}
                 onChange={(e) => setNewSite((p) => ({ ...p, address: e.target.value }))}
@@ -807,10 +917,10 @@ export default function CustomerDetail() {
                 className="h-11"
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleAddSite} disabled={!newSite.name.trim() || createSite.isPending} className="h-9">
+                <Button size="sm" onClick={handleAddSite} disabled={createSite.isPending} className="h-9">
                   <Save className="h-4 w-4 mr-1" /> Uložit
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setShowAddSite(false); setNewSite(emptySite); }} className="h-9">
+                <Button size="sm" variant="ghost" onClick={() => { setShowAddSite(false); setNewSite(emptySite); setNewSiteErrors({}); }} className="h-9">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -827,13 +937,22 @@ export default function CustomerDetail() {
                 <CardContent className="p-4">
                   {editingSiteId === s.id ? (
                     <div className="space-y-3">
-                      <Input
-                        value={editSite.name}
-                        onChange={(e) => setEditSite((p) => ({ ...p, name: e.target.value }))}
-                        placeholder="Název stavby *"
-                        className="h-11"
-                        autoFocus
-                      />
+                      <div>
+                        <Input
+                          value={editSite.name}
+                          onChange={(e) => {
+                            setEditSite((p) => ({ ...p, name: e.target.value }));
+                            if (editSiteErrors.name) setEditSiteErrors((p) => ({ ...p, name: "" }));
+                          }}
+                          placeholder="Název stavby *"
+                          className={`h-11${editSiteErrors.name ? " border-destructive" : ""}`}
+                          aria-invalid={!!editSiteErrors.name}
+                          autoFocus
+                        />
+                        {editSiteErrors.name && (
+                          <p className="text-sm text-destructive mt-1">{editSiteErrors.name}</p>
+                        )}
+                      </div>
                       <Input
                         value={editSite.address}
                         onChange={(e) => setEditSite((p) => ({ ...p, address: e.target.value }))}
@@ -862,10 +981,10 @@ export default function CustomerDetail() {
                         className="h-11"
                       />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => handleUpdateSite(s.id)} disabled={!editSite.name.trim() || updateSite.isPending} className="h-9">
+                        <Button size="sm" onClick={() => handleUpdateSite(s.id)} disabled={updateSite.isPending} className="h-9">
                           <Save className="h-4 w-4 mr-1" /> Uložit
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingSiteId(null)} className="h-9">
+                        <Button size="sm" variant="ghost" onClick={() => { setEditingSiteId(null); setEditSiteErrors({}); }} className="h-9">
                           <X className="h-4 w-4" />
                         </Button>
                       </div>

@@ -47,6 +47,14 @@ function buildCustomersSearch(q: string): string {
   return qs ? `?${qs}` : "";
 }
 
+function extractServerError(err: unknown): string | null {
+  const msg =
+    (err as any)?.response?.data?.error ??
+    (err as any)?.data?.error ??
+    (err as any)?.message;
+  return typeof msg === "string" ? msg : null;
+}
+
 export default function Customers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -75,12 +83,18 @@ export default function Customers() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [newForm, setNewForm] = useState<CustomerForm>(emptyForm);
+  const [newFormErrors, setNewFormErrors] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<CustomerForm>(emptyForm);
+  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newForm.companyName.trim()) return;
+    if (!newForm.companyName.trim()) {
+      setNewFormErrors({ companyName: "Název firmy je povinný" });
+      return;
+    }
+    setNewFormErrors({});
     createCustomer.mutate({
       data: {
         companyName: newForm.companyName.trim(),
@@ -94,16 +108,25 @@ export default function Customers() {
     }, {
       onSuccess: () => {
         setNewForm(emptyForm);
+        setNewFormErrors({});
         setShowAddForm(false);
         invalidateData(queryClient, "customers");
         toast({ title: "Zákazník přidán" });
       },
-      onError: () => toast({ title: "Nepodařilo se přidat zákazníka", variant: "destructive" })
+      onError: (err) => {
+        const serverMsg = extractServerError(err);
+        if (serverMsg) {
+          setNewFormErrors({ companyName: serverMsg });
+        } else {
+          toast({ title: "Nepodařilo se přidat zákazníka", variant: "destructive" });
+        }
+      }
     });
   };
 
   const startEdit = (c: NonNullable<typeof customers>[number]) => {
     setEditingId(c.id);
+    setEditFormErrors({});
     setEditForm({
       companyName: c.companyName,
       contactPerson: c.contactPerson || "",
@@ -116,6 +139,11 @@ export default function Customers() {
   };
 
   const handleUpdate = (id: number) => {
+    if (!editForm.companyName.trim()) {
+      setEditFormErrors({ companyName: "Název firmy je povinný" });
+      return;
+    }
+    setEditFormErrors({});
     updateCustomer.mutate({
       id,
       data: {
@@ -130,10 +158,18 @@ export default function Customers() {
     }, {
       onSuccess: () => {
         setEditingId(null);
+        setEditFormErrors({});
         invalidateData(queryClient, "customers");
         toast({ title: "Zákazník upraven" });
       },
-      onError: () => toast({ title: "Nepodařilo se upravit zákazníka", variant: "destructive" })
+      onError: (err) => {
+        const serverMsg = extractServerError(err);
+        if (serverMsg) {
+          setEditFormErrors({ companyName: serverMsg });
+        } else {
+          toast({ title: "Nepodařilo se upravit zákazníka", variant: "destructive" });
+        }
+      }
     });
   };
 
@@ -197,11 +233,18 @@ export default function Customers() {
                 <label className="text-sm font-medium text-muted-foreground mb-1 block">Název firmy *</label>
                 <Input
                   value={newForm.companyName}
-                  onChange={e => setNewForm(p => ({ ...p, companyName: e.target.value }))}
+                  onChange={e => {
+                    setNewForm(p => ({ ...p, companyName: e.target.value }));
+                    if (newFormErrors.companyName) setNewFormErrors(p => ({ ...p, companyName: "" }));
+                  }}
                   placeholder="např. Stavby s.r.o."
-                  className="h-12 text-base"
+                  className={`h-12 text-base${newFormErrors.companyName ? " border-destructive" : ""}`}
+                  aria-invalid={!!newFormErrors.companyName}
                   autoFocus
                 />
+                {newFormErrors.companyName && (
+                  <p className="text-sm text-destructive mt-1">{newFormErrors.companyName}</p>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -264,10 +307,10 @@ export default function Customers() {
                 />
               </div>
               <div className="flex gap-2 pt-1">
-                <Button type="submit" disabled={!newForm.companyName.trim() || createCustomer.isPending} className="h-11 px-6">
+                <Button type="submit" disabled={createCustomer.isPending} className="h-11 px-6">
                   <Save className="h-4 w-4 mr-2" /> Uložit
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => { setShowAddForm(false); setNewForm(emptyForm); }} className="h-11">
+                <Button type="button" variant="ghost" onClick={() => { setShowAddForm(false); setNewForm(emptyForm); setNewFormErrors({}); }} className="h-11">
                   <X className="h-4 w-4 mr-2" /> Zrušit
                 </Button>
               </div>
@@ -285,12 +328,21 @@ export default function Customers() {
               <CardContent className="p-4">
                 {editingId === customer.id ? (
                   <div className="space-y-3">
-                    <Input
-                      value={editForm.companyName}
-                      onChange={e => setEditForm(p => ({ ...p, companyName: e.target.value }))}
-                      className="h-11 text-base font-medium"
-                      autoFocus
-                    />
+                    <div>
+                      <Input
+                        value={editForm.companyName}
+                        onChange={e => {
+                          setEditForm(p => ({ ...p, companyName: e.target.value }));
+                          if (editFormErrors.companyName) setEditFormErrors(p => ({ ...p, companyName: "" }));
+                        }}
+                        className={`h-11 text-base font-medium${editFormErrors.companyName ? " border-destructive" : ""}`}
+                        aria-invalid={!!editFormErrors.companyName}
+                        autoFocus
+                      />
+                      {editFormErrors.companyName && (
+                        <p className="text-sm text-destructive mt-1">{editFormErrors.companyName}</p>
+                      )}
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Input
                         value={editForm.contactPerson}
@@ -334,10 +386,10 @@ export default function Customers() {
                       className="h-11"
                     />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => handleUpdate(customer.id)} disabled={!editForm.companyName.trim() || updateCustomer.isPending} className="h-9">
+                      <Button size="sm" onClick={() => handleUpdate(customer.id)} disabled={updateCustomer.isPending} className="h-9">
                         <Save className="h-4 w-4 mr-1" /> Uložit
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} className="h-9">
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditFormErrors({}); }} className="h-9">
                         <X className="h-4 w-4" />
                       </Button>
                     </div>

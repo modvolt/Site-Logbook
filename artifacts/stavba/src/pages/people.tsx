@@ -17,6 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+function extractServerError(err: unknown): string | null {
+  const msg =
+    (err as any)?.response?.data?.error ??
+    (err as any)?.data?.error ??
+    (err as any)?.message;
+  return typeof msg === "string" ? msg : null;
+}
+
 function PersonCard({
   person,
   stats,
@@ -98,6 +106,7 @@ function PersonCard({
 
 export default function People() {
   const [newPersonName, setNewPersonName] = useState("");
+  const [nameError, setNameError] = useState("");
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { openConfirm, dialogProps } = useConfirmDialog();
@@ -118,16 +127,26 @@ export default function People() {
 
   const handleAddPerson = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPersonName.trim()) return;
+    if (!newPersonName.trim()) {
+      setNameError("Jméno pracovníka je povinné");
+      return;
+    }
+    setNameError("");
 
     createPerson.mutate({ data: { name: newPersonName.trim() } }, {
       onSuccess: () => {
         setNewPersonName("");
+        setNameError("");
         invalidateData(queryClient, "people");
         toast({ title: "Pracovník přidán" });
       },
-      onError: () => {
-        toast({ title: "Nepodařilo se přidat pracovníka", variant: "destructive" });
+      onError: (err) => {
+        const serverMsg = extractServerError(err);
+        if (serverMsg) {
+          setNameError(serverMsg);
+        } else {
+          toast({ title: "Nepodařilo se přidat pracovníka", variant: "destructive" });
+        }
       },
     });
   };
@@ -162,20 +181,29 @@ export default function People() {
 
       <Card className="mb-8 border-primary/20 bg-primary/5">
         <CardContent className="p-4">
-          <form onSubmit={handleAddPerson} className="flex gap-2">
-            <div className="relative flex-1">
-              <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input
-                value={newPersonName}
-                onChange={(e) => setNewPersonName(e.target.value)}
-                placeholder="Jméno pracovníka..."
-                className="pl-10 h-14 text-base bg-background"
-              />
+          <form onSubmit={handleAddPerson} className="space-y-2">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <UserPlus className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                  value={newPersonName}
+                  onChange={(e) => {
+                    setNewPersonName(e.target.value);
+                    if (nameError) setNameError("");
+                  }}
+                  placeholder="Jméno pracovníka..."
+                  className={`pl-10 h-14 text-base bg-background${nameError ? " border-destructive" : ""}`}
+                  aria-invalid={!!nameError}
+                />
+              </div>
+              <Button type="submit" disabled={createPerson.isPending} className="h-14 px-6">
+                <Plus className="h-5 w-5 md:mr-2" />
+                <span className="hidden md:inline">Přidat</span>
+              </Button>
             </div>
-            <Button type="submit" disabled={!newPersonName.trim() || createPerson.isPending} className="h-14 px-6">
-              <Plus className="h-5 w-5 md:mr-2" />
-              <span className="hidden md:inline">Přidat</span>
-            </Button>
+            {nameError && (
+              <p className="text-sm text-destructive">{nameError}</p>
+            )}
           </form>
         </CardContent>
       </Card>
