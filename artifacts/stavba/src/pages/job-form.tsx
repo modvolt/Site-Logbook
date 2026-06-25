@@ -236,11 +236,12 @@ export default function JobForm() {
   const newMatQtyError = decimalError(newMaterial.quantity);
   const newMatPriceError = decimalError(newMaterial.pricePerUnit);
   const newMatHasErrors = !!(newMatQtyError || newMatPriceError);
+  const newMatNamePending = !!newMaterial.name.trim();
 
   const recurrenceError = formData.type === "service_call"
     ? decimalError(formData.recurrenceIntervalDays, { positiveOnly: true, integerOnly: true })
     : undefined;
-  const formHasErrors = !!(newMatHasErrors || recurrenceError);
+  const formHasErrors = !!(newMatHasErrors || newMatNamePending || recurrenceError);
 
   return (
     <div className="flex flex-col min-h-screen bg-background pb-20 md:pb-0">
@@ -261,7 +262,11 @@ export default function JobForm() {
             <p className="text-xs text-muted-foreground mt-1">Ukládám zakázku…</p>
           )}
           {!createJob.isPending && formHasErrors && (
-            <p className="text-xs text-destructive mt-1">Opravte chybné pole materiálu</p>
+            <p className="text-xs text-destructive mt-1">
+              {newMatNamePending && !newMatHasErrors
+                ? "Nejprve přidejte rozepsaný materiál"
+                : "Opravte chybné pole materiálu"}
+            </p>
           )}
         </div>
       </div>
@@ -604,7 +609,11 @@ export default function JobForm() {
           <p className="text-xs text-muted-foreground text-center mt-2">Ukládám zakázku, počkejte prosím…</p>
         )}
         {!createJob.isPending && formHasErrors && (
-          <p className="text-xs text-destructive text-center mt-2">Opravte chybné pole materiálu výše</p>
+          <p className="text-xs text-destructive text-center mt-2">
+            {newMatNamePending && !newMatHasErrors
+              ? "Nejprve přidejte rozepsaný materiál výše"
+              : "Opravte chybné pole materiálu výše"}
+          </p>
         )}
       </div>
     </div>
