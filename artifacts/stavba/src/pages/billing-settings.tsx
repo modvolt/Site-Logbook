@@ -51,6 +51,12 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type Form = {
   supplierName: string;
@@ -710,14 +716,29 @@ export default function BillingSettings() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <Button onClick={handleSaveAi} disabled={updateAi.isPending || aiFormHasErrors}>
-                    {updateAi.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4 mr-2" />
-                    )}
-                    Uložit nastavení AI
-                  </Button>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            onClick={handleSaveAi}
+                            disabled={updateAi.isPending || aiFormHasErrors}
+                            style={aiFormHasErrors ? { pointerEvents: "none" } : undefined}
+                          >
+                            {updateAi.isPending ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Uložit nastavení AI
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {aiFormHasErrors && (
+                        <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
                   <Button
                     variant="outline"
                     onClick={handleTestAi}
@@ -847,14 +868,29 @@ export default function BillingSettings() {
                 </p>
 
                 <div className="flex justify-end">
-                  <Button onClick={handleSaveLink} disabled={updateLink.isPending || linkFormHasErrors}>
-                    {updateLink.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4 mr-2" />
-                    )}
-                    Uložit nastavení propojení
-                  </Button>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            onClick={handleSaveLink}
+                            disabled={updateLink.isPending || linkFormHasErrors}
+                            style={linkFormHasErrors ? { pointerEvents: "none" } : undefined}
+                          >
+                            {updateLink.isPending ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Uložit nastavení propojení
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {linkFormHasErrors && (
+                        <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
               </>
             )}
@@ -896,9 +932,25 @@ export default function BillingSettings() {
         </Card>
 
         <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={update.isPending || formHasErrors} className="h-11 px-6">
-            <Save className="h-4 w-4 mr-2" /> Uložit nastavení
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    onClick={handleSave}
+                    disabled={update.isPending || formHasErrors}
+                    className="h-11 px-6"
+                    style={formHasErrors ? { pointerEvents: "none" } : undefined}
+                  >
+                    <Save className="h-4 w-4 mr-2" /> Uložit nastavení
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {formHasErrors && (
+                <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
     </div>
