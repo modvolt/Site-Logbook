@@ -27,6 +27,13 @@ description: Lessons from setting up Playwright E2E tests in the Stavba monorepo
 - Fix title: `page.getByText("Toast title", { exact: true })` — the aria-live span contains extra prefix ("Notification …") so exact match picks only the div.
 - Fix description: if the description text also appears in the span, use `page.locator('[data-component-name="ToastDescription"]').filter({ hasText: "…" })` instead.
 
+## Toast timing — data-testid + testMode flag
+- Toasts auto-dismiss in ~5 s (Radix default). The assertion can race the dismissal.
+- `ToastTitle` now has `data-testid="toast-title"` and `ToastDescription` has `data-testid="toast-description"` — use `page.getByTestId("toast-title")` for reliable, fast locating.
+- For more time: append `?testMode=1` to the URL — `ToastProvider` receives `duration=30000` ms instead of the default, giving 30 s before auto-dismiss.
+- Pattern: navigate with `?testMode=1` when a test plan needs to assert a toast; otherwise use default duration for normal UX.
+- **Why:** toasts that dismissed before Playwright reached the assertion caused false negatives even when the underlying behavior was correct.
+
 ## Warehouse card delete button locator
 - The sklad.tsx Card contains both the item name and the delete button.
 - `page.locator("div").filter({ has: text }).last()` returns the *innermost* matching div (the name-only div), which does NOT contain the button.
