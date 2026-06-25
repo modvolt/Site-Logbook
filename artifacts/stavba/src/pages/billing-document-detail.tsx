@@ -110,6 +110,17 @@ function numOrNull(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function saveErrorMessage(error: unknown): string | undefined {
+  const data = (error as { data?: unknown } | null)?.data;
+  const serverError =
+    data && typeof data === "object"
+      ? (data as { error?: unknown }).error
+      : undefined;
+  if (typeof serverError === "string" && serverError.trim() !== "")
+    return serverError;
+  return undefined;
+}
+
 export default function BillingDocumentDetail() {
   const [, params] = useRoute("/billing/documents/:id");
   const id = Number(params?.id);
@@ -419,8 +430,12 @@ export default function BillingDocumentDetail() {
                 invalidate();
                 toast({ title: "Doklad uložen" });
               },
-              onError: () =>
-                toast({ title: "Uložení selhalo", variant: "destructive" }),
+              onError: (error) =>
+                toast({
+                  title: "Uložení selhalo",
+                  description: saveErrorMessage(error),
+                  variant: "destructive",
+                }),
             },
           )
         }

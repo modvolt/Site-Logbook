@@ -19,6 +19,7 @@ import {
   extractionJobsTable,
   attachmentsTable,
   jobsTable,
+  customersTable,
   materialsTable,
   warehouseItemsTable,
   warehousePriceHistoryTable,
@@ -1315,6 +1316,29 @@ export async function updateDocument(id: number, input: UpdateDocumentInput) {
   if (!doc) throw appError(404, "Doklad nenalezen.");
   if (doc.status === "approved") {
     throw appError(409, "Schválený doklad nelze upravovat. Nejprve zrušte schválení.");
+  }
+
+  if (input.jobId != null) {
+    const [job] = await db
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, input.jobId));
+    if (!job)
+      throw appError(
+        400,
+        "Vybraná zakázka již neexistuje. Obnovte stránku a vyberte ji znovu.",
+      );
+  }
+  if (input.customerId != null) {
+    const [customer] = await db
+      .select({ id: customersTable.id })
+      .from(customersTable)
+      .where(eq(customersTable.id, input.customerId));
+    if (!customer)
+      throw appError(
+        400,
+        "Vybraný zákazník již neexistuje. Obnovte stránku a vyberte ho znovu.",
+      );
   }
 
   const patch: Partial<typeof billingDocumentsTable.$inferInsert> = {
