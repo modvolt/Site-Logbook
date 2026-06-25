@@ -3728,6 +3728,79 @@ export const useCreateDeviceCredential = <TError = ErrorType<unknown>,
       return useMutation(getCreateDeviceCredentialMutationOptions(options));
     }
 
+export const getAuditCredentialExportUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/customers/${customerId}/device-credentials/audit-export`
+}
+
+/**
+ * Writes a `security` audit log entry when the export/handover PDF page is
+opened for a customer. Restricted to roles with vault access (master/admin).
+
+ * @summary Record a security audit event for opening the credential export page
+ */
+export const auditCredentialExport = async (customerId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getAuditCredentialExportUrl(customerId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAuditCredentialExportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof auditCredentialExport>>, TError,{customerId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof auditCredentialExport>>, TError,{customerId: number}, TContext> => {
+
+const mutationKey = ['auditCredentialExport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof auditCredentialExport>>, {customerId: number}> = (props) => {
+          const {customerId} = props ?? {};
+
+          return  auditCredentialExport(customerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AuditCredentialExportMutationResult = NonNullable<Awaited<ReturnType<typeof auditCredentialExport>>>
+
+    export type AuditCredentialExportMutationError = ErrorType<void>
+
+    /**
+ * @summary Record a security audit event for opening the credential export page
+ */
+export const useAuditCredentialExport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof auditCredentialExport>>, TError,{customerId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof auditCredentialExport>>,
+        TError,
+        {customerId: number},
+        TContext
+      > => {
+      return useMutation(getAuditCredentialExportMutationOptions(options));
+    }
+
 export const getAuditCredentialAccessUrl = (id: number,) => {
 
 

@@ -1096,6 +1096,28 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeviceCredential"
 
+  /customers/{customerId}/device-credentials/audit-export:
+    post:
+      operationId: auditCredentialExport
+      tags: [customers]
+      summary: Record a security audit event for opening the credential export page
+      description: |
+        Writes a `security` audit log entry when the export/handover PDF page is
+        opened for a customer. Restricted to roles with vault access (master/admin).
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Audit event recorded
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
   /device-credentials/{id}/audit-access:
     post:
       operationId: auditCredentialAccess

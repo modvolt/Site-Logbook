@@ -16,6 +16,7 @@ import {
   DeleteDeviceCredentialParams,
   AuditCredentialAccessParams,
   AuditCredentialAccessBody,
+  AuditCredentialExportParams,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 
@@ -172,6 +173,43 @@ router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): P
 
   res.sendStatus(204);
 });
+
+// Audit event for the customer credential export/handover PDF page being opened.
+router.post(
+  "/customers/:customerId/device-credentials/audit-export",
+  requireVaultAccess,
+  async (req, res): Promise<void> => {
+    const params = AuditCredentialExportParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const [customer] = await db
+      .select({ id: customersTable.id, companyName: customersTable.companyName })
+      .from(customersTable)
+      .where(eq(customersTable.id, params.data.customerId));
+
+    if (!customer) {
+      res.status(404).json({ error: "Customer not found" });
+      return;
+    }
+
+    const auth = req.auth;
+    await db.insert(auditLogTable).values({
+      actorUserId: auth?.userId ?? null,
+      actorName: auth?.name ?? auth?.username ?? null,
+      action: "security",
+      entityType: "device-credentials",
+      entityId: customer.id,
+      summary: `Export přístupových údajů — ${customer.companyName} (zákazník #${customer.id})`,
+      method: "POST",
+      path: req.path,
+    });
+
+    res.sendStatus(204);
+  },
+);
 
 const FIELD_LABELS: Record<string, string> = {
   pin: "PIN",

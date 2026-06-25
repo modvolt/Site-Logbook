@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "wouter";
 import { format } from "date-fns";
 import {
@@ -6,9 +6,10 @@ import {
   useListCustomerSites, getListCustomerSitesQueryKey,
   useListDeviceCredentials, getListDeviceCredentialsQueryKey,
   useSendCredentialsEmail,
+  useAuditCredentialExport,
   type DeviceCredential,
 } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Mail, Loader2 } from "lucide-react";
+import { ArrowLeft, Printer, Mail, Loader2, Eye, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -24,6 +25,8 @@ const PRINT_CSS = `
   #pristupy-list, #pristupy-list * { visibility: visible !important; }
   #pristupy-list { position: absolute; left: 0; top: 0; width: 100%; margin: 0; box-shadow: none !important; }
   .no-print { display: none !important; }
+  .masked-secret { display: none !important; }
+  .revealed-secret { display: table-row !important; }
 }
 `;
 
@@ -33,8 +36,10 @@ export default function PristupoveUdajeExport() {
   const params = useParams();
   const customerId = parseInt(params.id || "0", 10);
   const [company] = useState(() => loadCompanySettings());
+  const [secretsRevealed, setSecretsRevealed] = useState(false);
   const { toast } = useToast();
   const sendEmail = useSendCredentialsEmail();
+  const auditExport = useAuditCredentialExport();
 
   const contractorName = company.name || BRAND_NAME;
   const contractorLogo = company.logoDataUrl || BRAND_LOGO_URL;
@@ -55,6 +60,13 @@ export default function PristupoveUdajeExport() {
       },
     },
   );
+
+  useEffect(() => {
+    if (!customerId) return;
+    auditExport.mutate({ customerId });
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId]);
 
   const customer = customers?.find((c) => c.id === customerId);
 
@@ -84,6 +96,10 @@ export default function PristupoveUdajeExport() {
     return keys;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grouped, sites]);
+
+  const handleRevealSecrets = () => {
+    setSecretsRevealed(true);
+  };
 
   const handleSendEmail = async () => {
     const recipient = customer?.email?.trim();
@@ -144,6 +160,16 @@ export default function PristupoveUdajeExport() {
           <h1 className="text-lg font-bold flex-1 min-w-0 truncate">
             Přístupové údaje – export
           </h1>
+          {!secretsRevealed && (
+            <Button
+              variant="outline"
+              onClick={handleRevealSecrets}
+              className="shrink-0"
+            >
+              <Eye className="h-4 w-4 mr-2" />
+              Zobrazit hesla a PINy
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={handleSendEmail}
@@ -160,6 +186,21 @@ export default function PristupoveUdajeExport() {
           <Button onClick={() => window.print()} className="shrink-0">
             <Printer className="h-4 w-4 mr-2" /> Tisk / Uložit PDF
           </Button>
+        </div>
+
+        {/* Security notice bar */}
+        <div className="px-3 pb-2 max-w-3xl mx-auto w-full">
+          <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded text-xs text-blue-700 dark:text-blue-300">
+            <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>
+              Otevření exportu bylo zaznamenáno do záznamu změn.
+              {!secretsRevealed && (
+                <span>
+                  {" "}Hesla a PINy jsou skryta — klikněte na „Zobrazit hesla a PINy" pro zobrazení.
+                </span>
+              )}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -236,7 +277,7 @@ export default function PristupoveUdajeExport() {
                   </h3>
                   <div className="space-y-4">
                     {list.map((c) => (
-                      <CredBlock key={c.id} c={c} />
+                      <CredBlock key={c.id} c={c} secretsRevealed={secretsRevealed} />
                     ))}
                   </div>
                 </div>
@@ -254,25 +295,39 @@ export default function PristupoveUdajeExport() {
   );
 }
 
-function CredBlock({ c }: { c: DeviceCredential }) {
-  const rows: { label: string; value: string }[] = [];
-  if (c.ipAddress) rows.push({ label: "IP adresa", value: c.ipAddress });
-  if (c.serialNumber) rows.push({ label: "Sériové číslo", value: c.serialNumber });
-  if (c.username) rows.push({ label: "Uživatel", value: c.username });
-  if (c.password) rows.push({ label: "Heslo", value: c.password });
-  if (c.pin) rows.push({ label: "PIN", value: c.pin });
-  if (c.email) rows.push({ label: "E-mail", value: c.email });
+function CredBlock({ c, secretsRevealed }: { c: DeviceCredential; secretsRevealed: boolean }) {
+  const MASK = "••••••••";
+
+  const publicRows: { label: string; value: string }[] = [];
+  const secretRows: { label: string; value: string; masked: string }[] = [];
+
+  if (c.ipAddress) publicRows.push({ label: "IP adresa", value: c.ipAddress });
+  if (c.serialNumber) publicRows.push({ label: "Sériové číslo", value: c.serialNumber });
+  if (c.email) publicRows.push({ label: "E-mail", value: c.email });
+  if (c.username) publicRows.push({ label: "Uživatel", value: c.username });
+  if (c.password) secretRows.push({ label: "Heslo", value: c.password, masked: MASK });
+  if (c.pin) secretRows.push({ label: "PIN", value: c.pin, masked: "••••" });
 
   return (
     <div className="border border-neutral-300 rounded-md p-4 break-inside-avoid">
       <p className="text-base font-bold mb-2">{c.type || "Zařízení"}</p>
-      {rows.length > 0 && (
+      {(publicRows.length > 0 || secretRows.length > 0) && (
         <table className="w-full text-sm border-collapse">
           <tbody>
-            {rows.map((r) => (
+            {publicRows.map((r) => (
               <tr key={r.label} className="border-b border-neutral-200 last:border-0">
                 <td className="py-1 pr-4 text-neutral-500 align-top w-32">{r.label}</td>
                 <td className="py-1 font-medium break-all">{r.value}</td>
+              </tr>
+            ))}
+            {secretRows.map((r) => (
+              <tr key={r.label} className="border-b border-neutral-200 last:border-0">
+                <td className="py-1 pr-4 text-neutral-500 align-top w-32">{r.label}</td>
+                <td className="py-1 font-medium font-mono break-all">
+                  {secretsRevealed ? r.value : (
+                    <span className="text-neutral-400 tracking-widest">{r.masked}</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -295,7 +350,14 @@ function CredBlock({ c }: { c: DeviceCredential }) {
               {c.users.map((u) => (
                 <tr key={u.id} className="border-b border-neutral-200 last:border-0">
                   <td className="py-1 pr-4">{u.name || "—"}</td>
-                  <td className="py-1 pr-4 font-medium">{u.pin || "—"}</td>
+                  <td className="py-1 pr-4 font-medium font-mono">
+                    {u.pin
+                      ? secretsRevealed
+                        ? u.pin
+                        : <span className="text-neutral-400 tracking-widest">••••</span>
+                      : "—"
+                    }
+                  </td>
                   <td className="py-1 break-all">
                     {u.cards.length > 0 ? u.cards.join(", ") : "—"}
                   </td>
