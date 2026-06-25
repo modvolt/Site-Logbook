@@ -33,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
   ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Download,
-  Receipt, FileImage,
+  Receipt, FileImage, Banknote,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -244,6 +244,25 @@ export default function ActivityDetail() {
     }
   };
 
+  const handleBillingStatus = (value: string) => {
+    updateActivity.mutate(
+      { id, data: { billingStatus: value || null } },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Fakturační stav uložen" });
+        },
+        onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
+      },
+    );
+  };
+
+  const billingStatusLabel: Record<string, string> = {
+    billable: "K fakturaci",
+    billed: "Vyfakturováno",
+    not_billable: "Nefakturovat",
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto w-full space-y-4">
       <div className="flex items-center gap-2">
@@ -279,6 +298,96 @@ export default function ActivityDetail() {
           Dokončeno {new Date(activity.completedAt!).toLocaleDateString("cs-CZ")}
         </div>
       )}
+
+      {/* Stav akce panel */}
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Stav akce</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+            <div className="rounded-lg bg-muted/40 p-3">
+              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" /> Čas celkem
+              </div>
+              <div className="font-semibold text-base">{fmtH(activity.hoursSpent)}</div>
+            </div>
+            <div className="rounded-lg bg-muted/40 p-3">
+              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                <Hammer className="h-3.5 w-3.5" /> Materiál
+              </div>
+              <div className="font-semibold text-base">
+                {activity.materialsTotalCost > 0
+                  ? `${Math.round(activity.materialsTotalCost).toLocaleString("cs-CZ")} Kč`
+                  : "—"}
+              </div>
+            </div>
+            {(activity.extraWorksTotalAmount > 0 || activity.extraWorksTotalHours > 0) && (
+              <div className="rounded-lg bg-muted/40 p-3">
+                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                  <PlusCircle className="h-3.5 w-3.5" /> Vícepráce
+                </div>
+                <div className="font-semibold text-base text-sm space-y-0.5">
+                  {activity.extraWorksTotalHours > 0 && (
+                    <div>{Math.round(activity.extraWorksTotalHours * 100) / 100} h</div>
+                  )}
+                  {activity.extraWorksTotalAmount > 0 && (
+                    <div>{Math.round(activity.extraWorksTotalAmount).toLocaleString("cs-CZ")} Kč</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {activity.attachmentsCount > 0 && (
+              <div className="rounded-lg bg-muted/40 p-3">
+                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                  <Receipt className="h-3.5 w-3.5" /> Doklady
+                </div>
+                <div className="font-semibold text-base">{activity.attachmentsCount}</div>
+              </div>
+            )}
+            {activity.photosCount > 0 && (
+              <div className="rounded-lg bg-muted/40 p-3">
+                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                  <Camera className="h-3.5 w-3.5" /> Fotky
+                </div>
+                <div className="font-semibold text-base">{activity.photosCount}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Billing status */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
+              <Banknote className="h-4 w-4" /> Fakturace:
+            </div>
+            {can("write") ? (
+              <select
+                className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
+                value={activity.billingStatus ?? ""}
+                onChange={(e) => handleBillingStatus(e.target.value)}
+                disabled={updateActivity.isPending}
+              >
+                <option value="">— Nenastaveno —</option>
+                <option value="billable">K fakturaci</option>
+                <option value="billed">Vyfakturováno</option>
+                <option value="not_billable">Nefakturovat</option>
+              </select>
+            ) : (
+              <span className="text-sm font-medium">
+                {activity.billingStatus ? billingStatusLabel[activity.billingStatus] ?? activity.billingStatus : "Nenastaveno"}
+              </span>
+            )}
+            {activity.billingStatus === "billable" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 text-xs font-medium shrink-0">
+                K fakturaci
+              </span>
+            )}
+            {activity.billingStatus === "billed" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium shrink-0">
+                Vyfakturováno
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-4 space-y-3">

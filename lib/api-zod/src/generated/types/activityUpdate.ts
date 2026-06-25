@@ -18,4 +18,9 @@ export interface ActivityUpdate {
   /** @nullable */
   completedAt?: string | null;
   isArchived?: boolean;
+  /**
+     * null | billable | billed | not_billable
+     * @nullable
+     */
+  billingStatus?: string | null;
 }

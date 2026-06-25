@@ -21,7 +21,7 @@ import { ArrowLeft, Trash2, Pencil, Download, Save, X, User, ScanLine } from "lu
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { BarcodeScanner } from "@/components/barcode-scanner";
-import { MACHINE_KINDS } from "./stroje";
+import { MACHINE_KINDS, InspectionBadge } from "./stroje";
 
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -304,7 +304,14 @@ export default function StrojDetail() {
                     <DetailRow label="SPZ" value={machine.licensePlate} />
                     <DetailRow label="VIN" value={machine.vin} />
                     <DetailRow label="Stav tachometru" value={machine.mileageKm != null ? `${machine.mileageKm.toLocaleString("cs-CZ")} km` : null} />
-                    <DetailRow label="STK do" value={machine.inspectionDate} />
+                    <div className="py-2 border-b last:border-0">
+                      <span className="text-muted-foreground">STK do</span>
+                      {machine.inspectionDate ? (
+                        <div className="mt-1"><InspectionBadge date={machine.inspectionDate} label="STK" /></div>
+                      ) : (
+                        <span className="float-right font-medium">—</span>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <>
@@ -312,7 +319,14 @@ export default function StrojDetail() {
                     <DetailRow label="Výrobce" value={machine.manufacturer} />
                     <DetailRow label="Sériové číslo" value={machine.serialNumber} />
                     <DetailRow label="Datum nákupu" value={machine.purchaseDate} />
-                    <DetailRow label="Revize do" value={machine.inspectionDate} />
+                    <div className="py-2 border-b last:border-0">
+                      <span className="text-muted-foreground">Revize do</span>
+                      {machine.inspectionDate ? (
+                        <div className="mt-1"><InspectionBadge date={machine.inspectionDate} label="Revize" /></div>
+                      ) : (
+                        <span className="float-right font-medium">—</span>
+                      )}
+                    </div>
                   </>
                 )}
                 <DetailRow label="Poznámka" value={machine.notes} />

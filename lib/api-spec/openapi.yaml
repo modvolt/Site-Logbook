@@ -6180,7 +6180,7 @@ components:
 
     Activity:
       type: object
-      required: [id, name, isArchived, createdAt, updatedAt]
+      required: [id, name, isArchived, materialsTotalCost, photosCount, attachmentsCount, extraWorksTotalAmount, extraWorksTotalHours, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -6202,6 +6202,21 @@ components:
           type: ["number", "null"]
         materialsTotalCost:
           type: number
+        photosCount:
+          type: integer
+          description: Count of photo-type attachments
+        attachmentsCount:
+          type: integer
+          description: Count of doklad-type attachments (invoice/receipt/delivery_note)
+        extraWorksTotalAmount:
+          type: number
+          description: Sum of extra work amounts in CZK
+        extraWorksTotalHours:
+          type: number
+          description: Sum of extra work hours
+        billingStatus:
+          type: ["string", "null"]
+          description: "null = not tracked | billable | billed | not_billable"
         completedAt:
           type: ["string", "null"]
           description: ISO timestamp when the activity was marked done
@@ -6240,6 +6255,9 @@ components:
           type: ["string", "null"]
         isArchived:
           type: boolean
+        billingStatus:
+          type: ["string", "null"]
+          description: "null | billable | billed | not_billable"
 
     ActivityMaterial:
       type: object

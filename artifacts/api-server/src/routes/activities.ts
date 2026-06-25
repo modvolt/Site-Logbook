@@ -67,12 +67,32 @@ async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
       .where(eq(usersTable.id, a.createdByUserId));
     createdByUserName = u?.name ?? null;
   }
-  const [mat] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(Number),
-    })
-    .from(activityMaterialsTable)
-    .where(eq(activityMaterialsTable.activityId, a.id));
+
+  const [mat, attRow, extraRow] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(Number),
+      })
+      .from(activityMaterialsTable)
+      .where(eq(activityMaterialsTable.activityId, a.id))
+      .then((r) => r[0]),
+    db
+      .select({
+        photosCount: sql<number>`count(*) filter (where ${activityAttachmentsTable.type} = 'photo')`.mapWith(Number),
+        attachmentsCount: sql<number>`count(*) filter (where ${activityAttachmentsTable.type} != 'photo')`.mapWith(Number),
+      })
+      .from(activityAttachmentsTable)
+      .where(eq(activityAttachmentsTable.activityId, a.id))
+      .then((r) => r[0]),
+    db
+      .select({
+        totalAmount: sql<number>`coalesce(sum(${activityExtraWorksTable.amount}), 0)`.mapWith(Number),
+        totalHours: sql<number>`coalesce(sum(${activityExtraWorksTable.hours}), 0)`.mapWith(Number),
+      })
+      .from(activityExtraWorksTable)
+      .where(eq(activityExtraWorksTable.activityId, a.id))
+      .then((r) => r[0]),
+  ]);
 
   return {
     id: a.id,
@@ -85,6 +105,11 @@ async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
     timerStartedAt: a.timerStartedAt ? a.timerStartedAt.toISOString() : null,
     hoursSpent: a.hoursSpent != null ? Number(a.hoursSpent) : null,
     materialsTotalCost: mat?.total ?? 0,
+    photosCount: attRow?.photosCount ?? 0,
+    attachmentsCount: attRow?.attachmentsCount ?? 0,
+    extraWorksTotalAmount: extraRow?.totalAmount ?? 0,
+    extraWorksTotalHours: extraRow?.totalHours ?? 0,
+    billingStatus: a.billingStatus,
     completedAt: a.completedAt ? a.completedAt.toISOString() : null,
     isArchived: a.isArchived,
     createdAt: a.createdAt.toISOString(),
@@ -189,6 +214,7 @@ router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => 
   if (d.isArchived !== undefined) update.isArchived = d.isArchived;
   if (d.hoursSpent !== undefined) update.hoursSpent = toStr(d.hoursSpent);
   if (d.completedAt !== undefined) update.completedAt = d.completedAt ? new Date(d.completedAt) : null;
+  if (d.billingStatus !== undefined) update.billingStatus = d.billingStatus;
 
   const [a] = await db
     .update(activitiesTable)

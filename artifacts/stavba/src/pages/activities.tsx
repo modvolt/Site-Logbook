@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import {
   useListActivities, getListActivitiesQueryKey,
@@ -12,28 +12,57 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Hammer, Plus, Trash2, ChevronRight, Archive, ArchiveRestore, Clock, Play, X, CheckCircle2 } from "lucide-react";
+import {
+  Hammer, Plus, Trash2, ChevronRight, Archive, ArchiveRestore, Clock,
+  Play, X, CheckCircle2, Receipt, Camera, PlusCircle, User2,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 
 function fmtH(n: number | null | undefined) {
-  if (n == null) return "—";
+  if (n == null || n === 0) return null;
   return `${Math.round(Number(n) * 100) / 100} h`;
 }
+
+function fmtKc(n: number | null | undefined) {
+  if (n == null || n === 0) return null;
+  return `${Math.round(n).toLocaleString("cs-CZ")} Kč`;
+}
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("cs-CZ", { day: "numeric", month: "short" });
+}
+
+type Tab = "active" | "completed" | "archived";
 
 export default function Activities() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
 
-  const [showArchived, setShowArchived] = useState(false);
+  const [tab, setTab] = useState<Tab>("active");
+  const [filterNoCustomer, setFilterNoCustomer] = useState(false);
+  const [filterWithMaterials, setFilterWithMaterials] = useState(false);
+  const [filterWithDocs, setFilterWithDocs] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", customerId: "" as string });
 
-  const params = { archived: showArchived };
+  const archived = tab === "archived";
+  const params = { archived };
   const queryKey = getListActivitiesQueryKey(params);
-  const { data: activities, isLoading } = useListActivities(params, { query: { queryKey } });
+  const { data: allActivities, isLoading } = useListActivities(params, { query: { queryKey } });
   const { data: customers } = useListCustomers();
+
+  const activities = useMemo(() => {
+    if (!allActivities) return [];
+    let list = allActivities;
+    if (tab === "active") list = list.filter((a) => !a.completedAt);
+    if (tab === "completed") list = list.filter((a) => !!a.completedAt);
+    if (filterNoCustomer) list = list.filter((a) => !a.customerId);
+    if (filterWithMaterials) list = list.filter((a) => (a.materialsTotalCost ?? 0) > 0);
+    if (filterWithDocs) list = list.filter((a) => (a.attachmentsCount ?? 0) > 0);
+    return list;
+  }, [allActivities, tab, filterNoCustomer, filterWithMaterials, filterWithDocs]);
 
   const createActivity = useCreateActivity();
   const updateActivity = useUpdateActivity();
@@ -79,7 +108,7 @@ export default function Activities() {
   };
 
   const handleDelete = (id: number, name: string) => {
-    if (!confirm(`Opravdu smazat akci „${name}“? Smažou se i materiály.`)) return;
+    if (!confirm(`Opravdu smazat akci „${name}"? Smažou se i materiály.`)) return;
     deleteActivity.mutate(
       { id },
       {
@@ -90,6 +119,8 @@ export default function Activities() {
       },
     );
   };
+
+  const hasExtraFilters = filterNoCustomer || filterWithMaterials || filterWithDocs;
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto w-full space-y-4">
@@ -102,21 +133,57 @@ export default function Activities() {
             Stavby a projekty s vlastním časovačem a materiálem, nezávislé na kalendáři.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={showArchived ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowArchived((v) => !v)}
-          >
-            {showArchived ? <ArchiveRestore className="h-4 w-4 mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
-            {showArchived ? "Aktivní" : "Archív"}
+        {can("write") && !showAdd && (
+          <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Plus className="h-4 w-4 mr-1.5" /> Nová akce
           </Button>
-          {can("write") && !showAdd && (
-            <Button size="sm" onClick={() => setShowAdd(true)}>
-              <Plus className="h-4 w-4 mr-1.5" /> Nová akce
-            </Button>
-          )}
-        </div>
+        )}
+      </div>
+
+      {/* Tab filter */}
+      <div className="flex gap-1 bg-muted/50 rounded-lg p-1">
+        {(["active", "completed", "archived"] as Tab[]).map((t) => {
+          const labels: Record<Tab, string> = { active: "Aktivní", completed: "Dokončené", archived: "Archív" };
+          return (
+            <button
+              key={t}
+              className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${tab === t ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setTab(t)}
+            >
+              {labels[t]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Extra filters */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filterNoCustomer ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+          onClick={() => setFilterNoCustomer((v) => !v)}
+        >
+          <User2 className="h-3.5 w-3.5" /> Bez zákazníka
+        </button>
+        <button
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filterWithMaterials ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300" : "border-border text-muted-foreground hover:text-foreground"}`}
+          onClick={() => setFilterWithMaterials((v) => !v)}
+        >
+          <Hammer className="h-3.5 w-3.5" /> S materiálem
+        </button>
+        <button
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filterWithDocs ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300" : "border-border text-muted-foreground hover:text-foreground"}`}
+          onClick={() => setFilterWithDocs((v) => !v)}
+        >
+          <Receipt className="h-3.5 w-3.5" /> S doklady
+        </button>
+        {hasExtraFilters && (
+          <button
+            className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => { setFilterNoCustomer(false); setFilterWithMaterials(false); setFilterWithDocs(false); }}
+          >
+            <X className="h-3.5 w-3.5" /> Zrušit
+          </button>
+        )}
       </div>
 
       {showAdd && can("write") && (
@@ -169,8 +236,10 @@ export default function Activities() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Hammer className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">{showArchived ? "Žádné archivované akce" : "Zatím žádné akce"}</p>
-            {!showArchived && can("write") && (
+            <p className="font-medium">
+              {tab === "archived" ? "Žádné archivované akce" : tab === "completed" ? "Žádné dokončené akce" : "Zatím žádné aktivní akce"}
+            </p>
+            {tab === "active" && can("write") && (
               <p className="text-sm mt-1">Klikněte na „Nová akce" pro založení první.</p>
             )}
           </CardContent>
@@ -179,13 +248,17 @@ export default function Activities() {
         <div className="space-y-2">
           {activities.map((a) => {
             const running = !!a.timerStartedAt;
+            const hoursStr = fmtH(a.hoursSpent);
+            const matStr = fmtKc(a.materialsTotalCost);
+            const extraAmtStr = fmtKc(a.extraWorksTotalAmount);
+            const extraHrsStr = fmtH(a.extraWorksTotalHours);
             return (
               <Card key={a.id} className={running ? "border-emerald-500 border-2" : ""}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <Link href={`/activities/${a.id}`} className="flex-1 min-w-0">
                       <div className="font-semibold truncate flex items-center gap-2">
-                        {running && <Play className="h-4 w-4 text-emerald-500 animate-pulse fill-emerald-500" />}
+                        {running && <Play className="h-4 w-4 text-emerald-500 animate-pulse fill-emerald-500 shrink-0" />}
                         <span className={a.completedAt ? "line-through text-muted-foreground" : ""}>{a.name}</span>
                         {a.completedAt && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 shrink-0">
@@ -196,17 +269,39 @@ export default function Activities() {
                       {a.customerName && (
                         <div className="text-xs text-muted-foreground mt-0.5">{a.customerName}</div>
                       )}
-                      <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" /> {fmtH(a.hoursSpent)}
-                        </span>
-                        {(a.materialsTotalCost ?? 0) > 0 && (
-                          <span>Materiál: {Math.round(a.materialsTotalCost ?? 0).toLocaleString("cs-CZ")} Kč</span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                        {hoursStr && (
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" /> {hoursStr}
+                          </span>
                         )}
-                        {a.createdByUserName && <span>· {a.createdByUserName}</span>}
+                        {matStr && (
+                          <span className="inline-flex items-center gap-1">
+                            <Hammer className="h-3.5 w-3.5" /> {matStr}
+                          </span>
+                        )}
+                        {(extraAmtStr || extraHrsStr) && (
+                          <span className="inline-flex items-center gap-1">
+                            <PlusCircle className="h-3.5 w-3.5" />
+                            {[extraHrsStr, extraAmtStr].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
+                        {(a.attachmentsCount ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1">
+                            <Receipt className="h-3.5 w-3.5" /> {a.attachmentsCount}
+                          </span>
+                        )}
+                        {(a.photosCount ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-1">
+                            <Camera className="h-3.5 w-3.5" /> {a.photosCount}
+                          </span>
+                        )}
+                        {a.updatedAt && (
+                          <span className="text-muted-foreground/70">{fmtDate(a.updatedAt)}</span>
+                        )}
                       </div>
                     </Link>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       {can("write") && (
                         <>
                           <Button

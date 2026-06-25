@@ -23,7 +23,20 @@ export interface Activity {
   timerStartedAt?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
-  materialsTotalCost?: number;
+  materialsTotalCost: number;
+  /** Count of photo-type attachments */
+  photosCount: number;
+  /** Count of doklad-type attachments (invoice/receipt/delivery_note) */
+  attachmentsCount: number;
+  /** Sum of extra work amounts in CZK */
+  extraWorksTotalAmount: number;
+  /** Sum of extra work hours */
+  extraWorksTotalHours: number;
+  /**
+     * null = not tracked | billable | billed | not_billable
+     * @nullable
+     */
+  billingStatus?: string | null;
   /**
      * ISO timestamp when the activity was marked done
      * @nullable
