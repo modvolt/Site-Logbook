@@ -56,7 +56,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AttachmentViewer } from "@/components/attachment-viewer";
-import { DecimalInput, parseDecimal } from "@/components/decimal-input";
+import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import {
@@ -544,7 +544,13 @@ function DocumentHeaderForm({
   const isPayment = isPaymentDocument(form.docType);
   const optionalForDelivery = isPayment ? "" : " (u dodacího listu se neuvádí)";
 
+  const subtotalError = decimalError(form.subtotalWithoutVat);
+  const totalVatError = decimalError(form.totalVat);
+  const totalWithVatError = decimalError(form.totalWithVat);
+  const headerHasErrors = !!(subtotalError || totalVatError || totalWithVatError);
+
   const handleSave = () => {
+    if (headerHasErrors) return;
     const input: CostDocumentUpdateInput = {
       docType: form.docType as CostDocumentUpdateInput["docType"],
       supplierName: form.supplierName || null,
@@ -641,18 +647,21 @@ function DocumentHeaderForm({
             <DecimalInput
               value={form.subtotalWithoutVat}
               onChange={(v) => set("subtotalWithoutVat", v)}
+              error={subtotalError}
             />
           </Field>
           <Field label="DPH">
             <DecimalInput
               value={form.totalVat}
               onChange={(v) => set("totalVat", v)}
+              error={totalVatError}
             />
           </Field>
           <Field label={`Celkem s DPH${optionalForDelivery}`}>
             <DecimalInput
               value={form.totalWithVat}
               onChange={(v) => set("totalWithVat", v)}
+              error={totalWithVatError}
             />
           </Field>
         </div>
@@ -702,7 +711,7 @@ function DocumentHeaderForm({
         </Field>
 
         <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || headerHasErrors}>
             <Save className="h-4 w-4 mr-1" /> Uložit doklad
           </Button>
         </div>
@@ -761,7 +770,12 @@ function LineCard({
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
 
+  const qtyError = decimalError(form.quantity);
+  const priceError = decimalError(form.unitPriceWithoutVat);
+  const lineHasErrors = !!(qtyError || priceError);
+
   const save = (overrides?: Partial<typeof form>) => {
+    if (lineHasErrors) return;
     const f = { ...form, ...overrides };
     const data: CostDocumentLineUpdateInput = {
       lineType: f.lineType as CostDocumentLineUpdateInput["lineType"],
@@ -811,6 +825,7 @@ function LineCard({
             <DecimalInput
               value={form.quantity}
               onChange={(v) => set("quantity", v)}
+              error={qtyError}
             />
           </div>
           <div className="space-y-1">
@@ -822,6 +837,7 @@ function LineCard({
             <DecimalInput
               value={form.unitPriceWithoutVat}
               onChange={(v) => set("unitPriceWithoutVat", v)}
+              error={priceError}
             />
           </div>
         </div>
@@ -921,7 +937,7 @@ function LineCard({
           <Button variant="outline" size="sm" onClick={onSplit}>
             <Scissors className="h-4 w-4 mr-1" /> Rozdělit
           </Button>
-          <Button size="sm" onClick={() => save()} disabled={updateLine.isPending}>
+          <Button size="sm" onClick={() => save()} disabled={updateLine.isPending || lineHasErrors}>
             <Save className="h-4 w-4 mr-1" /> Uložit položku
           </Button>
         </div>

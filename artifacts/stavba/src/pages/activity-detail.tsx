@@ -40,7 +40,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { debugLog } from "@/lib/pwa";
 import { prepareImageFile } from "@/lib/prepare-image";
 import { invalidateData } from "@/lib/query-invalidation";
-import { DecimalInput, parseDecimal } from "@/components/decimal-input";
+import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 
 function getAttachmentUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -533,9 +533,13 @@ function MaterialsSection({
 
   const total = materials.reduce((sum, m) => sum + (m.quantity ?? 0) * (m.pricePerUnit ?? 0), 0);
 
+  const matQtyError = decimalError(form.quantity);
+  const matPriceError = decimalError(form.pricePerUnit);
+  const matAddHasErrors = !!(matQtyError || matPriceError);
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || matAddHasErrors) return;
     createMaterial.mutate({
       activityId,
       data: {
@@ -586,12 +590,12 @@ function MaterialsSection({
           <form onSubmit={handleAdd} className="space-y-2 p-3 border rounded-md bg-muted/30">
             <Autocomplete placeholder="Název" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} suggestions={materialSuggestions} autoFocus required />
             <div className="grid grid-cols-3 gap-2">
-              <DecimalInput placeholder="Množ." value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} />
+              <DecimalInput placeholder="Množ." value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} error={matQtyError} />
               <Input placeholder="Jed." value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-              <DecimalInput placeholder="Kč/jed." value={form.pricePerUnit} onChange={(v) => setForm({ ...form, pricePerUnit: v })} />
+              <DecimalInput placeholder="Kč/jed." value={form.pricePerUnit} onChange={(v) => setForm({ ...form, pricePerUnit: v })} error={matPriceError} />
             </div>
             <div className="flex gap-2">
-              <Button type="submit" size="sm">Přidat</Button>
+              <Button type="submit" size="sm" disabled={matAddHasErrors}>Přidat</Button>
               <Button type="button" size="sm" variant="ghost" onClick={() => setShowAdd(false)}><X className="h-4 w-4" /></Button>
             </div>
           </form>
@@ -651,9 +655,13 @@ function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWr
   const totalAmount = items.reduce((sum, w) => sum + (w.amount ?? 0), 0);
   const totalHours = items.reduce((sum, w) => sum + (w.hours ?? 0), 0);
 
+  const workHoursError = decimalError(form.hours);
+  const workAmountError = decimalError(form.amount);
+  const workAddHasErrors = !!(workHoursError || workAmountError);
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.description.trim()) return;
+    if (!form.description.trim() || workAddHasErrors) return;
     createWork.mutate({
       activityId,
       data: {
@@ -707,11 +715,11 @@ function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWr
             <Input placeholder="Co se dělalo navíc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} autoFocus required />
             <Textarea placeholder="Poznámka (volitelné)" rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             <div className="grid grid-cols-2 gap-2">
-              <DecimalInput placeholder="Hodiny" value={form.hours} onChange={(v) => setForm({ ...form, hours: v })} />
-              <DecimalInput placeholder="Cena Kč" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />
+              <DecimalInput placeholder="Hodiny" value={form.hours} onChange={(v) => setForm({ ...form, hours: v })} error={workHoursError} />
+              <DecimalInput placeholder="Cena Kč" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} error={workAmountError} />
             </div>
             <div className="flex gap-2">
-              <Button type="submit" size="sm">Přidat</Button>
+              <Button type="submit" size="sm" disabled={workAddHasErrors}>Přidat</Button>
               <Button type="button" size="sm" variant="ghost" onClick={() => setShowAdd(false)}><X className="h-4 w-4" /></Button>
             </div>
           </form>
