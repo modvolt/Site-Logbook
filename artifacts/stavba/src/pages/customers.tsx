@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useSearch, useLocation } from "wouter";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { 
@@ -36,10 +36,22 @@ const emptyForm: CustomerForm = {
   address: "",
 };
 
+function readSearchFromUrl(search: string): string {
+  return new URLSearchParams(search).get("q") ?? "";
+}
+
+function buildCustomersSearch(q: string): string {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export default function Customers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const search_ = useSearch();
   const { openConfirm, dialogProps } = useConfirmDialog();
 
   const { data: customers, isLoading } = useListCustomers({
@@ -50,7 +62,16 @@ export default function Customers() {
   const updateCustomer = useUpdateCustomer();
   const deleteCustomer = useDeleteCustomer();
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => readSearchFromUrl(search_));
+
+  useEffect(() => {
+    setSearch(readSearchFromUrl(search_));
+  }, [search_]);
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setLocation(buildCustomersSearch(value), { replace: true });
+  };
   const [showAddForm, setShowAddForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [newForm, setNewForm] = useState<CustomerForm>(emptyForm);
@@ -155,7 +176,7 @@ export default function Customers() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
         <Input
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => handleSearchChange(e.target.value)}
           placeholder="Hledat zákazníky..."
           className="pl-10 h-12 text-base"
         />

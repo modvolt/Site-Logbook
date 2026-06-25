@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Link } from "wouter";
+import { useState, useMemo, useEffect } from "react";
+import { Link, useSearch, useLocation } from "wouter";
 import {
   useListWarehouseItems,
   useCreateWarehouseItem,
@@ -124,26 +124,94 @@ function SummaryCard({
   );
 }
 
+type SkladFilters = {
+  category: string;
+  supplier: string;
+  belowMin: boolean;
+  noPrice: boolean;
+  changedAfter: string;
+};
+
+function readFiltersFromUrl(search: string): SkladFilters {
+  const p = new URLSearchParams(search);
+  return {
+    category: p.get("category") ?? "",
+    supplier: p.get("supplier") ?? "",
+    belowMin: p.get("belowMin") === "1",
+    noPrice: p.get("noPrice") === "1",
+    changedAfter: p.get("changedAfter") ?? "",
+  };
+}
+
+function buildSkladSearch(f: SkladFilters): string {
+  const p = new URLSearchParams();
+  if (f.category) p.set("category", f.category);
+  if (f.supplier) p.set("supplier", f.supplier);
+  if (f.belowMin) p.set("belowMin", "1");
+  if (f.noPrice) p.set("noPrice", "1");
+  if (f.changedAfter) p.set("changedAfter", f.changedAfter);
+  const qs = p.toString();
+  return qs ? `?${qs}` : "";
+}
+
+function hasActiveFilters(f: SkladFilters): boolean {
+  return !!(f.category || f.supplier || f.belowMin || f.noPrice || f.changedAfter);
+}
+
 export default function Sklad() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
   const { openConfirm, dialogProps } = useConfirmDialog();
+  const search_ = useSearch();
+  const [, setLocation] = useLocation();
 
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<FormState>(EMPTY);
   const [historyItem, setHistoryItem] = useState<WarehouseItem | null>(null);
 
-  // Filter state
-  const [filterCategory, setFilterCategory] = useState("");
-  const [filterSupplier, setFilterSupplier] = useState("");
-  const [filterBelowMin, setFilterBelowMin] = useState(false);
-  const [filterNoPrice, setFilterNoPrice] = useState(false);
-  const [filterChangedAfter, setFilterChangedAfter] = useState("");
+  // Filter state — initialized from URL, kept in sync with URL
+  const [filterCategory, setFilterCategory] = useState(() => readFiltersFromUrl(search_).category);
+  const [filterSupplier, setFilterSupplier] = useState(() => readFiltersFromUrl(search_).supplier);
+  const [filterBelowMin, setFilterBelowMin] = useState(() => readFiltersFromUrl(search_).belowMin);
+  const [filterNoPrice, setFilterNoPrice] = useState(() => readFiltersFromUrl(search_).noPrice);
+  const [filterChangedAfter, setFilterChangedAfter] = useState(() => readFiltersFromUrl(search_).changedAfter);
+  // Auto-open filter panel if URL contains active filters
+  const [showFilters, setShowFilters] = useState(() => hasActiveFilters(readFiltersFromUrl(search_)));
+
+  // When the user navigates back/forward, sync state from URL
+  useEffect(() => {
+    const f = readFiltersFromUrl(search_);
+    setFilterCategory(f.category);
+    setFilterSupplier(f.supplier);
+    setFilterBelowMin(f.belowMin);
+    setFilterNoPrice(f.noPrice);
+    setFilterChangedAfter(f.changedAfter);
+    if (hasActiveFilters(f)) setShowFilters(true);
+  }, [search_]);
+
+  // Helpers that update both state and URL
+  const applyFilter = (patch: Partial<SkladFilters>) => {
+    const next: SkladFilters = {
+      category: filterCategory,
+      supplier: filterSupplier,
+      belowMin: filterBelowMin,
+      noPrice: filterNoPrice,
+      changedAfter: filterChangedAfter,
+      ...patch,
+    };
+    setFilterCategory(next.category);
+    setFilterSupplier(next.supplier);
+    setFilterBelowMin(next.belowMin);
+    setFilterNoPrice(next.noPrice);
+    setFilterChangedAfter(next.changedAfter);
+    setLocation(buildSkladSearch(next), { replace: true });
+  };
+
+  const clearFilters = () => applyFilter({ category: "", supplier: "", belowMin: false, noPrice: false, changedAfter: "" });
 
   const activeFilterCount =
     (filterCategory ? 1 : 0) +
@@ -357,7 +425,7 @@ export default function Sklad() {
                   <Label className="text-xs mb-1 block text-muted-foreground">Kategorie</Label>
                   <Input
                     value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value)}
+                    onChange={(e) => applyFilter({ category: e.target.value })}
                     placeholder="Filtrovat dle kategorie…"
                     className="h-10"
                   />
@@ -366,7 +434,7 @@ export default function Sklad() {
                   <Label className="text-xs mb-1 block text-muted-foreground">Dodavatel</Label>
                   <Input
                     value={filterSupplier}
-                    onChange={(e) => setFilterSupplier(e.target.value)}
+                    onChange={(e) => applyFilter({ supplier: e.target.value })}
                     placeholder="Filtrovat dle dodavatele…"
                     className="h-10"
                   />
@@ -375,7 +443,7 @@ export default function Sklad() {
                   <Switch
                     id="belowMin"
                     checked={filterBelowMin}
-                    onCheckedChange={setFilterBelowMin}
+                    onCheckedChange={(v) => applyFilter({ belowMin: v })}
                   />
                   <Label htmlFor="belowMin" className="cursor-pointer">Pod minimálním množstvím</Label>
                 </div>
@@ -383,7 +451,7 @@ export default function Sklad() {
                   <Switch
                     id="noPrice"
                     checked={filterNoPrice}
-                    onCheckedChange={setFilterNoPrice}
+                    onCheckedChange={(v) => applyFilter({ noPrice: v })}
                   />
                   <Label htmlFor="noPrice" className="cursor-pointer">Bez nákupní ceny</Label>
                 </div>
@@ -392,7 +460,7 @@ export default function Sklad() {
                   <Input
                     type="date"
                     value={filterChangedAfter}
-                    onChange={(e) => setFilterChangedAfter(e.target.value)}
+                    onChange={(e) => applyFilter({ changedAfter: e.target.value })}
                     className="h-10"
                   />
                 </div>
@@ -402,13 +470,7 @@ export default function Sklad() {
                   variant="ghost"
                   size="sm"
                   className="mt-3 h-8 text-xs"
-                  onClick={() => {
-                    setFilterCategory("");
-                    setFilterSupplier("");
-                    setFilterBelowMin(false);
-                    setFilterNoPrice(false);
-                    setFilterChangedAfter("");
-                  }}
+                  onClick={clearFilters}
                 >
                   <X className="h-3 w-3 mr-1" /> Zrušit filtry
                 </Button>
