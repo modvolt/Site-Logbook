@@ -8,6 +8,7 @@ import {
   useGetMyPreferences,
   useUpdateMyPreferences,
   getGetMyPreferencesQueryKey,
+  useBulkUpdateJobStatus,
 } from "@workspace/api-client-react";
 import type { ListJobsParams } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
 import { sortJobsDoneLast } from "@/lib/job-sort";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Download, Calendar, Save, Pencil, Trash2, X } from "lucide-react";
+import { Search, Download, Calendar, Save, Pencil, Trash2, X, CheckSquare, Square } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,8 @@ import {
   createPresetId,
   type ExportPreset,
 } from "@/lib/export-presets";
+import { invalidateData } from "@/lib/query-invalidation";
+import { toast } from "sonner";
 
 const EXPORT_COLUMNS_STORAGE_KEY = "stavba.exportColumns.v1";
 
@@ -125,7 +128,7 @@ export default function Jobs() {
   const [exportTo, setExportTo] = useState("");
   const [exporting, setExporting] = useState(false);
   const [groupByCustomer, setGroupByCustomer] = useState(true);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, can } = useAuth();
   const { openConfirm, dialogProps } = useConfirmDialog();
   const queryClient = useQueryClient();
   const [selectedColumns, setSelectedColumns] = useState<ExportColumnKey[]>(
@@ -134,6 +137,56 @@ export default function Jobs() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [presets, setPresets] = useState<ExportPreset[]>(() => loadPresets());
   const [activePresetId, setActivePresetId] = useState<string>("");
+
+  // Bulk selection state
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState<string>("");
+
+  const { mutate: bulkUpdateStatus, isPending: isBulkUpdating } = useBulkUpdateJobStatus();
+
+  function toggleSelectMode() {
+    setSelectMode(prev => !prev);
+    setSelectedIds(new Set());
+    setBulkStatus("");
+  }
+
+  function handleSelect(id: number, checked: boolean) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function handleSelectAll() {
+    const visibleIds = sortedFiltered?.map(j => j.id) ?? [];
+    setSelectedIds(new Set(visibleIds));
+  }
+
+  function handleDeselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  function handleBulkApply() {
+    if (selectedIds.size === 0 || !bulkStatus) return;
+    bulkUpdateStatus(
+      { data: { ids: Array.from(selectedIds), status: bulkStatus } },
+      {
+        onSuccess: (result) => {
+          toast.success(`Stav zakázek aktualizován (${result.updated} zakázek).`);
+          setSelectedIds(new Set());
+          setSelectMode(false);
+          setBulkStatus("");
+          invalidateData(queryClient, "jobs");
+        },
+        onError: () => {
+          toast.error("Nepodařilo se aktualizovat stav zakázek.");
+        },
+      }
+    );
+  }
 
   function persistPresets(next: ExportPreset[]) {
     setPresets(next);
@@ -262,6 +315,8 @@ export default function Jobs() {
     ((j as any).shortName || "").toLowerCase().includes(search.toLowerCase())
   );
 
+  const sortedFiltered = filtered ? sortJobsDoneLast(filtered, { newestFirst: true }) : undefined;
+
   const { data: exportJobs } = useListJobs(
     {
       ...(exportFrom ? { from: exportFrom } : {}),
@@ -355,15 +410,31 @@ export default function Jobs() {
   }
 
   const activeSegmentConfig = segment ? SEGMENTS.find(s => s.key === segment) : null;
+  const canWrite = can("write");
+  const allVisibleSelected = (sortedFiltered?.length ?? 0) > 0 &&
+    sortedFiltered?.every(j => selectedIds.has(j.id));
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
+    <div className="p-4 md:p-8 max-w-4xl mx-auto w-full pb-28">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">Všechny zakázky</h1>
-        <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} className="gap-2">
-          <Download className="h-4 w-4" />
-          Export
-        </Button>
+        <div className="flex items-center gap-2">
+          {canWrite && (
+            <Button
+              variant={selectMode ? "secondary" : "outline"}
+              size="sm"
+              onClick={toggleSelectMode}
+              className="gap-2"
+            >
+              {selectMode ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+              {selectMode ? "Zrušit výběr" : "Hromadně"}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)} className="gap-2">
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
+        </div>
       </div>
 
       {/* Segment chips */}
@@ -412,17 +483,93 @@ export default function Jobs() {
         </Select>
       </div>
 
+      {/* Select all / deselect all bar */}
+      {selectMode && sortedFiltered && sortedFiltered.length > 0 && (
+        <div className="flex items-center gap-3 mb-3 px-1 text-sm text-muted-foreground">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <Checkbox
+              checked={allVisibleSelected}
+              onCheckedChange={(v) => v ? handleSelectAll() : handleDeselectAll()}
+            />
+            <span>
+              {selectedIds.size > 0
+                ? `Vybráno ${selectedIds.size} z ${sortedFiltered.length}`
+                : `Vybrat vše (${sortedFiltered.length})`}
+            </span>
+          </label>
+          {selectedIds.size > 0 && (
+            <button
+              type="button"
+              className="text-primary hover:underline"
+              onClick={handleDeselectAll}
+            >
+              Zrušit výběr
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="space-y-4">
         {isLoading ? (
           [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full" />)
-        ) : filtered && filtered.length > 0 ? (
-          sortJobsDoneLast(filtered, { newestFirst: true }).map(job => <JobCard key={job.id} job={job} />)
+        ) : sortedFiltered && sortedFiltered.length > 0 ? (
+          sortedFiltered.map(job => (
+            <JobCard
+              key={job.id}
+              job={job}
+              selected={selectMode ? selectedIds.has(job.id) : undefined}
+              onSelect={selectMode ? handleSelect : undefined}
+            />
+          ))
         ) : (
           <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <p>Žádné zakázky odpovídající vašemu hledání.</p>
           </div>
         )}
       </div>
+
+      {/* Floating bulk action bar */}
+      {selectMode && (
+        <div className="fixed bottom-20 left-0 right-0 flex justify-center z-50 px-4 pointer-events-none">
+          <div className="pointer-events-auto w-full max-w-lg bg-background border shadow-xl rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold">
+                {selectedIds.size > 0
+                  ? `${selectedIds.size} zakázek vybráno`
+                  : "Vyberte zakázky kliknutím"}
+              </span>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={toggleSelectMode}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Nový stav…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(JOB_STATUSES).map(([key, config]) => (
+                    <SelectItem key={key} value={key}>{config.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                onClick={handleBulkApply}
+                disabled={selectedIds.size === 0 || !bulkStatus || isBulkUpdating}
+                className="shrink-0"
+              >
+                {isBulkUpdating
+                  ? "Ukládám…"
+                  : `Použít${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
         <DialogContent className="sm:max-w-md">

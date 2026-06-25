@@ -112,6 +112,22 @@ export const ReorderJobsBody = zod.object({
 
 
 /**
+ * @summary Bulk-update status on multiple jobs (admin)
+ */
+
+
+
+export const BulkUpdateJobStatusBody = zod.object({
+  "ids": zod.array(zod.number()).min(1).describe('IDs of jobs to update'),
+  "status": zod.string().describe('New status for all selected jobs')
+})
+
+export const BulkUpdateJobStatusResponse = zod.object({
+  "updated": zod.number().describe('Number of jobs whose status was changed')
+})
+
+
+/**
  * @summary Get a job by ID
  */
 export const GetJobParams = zod.object({

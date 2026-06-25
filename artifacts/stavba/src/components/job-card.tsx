@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge, TypeBadge } from "@/components/badges";
 import { Clock, MapPin, User, ChevronRight, Navigation, Timer, AlertCircle, FileText, Package, CircleDollarSign, CheckCircle2, Tag } from "lucide-react";
 import { isJobFinished } from "@/lib/job-sort";
+import { Checkbox } from "@/components/ui/checkbox";
 
 function formatCzk(amount: number): string {
   if (amount >= 1000) return `${Math.round(amount / 100) / 10} tis. Kč`;
@@ -111,19 +112,42 @@ function JobSignalBadges({ job }: { job: Job }) {
   );
 }
 
-export function JobCard({ job }: { job: Job }) {
+interface JobCardProps {
+  job: Job;
+  selected?: boolean;
+  onSelect?: (id: number, checked: boolean) => void;
+}
+
+export function JobCard({ job, selected, onSelect }: JobCardProps) {
   const finished = isJobFinished(job.status);
   const shortName = (job as any).shortName as string | null;
-  return (
-    <Link href={`/jobs/${job.id}`}>
-      <Card className={`hover-elevate cursor-pointer border-l-4 mb-3 transition-all ${
-        finished
-          ? "border-l-muted-foreground/40 bg-muted/40 opacity-65 saturate-50 hover:opacity-90 hover:saturate-100"
-          : "border-l-primary"
-      }`}>
-        <CardContent className="p-4">
-          <div className="flex justify-between items-start mb-2">
-            <div className="flex-1 min-w-0 pr-2">
+  const isSelectable = onSelect != null;
+
+  function handleCardClick(e: React.MouseEvent) {
+    if (isSelectable) {
+      e.preventDefault();
+      onSelect!(job.id, !selected);
+    }
+  }
+
+  const cardContent = (
+    <Card className={`hover-elevate cursor-pointer border-l-4 mb-3 transition-all ${
+      finished
+        ? "border-l-muted-foreground/40 bg-muted/40 opacity-65 saturate-50 hover:opacity-90 hover:saturate-100"
+        : "border-l-primary"
+    } ${selected ? "ring-2 ring-primary ring-offset-1" : ""}`}>
+      <CardContent className="p-4">
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex items-start gap-2 flex-1 min-w-0 pr-2">
+            {isSelectable && (
+              <div className="mt-0.5 shrink-0" onClick={e => { e.preventDefault(); e.stopPropagation(); onSelect!(job.id, !selected); }}>
+                <Checkbox
+                  checked={selected ?? false}
+                  onCheckedChange={(v) => onSelect!(job.id, v === true)}
+                />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
               {shortName && (
                 <div className="flex items-center gap-1 mb-0.5">
                   <Tag className="w-3 h-3 text-muted-foreground shrink-0" />
@@ -132,62 +156,72 @@ export function JobCard({ job }: { job: Job }) {
               )}
               <h3 className="font-bold text-lg leading-tight truncate">{job.title}</h3>
             </div>
-            <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
+          </div>
+          {!isSelectable && <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />}
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-2 items-center">
+          <TypeBadge type={job.type} />
+          <StatusBadge status={job.status} />
+          {job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+              <Timer className="w-3 h-3" /> {Number(job.hoursSpent).toFixed(2)} h
+            </span>
+          )}
+        </div>
+
+        <JobSignalBadges job={job} />
+
+        <div className="space-y-1.5 text-sm text-muted-foreground mt-2">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            <span>
+              {format(new Date(job.date), "d.M.yyyy", { locale: cs })}
+              {job.startTime && ` • ${job.startTime}`}
+              {job.endTime && ` – ${job.endTime}`}
+            </span>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-2 items-center">
-            <TypeBadge type={job.type} />
-            <StatusBadge status={job.status} />
-            {job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
-              <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
-                <Timer className="w-3 h-3" /> {Number(job.hoursSpent).toFixed(2)} h
-              </span>
-            )}
-          </div>
-
-          <JobSignalBadges job={job} />
-
-          <div className="space-y-1.5 text-sm text-muted-foreground mt-2">
+          {job.clientSite && (
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span>
-                {format(new Date(job.date), "d.M.yyyy", { locale: cs })}
-                {job.startTime && ` • ${job.startTime}`}
-                {job.endTime && ` – ${job.endTime}`}
-              </span>
+              <MapPin className="w-4 h-4" />
+              <span className="truncate">{job.clientSite}</span>
             </div>
+          )}
 
-            {job.clientSite && (
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4" />
-                <span className="truncate">{job.clientSite}</span>
-              </div>
-            )}
+          {(job as any).address && (
+            <div className="flex items-center gap-2">
+              <Navigation className="w-4 h-4 text-blue-500 shrink-0" />
+              <a
+                href={`https://waze.com/ul?q=${encodeURIComponent((job as any).address)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="text-blue-500 hover:underline truncate"
+              >
+                {(job as any).address}
+              </a>
+            </div>
+          )}
 
-            {(job as any).address && (
-              <div className="flex items-center gap-2">
-                <Navigation className="w-4 h-4 text-blue-500 shrink-0" />
-                <a
-                  href={`https://waze.com/ul?q=${encodeURIComponent((job as any).address)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={e => e.stopPropagation()}
-                  className="text-blue-500 hover:underline truncate"
-                >
-                  {(job as any).address}
-                </a>
-              </div>
-            )}
+          {job.assignedPersonName && (
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4" />
+              <span className="truncate">{job.assignedPersonName}</span>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 
-            {job.assignedPersonName && (
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4" />
-                <span className="truncate">{job.assignedPersonName}</span>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+  if (isSelectable) {
+    return <div onClick={handleCardClick}>{cardContent}</div>;
+  }
+
+  return (
+    <Link href={`/jobs/${job.id}`}>
+      {cardContent}
     </Link>
   );
 }

@@ -46,6 +46,7 @@ import type {
   BillingSettings,
   BillingSettingsInput,
   BillingSummary,
+  BulkUpdateResult,
   CancelInvoiceInput,
   CostDocument,
   CostDocumentDetail,
@@ -112,6 +113,7 @@ import type {
   InvoiceStatusUpdate,
   InvoiceUpdateInput,
   Job,
+  JobBulkStatusUpdate,
   JobInput,
   JobReorderInput,
   JobStatusUpdate,
@@ -494,6 +496,77 @@ export const useReorderJobs = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getReorderJobsMutationOptions(options));
+    }
+
+export const getBulkUpdateJobStatusUrl = () => {
+
+
+
+
+  return `/api/jobs/status`
+}
+
+/**
+ * @summary Bulk-update status on multiple jobs (admin)
+ */
+export const bulkUpdateJobStatus = async (jobBulkStatusUpdate: JobBulkStatusUpdate, options?: RequestInit): Promise<BulkUpdateResult> => {
+
+  return customFetch<BulkUpdateResult>(getBulkUpdateJobStatusUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      jobBulkStatusUpdate,)
+  }
+);}
+
+
+
+
+export const getBulkUpdateJobStatusMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkUpdateJobStatus>>, TError,{data: BodyType<JobBulkStatusUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkUpdateJobStatus>>, TError,{data: BodyType<JobBulkStatusUpdate>}, TContext> => {
+
+const mutationKey = ['bulkUpdateJobStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkUpdateJobStatus>>, {data: BodyType<JobBulkStatusUpdate>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkUpdateJobStatus(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkUpdateJobStatusMutationResult = NonNullable<Awaited<ReturnType<typeof bulkUpdateJobStatus>>>
+    export type BulkUpdateJobStatusMutationBody = BodyType<JobBulkStatusUpdate>
+    export type BulkUpdateJobStatusMutationError = ErrorType<void>
+
+    /**
+ * @summary Bulk-update status on multiple jobs (admin)
+ */
+export const useBulkUpdateJobStatus = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkUpdateJobStatus>>, TError,{data: BodyType<JobBulkStatusUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkUpdateJobStatus>>,
+        TError,
+        {data: BodyType<JobBulkStatusUpdate>},
+        TContext
+      > => {
+      return useMutation(getBulkUpdateJobStatusMutationOptions(options));
     }
 
 export const getGetJobUrl = (id: number,) => {

@@ -15,6 +15,7 @@ import {
   SendJobEmailBody,
   SaveJobSheetParams,
   SaveJobSheetBody,
+  BulkUpdateJobStatusBody,
 } from "@workspace/api-zod";
 import { sendEmailWithPdf } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -353,6 +354,35 @@ router.post("/jobs", async (req, res): Promise<void> => {
 
   const [job] = await db.insert(jobsTable).values(values as any).returning();
   res.status(201).json(await enrichJob(job));
+});
+
+router.patch("/jobs/status", async (req, res): Promise<void> => {
+  const parsed = BulkUpdateJobStatusBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { ids, status } = parsed.data;
+
+  if (ids.length === 0) {
+    res.status(400).json({ error: "ids must not be empty" });
+    return;
+  }
+
+  const validStatuses = ["planned", "in_progress", "done", "cancelled"];
+  if (!validStatuses.includes(status)) {
+    res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+    return;
+  }
+
+  const result = await db
+    .update(jobsTable)
+    .set({ status: status as "planned" | "in_progress" | "done" | "cancelled" })
+    .where(inArray(jobsTable.id, ids))
+    .returning({ id: jobsTable.id });
+
+  res.json({ updated: result.length });
 });
 
 router.patch("/jobs/reorder", async (req, res): Promise<void> => {

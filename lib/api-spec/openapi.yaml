@@ -161,6 +161,27 @@ paths:
         "204":
           description: Reordered
 
+  /jobs/status:
+    patch:
+      operationId: bulkUpdateJobStatus
+      tags: [jobs]
+      summary: Bulk-update status on multiple jobs (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobBulkStatusUpdate"
+      responses:
+        "200":
+          description: Number of jobs updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkUpdateResult"
+        "400":
+          description: Validation error
+
   /jobs/{id}:
     get:
       operationId: getJob
@@ -5619,6 +5640,28 @@ components:
           items:
             type: integer
           description: Job IDs in the desired display order
+
+    JobBulkStatusUpdate:
+      type: object
+      required: [ids, status]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+          minItems: 1
+          description: IDs of jobs to update
+        status:
+          type: string
+          description: New status for all selected jobs
+
+    BulkUpdateResult:
+      type: object
+      required: [updated]
+      properties:
+        updated:
+          type: integer
+          description: Number of jobs whose status was changed
 
     JobInput:
       type: object

@@ -153,6 +153,21 @@ export interface JobReorderInput {
   ids: number[];
 }
 
+export interface JobBulkStatusUpdate {
+  /**
+     * IDs of jobs to update
+     * @minItems 1
+     */
+  ids: number[];
+  /** New status for all selected jobs */
+  status: string;
+}
+
+export interface BulkUpdateResult {
+  /** Number of jobs whose status was changed */
+  updated: number;
+}
+
 export interface JobUpdate {
   /** @minLength 1 */
   title?: string;
