@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
-import { useSearch } from "wouter";
+import { useSearch, useLocation } from "wouter";
 import {
   useListJobs,
   getListJobsQueryKey,
@@ -78,13 +78,32 @@ function readStatusFromSearch(search: string): string {
   return "all";
 }
 
+function readSegmentFromSearch(search: string): Segment | null {
+  const value = new URLSearchParams(search).get("segment");
+  if (value && SEGMENTS.some(s => s.key === value)) return value as Segment;
+  return null;
+}
+
+function buildJobsSearch(opts: { status: string; segment: Segment | null }): string {
+  const params = new URLSearchParams();
+  if (opts.segment) {
+    params.set("segment", opts.segment);
+  } else if (opts.status !== "all") {
+    params.set("status", opts.status);
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export default function Jobs() {
   const search_ = useSearch();
+  const [, setLocation] = useLocation();
   const [status, setStatus] = useState<string>(() => readStatusFromSearch(search_));
-  const [segment, setSegment] = useState<Segment | null>(null);
+  const [segment, setSegment] = useState<Segment | null>(() => readSegmentFromSearch(search_));
 
   useEffect(() => {
     setStatus(readStatusFromSearch(search_));
+    setSegment(readSegmentFromSearch(search_));
   }, [search_]);
 
   const [search, setSearch] = useState("");
@@ -314,17 +333,12 @@ export default function Jobs() {
   }
 
   function handleSegmentClick(key: Segment) {
-    if (segment === key) {
-      setSegment(null);
-    } else {
-      setSegment(key);
-      setStatus("all");
-    }
+    const next = segment === key ? null : key;
+    setLocation(buildJobsSearch({ status: "all", segment: next }), { replace: true });
   }
 
   function handleStatusChange(value: string) {
-    setStatus(value);
-    setSegment(null);
+    setLocation(buildJobsSearch({ status: value, segment: null }), { replace: true });
   }
 
   const activeSegmentConfig = segment ? SEGMENTS.find(s => s.key === segment) : null;
