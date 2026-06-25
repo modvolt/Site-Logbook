@@ -273,13 +273,42 @@ export default function BillingDocumentDetail() {
             <h1 className="text-2xl font-bold">
               {doc.supplierName || doc.fileName || "Doklad"}
             </h1>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <CostDocStatusBadge status={doc.status} />
               <MaterialStateBadge state={doc.materialState} />
               <span className="text-sm text-muted-foreground">
                 {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
               </span>
             </div>
+            {(doc.customerId != null || doc.jobId != null) && (
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {doc.customerId != null && (
+                  <button
+                    type="button"
+                    onClick={() => setLocation(`/customers/${doc.customerId}`)}
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    {customers?.find((c) => c.id === doc.customerId)?.companyName ??
+                      `Zákazník #${doc.customerId}`}
+                  </button>
+                )}
+                {doc.customerId != null && doc.jobId != null && (
+                  <span className="text-muted-foreground text-xs">·</span>
+                )}
+                {doc.jobId != null && (
+                  <button
+                    type="button"
+                    onClick={() => setLocation(`/jobs/${doc.jobId}`)}
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    {jobs?.find((j) => j.id === doc.jobId)?.title ??
+                      `Zakázka #${doc.jobId}`}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -7,6 +7,8 @@ import {
   getListCostDocumentsQueryKey,
   useApproveCostDocument,
   useSetCostDocumentStatus,
+  useGetDocumentExtractionStatus,
+  getGetDocumentExtractionStatusQueryKey,
   getGetBillingSummaryQueryKey,
   ListCostDocumentsSort,
   type CostDocument,
@@ -34,9 +36,9 @@ import {
   Sparkles,
   Truck,
   XCircle,
+  Settings,
 } from "lucide-react";
 
-// Only AI-prefilled documents still awaiting confirmation, lowest confidence first.
 const QUEUE_PARAMS: ListCostDocumentsParams = {
   status: "needs_review",
   aiOnly: true,
@@ -65,12 +67,15 @@ export default function BillingReviewQueue() {
   const { data: docs, isLoading } = useListCostDocuments(QUEUE_PARAMS, {
     query: { queryKey: getListCostDocumentsQueryKey(QUEUE_PARAMS) },
   });
+
+  const { data: aiStatus, isLoading: aiLoading } = useGetDocumentExtractionStatus({
+    query: { queryKey: getGetDocumentExtractionStatusQueryKey() },
+  });
+
   const approveDoc = useApproveCostDocument();
   const setStatus = useSetCostDocumentStatus();
 
-  // Ids picked via the per-card checkboxes for "Schválit vybrané".
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  // True while a batch (selected or all-high-confidence) is running.
   const [bulkRunning, setBulkRunning] = useState(false);
 
   const refresh = () => {
@@ -109,8 +114,6 @@ export default function BillingReviewQueue() {
     );
   };
 
-  // Run a batch of documents sequentially, reusing the per-document mutation so
-  // every business rule stays identical. Failures don't abort the rest.
   const runBatch = async (
     targets: CostDocument[],
     emptyMessage: string,
@@ -140,7 +143,6 @@ export default function BillingReviewQueue() {
       }
     }
     refresh();
-    // Drop the just-processed ids from the selection regardless of outcome.
     setSelected((prev) => {
       const next = new Set(prev);
       for (const id of targetIds) next.delete(id);
@@ -194,6 +196,8 @@ export default function BillingReviewQueue() {
     docs?.filter((d) => d.aiConfidence != null && d.aiConfidence < AI_CONFIDENCE_LOW)
       .length ?? 0;
 
+  const showLoading = isLoading || aiLoading;
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
       <Button
@@ -202,7 +206,7 @@ export default function BillingReviewQueue() {
         className="mb-3 -ml-2 text-muted-foreground"
         onClick={() => setLocation("/billing/documents")}
       >
-        <ArrowLeft className="h-4 w-4 mr-1" /> Přijaté doklady
+        <ArrowLeft className="h-4 w-4 mr-1" /> Doklady a dodací listy
       </Button>
 
       <div className="flex items-center gap-3 mb-5">
@@ -210,7 +214,7 @@ export default function BillingReviewQueue() {
           <Sparkles className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">Kontrola AI dokladů</h1>
+          <h1 className="text-2xl font-bold">AI kontrola dokladů</h1>
           <p className="text-sm text-muted-foreground">
             Doklady předvyplněné pomocí AI čekající na potvrzení — nejnižší
             důvěryhodnost první
@@ -218,7 +222,7 @@ export default function BillingReviewQueue() {
         </div>
       </div>
 
-      {!isLoading && docs && docs.length > 0 && (
+      {!showLoading && docs && docs.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4 text-sm">
           <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 font-medium">
             {docs.length} ke kontrole
@@ -232,7 +236,7 @@ export default function BillingReviewQueue() {
         </div>
       )}
 
-      {!isLoading && docs && docs.length > 0 && (
+      {!showLoading && docs && docs.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <Button
             size="sm"
@@ -279,19 +283,14 @@ export default function BillingReviewQueue() {
         </div>
       )}
 
-      {isLoading ? (
+      {showLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-28 w-full" />
           ))}
         </div>
       ) : !docs || docs.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
-          <CheckCircle2 className="w-10 h-10 mx-auto mb-2 opacity-20" />
-          <p className="text-sm">
-            Žádné AI doklady ke kontrole. Vše je potvrzeno.
-          </p>
-        </div>
+        <EmptyState aiReady={aiStatus?.ready ?? false} />
       ) : (
         <div className="space-y-3">
           {docs.map((doc) => (
@@ -307,6 +306,41 @@ export default function BillingReviewQueue() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyState({ aiReady }: { aiReady: boolean }) {
+  const [, setLocation] = useLocation();
+
+  if (!aiReady) {
+    return (
+      <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+        <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-20" />
+        <p className="text-sm font-medium mb-1">AI vytěžování není aktivní</p>
+        <p className="text-xs max-w-xs mx-auto">
+          Po zapnutí AI v nastavení se nahrané doklady automaticky předvyplní a
+          zobrazí se zde ke kontrole.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4"
+          onClick={() => setLocation("/billing/settings")}
+        >
+          <Settings className="h-4 w-4 mr-1" /> Nastavení AI
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+      <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
+      <p className="text-sm font-medium mb-1">Vše zkontrolováno</p>
+      <p className="text-xs">
+        Žádné AI doklady nečekají na potvrzení.
+      </p>
     </div>
   );
 }
@@ -364,6 +398,7 @@ function ReviewCard({
                   {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
                   {doc.documentNumber ? ` · ${doc.documentNumber}` : ""}
                   {doc.issueDate ? ` · ${fmtDate(doc.issueDate)}` : ""}
+                  {doc.aiModel ? ` · ${doc.aiModel}` : ""}
                 </p>
               </button>
               <div className="text-right shrink-0">

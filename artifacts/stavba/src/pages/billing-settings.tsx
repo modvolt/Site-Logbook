@@ -31,6 +31,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
@@ -50,6 +56,8 @@ import {
   Percent,
   Plus,
   Trash2,
+  Link2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -150,33 +158,24 @@ export default function BillingSettings() {
     }
   }, [aiStatus, aiForm]);
 
-  // Build the full payload from the current form. Always include every field so
-  // saving (or clearing the key) never wipes the other advanced overrides.
-  const buildAiData = (form: NonNullable<typeof aiForm>, apiKey: string | null) => {
-    return {
-      enabled: form.enabled,
-      model: form.model.trim() || null,
-      systemPrompt: form.systemPrompt.trim() || null,
-      maxFileMb: parseDecimal(form.maxFileMb),
-      requestTimeoutMs: parseDecimal(form.timeoutMs),
-      confidenceThreshold: parseDecimal(form.confidence),
-      apiKey,
-    };
-  };
+  const buildAiData = (form: NonNullable<typeof aiForm>, apiKey: string | null) => ({
+    enabled: form.enabled,
+    model: form.model.trim() || null,
+    systemPrompt: form.systemPrompt.trim() || null,
+    maxFileMb: parseDecimal(form.maxFileMb),
+    requestTimeoutMs: parseDecimal(form.timeoutMs),
+    confidenceThreshold: parseDecimal(form.confidence),
+    apiKey,
+  });
 
   const handleSaveAi = () => {
     if (!aiForm) return;
     const apiKeyTyped = aiForm.apiKey.trim();
     updateAi.mutate(
-      {
-        // Write-only key: send the typed key, or null to keep the stored one.
-        data: buildAiData(aiForm, apiKeyTyped === "" ? null : apiKeyTyped),
-      },
+      { data: buildAiData(aiForm, apiKeyTyped === "" ? null : apiKeyTyped) },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetDocumentExtractionStatusQueryKey(),
-          });
+          queryClient.invalidateQueries({ queryKey: getGetDocumentExtractionStatusQueryKey() });
           setAiForm((p) => (p ? { ...p, apiKey: "" } : p));
           setAiTestMsg(null);
           toast({ title: "Nastavení AI uloženo" });
@@ -190,13 +189,10 @@ export default function BillingSettings() {
   const handleClearAiKey = () => {
     if (!aiForm) return;
     updateAi.mutate(
-      // empty string explicitly clears the stored key
       { data: buildAiData(aiForm, "") },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({
-            queryKey: getGetDocumentExtractionStatusQueryKey(),
-          });
+          queryClient.invalidateQueries({ queryKey: getGetDocumentExtractionStatusQueryKey() });
           setAiForm((p) => (p ? { ...p, apiKey: "" } : p));
           toast({ title: "API klíč odebrán" });
         },
@@ -264,10 +260,7 @@ export default function BillingSettings() {
           toast({ title: "Nastavení propojení uloženo" });
         },
         onError: () =>
-          toast({
-            title: "Nepodařilo se uložit nastavení propojení",
-            variant: "destructive",
-          }),
+          toast({ title: "Nepodařilo se uložit nastavení propojení", variant: "destructive" }),
       },
     );
   };
@@ -359,6 +352,43 @@ export default function BillingSettings() {
     ? Object.values(linkFormErrors).some(Boolean)
     : false;
 
+  const hasSupplier = !!form.supplierName.trim();
+  const hasAccount = !!(form.bankAccount.trim() || form.iban.trim());
+  const hasNumbering = !!(form.numberFormat.trim() || form.numberPrefix.trim());
+  const aiReady = aiStatus?.ready ?? false;
+  const aiConfigured = aiStatus?.configured ?? false;
+
+  const readinessItems = [
+    {
+      label: "Firma",
+      ok: hasSupplier,
+      detail: hasSupplier ? form.supplierName : "Doplňte název firmy",
+      tab: "firma",
+    },
+    {
+      label: "Platební účet",
+      ok: hasAccount,
+      detail: hasAccount ? (form.iban || form.bankAccount) : "Doplňte číslo účtu nebo IBAN",
+      tab: "firma",
+    },
+    {
+      label: "Číslování faktur",
+      ok: hasNumbering,
+      detail: hasNumbering ? (form.numberFormat || form.numberPrefix) : "Nastavte formát číslování",
+      tab: "cislovani",
+    },
+    {
+      label: "AI vytěžování",
+      ok: aiReady,
+      detail: aiReady ? "Aktivní" : aiConfigured ? "Zapnuto, klíč chybí" : "Vypnuto",
+      tab: "ai",
+      neutral: !aiReady && aiConfigured,
+      optional: true,
+    },
+  ];
+
+  const allReady = hasSupplier && hasAccount && hasNumbering;
+
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto w-full">
       <Button
@@ -369,590 +399,710 @@ export default function BillingSettings() {
       >
         <ArrowLeft className="h-4 w-4 mr-1" /> Fakturace
       </Button>
-      <h1 className="text-2xl font-bold mb-6">Nastavení fakturace</h1>
+      <h1 className="text-2xl font-bold mb-4">Nastavení fakturace</h1>
 
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Building2 className="h-5 w-5" /> Dodavatel
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Field label="Název / jméno dodavatele">
-              <Input value={form.supplierName} onChange={(e) => set("supplierName", e.target.value)} />
-            </Field>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="IČ">
-                <Input value={form.supplierIc} onChange={(e) => set("supplierIc", e.target.value)} />
-              </Field>
-              <Field label="DIČ">
-                <Input value={form.supplierDic} onChange={(e) => set("supplierDic", e.target.value)} />
-              </Field>
-            </div>
-            <Field label="Adresa">
-              <Input value={form.supplierAddress} onChange={(e) => set("supplierAddress", e.target.value)} />
-            </Field>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="E-mail">
-                <Input type="email" value={form.supplierEmail} onChange={(e) => set("supplierEmail", e.target.value)} />
-              </Field>
-              <Field label="Telefon">
-                <Input type="tel" value={form.supplierPhone} onChange={(e) => set("supplierPhone", e.target.value)} />
-              </Field>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Banknote className="h-5 w-5" /> Platba
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Číslo účtu">
-                <Input value={form.bankAccount} onChange={(e) => set("bankAccount", e.target.value)} />
-              </Field>
-              <Field label="Způsob platby">
-                <Input
-                  value={form.defaultPaymentMethod}
-                  onChange={(e) => set("defaultPaymentMethod", e.target.value)}
-                  placeholder="např. Převodem"
-                />
-              </Field>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="IBAN">
-                <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} />
-              </Field>
-              <Field label="BIC / SWIFT">
-                <Input value={form.bic} onChange={(e) => set("bic", e.target.value)} />
-              </Field>
-            </div>
-            <Field label="Výchozí splatnost (dnů)">
-              <DecimalInput
-                value={form.defaultDueDays}
-                onChange={(v) => set("defaultDueDays", v)}
-                className="max-w-[160px]"
-                error={formErrors.defaultDueDays}
-              />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-5 w-5" /> DPH
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div>
-                <Label className="font-medium">Plátce DPH</Label>
-                <p className="text-xs text-muted-foreground">
-                  Je dodavatel plátcem DPH?
-                </p>
-              </div>
-              <Switch checked={form.vatPayer} onCheckedChange={(v) => set("vatPayer", v)} />
-            </div>
-            <Field label="Výchozí režim DPH">
-              <Select value={form.vatModeDefault} onValueChange={(v) => set("vatModeDefault", v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(VAT_MODE_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Výchozí přirážka na materiál (%)">
-              <DecimalInput
-                value={form.materialMarkupPercent}
-                onChange={(v) => set("materialMarkupPercent", v)}
-                className="max-w-[160px]"
-                error={formErrors.materialMarkupPercent}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
-                0 = bez přirážky. Lze upravit i při vytváření konkrétní faktury.
-                Netýká se práce, dopravy ani pokut.
-              </p>
-            </Field>
-            <Field label="Patička faktury (poznámka)">
-              <Textarea
-                value={form.invoiceFooterNote}
-                onChange={(e) => set("invoiceFooterNote", e.target.value)}
-                rows={2}
-              />
-            </Field>
-          </CardContent>
-        </Card>
-
-        <MaterialMarkupRulesCard />
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Hash className="h-5 w-5" /> Číslování faktur
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Prefix">
-                <Input value={form.numberPrefix} onChange={(e) => set("numberPrefix", e.target.value)} />
-              </Field>
-              <Field label="Formát">
-                <Input
-                  value={form.numberFormat}
-                  onChange={(e) => set("numberFormat", e.target.value)}
-                  placeholder="např. {prefix}{year}{seq:4}"
-                />
-              </Field>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="Rok řady">
-                <DecimalInput
-                  value={form.numberYear}
-                  onChange={(v) => set("numberYear", v)}
-                  placeholder="automaticky"
-                  error={formErrors.numberYear}
-                />
-              </Field>
-              <Field label="Další pořadové číslo">
-                <DecimalInput
-                  value={form.numberNextSeq}
-                  onChange={(v) => set("numberNextSeq", v)}
-                  error={formErrors.numberNextSeq}
-                />
-              </Field>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Číslo se přiřazuje až při vystavení faktury. Pořadové číslo se po
-              přechodu na nový rok automaticky resetuje.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-5 w-5" /> AI vytěžování dokladů (OpenAI)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Volitelné. Při nahrání PDF nebo fotografie dokladu se hlavička a
-              položky předvyplní pomocí OpenAI. Návrh se vždy uloží jen{" "}
-              <strong>ke kontrole</strong> – nikdy se neschválí automaticky.
-            </p>
-
-            {aiLoading || !aiStatus || !aiForm ? (
-              <Skeleton className="h-40 w-full" />
+      {/* Readiness banner */}
+      <Card
+        className={`mb-5 ${
+          allReady
+            ? "border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+            : "border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20"
+        }`}
+      >
+        <CardContent className="p-3">
+          <div className="flex items-center gap-2 mb-2 text-sm font-medium">
+            {allReady ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             ) : (
-              <>
-                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-                  <div>
-                    <Label className="font-medium">Zapnout AI vytěžování</Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Po zapnutí se nahrané doklady automaticky předvyplní.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={aiForm.enabled}
-                    onCheckedChange={(v) =>
-                      setAiForm((p) => (p ? { ...p, enabled: v } : p))
-                    }
-                  />
-                </div>
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            )}
+            <span
+              className={
+                allReady
+                  ? "text-emerald-800 dark:text-emerald-200"
+                  : "text-amber-800 dark:text-amber-200"
+              }
+            >
+              {allReady ? "Fakturace je připravena" : "Dokončete nastavení"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {readinessItems.map((item) => (
+              <div
+                key={item.label}
+                className={`text-xs rounded px-2 py-1 flex items-center gap-1.5 ${
+                  item.ok
+                    ? "bg-emerald-100/60 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                    : item.neutral
+                      ? "bg-amber-100/60 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+                      : item.optional
+                        ? "bg-muted/50 text-muted-foreground"
+                        : "bg-amber-100/80 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                }`}
+              >
+                {item.ok ? (
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                ) : item.neutral ? (
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                ) : (
+                  <XCircle className="h-3 w-3 shrink-0" />
+                )}
+                <span className="truncate">{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-                <Field label="OpenAI API klíč">
+      <Tabs defaultValue="firma">
+        <TabsList className="flex flex-wrap h-auto gap-1 mb-4 bg-muted p-1">
+          <TabsTrigger value="firma" className="text-xs sm:text-sm">
+            <Building2 className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
+            Firma a platby
+            {(!hasSupplier || !hasAccount) && (
+              <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-500 inline-block" />
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="dph" className="text-xs sm:text-sm">
+            <FileText className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
+            DPH a marže
+          </TabsTrigger>
+          <TabsTrigger value="cislovani" className="text-xs sm:text-sm">
+            <Hash className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
+            Číslování
+            {!hasNumbering && (
+              <span className="ml-1.5 h-2 w-2 rounded-full bg-amber-500 inline-block" />
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="ai" className="text-xs sm:text-sm">
+            <Sparkles className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
+            AI a doklady
+          </TabsTrigger>
+          <TabsTrigger value="parovani" className="text-xs sm:text-sm">
+            <Link2 className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
+            Párování
+          </TabsTrigger>
+          <TabsTrigger value="upominky" className="text-xs sm:text-sm">
+            <BellRing className="h-3.5 w-3.5 mr-1 hidden sm:inline-block" />
+            Upomínky
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Tab: Firma a platby ── */}
+        <TabsContent value="firma" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Building2 className="h-5 w-5" /> Dodavatel (vaše firma)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Field label="Název / jméno dodavatele">
+                <Input value={form.supplierName} onChange={(e) => set("supplierName", e.target.value)} />
+              </Field>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="IČ">
+                  <Input value={form.supplierIc} onChange={(e) => set("supplierIc", e.target.value)} />
+                </Field>
+                <Field label="DIČ">
+                  <Input value={form.supplierDic} onChange={(e) => set("supplierDic", e.target.value)} />
+                </Field>
+              </div>
+              <Field label="Adresa">
+                <Input value={form.supplierAddress} onChange={(e) => set("supplierAddress", e.target.value)} />
+              </Field>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="E-mail">
+                  <Input type="email" value={form.supplierEmail} onChange={(e) => set("supplierEmail", e.target.value)} />
+                </Field>
+                <Field label="Telefon">
+                  <Input type="tel" value={form.supplierPhone} onChange={(e) => set("supplierPhone", e.target.value)} />
+                </Field>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Banknote className="h-5 w-5" /> Platba
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Číslo účtu">
+                  <Input value={form.bankAccount} onChange={(e) => set("bankAccount", e.target.value)} />
+                </Field>
+                <Field label="Způsob platby">
                   <Input
-                    type="password"
-                    autoComplete="off"
-                    value={aiForm.apiKey}
-                    onChange={(e) =>
-                      setAiForm((p) => (p ? { ...p, apiKey: e.target.value } : p))
-                    }
-                    placeholder={
-                      aiStatus.configured
-                        ? "Klíč je uložen – zadejte nový pro změnu"
-                        : "sk-..."
-                    }
+                    value={form.defaultPaymentMethod}
+                    onChange={(e) => set("defaultPaymentMethod", e.target.value)}
+                    placeholder="např. Převodem"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Klíč získáte na platform.openai.com. Z bezpečnostních důvodů se
-                    uložený klíč nikdy nezobrazuje.
-                    {aiStatus.source === "db" && (
-                      <>
-                        {" "}
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="IBAN">
+                  <Input value={form.iban} onChange={(e) => set("iban", e.target.value)} />
+                </Field>
+                <Field label="BIC / SWIFT">
+                  <Input value={form.bic} onChange={(e) => set("bic", e.target.value)} />
+                </Field>
+              </div>
+              <Field label="Výchozí splatnost (dnů)">
+                <DecimalInput
+                  value={form.defaultDueDays}
+                  onChange={(v) => set("defaultDueDays", v)}
+                  className="max-w-[160px]"
+                  error={formErrors.defaultDueDays}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
+          <SaveRow saving={update.isPending} onSave={handleSave} hasErrors={formHasErrors} />
+        </TabsContent>
+
+        {/* ── Tab: DPH a marže ── */}
+        <TabsContent value="dph" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-5 w-5" /> DPH
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <Label className="font-medium">Plátce DPH</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Je dodavatel plátcem DPH?
+                  </p>
+                </div>
+                <Switch checked={form.vatPayer} onCheckedChange={(v) => set("vatPayer", v)} />
+              </div>
+              <Field label="Výchozí režim DPH">
+                <Select value={form.vatModeDefault} onValueChange={(v) => set("vatModeDefault", v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(VAT_MODE_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Výchozí přirážka na materiál (%)">
+                <DecimalInput
+                  value={form.materialMarkupPercent}
+                  onChange={(v) => set("materialMarkupPercent", v)}
+                  className="max-w-[160px]"
+                  error={formErrors.materialMarkupPercent}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
+                  0 = bez přirážky. Lze upravit i při vytváření konkrétní faktury.
+                  Netýká se práce, dopravy ani pokut.
+                </p>
+              </Field>
+              <Field label="Patička faktury (poznámka)">
+                <Textarea
+                  value={form.invoiceFooterNote}
+                  onChange={(e) => set("invoiceFooterNote", e.target.value)}
+                  rows={2}
+                />
+              </Field>
+            </CardContent>
+          </Card>
+
+          <MaterialMarkupRulesCard />
+
+          <SaveRow saving={update.isPending} onSave={handleSave} />
+        </TabsContent>
+
+        {/* ── Tab: Číslování ── */}
+        <TabsContent value="cislovani" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Hash className="h-5 w-5" /> Číslování faktur
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Prefix">
+                  <Input value={form.numberPrefix} onChange={(e) => set("numberPrefix", e.target.value)} />
+                </Field>
+                <Field label="Formát">
+                  <Input
+                    value={form.numberFormat}
+                    onChange={(e) => set("numberFormat", e.target.value)}
+                    placeholder="např. {prefix}{year}{seq:4}"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Rok řady">
+                  <DecimalInput
+                    value={form.numberYear}
+                    onChange={(v) => set("numberYear", v)}
+                    placeholder="automaticky"
+                    error={formErrors.numberYear}
+                  />
+                </Field>
+                <Field label="Další pořadové číslo">
+                  <DecimalInput
+                    value={form.numberNextSeq}
+                    onChange={(v) => set("numberNextSeq", v)}
+                    error={formErrors.numberNextSeq}
+                  />
+                </Field>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Číslo se přiřazuje až při vystavení faktury. Pořadové číslo se po
+                přechodu na nový rok automaticky resetuje.
+              </p>
+            </CardContent>
+          </Card>
+
+          <SaveRow saving={update.isPending} onSave={handleSave} hasErrors={formHasErrors} />
+        </TabsContent>
+
+        {/* ── Tab: AI a doklady ── */}
+        <TabsContent value="ai" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="h-5 w-5" /> AI vytěžování dokladů (OpenAI)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Volitelné. Při nahrání PDF nebo fotografie dokladu se hlavička a
+                položky předvyplní pomocí OpenAI. Návrh se vždy uloží jen{" "}
+                <strong>ke kontrole</strong> – nikdy se neschválí automaticky.
+              </p>
+
+              {aiLoading || !aiStatus || !aiForm ? (
+                <Skeleton className="h-40 w-full" />
+              ) : (
+                <>
+                  <div className="rounded-md border divide-y">
+                    <StatusRow
+                      label="Stav"
+                      value={
+                        aiStatus.ready
+                          ? "Aktivní – doklady se vytěžují automaticky"
+                          : aiStatus.configured
+                            ? "Nakonfigurováno, ale vypnuto"
+                            : "Není nakonfigurováno"
+                      }
+                      ok={aiStatus.ready}
+                      neutral={aiStatus.configured && !aiStatus.ready}
+                    />
+                    <StatusRow
+                      label="API klíč"
+                      value={
+                        aiStatus.configured
+                          ? aiStatus.source === "env"
+                            ? "Nastaven (proměnná prostředí)"
+                            : "Uložen"
+                          : "Chybí"
+                      }
+                      ok={aiStatus.configured}
+                    />
+                    <div className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Aktivní model</span>
+                      <span className="font-mono text-xs">{aiStatus.model}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div>
+                      <Label className="font-medium">Zapnout AI vytěžování</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Po zapnutí se nahrané doklady automaticky předvyplní.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={aiForm.enabled}
+                      onCheckedChange={(v) =>
+                        setAiForm((p) => (p ? { ...p, enabled: v } : p))
+                      }
+                    />
+                  </div>
+
+                  <Field label="OpenAI API klíč">
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      value={aiForm.apiKey}
+                      onChange={(e) =>
+                        setAiForm((p) => (p ? { ...p, apiKey: e.target.value } : p))
+                      }
+                      placeholder={
+                        aiStatus.configured
+                          ? "Klíč je uložen – zadejte nový pro změnu"
+                          : "sk-..."
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Klíč získáte na platform.openai.com. Z bezpečnostních důvodů se
+                      uložený klíč nikdy nezobrazuje.
+                      {aiStatus.source === "db" && (
+                        <>
+                          {" "}
+                          <button
+                            type="button"
+                            className="underline hover:text-foreground"
+                            onClick={handleClearAiKey}
+                          >
+                            Odebrat uložený klíč
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  </Field>
+
+                  <Field label="Model">
+                    <Input
+                      value={aiForm.model}
+                      onChange={(e) =>
+                        setAiForm((p) => (p ? { ...p, model: e.target.value } : p))
+                      }
+                      placeholder="gpt-4o"
+                    />
+                  </Field>
+
+                  <Field label="Instrukce pro AI (prompt)">
+                    <Textarea
+                      rows={10}
+                      className="font-mono text-xs"
+                      value={aiForm.systemPrompt}
+                      onChange={(e) =>
+                        setAiForm((p) => (p ? { ...p, systemPrompt: e.target.value } : p))
+                      }
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Pokročilé. Určuje, jak AI čte doklady a jaká pole vrací.
+                      Prázdné pole obnoví výchozí instrukce.
+                    </p>
+                    {aiStatus?.defaultSystemPrompt &&
+                      aiForm.systemPrompt.trim() !== aiStatus.defaultSystemPrompt.trim() && (
                         <button
                           type="button"
-                          className="underline hover:text-foreground"
-                          onClick={handleClearAiKey}
+                          className="mt-1 text-xs text-primary underline underline-offset-2"
+                          onClick={() =>
+                            setAiForm((p) =>
+                              p ? { ...p, systemPrompt: aiStatus.defaultSystemPrompt } : p,
+                            )
+                          }
                         >
-                          Odebrat uložený klíč
+                          Načíst výchozí instrukce (s aktuálními pravidly)
                         </button>
-                      </>
-                    )}
-                  </p>
-                </Field>
+                      )}
+                  </Field>
 
-                <Field label="Model">
-                  <Input
-                    value={aiForm.model}
-                    onChange={(e) =>
-                      setAiForm((p) => (p ? { ...p, model: e.target.value } : p))
-                    }
-                    placeholder="gpt-4o"
-                  />
-                </Field>
-
-                <Field label="Instrukce pro AI (prompt)">
-                  <Textarea
-                    rows={10}
-                    className="font-mono text-xs"
-                    value={aiForm.systemPrompt}
-                    onChange={(e) =>
-                      setAiForm((p) => (p ? { ...p, systemPrompt: e.target.value } : p))
-                    }
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Pokročilé. Určuje, jak AI čte doklady a jaká pole vrací
-                    (mj. rozpoznání typu dokladu: faktura, dodací list, účtenka,
-                    dobropis). Neměňte názvy polí v JSON. Prázdné pole obnoví
-                    výchozí instrukce.
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Max. velikost souboru (MB)">
+                      <DecimalInput
+                        value={aiForm.maxFileMb}
+                        onChange={(v) =>
+                          setAiForm((p) => (p ? { ...p, maxFileMb: v } : p))
+                        }
+                        placeholder="32"
+                        error={aiFormErrors?.maxFileMb}
+                      />
+                    </Field>
+                    <Field label="Časový limit (ms)">
+                      <DecimalInput
+                        value={aiForm.timeoutMs}
+                        onChange={(v) =>
+                          setAiForm((p) => (p ? { ...p, timeoutMs: v } : p))
+                        }
+                        placeholder="60000"
+                        error={aiFormErrors?.timeoutMs}
+                      />
+                    </Field>
+                    <Field label="Práh spolehlivosti (0–1)">
+                      <DecimalInput
+                        value={aiForm.confidence}
+                        onChange={(v) =>
+                          setAiForm((p) => (p ? { ...p, confidence: v } : p))
+                        }
+                        placeholder="0.7"
+                        error={aiFormErrors?.confidence}
+                      />
+                    </Field>
+                  </div>
+                  <p className="-mt-2 text-xs text-muted-foreground">
+                    Výsledky pod prahem spolehlivosti se označí k pečlivé kontrole.
+                    Prázdná pole použijí výchozí hodnoty.
                   </p>
-                  {aiStatus?.defaultSystemPrompt &&
-                    aiForm.systemPrompt.trim() !==
-                      aiStatus.defaultSystemPrompt.trim() && (
-                      <button
-                        type="button"
-                        className="mt-1 text-xs text-primary underline underline-offset-2"
-                        onClick={() =>
-                          setAiForm((p) =>
-                            p
-                              ? { ...p, systemPrompt: aiStatus.defaultSystemPrompt }
-                              : p,
+
+                  {aiTestMsg && (
+                    <div
+                      className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
+                        aiTestMsg.ok
+                          ? "border-green-600/30 text-green-700 dark:text-green-400"
+                          : "border-destructive/40 text-destructive"
+                      }`}
+                    >
+                      {aiTestMsg.ok ? (
+                        <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+                      ) : (
+                        <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                      )}
+                      <span>{aiTestMsg.message}</span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <Button
+                              onClick={handleSaveAi}
+                              disabled={updateAi.isPending || aiFormHasErrors}
+                              style={aiFormHasErrors ? { pointerEvents: "none" } : undefined}
+                            >
+                              {updateAi.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                              )}
+                              Uložit nastavení AI
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {aiFormHasErrors && (
+                          <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
+                    <Button
+                      variant="outline"
+                      onClick={handleTestAi}
+                      disabled={!aiStatus.configured || testAi.isPending}
+                    >
+                      {testAi.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-2" />
+                      )}
+                      Otestovat konfiguraci
+                    </Button>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Aplikace funguje i bez OpenAI – doklady se pak připraví k ruční
+                    kontrole. Klíč lze místo uložení zde nastavit i proměnnou prostředí{" "}
+                    <code>OPENAI_API_KEY</code>.
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab: Párování a automatizace ── */}
+        <TabsContent value="parovani" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Link2 className="h-5 w-5" /> Automatické propojování dokladů
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Po schválení dokladu se jeho položky mohou automaticky napárovat k
+                zakázce a přenést cena materiálu. Napárování je vždy jen{" "}
+                <strong>návrh ke kontrole</strong> – potvrzení necháte na sobě,
+                pokud nezapnete automatické potvrzování.
+              </p>
+
+              {linkLoading || !linkStatus || !linkForm ? (
+                <Skeleton className="h-40 w-full" />
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div>
+                      <Label className="font-medium">
+                        Automaticky navrhovat propojení
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Doklad se sám napáruje k zakázce jako návrh (nikdy se
+                        nepotvrdí automaticky).
+                      </p>
+                    </div>
+                    <Switch
+                      checked={linkForm.autoLinkEnabled}
+                      onCheckedChange={(v) =>
+                        setLinkForm((p) => (p ? { ...p, autoLinkEnabled: v } : p))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div>
+                      <Label className="font-medium">
+                        Automaticky potvrzovat silné shody
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Při velmi vysoké shodě se propojení potvrdí bez ruční
+                        kontroly. Doporučujeme nechat vypnuté.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={linkForm.autoConfirmEnabled}
+                      onCheckedChange={(v) =>
+                        setLinkForm((p) =>
+                          p ? { ...p, autoConfirmEnabled: v } : p,
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Práh pro návrh (0–1)">
+                      <DecimalInput
+                        value={linkForm.autoLinkMinScore}
+                        onChange={(v) =>
+                          setLinkForm((p) => (p ? { ...p, autoLinkMinScore: v } : p))
+                        }
+                        placeholder="0.6"
+                      />
+                    </Field>
+                    <Field label="Práh pro potvrzení (0–1)">
+                      <DecimalInput
+                        value={linkForm.autoConfirmMinScore}
+                        onChange={(v) =>
+                          setLinkForm((p) =>
+                            p ? { ...p, autoConfirmMinScore: v } : p,
                           )
                         }
-                      >
-                        Načíst výchozí instrukce (s aktuálními pravidly)
-                      </button>
-                    )}
-                </Field>
-
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Field label="Max. velikost souboru (MB)">
-                    <DecimalInput
-                      value={aiForm.maxFileMb}
-                      onChange={(v) =>
-                        setAiForm((p) => (p ? { ...p, maxFileMb: v } : p))
-                      }
-                      placeholder="32"
-                      error={aiFormErrors?.maxFileMb}
-                    />
-                  </Field>
-                  <Field label="Časový limit (ms)">
-                    <DecimalInput
-                      value={aiForm.timeoutMs}
-                      onChange={(v) =>
-                        setAiForm((p) => (p ? { ...p, timeoutMs: v } : p))
-                      }
-                      placeholder="60000"
-                      error={aiFormErrors?.timeoutMs}
-                    />
-                  </Field>
-                  <Field label="Práh spolehlivosti (0–1)">
-                    <DecimalInput
-                      value={aiForm.confidence}
-                      onChange={(v) =>
-                        setAiForm((p) => (p ? { ...p, confidence: v } : p))
-                      }
-                      placeholder="0.7"
-                      error={aiFormErrors?.confidence}
-                    />
-                  </Field>
-                </div>
-                <p className="-mt-2 text-xs text-muted-foreground">
-                  Výsledky pod prahem spolehlivosti se označí k pečlivé kontrole.
-                  Prázdná pole použijí výchozí hodnoty.
-                </p>
-
-                <div className="rounded-md border divide-y">
-                  <StatusRow
-                    label="Stav"
-                    value={
-                      aiStatus.ready
-                        ? "Aktivní – doklady se vytěžují automaticky"
-                        : aiStatus.configured
-                          ? "Nakonfigurováno, ale vypnuto"
-                          : "Není nakonfigurováno"
-                    }
-                    ok={aiStatus.ready}
-                    neutral={aiStatus.configured && !aiStatus.ready}
-                  />
-                  <StatusRow
-                    label="API klíč"
-                    value={
-                      aiStatus.configured
-                        ? aiStatus.source === "env"
-                          ? "Nastaven (proměnná prostředí)"
-                          : "Uložen"
-                        : "Chybí"
-                    }
-                    ok={aiStatus.configured}
-                  />
-                  <div className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">Aktivní model</span>
-                    <span className="font-mono text-xs">{aiStatus.model}</span>
+                        placeholder="0.9"
+                      />
+                    </Field>
                   </div>
-                </div>
+                  <p className="-mt-2 text-xs text-muted-foreground">
+                    Vyšší hodnota = přísnější párování. Prázdné pole použije
+                    výchozí hodnotu.
+                  </p>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex">
-                          <Button
-                            onClick={handleSaveAi}
-                            disabled={updateAi.isPending || aiFormHasErrors}
-                            style={aiFormHasErrors ? { pointerEvents: "none" } : undefined}
-                          >
-                            {updateAi.isPending ? (
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            ) : (
-                              <Save className="h-4 w-4 mr-2" />
-                            )}
-                            Uložit nastavení AI
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      {aiFormHasErrors && (
-                        <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
-                      )}
-                    </Tooltip>
-                  </TooltipProvider>
-                  <Button
-                    variant="outline"
-                    onClick={handleTestAi}
-                    disabled={!aiStatus.configured || testAi.isPending}
-                  >
-                    {testAi.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4 mr-2" />
-                    )}
-                    Otestovat konfiguraci
-                  </Button>
-                </div>
-
-                {aiTestMsg && (
-                  <div
-                    className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
-                      aiTestMsg.ok
-                        ? "border-green-600/30 text-green-700 dark:text-green-400"
-                        : "border-destructive/40 text-destructive"
-                    }`}
-                  >
-                    {aiTestMsg.ok ? (
-                      <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
-                    ) : (
-                      <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                    )}
-                    <span>{aiTestMsg.message}</span>
+                  <div className="flex justify-end">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <Button
+                              onClick={handleSaveLink}
+                              disabled={updateLink.isPending || linkFormHasErrors}
+                              style={linkFormHasErrors ? { pointerEvents: "none" } : undefined}
+                            >
+                              {updateLink.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                              )}
+                              Uložit nastavení propojení
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {linkFormHasErrors && (
+                          <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
-                )}
-
-                <p className="text-xs text-muted-foreground">
-                  Aplikace funguje i bez OpenAI – doklady se pak připraví k ruční
-                  kontrole. Klíč lze místo uložení zde nastavit i proměnnou
-                  prostředí <code>OPENAI_API_KEY</code>.
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-5 w-5" /> Automatické propojování dokladů
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Po schválení dokladu se jeho položky mohou automaticky napárovat k
-              zakázce a přenést cena materiálu. Napárování je vždy jen{" "}
-              <strong>návrh ke kontrole</strong> – potvrzení necháte na sobě,
-              pokud nezapnete automatické potvrzování.
-            </p>
-
-            {linkLoading || !linkStatus || !linkForm ? (
-              <Skeleton className="h-40 w-full" />
-            ) : (
-              <>
-                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-                  <div>
-                    <Label className="font-medium">
-                      Automaticky navrhovat propojení
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Doklad se sám napáruje k zakázce jako návrh (nikdy se
-                      nepotvrdí automaticky).
-                    </p>
-                  </div>
-                  <Switch
-                    checked={linkForm.autoLinkEnabled}
-                    onCheckedChange={(v) =>
-                      setLinkForm((p) => (p ? { ...p, autoLinkEnabled: v } : p))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-                  <div>
-                    <Label className="font-medium">
-                      Automaticky potvrzovat silné shody
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Při velmi vysoké shodě se propojení potvrdí bez ruční
-                      kontroly. Doporučujeme nechat vypnuté.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={linkForm.autoConfirmEnabled}
-                    onCheckedChange={(v) =>
-                      setLinkForm((p) =>
-                        p ? { ...p, autoConfirmEnabled: v } : p,
-                      )
-                    }
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Práh pro návrh (0–1)">
-                    <DecimalInput
-                      value={linkForm.autoLinkMinScore}
-                      onChange={(v) =>
-                        setLinkForm((p) =>
-                          p ? { ...p, autoLinkMinScore: v } : p,
-                        )
-                      }
-                      placeholder="0.6"
-                      error={linkFormErrors?.autoLinkMinScore}
-                    />
-                  </Field>
-                  <Field label="Práh pro potvrzení (0–1)">
-                    <DecimalInput
-                      value={linkForm.autoConfirmMinScore}
-                      onChange={(v) =>
-                        setLinkForm((p) =>
-                          p ? { ...p, autoConfirmMinScore: v } : p,
-                        )
-                      }
-                      placeholder="0.9"
-                      error={linkFormErrors?.autoConfirmMinScore}
-                    />
-                  </Field>
-                </div>
-                <p className="-mt-2 text-xs text-muted-foreground">
-                  Vyšší hodnota = přísnější párování. Prázdné pole použije
-                  výchozí hodnotu.
-                </p>
-
-                <div className="flex justify-end">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex">
-                          <Button
-                            onClick={handleSaveLink}
-                            disabled={updateLink.isPending || linkFormHasErrors}
-                            style={linkFormHasErrors ? { pointerEvents: "none" } : undefined}
-                          >
-                            {updateLink.isPending ? (
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            ) : (
-                              <Save className="h-4 w-4 mr-2" />
-                            )}
-                            Uložit nastavení propojení
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      {linkFormHasErrors && (
-                        <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
-                      )}
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BellRing className="h-5 w-5" /> Automatické upomínky
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="font-medium">Posílat automatické upomínky</Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Neuhrazené faktury po splatnosti automaticky upozorní odběratele e-mailem.
-                </p>
-              </div>
-              <Switch
-                checked={form.reminderEnabled}
-                onCheckedChange={(v) => set("reminderEnabled", v)}
-              />
-            </div>
-            <Field label="Dny po splatnosti">
-              <Input
-                value={form.reminderDays}
-                onChange={(e) => set("reminderDays", e.target.value)}
-                placeholder="3,14,30"
-                disabled={!form.reminderEnabled}
-              />
-            </Field>
-            <p className="text-xs text-muted-foreground">
-              Čísla oddělená čárkou. Upomínka se odešle nejvýše jednou pro každý
-              práh a jen pokud je nastaven e-mail odběratele a SMTP server.
-            </p>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <Button
-                    onClick={handleSave}
-                    disabled={update.isPending || formHasErrors}
-                    className="h-11 px-6"
-                    style={formHasErrors ? { pointerEvents: "none" } : undefined}
-                  >
-                    <Save className="h-4 w-4 mr-2" /> Uložit nastavení
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {formHasErrors && (
-                <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+                </>
               )}
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tab: Upomínky ── */}
+        <TabsContent value="upominky" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BellRing className="h-5 w-5" /> Automatické upomínky
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label className="font-medium">Posílat automatické upomínky</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Neuhrazené faktury po splatnosti automaticky upozorní odběratele e-mailem.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.reminderEnabled}
+                  onCheckedChange={(v) => set("reminderEnabled", v)}
+                />
+              </div>
+              <Field label="Dny po splatnosti">
+                <Input
+                  value={form.reminderDays}
+                  onChange={(e) => set("reminderDays", e.target.value)}
+                  placeholder="3,14,30"
+                  disabled={!form.reminderEnabled}
+                />
+              </Field>
+              <p className="text-xs text-muted-foreground">
+                Čísla oddělená čárkou. Upomínka se odešle nejvýše jednou pro každý
+                práh a jen pokud je nastaven e-mail odběratele a SMTP server.
+              </p>
+            </CardContent>
+          </Card>
+
+          <SaveRow saving={update.isPending} onSave={handleSave} hasErrors={formHasErrors} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function SaveRow({
+  saving,
+  onSave,
+  hasErrors,
+}: {
+  saving: boolean;
+  onSave: () => void;
+  hasErrors?: boolean;
+}) {
+  return (
+    <div className="flex justify-end">
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <Button
+                onClick={onSave}
+                disabled={saving || !!hasErrors}
+                className="h-11 px-6"
+                style={hasErrors ? { pointerEvents: "none" } : undefined}
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Uložit nastavení
+              </Button>
+            </span>
+          </TooltipTrigger>
+          {hasErrors && (
+            <TooltipContent>Opravte chyby ve formuláři</TooltipContent>
+          )}
+        </Tooltip>
+      </TooltipProvider>
     </div>
   );
 }
@@ -1023,10 +1173,8 @@ function MaterialMarkupRulesCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Nastavte odlišnou přirážku pro jednotlivé kategorie materiálu (podle
-          kategorie skladové položky). Materiál se ke kategorii přiřadí podle názvu.
-          Když kategorie pravidlo nemá, použije se výchozí přirážka výše. Při
-          vytváření faktury lze přirážku upravit i u jednotlivých položek.
+          Nastavte odlišnou přirážku pro jednotlivé kategorie materiálu. Když
+          kategorie pravidlo nemá, použije se výchozí přirážka výše.
         </p>
 
         {isLoading ? (

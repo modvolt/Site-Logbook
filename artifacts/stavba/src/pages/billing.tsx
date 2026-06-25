@@ -22,8 +22,10 @@ import {
   Banknote,
   Sparkles,
   Mail,
+  CheckCircle2,
 } from "lucide-react";
 
+const NEEDS_REVIEW_PARAMS: ListCostDocumentsParams = { status: "needs_review" };
 const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
   status: "needs_review",
   aiOnly: true,
@@ -34,29 +36,75 @@ export default function Billing() {
   const { data, isLoading } = useGetBillingSummary({
     query: { queryKey: getGetBillingSummaryQueryKey() },
   });
+  const { data: reviewDocs } = useListCostDocuments(NEEDS_REVIEW_PARAMS, {
+    query: { queryKey: getListCostDocumentsQueryKey(NEEDS_REVIEW_PARAMS) },
+  });
   const { data: aiReviewDocs } = useListCostDocuments(AI_REVIEW_PARAMS, {
     query: { queryKey: getListCostDocumentsQueryKey(AI_REVIEW_PARAMS) },
   });
-  const aiReviewCount = aiReviewDocs?.length ?? 0;
 
-  const stats = [
+  const reviewCount = reviewDocs?.length ?? 0;
+  const aiReviewCount = aiReviewDocs?.length ?? 0;
+  const unbilledCount = data?.unbilledDoneJobs ?? 0;
+  const overdueCount = data?.overdueCount ?? 0;
+
+  const hasUrgentItems =
+    unbilledCount > 0 || reviewCount > 0 || overdueCount > 0 || aiReviewCount > 0;
+
+  const queueItems = [
     {
-      label: "Nevyfakturované zakázky",
-      value: data ? String(data.unbilledDoneJobs) : "—",
-      icon: Briefcase,
-      color: "text-amber-500",
+      key: "unbilled",
+      icon: Building2,
+      label: "Hotové k fakturaci",
+      subtitle: "Zakázky čekající na vystavení faktury",
+      count: unbilledCount,
+      amount: data?.totalToInvoiceWithoutVat,
+      amountLabel: "orientačně bez DPH",
+      urgent: unbilledCount > 0,
+      urgentColor: "text-amber-600 dark:text-amber-400",
+      urgentBg: "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20",
+      iconColor: "text-amber-500",
+      onClick: () => setLocation("/billing/unbilled"),
     },
     {
-      label: "Koncepty faktur",
-      value: data ? String(data.draftInvoices) : "—",
-      icon: FileEdit,
-      color: "text-gray-500",
+      key: "review",
+      icon: Inbox,
+      label: "Doklady ke kontrole",
+      subtitle: "Přijaté doklady čekající na schválení",
+      count: reviewCount,
+      urgent: reviewCount > 0,
+      urgentColor: "text-emerald-700 dark:text-emerald-400",
+      urgentBg:
+        "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20",
+      iconColor: "text-emerald-500",
+      onClick: () => setLocation("/billing/documents?status=needs_review"),
     },
     {
-      label: "Vystavené faktury",
-      value: data ? String(data.issuedInvoices) : "—",
-      icon: FileText,
-      color: "text-blue-500",
+      key: "ai",
+      icon: Sparkles,
+      label: "AI ke kontrole",
+      subtitle: "Doklady předvyplněné AI čekající na potvrzení",
+      count: aiReviewCount,
+      urgent: aiReviewCount > 0,
+      urgentColor: "text-violet-700 dark:text-violet-400",
+      urgentBg:
+        "border-violet-200 bg-violet-50 dark:border-violet-900/50 dark:bg-violet-950/20",
+      iconColor: "text-violet-500",
+      onClick: () => setLocation("/billing/documents/review"),
+    },
+    {
+      key: "overdue",
+      icon: AlertTriangle,
+      label: "Po splatnosti",
+      subtitle: "Vystavené faktury po datu splatnosti",
+      count: overdueCount,
+      amount: data?.overdueTotalWithVat,
+      amountLabel: "s DPH",
+      urgent: overdueCount > 0,
+      urgentColor: "text-red-700 dark:text-red-400",
+      urgentBg: "border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20",
+      iconColor: "text-red-500",
+      onClick: () => setLocation("/billing/invoices?status=overdue"),
     },
   ];
 
@@ -69,175 +117,129 @@ export default function Billing() {
         <h1 className="text-2xl font-bold">Fakturace</h1>
       </div>
 
+      {/* Work queue */}
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+        K vyřízení
+      </h2>
+
       {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+        <div className="space-y-2 mb-6">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
+      ) : !hasUrgentItems ? (
+        <Card className="mb-6">
+          <CardContent className="p-4 flex items-center gap-3 text-muted-foreground">
+            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+            <p className="text-sm">Nic k vyřízení – vše je v pořádku.</p>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-          {stats.map((s) => (
-            <Card key={s.label}>
-              <CardContent className="p-4 flex items-center gap-3">
-                <s.icon className={`h-7 w-7 ${s.color}`} />
-                <div>
-                  <div className="text-2xl font-bold">{s.value}</div>
-                  <div className="text-xs text-muted-foreground">{s.label}</div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-2 mb-6">
+          {queueItems
+            .filter((q) => q.urgent)
+            .map((q) => (
+              <QueueCard key={q.key} item={q} />
+            ))}
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground mb-1">
-              K vyfakturování (bez DPH)
-            </div>
-            <div className="text-xl font-bold">
-              {isLoading ? "—" : fmtKc(data?.totalToInvoiceWithoutVat, 0)}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground mb-1">
-              Vystaveno tento měsíc (s DPH)
-            </div>
-            <div className="text-xl font-bold">
-              {isLoading ? "—" : fmtKc(data?.issuedThisMonthWithVat, 0)}
-            </div>
-          </CardContent>
-        </Card>
+      {/* Secondary: zero-count items */}
+      {!isLoading && hasUrgentItems && (
+        <div className="space-y-2 mb-6">
+          {queueItems
+            .filter((q) => !q.urgent)
+            .map((q) => (
+              <QueueCard key={q.key} item={q} muted />
+            ))}
+        </div>
+      )}
+
+      {/* Financial metrics */}
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+        Přehled
+      </h2>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+        <MetricCard
+          label="K vyfakturování"
+          sublabel="bez DPH"
+          value={isLoading ? "—" : fmtKc(data?.totalToInvoiceWithoutVat, 0)}
+        />
+        <MetricCard
+          label="Vystaveno letos"
+          sublabel="s DPH"
+          value={isLoading ? "—" : fmtKc(data?.issuedThisMonthWithVat, 0)}
+        />
+        <MetricCard
+          label="Zaplaceno"
+          sublabel={`letos · ${data?.paidThisMonthCount ?? 0} fakt.`}
+          value={isLoading ? "—" : fmtKc(data?.paidThisMonthWithVat, 0)}
+          valueColor="text-emerald-600 dark:text-emerald-400"
+        />
+        <MetricCard
+          label="Nezaplaceno"
+          sublabel={`${data?.unpaidCount ?? 0} ${invoiceNoun(data?.unpaidCount ?? 0)}`}
+          value={isLoading ? "—" : fmtKc(data?.unpaidTotalWithVat, 0)}
+        />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground mb-1">
-              Zaplaceno tento měsíc (s DPH)
-            </div>
-            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-              {isLoading ? "—" : fmtKc(data?.paidThisMonthWithVat, 0)}
-            </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {isLoading
-                ? ""
-                : `${data?.paidThisMonthCount ?? 0} ${invoiceNoun(data?.paidThisMonthCount ?? 0)}`}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground mb-1">
-              Celkem nezaplaceno (s DPH)
-            </div>
-            <div className="text-xl font-bold">
-              {isLoading ? "—" : fmtKc(data?.unpaidTotalWithVat, 0)}
-            </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {isLoading
-                ? ""
-                : `${data?.unpaidCount ?? 0} ${invoiceNoun(data?.unpaidCount ?? 0)}`}
-            </div>
-          </CardContent>
-        </Card>
-        <Card
-          className={
-            !isLoading && (data?.overdueCount ?? 0) > 0
-              ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/30 overflow-hidden"
-              : "overflow-hidden"
-          }
-        >
-          {!isLoading && (data?.overdueCount ?? 0) > 0 ? (
-            <button
-              type="button"
-              onClick={() => setLocation("/billing/invoices?status=overdue")}
-              className="w-full text-left hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              aria-label="Zobrazit faktury po splatnosti"
-            >
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                  <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-                  Po splatnosti (s DPH)
-                </div>
-                <div className="text-xl font-bold text-red-700 dark:text-red-300">
-                  {fmtKc(data?.overdueTotalWithVat, 0)}
-                </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {`${data?.overdueCount ?? 0} ${invoiceNoun(data?.overdueCount ?? 0)}`}
-                </div>
-              </CardContent>
-            </button>
-          ) : (
-            <CardContent className="p-4">
-              <div className="text-xs text-muted-foreground mb-1">Po splatnosti (s DPH)</div>
-              <div className="text-xl font-bold">
-                {isLoading ? "—" : fmtKc(data?.overdueTotalWithVat, 0)}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                {isLoading ? "" : `${data?.overdueCount ?? 0} ${invoiceNoun(data?.overdueCount ?? 0)}`}
-              </div>
-            </CardContent>
-          )}
-        </Card>
-      </div>
-
-      <div className="space-y-3">
+      {/* Navigation links */}
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+        Fakturace
+      </h2>
+      <div className="space-y-2">
         <NavCard
           icon={Building2}
           color="text-amber-500"
-          title="Nevyfakturované zakázky"
+          title="Hotové k fakturaci"
           subtitle="Vytvořte fakturu z hotových zakázek podle zákazníka"
+          badge={unbilledCount}
           onClick={() => setLocation("/billing/unbilled")}
         />
         <NavCard
           icon={Inbox}
           color="text-emerald-500"
-          title="Přijaté doklady"
-          subtitle="Účtenky, dodací listy a přijaté faktury k přefakturaci"
+          title="Doklady a dodací listy"
+          subtitle="Účtenky, dodací listy, přijaté faktury a dobropisy"
+          badge={reviewCount}
           onClick={() => setLocation("/billing/documents")}
         />
         <NavCard
           icon={Sparkles}
           color="text-violet-500"
-          title="Kontrola AI dokladů"
-          subtitle="Doklady předvyplněné AI čekající na potvrzení, nejnižší důvěryhodnost první"
+          title="AI kontrola dokladů"
+          subtitle="Doklady předvyplněné AI čekající na potvrzení"
           badge={aiReviewCount}
           onClick={() => setLocation("/billing/documents/review")}
-        />
-        <NavCard
-          icon={Mail}
-          color="text-emerald-500"
-          title="Import dokladů z e-mailu"
-          subtitle="Stahování příloh z Gmailu / Google Workspace ke kontrole"
-          onClick={() => setLocation("/billing/email-import")}
         />
         <NavCard
           icon={FileText}
           color="text-blue-500"
           title="Faktury"
-          subtitle="Přehled konceptů a vystavených faktur"
+          subtitle="Koncepty a vystavené faktury"
+          badge={data?.draftInvoices}
           onClick={() => setLocation("/billing/invoices")}
         />
         <NavCard
-          icon={Banknote}
-          color="text-emerald-500"
-          title="Párování plateb z banky"
-          subtitle="Nahrajte výpis (KB) a spárujte platby s fakturami"
+          icon={Mail}
+          color="text-teal-500"
+          title="Platby z banky"
+          subtitle="Nahrajte výpis (KB/CAMT) a spárujte platby s fakturami"
           onClick={() => setLocation("/billing/bank-import")}
+        />
+        <NavCard
+          icon={Mail}
+          color="text-sky-500"
+          title="Import z e-mailu"
+          subtitle="Stahování příloh z Gmailu ke kontrole"
+          onClick={() => setLocation("/billing/email-import")}
         />
         <NavCard
           icon={SettingsIcon}
           color="text-gray-500"
           title="Nastavení fakturace"
-          subtitle="Dodavatel, číslování, výchozí režim DPH"
+          subtitle="Firma, číslování, DPH, AI a upomínky"
           onClick={() => setLocation("/billing/settings")}
         />
       </div>
@@ -249,6 +251,96 @@ function invoiceNoun(count: number): string {
   if (count === 1) return "faktura";
   if (count >= 2 && count <= 4) return "faktury";
   return "faktur";
+}
+
+type QueueItem = {
+  key: string;
+  icon: typeof Receipt;
+  label: string;
+  subtitle: string;
+  count: number;
+  amount?: number | null;
+  amountLabel?: string;
+  urgent: boolean;
+  urgentColor: string;
+  urgentBg: string;
+  iconColor: string;
+  onClick: () => void;
+};
+
+function QueueCard({ item, muted }: { item: QueueItem; muted?: boolean }) {
+  return (
+    <Card
+      className={`overflow-hidden transition-colors ${
+        !muted && item.urgent ? item.urgentBg : ""
+      }`}
+    >
+      <button
+        type="button"
+        onClick={item.onClick}
+        className="w-full text-left hover:bg-muted/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <CardContent className="p-3 flex items-center gap-3">
+          <item.icon
+            className={`h-5 w-5 shrink-0 ${muted ? "text-muted-foreground" : item.iconColor}`}
+          />
+          <div className="flex-1 min-w-0">
+            <p
+              className={`font-medium text-sm ${
+                muted ? "text-muted-foreground" : ""
+              }`}
+            >
+              {item.label}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">{item.subtitle}</p>
+          </div>
+          <div className="shrink-0 text-right">
+            {item.count > 0 ? (
+              <>
+                <span
+                  className={`text-lg font-bold ${!muted ? item.urgentColor : "text-muted-foreground"}`}
+                >
+                  {item.count}
+                </span>
+                {item.amount != null && item.amount > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {fmtKc(item.amount, 0)} {item.amountLabel}
+                  </p>
+                )}
+              </>
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-muted-foreground/40" />
+            )}
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        </CardContent>
+      </button>
+    </Card>
+  );
+}
+
+function MetricCard({
+  label,
+  sublabel,
+  value,
+  valueColor,
+}: {
+  label: string;
+  sublabel?: string;
+  value: string;
+  valueColor?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className={`text-lg font-bold ${valueColor ?? ""}`}>{value}</div>
+        <div className="text-xs font-medium text-foreground/80 leading-tight">{label}</div>
+        {sublabel && (
+          <div className="text-xs text-muted-foreground leading-tight">{sublabel}</div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function NavCard({

@@ -56,6 +56,7 @@ import { fmtKc, fmtDate, vatModeLabel, overdueDays } from "@/lib/billing-format"
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
+  ExternalLink,
   Pencil,
   RefreshCw,
   FileCheck2,
@@ -415,7 +416,19 @@ export default function BillingInvoiceDetail() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Odběratel</CardTitle>
+            <CardTitle className="text-base flex items-center justify-between gap-2">
+              Odběratel
+              {inv.customerId != null && (
+                <button
+                  type="button"
+                  onClick={() => setLocation(`/customers/${inv.customerId}`)}
+                  className="inline-flex items-center gap-1 text-xs font-normal text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Otevřít zákazníka
+                </button>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-1">
             <p className="font-semibold">{inv.customerName || "—"}</p>
