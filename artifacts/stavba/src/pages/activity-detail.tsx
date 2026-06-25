@@ -530,12 +530,55 @@ function MaterialsSection({
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });
 
   const total = materials.reduce((sum, m) => sum + (m.quantity ?? 0) * (m.pricePerUnit ?? 0), 0);
 
   const matQtyError = decimalError(form.quantity);
   const matPriceError = decimalError(form.pricePerUnit);
   const matAddHasErrors = !!(matQtyError || matPriceError);
+
+  const editQtyError = decimalError(editForm.quantity);
+  const editPriceError = decimalError(editForm.pricePerUnit);
+  const editHasErrors = !!(editQtyError || editPriceError);
+
+  const startEdit = (m: Material) => {
+    setEditingId(m.id);
+    setEditForm({
+      name: m.name,
+      quantity: m.quantity != null ? String(m.quantity) : "",
+      unit: m.unit ?? "",
+      pricePerUnit: m.pricePerUnit != null ? String(m.pricePerUnit) : "",
+    });
+    setShowAdd(false);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ name: "", quantity: "", unit: "", pricePerUnit: "" });
+  };
+
+  const handleSaveEdit = (e: React.FormEvent, materialId: number) => {
+    e.preventDefault();
+    if (!editForm.name.trim() || editHasErrors) return;
+    updateMaterial.mutate({
+      activityId,
+      materialId,
+      data: {
+        name: editForm.name.trim(),
+        quantity: parseDecimal(editForm.quantity),
+        unit: editForm.unit.trim() || null,
+        pricePerUnit: parseDecimal(editForm.pricePerUnit),
+      },
+    }, {
+      onSuccess: () => {
+        cancelEdit();
+        onChange();
+        toast({ title: "Materiál upraven" });
+      },
+    });
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -579,7 +622,7 @@ function MaterialsSection({
               </span>
             )}
           </h2>
-          {canWrite && !showAdd && (
+          {canWrite && !showAdd && editingId === null && (
             <Button size="sm" variant="outline" onClick={() => setShowAdd(true)}>
               <Plus className="h-4 w-4 mr-1" /> Přidat
             </Button>
@@ -606,6 +649,24 @@ function MaterialsSection({
         ) : (
           <ul className="space-y-1">
             {materials.map((m) => {
+              if (editingId === m.id && canWrite) {
+                return (
+                  <li key={m.id} className="py-2 border-b last:border-0">
+                    <form onSubmit={(e) => handleSaveEdit(e, m.id)} className="space-y-2 p-2 border rounded-md bg-muted/30">
+                      <Autocomplete placeholder="Název" value={editForm.name} onValueChange={(v) => setEditForm({ ...editForm, name: v })} suggestions={materialSuggestions} autoFocus required />
+                      <div className="grid grid-cols-3 gap-2">
+                        <DecimalInput placeholder="Množ." value={editForm.quantity} onChange={(v) => setEditForm({ ...editForm, quantity: v })} error={editQtyError} />
+                        <Input placeholder="Jed." value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })} />
+                        <DecimalInput placeholder="Kč/jed." value={editForm.pricePerUnit} onChange={(v) => setEditForm({ ...editForm, pricePerUnit: v })} error={editPriceError} />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={editHasErrors || !editForm.name.trim()}>Uložit</Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={cancelEdit}><X className="h-4 w-4" /></Button>
+                      </div>
+                    </form>
+                  </li>
+                );
+              }
               const lineTotal = (m.quantity ?? 0) * (m.pricePerUnit ?? 0);
               return (
                 <li key={m.id} className="flex items-center gap-2 py-2 border-b last:border-0">
@@ -622,9 +683,14 @@ function MaterialsSection({
                     )}
                   </div>
                   {canWrite && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-rose-500" onClick={() => handleDelete(m.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => startEdit(m)}>
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-rose-500" onClick={() => handleDelete(m.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   )}
                 </li>
               );
