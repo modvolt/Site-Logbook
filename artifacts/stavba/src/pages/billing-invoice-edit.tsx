@@ -27,7 +27,23 @@ import {
 } from "@/components/ui/select";
 import { fmtKc, VAT_MODE_LABELS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Save, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, AlertCircle } from "lucide-react";
+
+function errMsg(err: unknown): string | undefined {
+  if (err && typeof err === "object") {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const detail =
+        (data as { detail?: unknown; title?: unknown }).detail ??
+        (data as { title?: unknown }).title;
+      if (typeof detail === "string") return detail;
+    }
+    if ("message" in err && typeof (err as { message?: unknown }).message === "string") {
+      return (err as { message: string }).message;
+    }
+  }
+  return undefined;
+}
 
 type Header = {
   issueDate: string;
@@ -117,6 +133,8 @@ export default function BillingInvoiceEdit() {
 
   const [header, setHeader] = useState<Header | null>(null);
   const [rows, setRows] = useState<LineRow[]>([]);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (inv && header === null) {
@@ -128,8 +146,17 @@ export default function BillingInvoiceEdit() {
   const setH = <K extends keyof Header>(key: K, value: Header[K]) =>
     setHeader((p) => (p ? { ...p, [key]: value } : p));
 
-  const setRow = (key: string, patch: Partial<LineRow>) =>
+  const setRow = (key: string, patch: Partial<LineRow>) => {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    if ("description" in patch && rowErrors[key]) {
+      setRowErrors((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      if (Object.keys(rowErrors).length <= 1) setSaveError(null);
+    }
+  };
 
   const addRow = () =>
     setRows((rs) => [
@@ -157,11 +184,19 @@ export default function BillingInvoiceEdit() {
 
   const handleSave = () => {
     if (!header) return;
-    const invalid = rows.find((r) => r.description.trim() === "");
-    if (invalid) {
-      toast({ title: "Každá položka musí mít popis", variant: "destructive" });
+    const errors: Record<string, string> = {};
+    for (const r of rows) {
+      if (r.description.trim() === "") {
+        errors[r.key] = "Popis je povinný";
+      }
+    }
+    if (Object.keys(errors).length > 0) {
+      setRowErrors(errors);
+      setSaveError("Opravte chyby ve formuláři před uložením.");
       return;
     }
+    setRowErrors({});
+    setSaveError(null);
     const lines: InvoiceLineInput[] = rows.map((r, i) => ({
       sourceType: r.sourceType,
       sourceId: r.sourceId,
@@ -194,11 +229,16 @@ export default function BillingInvoiceEdit() {
       },
       {
         onSuccess: () => {
+          setSaveError(null);
           invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept uložen" });
           setLocation(`/billing/invoices/${id}`);
         },
-        onError: () => toast({ title: "Uložení se nezdařilo", variant: "destructive" }),
+        onError: (err: unknown) => {
+          const msg = errMsg(err) ?? "Uložení se nezdařilo. Zkuste to prosím znovu.";
+          setSaveError(msg);
+          toast({ title: "Uložení se nezdařilo", variant: "destructive" });
+        },
       },
     );
   };
@@ -307,12 +347,21 @@ export default function BillingInvoiceEdit() {
           {rows.map((r) => (
             <div key={r.key} className="rounded-lg border p-3 space-y-2">
               <div className="flex gap-2">
-                <Input
-                  value={r.description}
-                  onChange={(e) => setRow(r.key, { description: e.target.value })}
-                  placeholder="Popis položky"
-                  className="flex-1"
-                />
+                <div className="flex-1">
+                  <Input
+                    value={r.description}
+                    onChange={(e) => setRow(r.key, { description: e.target.value })}
+                    placeholder="Popis položky"
+                    aria-invalid={!!rowErrors[r.key]}
+                    className={rowErrors[r.key] ? "border-destructive focus-visible:ring-destructive" : ""}
+                  />
+                  {rowErrors[r.key] && (
+                    <p className="text-destructive text-xs mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      {rowErrors[r.key]}
+                    </p>
+                  )}
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -376,6 +425,13 @@ export default function BillingInvoiceEdit() {
           </p>
         </CardContent>
       </Card>
+
+      {saveError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2 mb-4">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{saveError}</span>
+        </div>
+      )}
 
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={() => setLocation(`/billing/invoices/${id}`)}>

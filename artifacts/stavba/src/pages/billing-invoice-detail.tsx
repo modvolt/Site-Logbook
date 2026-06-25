@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import {
   useGetInvoice,
@@ -68,6 +68,7 @@ import {
   Ban,
   BellRing,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
 
 export default function BillingInvoiceDetail() {
@@ -107,6 +108,19 @@ export default function BillingInvoiceDetail() {
   const [reminderSubject, setReminderSubject] = useState("");
   const [reminderMessage, setReminderMessage] = useState("");
 
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [paidError, setPaidError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+
+  useEffect(() => { if (!confirmIssue) setIssueError(null); }, [confirmIssue]);
+  useEffect(() => { if (!confirmCancel) setCancelError(null); }, [confirmCancel]);
+  useEffect(() => { if (!paidOpen) setPaidError(null); }, [paidOpen]);
+  useEffect(() => { if (!emailOpen) setEmailError(null); }, [emailOpen]);
+  useEffect(() => { if (!reminderOpen) setReminderError(null); }, [reminderOpen]);
+
   const invalidateAll = () => {
     invalidateData(queryClient, "billingInvoices", "jobs");
   };
@@ -129,12 +143,14 @@ export default function BillingInvoiceDetail() {
       {
         onSuccess: () => {
           invalidateAll();
+          setIssueError(null);
           setConfirmIssue(false);
           toast({ title: "Faktura vystavena" });
         },
         onError: (err: unknown) => {
-          setConfirmIssue(false);
-          toast({ title: "Vystavení se nezdařilo", description: errMsg(err), variant: "destructive" });
+          const msg = errMsg(err) ?? "Vystavení se nezdařilo. Zkuste to prosím znovu.";
+          setIssueError(msg);
+          toast({ title: "Vystavení se nezdařilo", variant: "destructive" });
         },
       },
     );
@@ -161,11 +177,13 @@ export default function BillingInvoiceDetail() {
       {
         onSuccess: () => {
           invalidateAll();
+          setCancelError(null);
           setConfirmCancel(false);
           toast({ title: "Faktura stornována" });
         },
-        onError: () => {
-          setConfirmCancel(false);
+        onError: (err: unknown) => {
+          const msg = errMsg(err) ?? "Storno se nezdařilo. Zkuste to prosím znovu.";
+          setCancelError(msg);
           toast({ title: "Storno se nezdařilo", variant: "destructive" });
         },
       },
@@ -177,9 +195,14 @@ export default function BillingInvoiceDetail() {
       {
         onSuccess: () => {
           invalidateAll();
+          setStatusError(null);
           toast({ title: status === "paid" ? "Označeno jako zaplaceno" : "Označeno jako odesláno" });
         },
-        onError: () => toast({ title: "Změna stavu se nezdařila", variant: "destructive" }),
+        onError: (err: unknown) => {
+          const msg = errMsg(err) ?? "Změna stavu se nezdařila.";
+          setStatusError(msg);
+          toast({ title: "Změna stavu se nezdařila", variant: "destructive" });
+        },
       },
     );
 
@@ -198,9 +221,10 @@ export default function BillingInvoiceDetail() {
   const handleMarkPaid = () => {
     const amountNum = paidAmount.trim() === "" ? null : Number(paidAmount.replace(",", "."));
     if (amountNum != null && (Number.isNaN(amountNum) || amountNum < 0)) {
-      toast({ title: "Zadejte platnou částku", variant: "destructive" });
+      setPaidError("Zadejte platnou částku (nezáporné číslo).");
       return;
     }
+    setPaidError(null);
     updateStatus.mutate(
       {
         id,
@@ -216,7 +240,11 @@ export default function BillingInvoiceDetail() {
           setPaidOpen(false);
           toast({ title: "Označeno jako zaplaceno" });
         },
-        onError: () => toast({ title: "Změna stavu se nezdařila", variant: "destructive" }),
+        onError: (err: unknown) => {
+          const msg = errMsg(err) ?? "Změna stavu se nezdařila. Zkuste to prosím znovu.";
+          setPaidError(msg);
+          toast({ title: "Změna stavu se nezdařila", variant: "destructive" });
+        },
       },
     );
   };
@@ -260,15 +288,22 @@ export default function BillingInvoiceDetail() {
       {
         onSuccess: (res) => {
           invalidateAll();
+          if (!res.sent) {
+            setEmailError("E-mail se nepodařilo odeslat. Zkontrolujte nastavení SMTP.");
+            toast({ title: "E-mail se nepodařilo odeslat", variant: "destructive" });
+            return;
+          }
           setEmailOpen(false);
           toast({
-            title: res.sent ? "E-mail odeslán" : "E-mail se nepodařilo odeslat",
+            title: "E-mail odeslán",
             description: res.to ? `Příjemce: ${res.to}` : undefined,
-            variant: res.sent ? undefined : "destructive",
           });
         },
-        onError: (err: unknown) =>
-          toast({ title: "Odeslání e-mailu se nezdařilo", description: errMsg(err), variant: "destructive" }),
+        onError: (err: unknown) => {
+          const msg = errMsg(err) ?? "Odeslání e-mailu se nezdařilo. Zkuste to prosím znovu.";
+          setEmailError(msg);
+          toast({ title: "Odeslání e-mailu se nezdařilo", variant: "destructive" });
+        },
       },
     );
 
@@ -303,15 +338,22 @@ export default function BillingInvoiceDetail() {
       {
         onSuccess: (res) => {
           invalidateAll();
+          if (!res.sent) {
+            setReminderError("Upomínku se nepodařilo odeslat. Zkontrolujte nastavení SMTP.");
+            toast({ title: "Upomínku se nepodařilo odeslat", variant: "destructive" });
+            return;
+          }
           setReminderOpen(false);
           toast({
-            title: res.sent ? "Upomínka odeslána" : "Upomínku se nepodařilo odeslat",
+            title: "Upomínka odeslána",
             description: res.to ? `Příjemce: ${res.to}` : undefined,
-            variant: res.sent ? undefined : "destructive",
           });
         },
-        onError: (err: unknown) =>
-          toast({ title: "Odeslání upomínky se nezdařilo", description: errMsg(err), variant: "destructive" }),
+        onError: (err: unknown) => {
+          const msg = errMsg(err) ?? "Odeslání upomínky se nezdařilo. Zkuste to prosím znovu.";
+          setReminderError(msg);
+          toast({ title: "Odeslání upomínky se nezdařilo", variant: "destructive" });
+        },
       },
     );
 
@@ -355,6 +397,13 @@ export default function BillingInvoiceDetail() {
           <p className="text-sm text-muted-foreground mt-1">{inv.customerName || "—"}</p>
         </div>
       </div>
+
+      {statusError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2 mb-4">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{statusError}</span>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2 mb-6">
@@ -549,6 +598,12 @@ export default function BillingInvoiceDetail() {
               označí jako „Vyfakturováno". Tuto akci nelze vrátit (lze pouze stornovat).
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {issueError && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{issueError}</span>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Zrušit</AlertDialogCancel>
             <AlertDialogAction onClick={handleIssue} disabled={issue.isPending}>
@@ -594,6 +649,12 @@ export default function BillingInvoiceDetail() {
             <Checkbox checked={returnJobs} onCheckedChange={(v) => setReturnJobs(v === true)} />
             Vrátit navázané zakázky zpět do stavu „Hotovo"
           </label>
+          {cancelError && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{cancelError}</span>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Zrušit</AlertDialogCancel>
             <AlertDialogAction
@@ -630,9 +691,17 @@ export default function BillingInvoiceDetail() {
                 step="0.01"
                 min="0"
                 value={paidAmount}
-                onChange={(e) => setPaidAmount(e.target.value)}
+                onChange={(e) => { setPaidAmount(e.target.value); setPaidError(null); }}
                 placeholder={inv.totalWithVat != null ? String(inv.totalWithVat) : ""}
+                aria-invalid={!!paidError}
+                className={paidError ? "border-destructive focus-visible:ring-destructive" : ""}
               />
+              {paidError && (
+                <p className="text-destructive text-xs mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  {paidError}
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -657,7 +726,7 @@ export default function BillingInvoiceDetail() {
           <div className="space-y-3">
             <div>
               <Label className="text-sm mb-1 block">Příjemce</Label>
-              <Input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="email@firma.cz" />
+              <Input type="email" value={emailTo} onChange={(e) => { setEmailTo(e.target.value); setEmailError(null); }} placeholder="email@firma.cz" />
             </div>
             <div>
               <Label className="text-sm mb-1 block">Předmět</Label>
@@ -667,6 +736,12 @@ export default function BillingInvoiceDetail() {
               <Label className="text-sm mb-1 block">Zpráva</Label>
               <Textarea value={emailMessage} onChange={(e) => setEmailMessage(e.target.value)} rows={4} />
             </div>
+            {emailError && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{emailError}</span>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEmailOpen(false)}>
@@ -699,7 +774,7 @@ export default function BillingInvoiceDetail() {
             <div className="space-y-3">
               <div>
                 <Label className="text-sm mb-1 block">Příjemce</Label>
-                <Input type="email" value={reminderTo} onChange={(e) => setReminderTo(e.target.value)} placeholder="email@firma.cz" />
+                <Input type="email" value={reminderTo} onChange={(e) => { setReminderTo(e.target.value); setReminderError(null); }} placeholder="email@firma.cz" />
               </div>
               <div>
                 <Label className="text-sm mb-1 block">Předmět</Label>
@@ -709,6 +784,12 @@ export default function BillingInvoiceDetail() {
                 <Label className="text-sm mb-1 block">Zpráva</Label>
                 <Textarea value={reminderMessage} onChange={(e) => setReminderMessage(e.target.value)} rows={6} />
               </div>
+              {reminderError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{reminderError}</span>
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
