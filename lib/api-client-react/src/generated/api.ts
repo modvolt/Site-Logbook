@@ -62,6 +62,7 @@ import type {
   Customer,
   CustomerContact,
   CustomerContactInput,
+  CustomerFinancialSummary,
   CustomerImportInput,
   CustomerImportResult,
   CustomerInput,
@@ -2542,6 +2543,83 @@ export const useDeleteCustomer = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteCustomerMutationOptions(options));
     }
+
+export const getGetCustomerFinancialSummaryUrl = (id: number,) => {
+
+
+
+
+  return `/api/customers/${id}/financial-summary`
+}
+
+/**
+ * @summary Financial snapshot for a customer (admin only)
+ */
+export const getCustomerFinancialSummary = async (id: number, options?: RequestInit): Promise<CustomerFinancialSummary> => {
+
+  return customFetch<CustomerFinancialSummary>(getGetCustomerFinancialSummaryUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCustomerFinancialSummaryQueryKey = (id: number,) => {
+    return [
+    `/api/customers/${id}/financial-summary`
+    ] as const;
+    }
+
+
+export const getGetCustomerFinancialSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getCustomerFinancialSummary>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerFinancialSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCustomerFinancialSummaryQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomerFinancialSummary>>> = ({ signal }) => getCustomerFinancialSummary(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCustomerFinancialSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCustomerFinancialSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getCustomerFinancialSummary>>>
+export type GetCustomerFinancialSummaryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Financial snapshot for a customer (admin only)
+ */
+
+export function useGetCustomerFinancialSummary<TData = Awaited<ReturnType<typeof getCustomerFinancialSummary>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerFinancialSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCustomerFinancialSummaryQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getSendCredentialsEmailUrl = (id: number,) => {
 

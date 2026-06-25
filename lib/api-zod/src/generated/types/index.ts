@@ -83,6 +83,7 @@ export * from './credentialAccessAuditInputField';
 export * from './customer';
 export * from './customerContact';
 export * from './customerContactInput';
+export * from './customerFinancialSummary';
 export * from './customerImportInput';
 export * from './customerImportItem';
 export * from './customerImportResult';

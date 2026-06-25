@@ -744,6 +744,27 @@ paths:
         "404":
           description: Not found
 
+  /customers/{id}/financial-summary:
+    get:
+      operationId: getCustomerFinancialSummary
+      tags: [customers]
+      summary: Financial snapshot for a customer (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Financial summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerFinancialSummary"
+        "404":
+          description: Not found
+
   /customers/{id}/send-credentials-email:
     post:
       operationId: sendCredentialsEmail
@@ -5180,6 +5201,17 @@ components:
           type: integer
         skipped:
           type: integer
+
+    CustomerFinancialSummary:
+      type: object
+      required: [openBalance, lastPaymentDate]
+      properties:
+        openBalance:
+          type: string
+          description: Sum of totalWithVat for non-cancelled unpaid invoices (CZK numeric string)
+        lastPaymentDate:
+          type: ["string", "null"]
+          description: Most recent paidDate across all invoices for this customer
 
     SendJobEmailInput:
       type: object

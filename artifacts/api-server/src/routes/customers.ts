@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, customersTable } from "@workspace/db";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { db, customersTable, invoicesTable } from "@workspace/db";
 import {
   CreateCustomerBody,
   UpdateCustomerBody,
   UpdateCustomerParams,
   DeleteCustomerParams,
+  GetCustomerFinancialSummaryParams,
   SendCredentialsEmailParams,
   SendCredentialsEmailBody,
   ImportCustomersBody,
@@ -160,6 +161,28 @@ router.delete("/customers/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
+});
+
+router.get("/customers/:id/financial-summary", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = GetCustomerFinancialSummaryParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const { id } = params.data;
+
+  const [row] = await db
+    .select({
+      openBalance: sql<string>`COALESCE(SUM(CASE WHEN ${invoicesTable.paidDate} IS NULL AND ${invoicesTable.status} != 'cancelled' THEN ${invoicesTable.totalWithVat}::numeric ELSE 0 END), 0)::text`,
+      lastPaymentDate: sql<string | null>`MAX(${invoicesTable.paidDate})`,
+    })
+    .from(invoicesTable)
+    .where(eq(invoicesTable.customerId, id));
+
+  res.json({
+    openBalance: row?.openBalance ?? "0",
+    lastPaymentDate: row?.lastPaymentDate ?? null,
+  });
 });
 
 // Distributes the sensitive credential-vault PDF; restrict to elevated roles

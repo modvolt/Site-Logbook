@@ -452,6 +452,16 @@ export interface CustomerImportResult {
   skipped: number;
 }
 
+export interface CustomerFinancialSummary {
+  /** Sum of totalWithVat for non-cancelled unpaid invoices (CZK numeric string) */
+  openBalance: string;
+  /**
+     * Most recent paidDate across all invoices for this customer
+     * @nullable
+     */
+  lastPaymentDate: string | null;
+}
+
 export interface SendCredentialsEmailInput {
   /** Base64-encoded PDF of the access-credentials sheet */
   pdfBase64: string;

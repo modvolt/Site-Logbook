@@ -8,6 +8,7 @@ import {
   useListCustomers, useListJobs, useUpdateCustomer, useDeleteCustomer,
   useListCustomerContacts, useCreateCustomerContact, useUpdateCustomerContact, useDeleteCustomerContact,
   useListCustomerSites, useCreateCustomerSite, useUpdateCustomerSite, useDeleteCustomerSite,
+  useGetCustomerFinancialSummary, getGetCustomerFinancialSummaryQueryKey,
   getListCustomersQueryKey, getListJobsQueryKey,
   getListCustomerContactsQueryKey, getListCustomerSitesQueryKey,
 } from "@workspace/api-client-react";
@@ -21,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Building2, Phone, User, Edit3, Save, X, Plus,
   Briefcase, ChevronRight, Trash2, Hash, FileText, MapPin, Mail, Users, Store,
-  KeyRound, Receipt, FileCheck, Clock, ExternalLink,
+  KeyRound, Receipt, FileCheck, Clock, ExternalLink, Banknote, CalendarCheck,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
@@ -57,6 +58,11 @@ export default function CustomerDetail() {
   });
   const { data: sites, isLoading: loadingSites } = useListCustomerSites(id, {
     query: { queryKey: getListCustomerSitesQueryKey(id), enabled: id > 0 },
+  });
+
+  const isAdminRole = role === "admin" || role === "master";
+  const { data: financialSummary, isLoading: loadingFinancial } = useGetCustomerFinancialSummary(id, {
+    query: { queryKey: getGetCustomerFinancialSummaryQueryKey(id), enabled: isAdminRole && id > 0 },
   });
 
   const updateCustomer = useUpdateCustomer();
@@ -547,6 +553,42 @@ export default function CustomerDetail() {
                   </div>
                   <ExternalLink className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
                 </button>
+              )}
+              {isAdmin && (
+                <div className="flex items-center gap-3 p-3 bg-card border rounded-xl text-left">
+                  <div className="bg-red-100 dark:bg-red-950/40 p-2 rounded-lg text-red-600 shrink-0">
+                    <Banknote className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    {loadingFinancial ? (
+                      <Skeleton className="h-5 w-20 mb-0.5" />
+                    ) : (
+                      <p className="font-bold text-base leading-none">
+                        {Number(financialSummary?.openBalance ?? 0).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Otevřené faktury</p>
+                  </div>
+                </div>
+              )}
+              {isAdmin && (
+                <div className="flex items-center gap-3 p-3 bg-card border rounded-xl text-left">
+                  <div className="bg-green-100 dark:bg-green-950/40 p-2 rounded-lg text-green-600 shrink-0">
+                    <CalendarCheck className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    {loadingFinancial ? (
+                      <Skeleton className="h-5 w-24 mb-0.5" />
+                    ) : financialSummary?.lastPaymentDate ? (
+                      <p className="font-bold text-base leading-none">
+                        {format(new Date(financialSummary.lastPaymentDate), "d. M. yyyy", { locale: cs })}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground leading-none">—</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Poslední platba</p>
+                  </div>
+                </div>
               )}
             </div>
 

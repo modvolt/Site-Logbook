@@ -730,6 +730,19 @@ export const DeleteCustomerParams = zod.object({
 
 
 /**
+ * @summary Financial snapshot for a customer (admin only)
+ */
+export const GetCustomerFinancialSummaryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCustomerFinancialSummaryResponse = zod.object({
+  "openBalance": zod.string().describe('Sum of totalWithVat for non-cancelled unpaid invoices (CZK numeric string)'),
+  "lastPaymentDate": zod.string().nullable().describe('Most recent paidDate across all invoices for this customer')
+})
+
+
+/**
  * @summary Email the access-credentials PDF to the customer
  */
 export const SendCredentialsEmailParams = zod.object({
