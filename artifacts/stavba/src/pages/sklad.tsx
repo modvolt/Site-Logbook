@@ -44,6 +44,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import WarehouseCsvImport from "@/components/warehouse-csv-import";
 import { ItemMovementHistoryDialog, fmtQty } from "@/components/warehouse-movements";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 
 type FormState = {
   name: string;
@@ -126,6 +128,7 @@ export default function Sklad() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -229,20 +232,21 @@ export default function Sklad() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Opravdu chcete smazat tuto položku?")) return;
-    deleteItem.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Položka smazána" });
+    openConfirm("Opravdu chcete smazat tuto položku?", () => {
+      deleteItem.mutate(
+        { id },
+        {
+          onSuccess: () => {
+            invalidate();
+            toast({ title: "Položka smazána" });
+          },
+          onError: (err: any) => {
+            const msg = err?.data?.error ?? err?.message ?? "Nepodařilo se smazat položku.";
+            toast({ title: "Nelze smazat", description: msg, variant: "destructive" });
+          },
         },
-        onError: (err: any) => {
-          const msg = err?.data?.error ?? err?.message ?? "Nepodařilo se smazat položku.";
-          toast({ title: "Nelze smazat", description: msg, variant: "destructive" });
-        },
-      },
-    );
+      );
+    });
   };
 
   const formFields = (f: FormState, set: (f: FormState) => void) => {
@@ -557,6 +561,7 @@ export default function Sklad() {
         )}
       </div>
 
+      <ConfirmDialog {...dialogProps} />
       {historyItem && (
         <ItemMovementHistoryDialog
           itemId={historyItem.id}

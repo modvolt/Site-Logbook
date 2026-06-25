@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation } from "wouter";
 import { format, differenceInDays } from "date-fns";
 import { 
@@ -101,6 +103,7 @@ function formatElapsed(s: number) {
 }
 
 export default function JobDetail() {
+  const { openConfirm: openConfirmJob, dialogProps: dialogPropsJob } = useConfirmDialog();
   const params = useParams();
   const [, setLocation] = useLocation();
   const id = parseInt(params.id || "0", 10);
@@ -201,17 +204,18 @@ export default function JobDetail() {
   };
 
   const handleDeleteJob = () => {
-    if (!confirm(`Opravdu smazat zakázku „${job?.title}"? Tato akce je nevratná.`)) return;
-    deleteJob.mutate({ id }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
-        invalidateJobLists(queryClient);
-        toast({ title: "Zakázka smazána" });
-        setLocation("/jobs");
-      },
-      onError: () => {
-        toast({ title: "Nepodařilo se smazat zakázku", variant: "destructive" });
-      }
+    openConfirmJob({ title: `Opravdu smazat zakázku „${job?.title}"?`, description: "Tato akce je nevratná." }, () => {
+      deleteJob.mutate({ id }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
+          invalidateJobLists(queryClient);
+          toast({ title: "Zakázka smazána" });
+          setLocation("/jobs");
+        },
+        onError: () => {
+          toast({ title: "Nepodařilo se smazat zakázku", variant: "destructive" });
+        }
+      });
     });
   };
 
@@ -395,6 +399,7 @@ export default function JobDetail() {
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} />
         <CostsSection job={job} isExpanded={expandedSection === "costs"} onToggle={() => toggleSection("costs")} />
       </div>
+      <ConfirmDialog {...dialogPropsJob} />
     </div>
   );
 }
@@ -928,6 +933,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
 }
 
 function TasksSection({ jobId, isExpanded, onToggle }: any) {
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const { data: tasks, isLoading: tasksLoading, isError: tasksError } = useListTasks(jobId, {
     query: { enabled: isExpanded, queryKey: getListTasksQueryKey(jobId) }
   });
@@ -961,9 +967,10 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const handleDeleteTask = (taskId: number) => {
-    if (!confirm("Smazat tento úkol?")) return;
-    deleteTask.mutate({ jobId, taskId }, {
+    openConfirm("Smazat tento úkol?", () => {
+      deleteTask.mutate({ jobId, taskId }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey(jobId) })
+      });
     });
   };
 
@@ -1067,6 +1074,7 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
           </div>
         ) : null}
       </div>
+      <ConfirmDialog {...dialogProps} />
     </SectionCard>
   );
 }
@@ -1116,6 +1124,7 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
 };
 
 function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
+  const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
   });
@@ -1159,12 +1168,13 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const handleDelete = (materialId: number) => {
-    if (!confirm("Smazat materiál?")) return;
-    deleteMaterial.mutate({ jobId, materialId }, {
+    openConfirm("Smazat materiál?", () => {
+      deleteMaterial.mutate({ jobId, materialId }, {
       onSuccess: () => {
         invalidateData(queryClient, "jobs", "warehouse");
         toast({ title: "Materiál odstraněn" });
       }
+      });
     });
   };
 
@@ -1284,6 +1294,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
           <div className="text-center py-6 text-muted-foreground text-sm">Zatím žádný materiál.</div>
         )}
       </div>
+      <ConfirmDialog {...dialogPropsMat} />
     </SectionCard>
   );
 }
@@ -1380,6 +1391,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
 }
 
 function DokladySection({ jobId, isExpanded, onToggle }: any) {
+  const { openConfirm, dialogProps: dialogPropsDoc } = useConfirmDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: attachments, isLoading: dokladyLoading, isError: dokladyError } = useListAttachments(jobId, {
     query: { queryKey: getListAttachmentsQueryKey(jobId) }
@@ -1458,9 +1470,10 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Smazat tento doklad?")) return;
-    deleteAttachment.mutate({ jobId, attachmentId: id }, {
+    openConfirm("Smazat tento doklad?", () => {
+      deleteAttachment.mutate({ jobId, attachmentId: id }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
+      });
     });
   };
 
@@ -1572,11 +1585,13 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
         ) : null}
         {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
+      <ConfirmDialog {...dialogPropsDoc} />
     </SectionCard>
   );
 }
 
 function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
+  const { openConfirm, dialogProps: dialogPropsSheet } = useConfirmDialog();
   const { data: attachments } = useListAttachments(jobId, {
     query: { queryKey: getListAttachmentsQueryKey(jobId) }
   });
@@ -1589,9 +1604,10 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
 
   const handleDelete = (id: number) => {
-    if (!confirm("Smazat tento zakázkový list?")) return;
-    deleteAttachment.mutate({ jobId, attachmentId: id }, {
+    openConfirm("Smazat tento zakázkový list?", () => {
+      deleteAttachment.mutate({ jobId, attachmentId: id }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
+      });
     });
   };
 
@@ -1636,11 +1652,13 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
         })}
         {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
+      <ConfirmDialog {...dialogPropsSheet} />
     </SectionCard>
   );
 }
 
 function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
+  const { openConfirm, dialogProps: dialogPropsPhoto } = useConfirmDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const { data: attachments, isLoading: attachmentsLoading, isError: attachmentsError } = useListAttachments(jobId, {
@@ -1692,9 +1710,10 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   };
 
   const handleDelete = (attachmentId: number) => {
-    if (!confirm("Smazat tuto fotografii?")) return;
-    deleteAttachment.mutate({ jobId, attachmentId }, {
+    openConfirm("Smazat tuto fotografii?", () => {
+      deleteAttachment.mutate({ jobId, attachmentId }, {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
+      });
     });
   };
 
@@ -1786,6 +1805,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
         ) : null}
         {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
+      <ConfirmDialog {...dialogPropsPhoto} />
     </SectionCard>
   );
 }

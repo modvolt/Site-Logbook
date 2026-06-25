@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation } from "wouter";
 import {
   useGetCustomerSite, getGetCustomerSiteQueryKey,
@@ -42,6 +44,8 @@ export default function SiteDetail() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const { data: site, isLoading: loadingSite } = useGetCustomerSite(siteId, {
     query: { queryKey: getGetCustomerSiteQueryKey(siteId), enabled: siteId > 0 },
@@ -99,8 +103,8 @@ export default function SiteDetail() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Smazat tento dokument?")) return;
-    deleteAttachment.mutate(
+    openConfirm("Smazat tento dokument?", () => {
+      deleteAttachment.mutate(
       { siteId, attachmentId: id },
       {
         onSuccess: () => {
@@ -110,6 +114,7 @@ export default function SiteDetail() {
         onError: () => toast({ title: "Nepodařilo se smazat dokument", variant: "destructive" }),
       }
     );
+    });
   };
 
   if (loadingSite) {
@@ -291,6 +296,7 @@ export default function SiteDetail() {
       {viewer && (
         <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />
       )}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

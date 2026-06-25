@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import {
@@ -51,6 +53,7 @@ function jobToDraft(job: any): EditDraft {
 export default function Admin() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -128,20 +131,21 @@ export default function Admin() {
   };
 
   const deleteOne = (id: number, title: string) => {
-    if (!confirm(`Smazat „${title}"? Tato akce je nevratná.`)) return;
-    deleteJob.mutate({ id }, {
-      onSuccess: () => {
-        invalidateData(queryClient, "jobs");
-        toast({ title: "Zakázka smazána" });
-        setSelected(s => { const n = new Set(s); n.delete(id); return n; });
-      },
-      onError: () => toast({ title: "Smazání selhalo", variant: "destructive" }),
+    openConfirm({ title: `Smazat „${title}"?`, description: "Tato akce je nevratná." }, () => {
+      deleteJob.mutate({ id }, {
+        onSuccess: () => {
+          invalidateData(queryClient, "jobs");
+          toast({ title: "Zakázka smazána" });
+          setSelected(s => { const n = new Set(s); n.delete(id); return n; });
+        },
+        onError: () => toast({ title: "Smazání selhalo", variant: "destructive" }),
+      });
     });
   };
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    if (!confirm(`Smazat ${selected.size} zakázek? Tato akce je nevratná.`)) return;
+    openConfirm({ title: `Smazat ${selected.size} zakázek?`, description: "Tato akce je nevratná." }, async () => {
     let ok = 0, fail = 0;
     for (const id of Array.from(selected)) {
       try {
@@ -152,6 +156,7 @@ export default function Admin() {
     invalidateData(queryClient, "jobs");
     setSelected(new Set());
     toast({ title: `Smazáno ${ok}, selhalo ${fail}` });
+    });
   };
 
   const toggleSelect = (id: number) => {
@@ -404,6 +409,7 @@ export default function Admin() {
           Celkem: <strong>{filtered.length}</strong>{jobs && filtered.length !== jobs.length ? ` z ${jobs.length}` : ""}
         </p>
       </div>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation, Link } from "wouter";
 import QRCode from "qrcode";
 import {
@@ -39,6 +41,7 @@ export default function StrojDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -152,18 +155,19 @@ export default function StrojDetail() {
   };
 
   const handleDelete = () => {
-    if (!confirm("Opravdu chcete smazat tento stroj?")) return;
-    deleteMachine.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          invalidateData(queryClient, "machines");
-          toast({ title: "Stroj smazán" });
-          setLocation("/stroje");
+    openConfirm("Opravdu chcete smazat tento stroj?", () => {
+      deleteMachine.mutate(
+        { id },
+        {
+          onSuccess: () => {
+            invalidateData(queryClient, "machines");
+            toast({ title: "Stroj smazán" });
+            setLocation("/stroje");
+          },
+          onError: () => toast({ title: "Nepodařilo se smazat", variant: "destructive" }),
         },
-        onError: () => toast({ title: "Nepodařilo se smazat", variant: "destructive" }),
-      },
-    );
+      );
+    });
   };
 
   const handleDownloadQr = () => {

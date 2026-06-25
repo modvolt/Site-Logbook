@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation } from "wouter";
 import { format } from "date-fns";
 import { cs } from "date-fns/locale";
@@ -34,6 +36,7 @@ export default function CustomerDetail() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const { data: customers, isLoading: loadingCustomer } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() },
@@ -123,8 +126,8 @@ export default function CustomerDetail() {
   };
 
   const handleDelete = () => {
-    if (!confirm("Opravdu smazat zákazníka?")) return;
-    deleteCustomer.mutate(
+    openConfirm("Opravdu smazat zákazníka?", () => {
+      deleteCustomer.mutate(
       { id },
       {
         onSuccess: () => {
@@ -135,6 +138,7 @@ export default function CustomerDetail() {
         onError: () => toast({ title: "Nepodařilo se smazat", variant: "destructive" }),
       }
     );
+    });
   };
 
   // --- Contacts handlers ---
@@ -196,8 +200,8 @@ export default function CustomerDetail() {
   };
 
   const handleDeleteContact = (contactId: number) => {
-    if (!confirm("Opravdu smazat kontakt?")) return;
-    deleteContact.mutate(
+    openConfirm("Opravdu smazat kontakt?", () => {
+      deleteContact.mutate(
       { id: contactId },
       {
         onSuccess: () => {
@@ -207,6 +211,7 @@ export default function CustomerDetail() {
         onError: () => toast({ title: "Nepodařilo se smazat kontakt", variant: "destructive" }),
       }
     );
+    });
   };
 
   // --- Sites handlers ---
@@ -271,8 +276,8 @@ export default function CustomerDetail() {
   };
 
   const handleDeleteSite = (siteId: number) => {
-    if (!confirm("Opravdu smazat stavbu?")) return;
-    deleteSite.mutate(
+    openConfirm("Opravdu smazat stavbu?", () => {
+      deleteSite.mutate(
       { id: siteId },
       {
         onSuccess: () => {
@@ -282,6 +287,7 @@ export default function CustomerDetail() {
         onError: () => toast({ title: "Nepodařilo se smazat stavbu", variant: "destructive" }),
       }
     );
+    });
   };
 
   if (loadingCustomer) {
@@ -842,6 +848,7 @@ export default function CustomerDetail() {
           </div>
         )}
       </div>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

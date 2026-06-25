@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useSearch } from "wouter";
 import {
   useListJobs,
@@ -92,6 +94,7 @@ export default function Jobs() {
   const [exporting, setExporting] = useState(false);
   const [groupByCustomer, setGroupByCustomer] = useState(true);
   const { isAuthenticated } = useAuth();
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const queryClient = useQueryClient();
   const [selectedColumns, setSelectedColumns] = useState<ExportColumnKey[]>(
     loadStoredColumns
@@ -119,13 +122,13 @@ export default function Jobs() {
     if (!trimmed) return;
     const existing = presets.find(p => p.name.toLowerCase() === trimmed.toLowerCase());
     if (existing) {
-      const ok = window.confirm(`Předvolba "${trimmed}" už existuje. Přepsat?`);
-      if (!ok) return;
-      const next = presets.map(p =>
-        p.id === existing.id ? { ...p, columns: [...orderedSelected] } : p
-      );
-      persistPresets(next);
-      setActivePresetId(existing.id);
+      openConfirm({ title: `Předvolba "${trimmed}" už existuje.`, confirmLabel: "Přepsat", destructive: false }, () => {
+        const next = presets.map(p =>
+          p.id === existing.id ? { ...p, columns: [...orderedSelected] } : p
+        );
+        persistPresets(next);
+        setActivePresetId(existing.id);
+      });
       return;
     }
     const preset: ExportPreset = {
@@ -153,10 +156,10 @@ export default function Jobs() {
   function handleDeletePreset() {
     const preset = presets.find(p => p.id === activePresetId);
     if (!preset) return;
-    const ok = window.confirm(`Smazat předvolbu "${preset.name}"?`);
-    if (!ok) return;
-    persistPresets(presets.filter(p => p.id !== preset.id));
-    setActivePresetId("");
+    openConfirm(`Smazat předvolbu "${preset.name}"?`, () => {
+      persistPresets(presets.filter(p => p.id !== preset.id));
+      setActivePresetId("");
+    });
   }
 
   const { data: serverPrefs, isFetched: serverPrefsFetched } = useGetMyPreferences({
@@ -574,6 +577,7 @@ export default function Jobs() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

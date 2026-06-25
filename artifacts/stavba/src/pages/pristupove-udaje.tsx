@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useLocation } from "wouter";
 import {
   useListCustomers,
@@ -116,6 +118,7 @@ export default function PristupoveUdaje() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
@@ -253,8 +256,8 @@ export default function PristupoveUdaje() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Opravdu smazat tento přístup?")) return;
-    deleteCred.mutate(
+    openConfirm("Opravdu smazat tento přístup?", () => {
+      deleteCred.mutate(
       { id },
       {
         onSuccess: () => {
@@ -265,6 +268,7 @@ export default function PristupoveUdaje() {
           toast({ title: "Nepodařilo se smazat přístup", variant: "destructive" }),
       },
     );
+    });
   };
 
   const copy = (value: string | null | undefined, label: string) => {
@@ -945,6 +949,7 @@ export default function PristupoveUdaje() {
         </>
       )}
 
+      <ConfirmDialog {...dialogProps} />
       <BarcodeScanner
         open={scannerOpen}
         onOpenChange={setScannerOpen}

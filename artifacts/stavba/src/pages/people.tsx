@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useListPeople, useCreatePerson, useDeletePerson, getListPeopleQueryKey } from "@workspace/api-client-react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
@@ -13,6 +15,7 @@ export default function People() {
   const [newPersonName, setNewPersonName] = useState("");
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const { data: people, isLoading } = useListPeople({
     query: { queryKey: getListPeopleQueryKey() }
@@ -38,16 +41,16 @@ export default function People() {
   };
 
   const handleDeletePerson = (id: number) => {
-    if (!confirm("Opravdu chcete odebrat tohoto pracovníka?")) return;
-    
-    deletePerson.mutate({ id }, {
-      onSuccess: () => {
-        invalidateData(queryClient, "people");
-        toast({ title: "Pracovník odebrán" });
-      },
-      onError: () => {
-        toast({ title: "Nepodařilo se odebrat pracovníka", variant: "destructive" });
-      }
+    openConfirm("Opravdu chcete odebrat tohoto pracovníka?", () => {
+      deletePerson.mutate({ id }, {
+        onSuccess: () => {
+          invalidateData(queryClient, "people");
+          toast({ title: "Pracovník odebrán" });
+        },
+        onError: () => {
+          toast({ title: "Nepodařilo se odebrat pracovníka", variant: "destructive" });
+        }
+      });
     });
   };
 
@@ -107,6 +110,7 @@ export default function People() {
           </div>
         )}
       </div>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

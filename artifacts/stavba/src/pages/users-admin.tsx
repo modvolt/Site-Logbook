@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import {
   useListUsers, getListUsersQueryKey,
   useCreateUser, useUpdateUser, useDeleteUser,
@@ -22,6 +24,7 @@ export default function UsersAdmin() {
   const { user: me } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const { data: users, isLoading } = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
 
   const createUser = useCreateUser();
@@ -88,11 +91,15 @@ export default function UsersAdmin() {
   };
 
   const handleDelete = (id: number, username: string) => {
-    if (!confirm(`Smazat uživatele „${username}"? Tato akce je nevratná.`)) return;
-    deleteUser.mutate({ id }, {
-      onSuccess: () => { refresh(); toast({ title: "Uživatel smazán" }); },
-      onError: (err: any) => toast({ title: "Smazání selhalo", description: err?.message, variant: "destructive" }),
-    });
+    openConfirm(
+      { title: `Smazat uživatele „${username}"?`, description: "Tato akce je nevratná." },
+      () => {
+        deleteUser.mutate({ id }, {
+          onSuccess: () => { refresh(); toast({ title: "Uživatel smazán" }); },
+          onError: (err: any) => toast({ title: "Smazání selhalo", description: err?.message, variant: "destructive" }),
+        });
+      },
+    );
   };
 
   return (
@@ -277,6 +284,7 @@ export default function UsersAdmin() {
           </div>
         </div>
       </div>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

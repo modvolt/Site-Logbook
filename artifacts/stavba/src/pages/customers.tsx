@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { 
   useListCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer, 
   getListCustomersQueryKey 
@@ -38,6 +40,7 @@ export default function Customers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const { data: customers, isLoading } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() }
@@ -114,13 +117,14 @@ export default function Customers() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Opravdu smazat tohoto zákazníka?")) return;
-    deleteCustomer.mutate({ id }, {
-      onSuccess: () => {
-        invalidateData(queryClient, "customers");
-        toast({ title: "Zákazník smazán" });
-      },
-      onError: () => toast({ title: "Nepodařilo se smazat zákazníka", variant: "destructive" })
+    openConfirm("Opravdu smazat tohoto zákazníka?", () => {
+      deleteCustomer.mutate({ id }, {
+        onSuccess: () => {
+          invalidateData(queryClient, "customers");
+          toast({ title: "Zákazník smazán" });
+        },
+        onError: () => toast({ title: "Nepodařilo se smazat zákazníka", variant: "destructive" })
+      });
     });
   };
 
@@ -370,6 +374,7 @@ export default function Customers() {
           </div>
         )}
       </div>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

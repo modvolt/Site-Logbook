@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import {
   useListActivities, getListActivitiesQueryKey,
   useCreateActivity, useDeleteActivity, useUpdateActivity,
@@ -39,6 +41,7 @@ export default function Activities() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const [tab, setTab] = useState<Tab>("active");
   const [filterNoCustomer, setFilterNoCustomer] = useState(false);
@@ -108,14 +111,18 @@ export default function Activities() {
   };
 
   const handleDelete = (id: number, name: string) => {
-    if (!confirm(`Opravdu smazat akci „${name}"? Smažou se i materiály.`)) return;
-    deleteActivity.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Akce smazána" });
-        },
+    openConfirm(
+      { title: `Opravdu smazat akci „${name}“?`, description: "Smažou se i materiály." },
+      () => {
+        deleteActivity.mutate(
+          { id },
+          {
+            onSuccess: () => {
+              invalidate();
+              toast({ title: "Akce smazána" });
+            },
+          },
+        );
       },
     );
   };
@@ -337,6 +344,7 @@ export default function Activities() {
           })}
         </div>
       )}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }

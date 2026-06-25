@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useLocation, useRoute } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
@@ -124,6 +126,7 @@ export default function BillingDocumentDetail() {
   const [, params] = useRoute("/billing/documents/:id");
   const id = Number(params?.id);
   const [, setLocation] = useLocation();
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -220,8 +223,8 @@ export default function BillingDocumentDetail() {
   };
 
   const handleDelete = () => {
-    if (!confirm("Opravdu smazat tento doklad? Tuto akci nelze vrátit.")) return;
-    deleteDoc.mutate(
+    openConfirm("Opravdu smazat tento doklad? Tuto akci nelze vrátit.", () => {
+      deleteDoc.mutate(
       { id },
       {
         onSuccess: () => {
@@ -237,6 +240,7 @@ export default function BillingDocumentDetail() {
           }),
       },
     );
+    });
   };
 
   const fileHref = attachmentUrl(doc.objectPath);
@@ -496,6 +500,7 @@ export default function BillingDocumentDetail() {
           }}
         />
       )}
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }
@@ -1556,19 +1561,20 @@ function WarehousePricesCard({
   approved: boolean;
   onApplied: () => void;
 }) {
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const { toast } = useToast();
   const apply = useApplyCostDocumentWarehousePrices();
 
   if (!approved) return null;
 
   const handleApply = () => {
-    if (
-      !confirm(
-        "Přenést nákupní ceny z položek tohoto dokladu do skladu? Aktualizují se ceny odpovídajících skladových karet a chybějící se automaticky založí.",
-      )
-    )
-      return;
-    apply.mutate(
+    openConfirm(
+      {
+        title: "Přenést nákupní ceny do skladu?",
+        description: "Aktualizují se ceny odpovídajících skladových karet a chybějící se automaticky založí.",
+        confirmLabel: "Přenést",
+      },
+      () => apply.mutate(
       { id: documentId },
       {
         onSuccess: (res) => {
@@ -1585,7 +1591,8 @@ function WarehousePricesCard({
             variant: "destructive",
           }),
       },
-    );
+    ),
+  );
   };
 
   return (

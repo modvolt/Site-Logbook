@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +50,7 @@ export function TimeEntriesSection({
 }: Props) {
   const [now, setNow] = useState(() => Date.now());
   const [adding, setAdding] = useState(false);
+  const { openConfirm, dialogProps } = useConfirmDialog();
   const [newPersonId, setNewPersonId] = useState("");
   const [editId, setEditId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -189,7 +192,7 @@ export function TimeEntriesSection({
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-rose-500"
-                        onClick={() => { if (confirm(`Odebrat ${e.personName} z evidence času?`)) onRemove(e.personId); }}
+                        onClick={() => openConfirm(`Odebrat ${e.personName} z evidence času?`, () => onRemove(e.personId))}
                         title="Odebrat"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -202,6 +205,7 @@ export function TimeEntriesSection({
           </ul>
         )}
       </CardContent>
+      <ConfirmDialog {...dialogProps} />
     </Card>
   );
 }

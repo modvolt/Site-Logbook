@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation } from "wouter";
 import {
   useGetActivity, getGetActivityQueryKey,
@@ -94,6 +96,7 @@ function fmtH(n: number | null | undefined) {
 }
 
 export default function ActivityDetail() {
+  const { openConfirm: openConfirmActivity, dialogProps: dialogPropsActivity } = useConfirmDialog();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const [, setLocation] = useLocation();
@@ -188,13 +191,14 @@ export default function ActivityDetail() {
   };
 
   const handleDelete = () => {
-    if (!confirm(`Smazat akci „${activity.name}"? Smažou se i materiály.`)) return;
-    deleteActivity.mutate({ id }, {
-      onSuccess: () => {
-        invalidateData(queryClient, "activities", "warehouse");
-        toast({ title: "Akce smazána" });
-        setLocation("/activities");
-      },
+    openConfirmActivity({ title: `Smazat akci „${activity.name}"?`, description: "Smažou se i materiály." }, () => {
+      deleteActivity.mutate({ id }, {
+        onSuccess: () => {
+          invalidateData(queryClient, "activities", "warehouse");
+          toast({ title: "Akce smazána" });
+          setLocation("/activities");
+        },
+      });
     });
   };
 
@@ -497,6 +501,7 @@ export default function ActivityDetail() {
 
       {/* Photos */}
       <PhotosSection activityId={id} canWrite={can("write")} />
+      <ConfirmDialog {...dialogPropsActivity} />
     </div>
   );
 }
@@ -528,6 +533,7 @@ function MaterialsSection({
   const { toast } = useToast();
   const { data: warehouseItems } = useListWarehouseItems(undefined, { query: { queryKey: getListWarehouseItemsQueryKey() } });
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
+  const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -606,8 +612,9 @@ function MaterialsSection({
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Smazat materiál?")) return;
-    deleteMaterial.mutate({ activityId, materialId: id }, { onSuccess: onChange });
+    openConfirm("Smazat materiál?", () => {
+      deleteMaterial.mutate({ activityId, materialId: id }, { onSuccess: onChange });
+    });
   };
 
   return (
@@ -698,11 +705,13 @@ function MaterialsSection({
           </ul>
         )}
       </CardContent>
+      <ConfirmDialog {...dialogPropsMat} />
     </Card>
   );
 }
 
 function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const { openConfirm, dialogProps: dialogPropsWork } = useConfirmDialog();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const listKey = getListActivityExtraWorksQueryKey(activityId);
@@ -751,8 +760,9 @@ function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWr
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Smazat vícepráci?")) return;
-    deleteWork.mutate({ activityId, extraWorkId: id }, { onSuccess: invalidate });
+    openConfirm("Smazat vícepráci?", () => {
+      deleteWork.mutate({ activityId, extraWorkId: id }, { onSuccess: invalidate });
+    });
   };
 
   return (
@@ -821,6 +831,7 @@ function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWr
           </ul>
         )}
       </CardContent>
+      <ConfirmDialog {...dialogPropsWork} />
     </Card>
   );
 }
@@ -880,6 +891,7 @@ function dokladTypeLabel(t: string | null | undefined): string {
 }
 
 function ActivityDokladySection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const { openConfirm, dialogProps: dialogPropsDoklad } = useConfirmDialog();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -938,8 +950,9 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm("Smazat tento doklad?")) return;
-    deleteAttachment.mutate({ activityId, attachmentId: id }, { onSuccess: invalidate });
+    openConfirm("Smazat tento doklad?", () => {
+      deleteAttachment.mutate({ activityId, attachmentId: id }, { onSuccess: invalidate });
+    });
   };
 
   return (
@@ -1052,11 +1065,13 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
         )}
         {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </CardContent>
+      <ConfirmDialog {...dialogPropsDoklad} />
     </Card>
   );
 }
 
 function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite: boolean }) {
+  const { openConfirm, dialogProps: dialogPropsPhoto } = useConfirmDialog();
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1111,8 +1126,9 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
   };
 
   const handleDelete = (attachmentId: number) => {
-    if (!confirm("Smazat tuto fotografii?")) return;
-    deleteAttachment.mutate({ activityId, attachmentId }, { onSuccess: invalidate });
+    openConfirm("Smazat tuto fotografii?", () => {
+      deleteAttachment.mutate({ activityId, attachmentId }, { onSuccess: invalidate });
+    });
   };
 
   return (

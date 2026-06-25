@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { invalidateData } from "@/lib/query-invalidation";
 import {
   useListCustomers, getListCustomersQueryKey,
@@ -24,6 +26,7 @@ const SUBJECT_LABELS: Record<SubjectType, string> = {
 export default function Gdpr() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { openConfirm, dialogProps } = useConfirmDialog();
 
   const [subjectType, setSubjectType] = useState<SubjectType>("customer");
   const [customerId, setCustomerId] = useState<number | null>(null);
@@ -87,8 +90,13 @@ export default function Gdpr() {
       return;
     }
     const name = subjectLabel();
-    if (!confirm(`Trvale vymazat osobní údaje subjektu „${name}"?\n\nTato akce je NEVRATNÁ. Související soubory v úložišti budou odstraněny. Doporučujeme nejprve provést export.`)) return;
-    erase.mutate({ data: { subjectType, subjectId } }, {
+    openConfirm(
+      {
+        title: `Trvale vymazat osobní údaje subjektu „${name}"?`,
+        description: "Tato akce je NEVRATNÁ. Související soubory v úložišti budou odstraněny. Doporučujeme nejprve provést export.",
+        confirmLabel: "Vymazat",
+      },
+      () => erase.mutate({ data: { subjectType, subjectId } }, {
       onSuccess: (res) => {
         toast({ title: "Údaje vymazány", description: res.message });
         invalidateData(queryClient, "customers", "people");
@@ -96,7 +104,8 @@ export default function Gdpr() {
         resetSelection();
       },
       onError: (err: any) => toast({ title: "Výmaz selhal", description: err?.message, variant: "destructive" }),
-    });
+    }),
+    );
   };
 
   return (
@@ -215,6 +224,7 @@ export default function Gdpr() {
           </div>
         </div>
       </div>
+      <ConfirmDialog {...dialogProps} />
     </div>
   );
 }
