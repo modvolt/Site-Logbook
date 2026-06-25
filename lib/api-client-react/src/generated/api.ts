@@ -57,6 +57,7 @@ import type {
   CostDocumentSiblingMatch,
   CostDocumentStatusInput,
   CostDocumentUpdateInput,
+  CredentialAccessAuditInput,
   Customer,
   CustomerContact,
   CustomerContactInput,
@@ -139,6 +140,7 @@ import type {
   OkResult,
   Person,
   PersonInput,
+  PersonStats,
   ResetPasswordWithAnswersInput,
   RestoreResult,
   RetryEmailImportLog200,
@@ -1888,6 +1890,83 @@ export const useCreatePerson = <TError = ErrorType<unknown>,
       return useMutation(getCreatePersonMutationOptions(options));
     }
 
+export const getGetPeopleStatsUrl = () => {
+
+
+
+
+  return `/api/people/stats`
+}
+
+/**
+ * @summary Operational stats per person — today's jobs, week hours, machines, active timer
+ */
+export const getPeopleStats = async ( options?: RequestInit): Promise<PersonStats[]> => {
+
+  return customFetch<PersonStats[]>(getGetPeopleStatsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPeopleStatsQueryKey = () => {
+    return [
+    `/api/people/stats`
+    ] as const;
+    }
+
+
+export const getGetPeopleStatsQueryOptions = <TData = Awaited<ReturnType<typeof getPeopleStats>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPeopleStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPeopleStatsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPeopleStats>>> = ({ signal }) => getPeopleStats({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPeopleStats>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPeopleStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getPeopleStats>>>
+export type GetPeopleStatsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Operational stats per person — today's jobs, week hours, machines, active timer
+ */
+
+export function useGetPeopleStats<TData = Awaited<ReturnType<typeof getPeopleStats>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPeopleStats>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPeopleStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getUpdatePersonUrl = (id: number,) => {
 
 
@@ -3574,6 +3653,82 @@ export const useCreateDeviceCredential = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateDeviceCredentialMutationOptions(options));
+    }
+
+export const getAuditCredentialAccessUrl = (id: number,) => {
+
+
+
+
+  return `/api/device-credentials/${id}/audit-access`
+}
+
+/**
+ * Writes a `security` audit log entry without the secret value. Must be
+called when the UI reveals or copies a PIN/password/card. Restricted to
+roles with vault access (master/admin).
+
+ * @summary Record a security audit event for viewing or copying a credential field
+ */
+export const auditCredentialAccess = async (id: number,
+    credentialAccessAuditInput: CredentialAccessAuditInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getAuditCredentialAccessUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      credentialAccessAuditInput,)
+  }
+);}
+
+
+
+
+export const getAuditCredentialAccessMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof auditCredentialAccess>>, TError,{id: number;data: BodyType<CredentialAccessAuditInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof auditCredentialAccess>>, TError,{id: number;data: BodyType<CredentialAccessAuditInput>}, TContext> => {
+
+const mutationKey = ['auditCredentialAccess'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof auditCredentialAccess>>, {id: number;data: BodyType<CredentialAccessAuditInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  auditCredentialAccess(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AuditCredentialAccessMutationResult = NonNullable<Awaited<ReturnType<typeof auditCredentialAccess>>>
+    export type AuditCredentialAccessMutationBody = BodyType<CredentialAccessAuditInput>
+    export type AuditCredentialAccessMutationError = ErrorType<void>
+
+    /**
+ * @summary Record a security audit event for viewing or copying a credential field
+ */
+export const useAuditCredentialAccess = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof auditCredentialAccess>>, TError,{id: number;data: BodyType<CredentialAccessAuditInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof auditCredentialAccess>>,
+        TError,
+        {id: number;data: BodyType<CredentialAccessAuditInput>},
+        TContext
+      > => {
+      return useMutation(getAuditCredentialAccessMutationOptions(options));
     }
 
 export const getUpdateDeviceCredentialUrl = (id: number,) => {

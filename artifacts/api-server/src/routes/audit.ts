@@ -27,6 +27,11 @@ router.get("/audit-logs", async (req, res): Promise<void> => {
     conditions.push(eq(auditLogTable.entityType, entityType.trim()));
   }
 
+  const action = req.query.action;
+  if (typeof action === "string" && action.trim() !== "") {
+    conditions.push(eq(auditLogTable.action, action.trim()));
+  }
+
   const from = req.query.from;
   if (typeof from === "string" && from.trim() !== "") {
     const d = new Date(from);

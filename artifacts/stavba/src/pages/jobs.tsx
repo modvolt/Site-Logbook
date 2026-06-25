@@ -95,6 +95,10 @@ function buildJobsSearch(opts: { status: string; segment: Segment | null }): str
   return qs ? `?${qs}` : "";
 }
 
+function readTextFromSearch(search: string): string {
+  return new URLSearchParams(search).get("search") ?? "";
+}
+
 export default function Jobs() {
   const search_ = useSearch();
   const [, setLocation] = useLocation();
@@ -106,7 +110,7 @@ export default function Jobs() {
     setSegment(readSegmentFromSearch(search_));
   }, [search_]);
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => readTextFromSearch(search_));
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");

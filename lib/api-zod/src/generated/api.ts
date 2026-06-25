@@ -574,6 +574,20 @@ export const CreatePersonBody = zod.object({
 
 
 /**
+ * @summary Operational stats per person — today's jobs, week hours, machines, active timer
+ */
+export const GetPeopleStatsResponseItem = zod.object({
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "todayJobsCount": zod.number(),
+  "weekHours": zod.number(),
+  "assignedMachinesCount": zod.number(),
+  "hasActiveTimer": zod.boolean()
+})
+export const GetPeopleStatsResponse = zod.array(GetPeopleStatsResponseItem)
+
+
+/**
  * @summary Update a person
  */
 export const UpdatePersonParams = zod.object({
@@ -1040,6 +1054,23 @@ export const CreateDeviceCredentialBody = zod.object({
   "pin": zod.string().nullable(),
   "cards": zod.array(zod.string())
 })).optional()
+})
+
+
+/**
+ * Writes a `security` audit log entry without the secret value. Must be
+called when the UI reveals or copies a PIN/password/card. Restricted to
+roles with vault access (master/admin).
+
+ * @summary Record a security audit event for viewing or copying a credential field
+ */
+export const AuditCredentialAccessParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AuditCredentialAccessBody = zod.object({
+  "action": zod.enum(['view', 'copy']),
+  "field": zod.enum(['pin', 'password', 'card', 'username'])
 })
 
 
@@ -2007,6 +2038,7 @@ export const DeleteUserParams = zod.object({
 export const ListAuditLogsQueryParams = zod.object({
   "userId": zod.coerce.number().optional(),
   "entityType": zod.coerce.string().optional(),
+  "action": zod.coerce.string().optional().describe('Filter by action type (create, update, delete, erase, security, …)'),
   "from": zod.coerce.string().optional().describe('ISO date\/datetime — only entries on or after this time'),
   "to": zod.coerce.string().optional().describe('ISO date\/datetime — only entries on or before this time'),
   "limit": zod.coerce.number().optional(),

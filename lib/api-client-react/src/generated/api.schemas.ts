@@ -367,6 +367,15 @@ export interface PersonInput {
   name: string;
 }
 
+export interface PersonStats {
+  personId: number;
+  personName: string;
+  todayJobsCount: number;
+  weekHours: number;
+  assignedMachinesCount: number;
+  hasActiveTimer: boolean;
+}
+
 export interface Customer {
   id: number;
   companyName: string;
@@ -632,6 +641,29 @@ export interface DeviceCredentialInput {
   /** @nullable */
   note?: string | null;
   users?: JablotronUser[];
+}
+
+export type CredentialAccessAuditInputAction = typeof CredentialAccessAuditInputAction[keyof typeof CredentialAccessAuditInputAction];
+
+
+export const CredentialAccessAuditInputAction = {
+  view: 'view',
+  copy: 'copy',
+} as const;
+
+export type CredentialAccessAuditInputField = typeof CredentialAccessAuditInputField[keyof typeof CredentialAccessAuditInputField];
+
+
+export const CredentialAccessAuditInputField = {
+  pin: 'pin',
+  password: 'password',
+  card: 'card',
+  username: 'username',
+} as const;
+
+export interface CredentialAccessAuditInput {
+  action: CredentialAccessAuditInputAction;
+  field: CredentialAccessAuditInputField;
 }
 
 export interface DeviceCredentialUpdate {
@@ -3246,6 +3278,10 @@ export type RetryEmailImportLog200 = {
 export type ListAuditLogsParams = {
 userId?: number;
 entityType?: string;
+/**
+ * Filter by action type (create, update, delete, erase, security, …)
+ */
+action?: string;
 /**
  * ISO date/datetime — only entries on or after this time
  */

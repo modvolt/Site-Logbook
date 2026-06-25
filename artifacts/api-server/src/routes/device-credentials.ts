@@ -5,6 +5,7 @@ import {
   deviceCredentialsTable,
   customersTable,
   customerSitesTable,
+  auditLogTable,
 } from "@workspace/db";
 import {
   ListDeviceCredentialsParams,
@@ -13,6 +14,8 @@ import {
   UpdateDeviceCredentialParams,
   UpdateDeviceCredentialBody,
   DeleteDeviceCredentialParams,
+  AuditCredentialAccessParams,
+  AuditCredentialAccessBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 
@@ -169,5 +172,65 @@ router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): P
 
   res.sendStatus(204);
 });
+
+const FIELD_LABELS: Record<string, string> = {
+  pin: "PIN",
+  password: "heslo",
+  card: "kartu",
+  username: "uživatelské jméno",
+};
+
+// Security audit endpoint — records view/copy events without the secret value.
+// Excluded from the generic auditMutations middleware via SKIP_SUFFIXES.
+router.post(
+  "/device-credentials/:id/audit-access",
+  requireVaultAccess,
+  async (req, res): Promise<void> => {
+    const params = AuditCredentialAccessParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const parsed = AuditCredentialAccessBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const [cred] = await db
+      .select({
+        id: deviceCredentialsTable.id,
+        customerId: deviceCredentialsTable.customerId,
+        type: deviceCredentialsTable.type,
+      })
+      .from(deviceCredentialsTable)
+      .where(eq(deviceCredentialsTable.id, params.data.id));
+
+    if (!cred) {
+      res.status(404).json({ error: "Device credential not found" });
+      return;
+    }
+
+    const actionLabel = parsed.data.action === "copy" ? "Zkopírování" : "Zobrazení";
+    const fieldLabel = FIELD_LABELS[parsed.data.field] ?? parsed.data.field;
+    const deviceLabel = cred.type || "zařízení";
+    const summary = `${actionLabel}: ${fieldLabel} — ${deviceLabel} (zákazník #${cred.customerId})`;
+
+    const auth = req.auth;
+    await db.insert(auditLogTable).values({
+      actorUserId: auth?.userId ?? null,
+      actorName: auth?.name ?? auth?.username ?? null,
+      action: "security",
+      entityType: "device-credentials",
+      entityId: cred.id,
+      summary,
+      method: "POST",
+      path: req.path,
+    });
+
+    res.sendStatus(204);
+  },
+);
 
 export default router;

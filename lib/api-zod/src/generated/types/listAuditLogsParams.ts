@@ -10,6 +10,10 @@ export type ListAuditLogsParams = {
 userId?: number;
 entityType?: string;
 /**
+ * Filter by action type (create, update, delete, erase, security, …)
+ */
+action?: string;
+/**
  * ISO date/datetime — only entries on or after this time
  */
 from?: string;

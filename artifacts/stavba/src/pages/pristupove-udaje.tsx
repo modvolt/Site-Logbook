@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useLocation } from "wouter";
@@ -9,6 +9,7 @@ import {
   useCreateDeviceCredential,
   useUpdateDeviceCredential,
   useDeleteDeviceCredential,
+  useAuditCredentialAccess,
   getListCustomersQueryKey,
   getListCustomerSitesQueryKey,
   getListDeviceCredentialsQueryKey,
@@ -27,7 +28,8 @@ import { Autocomplete } from "@/components/autocomplete";
 import {
   KeyRound, Plus, Save, X, Edit3, Trash2, Eye, EyeOff, Copy,
   Building2, MapPin, Server, User as UserIcon, Mail, FileText,
-  Network, Hash, ScanLine, Users, CreditCard, FileDown,
+  Network, Hash, ScanLine, Users, CreditCard, FileDown, ShieldAlert,
+  ExternalLink, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BarcodeScanner } from "@/components/barcode-scanner";
@@ -131,6 +133,8 @@ export default function PristupoveUdaje() {
   const scanOnResultRef = useRef<((text: string) => void) | null>(null);
   const scanToastRef = useRef<string>("Kód naskenován");
 
+  const auditAccess = useAuditCredentialAccess();
+
   const openScanner = (
     onResult: (text: string) => void,
     toastTitle = "Kód naskenován",
@@ -205,6 +209,13 @@ export default function PristupoveUdaje() {
       toast({ title: "Vyplňte IP adresu", variant: "destructive" });
       return;
     }
+    if (!newForm.siteId) {
+      toast({
+        title: "Přístup nemá lokalitu",
+        description: "Doporučujeme přiřadit přístup ke konkrétní stavbě nebo pobočce.",
+        variant: "default",
+      });
+    }
     createCred.mutate(
       { customerId, data: toPayload(newForm) },
       {
@@ -241,6 +252,13 @@ export default function PristupoveUdaje() {
       toast({ title: "Vyplňte IP adresu", variant: "destructive" });
       return;
     }
+    if (!editForm.siteId) {
+      toast({
+        title: "Přístup nemá lokalitu",
+        description: "Doporučujeme přiřadit přístup ke konkrétní stavbě nebo pobočce.",
+        variant: "default",
+      });
+    }
     updateCred.mutate(
       { id, data: toPayload(editForm) },
       {
@@ -271,10 +289,26 @@ export default function PristupoveUdaje() {
     });
   };
 
-  const copy = (value: string | null | undefined, label: string) => {
+  const logAccess = useCallback(
+    (credId: number, action: "view" | "copy", field: "pin" | "password" | "card" | "username") => {
+      auditAccess.mutate({ id: credId, data: { action, field } });
+    },
+    [auditAccess],
+  );
+
+  const copy = (credId: number, value: string | null | undefined, label: string, field: "pin" | "password" | "card" | "username") => {
     if (!value) return;
     void navigator.clipboard?.writeText(value);
+    logAccess(credId, "copy", field);
     toast({ title: `${label} zkopírováno` });
+  };
+
+  const handleReveal = (credId: number, field: "pin" | "password") => {
+    const wasRevealed = !!revealed[credId];
+    setRevealed((p) => ({ ...p, [credId]: !p[credId] }));
+    if (!wasRevealed) {
+      logAccess(credId, "view", field);
+    }
   };
 
   const renderForm = (
@@ -305,6 +339,12 @@ export default function PristupoveUdaje() {
                 </option>
               ))}
             </select>
+            {!form.siteId && sites && sites.length > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                Doporučujeme přiřadit lokalitu
+              </p>
+            )}
           </div>
           <div>
             <Label className="mb-1 block">Typ zařízení</Label>
@@ -624,6 +664,8 @@ export default function PristupoveUdaje() {
     icon: React.ReactNode,
     label: string,
     value: string | null | undefined,
+    credId: number,
+    field: "pin" | "password" | "card" | "username",
   ) => {
     if (!value) return null;
     return (
@@ -633,7 +675,7 @@ export default function PristupoveUdaje() {
         <span className="font-medium break-all">{value}</span>
         <button
           type="button"
-          onClick={() => copy(value, label)}
+          onClick={() => copy(credId, value, label, field)}
           className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
           aria-label={`Kopírovat ${label}`}
         >
@@ -682,8 +724,8 @@ export default function PristupoveUdaje() {
             </div>
             <div className="flex-1 min-w-0 space-y-1.5">
               <p className="font-semibold">{c.type || "Zařízení"}</p>
-              {renderField(<Network className="h-3.5 w-3.5" />, "IP adresa", c.ipAddress)}
-              {renderField(<Server className="h-3.5 w-3.5" />, "SN", c.serialNumber)}
+              {renderField(<Network className="h-3.5 w-3.5" />, "IP adresa", c.ipAddress, c.id, "username")}
+              {renderField(<Server className="h-3.5 w-3.5" />, "SN", c.serialNumber, c.id, "username")}
               {c.pin && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground shrink-0">
@@ -695,7 +737,7 @@ export default function PristupoveUdaje() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setRevealed((p) => ({ ...p, [c.id]: !p[c.id] }))}
+                    onClick={() => handleReveal(c.id, "pin")}
                     className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
                     aria-label={isRevealed ? "Skrýt PIN" : "Zobrazit PIN"}
                   >
@@ -707,7 +749,7 @@ export default function PristupoveUdaje() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => copy(c.pin, "PIN")}
+                    onClick={() => copy(c.id, c.pin, "PIN", "pin")}
                     className="text-muted-foreground hover:text-foreground shrink-0"
                     aria-label="Kopírovat PIN"
                   >
@@ -715,7 +757,7 @@ export default function PristupoveUdaje() {
                   </button>
                 </div>
               )}
-              {renderField(<UserIcon className="h-3.5 w-3.5" />, "Uživatel", c.username)}
+              {renderField(<UserIcon className="h-3.5 w-3.5" />, "Uživatel", c.username, c.id, "username")}
               {c.password && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground shrink-0">
@@ -727,9 +769,7 @@ export default function PristupoveUdaje() {
                   </span>
                   <button
                     type="button"
-                    onClick={() =>
-                      setRevealed((p) => ({ ...p, [c.id]: !p[c.id] }))
-                    }
+                    onClick={() => handleReveal(c.id, "password")}
                     className="text-muted-foreground hover:text-foreground ml-auto shrink-0"
                     aria-label={isRevealed ? "Skrýt heslo" : "Zobrazit heslo"}
                   >
@@ -741,7 +781,7 @@ export default function PristupoveUdaje() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => copy(c.password, "Heslo")}
+                    onClick={() => copy(c.id, c.password, "Heslo", "password")}
                     className="text-muted-foreground hover:text-foreground shrink-0"
                     aria-label="Kopírovat heslo"
                   >
@@ -749,32 +789,55 @@ export default function PristupoveUdaje() {
                   </button>
                 </div>
               )}
-              {renderField(<Mail className="h-3.5 w-3.5" />, "E-mail", c.email)}
+              {renderField(<Mail className="h-3.5 w-3.5" />, "E-mail", c.email, c.id, "username")}
               {c.users && c.users.length > 0 && (
-                <div className="text-sm space-y-1 pt-1">
+                <div className="text-sm space-y-2 pt-1">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Users className="h-3.5 w-3.5" />
                     <span>Uživatelé ({c.users.length}):</span>
                   </div>
-                  <ul className="pl-5 space-y-0.5">
+                  <div className="pl-1 space-y-2">
                     {c.users.map((u) => (
-                      <li key={u.id} className="break-words">
-                        <span className="font-medium">{u.name || "Bez jména"}</span>
+                      <div key={u.id} className="space-y-1">
+                        <p className="font-medium">{u.name || "Bez jména"}</p>
                         {u.pin && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            · PIN {isRevealed ? u.pin : "••••"}
-                          </span>
+                          <div className="flex items-center gap-2 ml-2">
+                            <Hash className="h-3 w-3 text-muted-foreground shrink-0" />
+                            <span className="text-muted-foreground text-xs">PIN:</span>
+                            <span className="font-mono text-xs">
+                              {isRevealed ? u.pin : "••••"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => copy(c.id, u.pin ?? null, "PIN uživatele", "pin")}
+                              className="text-muted-foreground hover:text-foreground"
+                              aria-label="Kopírovat PIN uživatele"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          </div>
                         )}
                         {u.cards.length > 0 && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            · karty: {u.cards.join(", ")}
-                          </span>
+                          <div className="ml-2 space-y-0.5">
+                            {u.cards.map((card, ci) => (
+                              <div key={ci} className="flex items-center gap-2">
+                                <CreditCard className="h-3 w-3 text-muted-foreground shrink-0" />
+                                <span className="text-xs font-mono">{card}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => copy(c.id, card, "Číslo karty", "card")}
+                                  className="text-muted-foreground hover:text-foreground"
+                                  aria-label="Kopírovat číslo karty"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         )}
-                      </li>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
               {c.note && (
@@ -818,9 +881,13 @@ export default function PristupoveUdaje() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grouped, sites]);
 
+  const selectedCustomer = customerId
+    ? customers?.find((c) => c.id === customerId)
+    : null;
+
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto w-full">
-      <div className="flex items-center gap-2 mb-6">
+      <div className="flex items-center gap-2 mb-4">
         <div className="bg-rose-100 dark:bg-rose-950/40 p-2 rounded-lg text-rose-600">
           <KeyRound className="h-5 w-5" />
         </div>
@@ -830,6 +897,12 @@ export default function PristupoveUdaje() {
             Přihlašovací údaje k zařízením podle zákazníka a lokality.
           </p>
         </div>
+      </div>
+
+      {/* Security notice */}
+      <div className="flex items-start gap-2 p-3 mb-5 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+        <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
+        <span>Zobrazení a kopírování přístupů se zapisuje do záznamu změn.</span>
       </div>
 
       <div className="mb-6">
@@ -859,10 +932,27 @@ export default function PristupoveUdaje() {
       {!customerId ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center">
           <Building2 className="h-12 w-12 mb-4 opacity-20" />
-          <p>Vyberte zákazníka pro zobrazení přístupových údajů.</p>
+          <p className="mb-4">Vyberte zákazníka pro zobrazení přístupových údajů.</p>
+          <div className="flex gap-2 flex-wrap justify-center">
+            <Button variant="outline" onClick={() => setLocation("/customers")}>
+              <Building2 className="h-4 w-4 mr-2" /> Přejít na zákazníky
+            </Button>
+          </div>
         </div>
       ) : (
         <>
+          {/* Customer quick link */}
+          {selectedCustomer && (
+            <button
+              type="button"
+              onClick={() => setLocation(`/customers/${customerId}`)}
+              className="flex items-center gap-2 text-sm text-primary hover:underline mb-4"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Detail zákazníka: {selectedCustomer.companyName}
+            </button>
+          )}
+
           <div className="flex items-center justify-between mb-3 gap-2">
             <h2 className="text-base font-bold">Uložené přístupy</h2>
             <div className="flex items-center gap-2">

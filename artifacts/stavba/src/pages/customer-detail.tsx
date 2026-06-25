@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Building2, Phone, User, Edit3, Save, X, Plus,
   Briefcase, ChevronRight, Trash2, Hash, FileText, MapPin, Mail, Users, Store,
+  KeyRound, Receipt, FileCheck, Clock, ExternalLink,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
@@ -37,6 +39,7 @@ export default function CustomerDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { openConfirm, dialogProps } = useConfirmDialog();
+  const { role } = useAuth();
 
   const { data: customers, isLoading: loadingCustomer } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() },
@@ -70,13 +73,11 @@ export default function CustomerDetail() {
     companyName: "", contactPerson: "", phone: "", email: "", ic: "", dic: "", address: "",
   });
 
-  // Contacts UI state
   const [showAddContact, setShowAddContact] = useState(false);
   const [newContact, setNewContact] = useState<ContactForm>(emptyContact);
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [editContact, setEditContact] = useState<ContactForm>(emptyContact);
 
-  // Sites UI state
   const [showAddSite, setShowAddSite] = useState(false);
   const [newSite, setNewSite] = useState<SiteForm>(emptySite);
   const [editingSiteId, setEditingSiteId] = useState<number | null>(null);
@@ -141,7 +142,6 @@ export default function CustomerDetail() {
     });
   };
 
-  // --- Contacts handlers ---
   const handleAddContact = () => {
     if (!newContact.name.trim()) return;
     createContact.mutate(
@@ -168,12 +168,7 @@ export default function CustomerDetail() {
 
   const startEditContact = (c: NonNullable<typeof contacts>[number]) => {
     setEditingContactId(c.id);
-    setEditContact({
-      name: c.name,
-      role: c.role || "",
-      phone: c.phone || "",
-      email: c.email || "",
-    });
+    setEditContact({ name: c.name, role: c.role || "", phone: c.phone || "", email: c.email || "" });
   };
 
   const handleUpdateContact = (contactId: number) => {
@@ -204,17 +199,13 @@ export default function CustomerDetail() {
       deleteContact.mutate(
       { id: contactId },
       {
-        onSuccess: () => {
-          invalidateContacts();
-          toast({ title: "Kontakt smazán" });
-        },
+        onSuccess: () => { invalidateContacts(); toast({ title: "Kontakt smazán" }); },
         onError: () => toast({ title: "Nepodařilo se smazat kontakt", variant: "destructive" }),
       }
     );
     });
   };
 
-  // --- Sites handlers ---
   const handleAddSite = () => {
     if (!newSite.name.trim()) return;
     createSite.mutate(
@@ -280,10 +271,7 @@ export default function CustomerDetail() {
       deleteSite.mutate(
       { id: siteId },
       {
-        onSuccess: () => {
-          invalidateSites();
-          toast({ title: "Stavba smazána" });
-        },
+        onSuccess: () => { invalidateSites(); toast({ title: "Stavba smazána" }); },
         onError: () => toast({ title: "Nepodařilo se smazat stavbu", variant: "destructive" }),
       }
     );
@@ -312,8 +300,14 @@ export default function CustomerDetail() {
     );
   }
 
+  const activeJobs = jobs.filter((j) => j.status !== "done");
+  const doneJobs = jobs.filter((j) => j.status === "done");
+  const recentJob = [...jobs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  const isAdmin = role === "admin" || role === "master";
+
   return (
     <div className="flex flex-col min-h-screen bg-background pb-20 md:pb-0">
+      {/* Header */}
       <div className="sticky top-0 z-10 bg-card border-b p-4 flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => setLocation("/customers")}>
           <ArrowLeft className="h-6 w-6" />
@@ -336,7 +330,7 @@ export default function CustomerDetail() {
 
       <div className="p-4 md:p-8 max-w-2xl mx-auto w-full">
         {/* Customer info card */}
-        <Card className="mb-6">
+        <Card className="mb-4">
           <CardContent className="p-4">
             {editing ? (
               <div className="space-y-3">
@@ -410,11 +404,7 @@ export default function CustomerDetail() {
                   />
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <Button
-                    onClick={handleSave}
-                    disabled={!editForm.companyName.trim() || updateCustomer.isPending}
-                    className="h-10"
-                  >
+                  <Button onClick={handleSave} disabled={!editForm.companyName.trim() || updateCustomer.isPending} className="h-10">
                     <Save className="h-4 w-4 mr-2" /> Uložit
                   </Button>
                   <Button variant="ghost" onClick={() => setEditing(false)} className="h-10">
@@ -436,19 +426,13 @@ export default function CustomerDetail() {
                     </div>
                   )}
                   {customer.phone && (
-                    <a
-                      href={`tel:${customer.phone}`}
-                      className="flex items-center gap-2 text-primary font-medium hover:underline"
-                    >
+                    <a href={`tel:${customer.phone}`} className="flex items-center gap-2 text-primary font-medium hover:underline">
                       <Phone className="h-4 w-4 shrink-0" />
                       <span className="text-sm">{customer.phone}</span>
                     </a>
                   )}
                   {customer.email && (
-                    <a
-                      href={`mailto:${customer.email}`}
-                      className="flex items-center gap-2 text-primary font-medium hover:underline"
-                    >
+                    <a href={`mailto:${customer.email}`} className="flex items-center gap-2 text-primary font-medium hover:underline">
                       <Mail className="h-4 w-4 shrink-0" />
                       <span className="text-sm">{customer.email}</span>
                     </a>
@@ -476,6 +460,108 @@ export default function CustomerDetail() {
             )}
           </CardContent>
         </Card>
+
+        {/* Summary tiles + quick links */}
+        {!editing && (
+          <div className="mb-6">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Přehled a rychlé akce</h2>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => setLocation(`/jobs?search=${encodeURIComponent(customer.companyName)}`)}
+                className="flex items-center gap-3 p-3 bg-card border rounded-xl hover:bg-muted/40 transition-colors text-left"
+              >
+                <div className="bg-violet-100 dark:bg-violet-950/40 p-2 rounded-lg text-violet-600 shrink-0">
+                  <Briefcase className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  {loadingJobs ? (
+                    <Skeleton className="h-5 w-10 mb-0.5" />
+                  ) : (
+                    <p className="font-bold text-lg leading-none">{activeJobs.length}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">Aktivní zakázky</p>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLocation(`/billing/unbilled/${id}`)}
+                className={`flex items-center gap-3 p-3 bg-card border rounded-xl hover:bg-muted/40 transition-colors text-left ${!isAdmin ? "opacity-50 pointer-events-none" : ""}`}
+              >
+                <div className="bg-amber-100 dark:bg-amber-950/40 p-2 rounded-lg text-amber-600 shrink-0">
+                  <FileCheck className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  {loadingJobs ? (
+                    <Skeleton className="h-5 w-10 mb-0.5" />
+                  ) : (
+                    <p className="font-bold text-lg leading-none">{doneJobs.length}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">Hotové k fakturaci</p>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLocation("/pristupove-udaje")}
+                className={`flex items-center gap-3 p-3 bg-card border rounded-xl hover:bg-muted/40 transition-colors text-left ${!isAdmin ? "opacity-50 pointer-events-none" : ""}`}
+              >
+                <div className="bg-rose-100 dark:bg-rose-950/40 p-2 rounded-lg text-rose-600 shrink-0">
+                  <KeyRound className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground mt-1">Přístupové údaje</p>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
+              </button>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setLocation("/billing/documents")}
+                  className="flex items-center gap-3 p-3 bg-card border rounded-xl hover:bg-muted/40 transition-colors text-left"
+                >
+                  <div className="bg-indigo-100 dark:bg-indigo-950/40 p-2 rounded-lg text-indigo-600 shrink-0">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground mt-1">Doklady</p>
+                  </div>
+                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setLocation("/billing/invoices")}
+                  className="flex items-center gap-3 p-3 bg-card border rounded-xl hover:bg-muted/40 transition-colors text-left"
+                >
+                  <div className="bg-sky-100 dark:bg-sky-950/40 p-2 rounded-lg text-sky-600 shrink-0">
+                    <Receipt className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground mt-1">Faktury</p>
+                  </div>
+                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0" />
+                </button>
+              )}
+            </div>
+
+            {recentJob && (
+              <div className="flex items-center gap-2 p-3 bg-muted/30 border rounded-xl text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground">Poslední práce:</span>
+                <span className="font-medium truncate">{recentJob.title}</span>
+                <span className="text-muted-foreground shrink-0">
+                  {format(new Date(recentJob.date), "d. M.", { locale: cs })}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Contacts */}
         <div className="flex items-center justify-between mb-3">
@@ -626,7 +712,7 @@ export default function CustomerDetail() {
           )}
         </div>
 
-        {/* Sites (stavby) */}
+        {/* Sites */}
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold flex items-center gap-2">
             <Store className="h-4 w-4 text-amber-500" /> Stavby / pobočky
@@ -792,7 +878,7 @@ export default function CustomerDetail() {
           )}
         </div>
 
-        {/* New job for this customer */}
+        {/* Jobs */}
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold flex items-center gap-2">
             <Briefcase className="h-4 w-4 text-violet-500" /> Zakázky

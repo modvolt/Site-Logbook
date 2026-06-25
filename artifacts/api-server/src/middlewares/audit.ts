@@ -19,6 +19,11 @@ const SKIP_PREFIXES = [
   "/billing/email-import/",
 ];
 
+// Path suffixes to skip — these routes write their own richer audit entries.
+const SKIP_SUFFIXES = [
+  "/audit-access",
+];
+
 const REDACT_KEYS = new Set([
   "password", "passwordHash", "currentPassword", "newPassword",
   "pin", "pinHash",
@@ -104,6 +109,10 @@ export function auditMutations(req: Request, res: Response, next: NextFunction):
 
   const relPath = req.path;
   if (SKIP_PREFIXES.some((p) => relPath.startsWith(p))) {
+    next();
+    return;
+  }
+  if (SKIP_SUFFIXES.some((s) => relPath.endsWith(s))) {
     next();
     return;
   }

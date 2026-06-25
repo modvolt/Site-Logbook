@@ -577,6 +577,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/Person"
 
+  /people/stats:
+    get:
+      operationId: getPeopleStats
+      tags: [people]
+      summary: Operational stats per person — today's jobs, week hours, machines, active timer
+      responses:
+        "200":
+          description: Stats per person
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PersonStats"
+
   /people/{id}:
     patch:
       operationId: updatePerson
@@ -1059,6 +1074,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DeviceCredential"
+
+  /device-credentials/{id}/audit-access:
+    post:
+      operationId: auditCredentialAccess
+      tags: [customers]
+      summary: Record a security audit event for viewing or copying a credential field
+      description: |
+        Writes a `security` audit log entry without the secret value. Must be
+        called when the UI reveals or copies a PIN/password/card. Restricted to
+        roles with vault access (master/admin).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialAccessAuditInput"
+      responses:
+        "204":
+          description: Audit event recorded
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
 
   /device-credentials/{id}:
     patch:
@@ -2084,6 +2128,12 @@ paths:
         - name: entityType
           in: query
           required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          description: Filter by action type (create, update, delete, erase, security, …)
           schema:
             type: string
         - name: from
@@ -5858,6 +5908,34 @@ components:
         name:
           type: string
           minLength: 1
+
+    PersonStats:
+      type: object
+      required: [personId, personName, todayJobsCount, weekHours, assignedMachinesCount, hasActiveTimer]
+      properties:
+        personId:
+          type: integer
+        personName:
+          type: string
+        todayJobsCount:
+          type: integer
+        weekHours:
+          type: number
+        assignedMachinesCount:
+          type: integer
+        hasActiveTimer:
+          type: boolean
+
+    CredentialAccessAuditInput:
+      type: object
+      required: [action, field]
+      properties:
+        action:
+          type: string
+          enum: [view, copy]
+        field:
+          type: string
+          enum: [pin, password, card, username]
 
     DashboardSummary:
       type: object
