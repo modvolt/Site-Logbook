@@ -102,12 +102,21 @@ function readTextFromSearch(search: string): string {
 export default function Jobs() {
   const search_ = useSearch();
   const [, setLocation] = useLocation();
-  const [status, setStatus] = useState<string>(() => readStatusFromSearch(search_));
+  const [status, setStatus] = useState<string>(() => {
+    const seg = readSegmentFromSearch(search_);
+    return seg ? "all" : readStatusFromSearch(search_);
+  });
   const [segment, setSegment] = useState<Segment | null>(() => readSegmentFromSearch(search_));
 
   useEffect(() => {
-    setStatus(readStatusFromSearch(search_));
-    setSegment(readSegmentFromSearch(search_));
+    const seg = readSegmentFromSearch(search_);
+    if (seg) {
+      setSegment(seg);
+      setStatus("all");
+    } else {
+      setSegment(null);
+      setStatus(readStatusFromSearch(search_));
+    }
   }, [search_]);
 
   const [search, setSearch] = useState(() => readTextFromSearch(search_));

@@ -5939,7 +5939,7 @@ components:
 
     DashboardSummary:
       type: object
-      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek]
+      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek, unbilledValue, hoursThisMonth, problematicJobsCount]
       properties:
         todayCount:
           type: integer
@@ -5955,6 +5955,15 @@ components:
           type: number
         totalRevenueThisWeek:
           type: number
+        unbilledValue:
+          type: number
+          description: Sum of price on done jobs not yet linked to any non-cancelled invoice
+        hoursThisMonth:
+          type: number
+          description: Total hours spent on all jobs this calendar month
+        problematicJobsCount:
+          type: integer
+          description: Count of active jobs that have no customer, no price, or are stale
 
     UploadUrlRequest:
       type: object

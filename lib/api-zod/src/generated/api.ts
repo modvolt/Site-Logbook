@@ -1509,7 +1509,10 @@ export const GetDashboardSummaryResponse = zod.object({
   "inProgressCount": zod.number(),
   "doneCount": zod.number(),
   "totalHoursThisWeek": zod.number(),
-  "totalRevenueThisWeek": zod.number()
+  "totalRevenueThisWeek": zod.number(),
+  "unbilledValue": zod.number().describe('Sum of price on done jobs not yet linked to any non-cancelled invoice'),
+  "hoursThisMonth": zod.number().describe('Total hours spent on all jobs this calendar month'),
+  "problematicJobsCount": zod.number().describe('Count of active jobs that have no customer, no price, or are stale')
 })
 
 

@@ -1,9 +1,19 @@
 import { Router, type IRouter } from "express";
-import { gte, lte, and, eq, sql } from "drizzle-orm";
-import { db, jobsTable, tasksTable, attachmentsTable, peopleTable } from "@workspace/db";
+import { gte, lte, and, eq, sql, isNull, or, ne } from "drizzle-orm";
+import {
+  db,
+  jobsTable,
+  tasksTable,
+  attachmentsTable,
+  peopleTable,
+  invoiceSourceLinksTable,
+  invoicesTable,
+} from "@workspace/db";
 import { count } from "drizzle-orm";
 
 const router: IRouter = Router();
+
+const DEFAULT_STALE_DAYS = 14;
 
 function getWeekRange() {
   const now = new Date();
@@ -19,8 +29,24 @@ function getWeekRange() {
   };
 }
 
+function getMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const from = `${year}-${String(month).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { from, to };
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function subtractDaysIso(dateStr: string, days: number): string {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
 }
 
 async function enrichJob(job: typeof jobsTable.$inferSelect) {
@@ -65,6 +91,8 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
 router.get("/dashboard/summary", async (_req, res): Promise<void> => {
   const t = today();
   const { from, to } = getWeekRange();
+  const { from: monthFrom, to: monthTo } = getMonthRange();
+  const staleThreshold = subtractDaysIso(t, DEFAULT_STALE_DAYS);
 
   const [todayCount] = await db
     .select({ c: count() })
@@ -105,6 +133,57 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     0
   );
 
+  // --- Hours this month ---
+  const [monthHoursAgg] = await db
+    .select({
+      total: sql<number>`coalesce(sum(${jobsTable.hoursSpent}), 0)`.mapWith(Number),
+    })
+    .from(jobsTable)
+    .where(and(gte(jobsTable.date, monthFrom), lte(jobsTable.date, monthTo)));
+
+  // --- Unbilled value: done jobs not linked to any non-cancelled invoice ---
+  const billedRows = await db
+    .select({ jobId: invoiceSourceLinksTable.jobId })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .where(ne(invoicesTable.status, "cancelled"));
+
+  const billedIds = billedRows
+    .map((r) => r.jobId)
+    .filter((x): x is number => x != null);
+
+  const [unbilledAgg] = await db
+    .select({
+      total: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
+    })
+    .from(jobsTable)
+    .where(
+      billedIds.length > 0
+        ? and(
+            eq(jobsTable.status, "done"),
+            sql`${jobsTable.id} not in (${sql.join(
+              billedIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`
+          )
+        : eq(jobsTable.status, "done")
+    );
+
+  // --- Problematic jobs: active with no customer, no price, or stale ---
+  const [problematicAgg] = await db
+    .select({ c: count() })
+    .from(jobsTable)
+    .where(
+      and(
+        or(eq(jobsTable.status, "planned"), eq(jobsTable.status, "in_progress")),
+        or(
+          isNull(jobsTable.customerId),
+          isNull(jobsTable.price),
+          and(eq(jobsTable.status, "in_progress"), lte(jobsTable.date, staleThreshold))
+        )
+      )
+    );
+
   res.json({
     todayCount: todayCount?.c ?? 0,
     weekCount: weekCount?.c ?? 0,
@@ -113,6 +192,9 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     doneCount: doneCount?.c ?? 0,
     totalHoursThisWeek,
     totalRevenueThisWeek,
+    hoursThisMonth: monthHoursAgg?.total ?? 0,
+    unbilledValue: unbilledAgg?.total ?? 0,
+    problematicJobsCount: problematicAgg?.c ?? 0,
   });
 });
 

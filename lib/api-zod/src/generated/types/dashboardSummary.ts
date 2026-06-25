@@ -14,4 +14,10 @@ export interface DashboardSummary {
   doneCount: number;
   totalHoursThisWeek: number;
   totalRevenueThisWeek: number;
+  /** Sum of price on done jobs not yet linked to any non-cancelled invoice */
+  unbilledValue: number;
+  /** Total hours spent on all jobs this calendar month */
+  hoursThisMonth: number;
+  /** Count of active jobs that have no customer, no price, or are stale */
+  problematicJobsCount: number;
 }

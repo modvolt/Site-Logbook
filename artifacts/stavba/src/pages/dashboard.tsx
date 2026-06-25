@@ -577,52 +577,106 @@ export default function Dashboard() {
       {can("write") && <RiskPanel />}
 
       {loadingSummary ? (
-        <Skeleton className="h-16 w-full mb-6" />
+        <Skeleton className="h-24 w-full mb-6" />
       ) : summary ? (
-        <div className="grid grid-cols-4 gap-2 mb-6">
-          <Card className="bg-primary text-primary-foreground border-none">
-            <CardContent className="p-2.5 flex flex-col items-center justify-center">
-              <div className="text-xl font-bold leading-none">{summary.todayCount}</div>
-              <div className="text-[10px] font-medium uppercase tracking-wider opacity-80 mt-1">Dnes</div>
-            </CardContent>
-          </Card>
-          <Card
-            role="button"
-            tabIndex={0}
-            onClick={() => setLocation("/jobs?status=in_progress")}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=in_progress"); } }}
-            className="bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-          >
-            <CardContent className="p-2.5 flex flex-col items-center justify-center">
-              <div className="text-xl font-bold leading-none">{summary.inProgressCount}</div>
-              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Probíhá</div>
-            </CardContent>
-          </Card>
-          <Card
-            role="button"
-            tabIndex={0}
-            onClick={() => setLocation("/jobs?status=planned")}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=planned"); } }}
-            className="bg-blue-100 text-blue-900 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            <CardContent className="p-2.5 flex flex-col items-center justify-center">
-              <div className="text-xl font-bold leading-none">{summary.plannedCount}</div>
-              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Naplánováno</div>
-            </CardContent>
-          </Card>
-          <Card
-            role="button"
-            tabIndex={0}
-            onClick={() => setLocation("/jobs?status=done")}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=done"); } }}
-            className="bg-green-100 text-green-900 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
-          >
-            <CardContent className="p-2.5 flex flex-col items-center justify-center">
-              <div className="text-xl font-bold leading-none">{summary.doneCount}</div>
-              <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Hotovo</div>
-            </CardContent>
-          </Card>
-        </div>
+        <>
+          <div className="grid grid-cols-4 gap-2 mb-2">
+            <Card className="bg-primary text-primary-foreground border-none">
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="text-xl font-bold leading-none">{summary.todayCount}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wider opacity-80 mt-1">Dnes</div>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => setLocation("/jobs?status=in_progress")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=in_progress"); } }}
+              className="bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+            >
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="text-xl font-bold leading-none">{summary.inProgressCount}</div>
+                <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Probíhá</div>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => setLocation("/jobs?status=planned")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=planned"); } }}
+              className="bg-blue-100 text-blue-900 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="text-xl font-bold leading-none">{summary.plannedCount}</div>
+                <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Naplánováno</div>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => setLocation("/jobs?status=done")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?status=done"); } }}
+              className="bg-green-100 text-green-900 border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+            >
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="text-xl font-bold leading-none">{summary.doneCount}</div>
+                <div className="text-[10px] uppercase font-bold tracking-wider opacity-80 mt-1">Hotovo</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mb-6">
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => setLocation("/jobs?segment=ready_to_bill")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?segment=ready_to_bill"); } }}
+              className="bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            >
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-1 mb-0.5">
+                  <Banknote className="w-3.5 h-3.5 opacity-70" />
+                </div>
+                <div className="text-base font-bold leading-none tabular-nums">{fmtKc(summary.unbilledValue, 0)}</div>
+                <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">Nevyfakturováno</div>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => setLocation("/jobs")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs"); } }}
+              className="bg-sky-50 text-sky-900 border-sky-200 dark:bg-sky-900/20 dark:text-sky-300 dark:border-sky-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            >
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-1 mb-0.5">
+                  <Clock className="w-3.5 h-3.5 opacity-70" />
+                </div>
+                <div className="text-base font-bold leading-none tabular-nums">{Number(summary.hoursThisMonth).toFixed(1)} h</div>
+                <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">Hodiny (měsíc)</div>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => setLocation("/jobs?segment=problematic")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?segment=problematic"); } }}
+              className={`cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 ${
+                summary.problematicJobsCount > 0
+                  ? "bg-red-50 text-red-900 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800 focus-visible:ring-red-500"
+                  : "bg-muted text-muted-foreground border-border focus-visible:ring-muted-foreground"
+              }`}
+            >
+              <CardContent className="p-2.5 flex flex-col items-center justify-center">
+                <div className="flex items-center gap-1 mb-0.5">
+                  <AlertTriangle className="w-3.5 h-3.5 opacity-70" />
+                </div>
+                <div className="text-base font-bold leading-none tabular-nums">{summary.problematicJobsCount}</div>
+                <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">Problémové</div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
       ) : null}
 
       <div className="flex justify-between items-end mb-4">
