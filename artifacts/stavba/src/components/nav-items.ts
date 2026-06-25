@@ -48,6 +48,12 @@ export const mobileMenuItems: NavItem[] = [...mainNavItems, ...adminNavItems];
 /** Default quick items pinned to the mobile bottom bar. */
 export const MOBILE_DEFAULT_QUICK = ["/", "/calendar", "/jobs", "/sklad"];
 
+/**
+ * Default quick items for users with the manager/admin role.
+ * Billing is included so it's immediately accessible without customisation.
+ */
+export const MOBILE_DEFAULT_QUICK_MANAGER = ["/", "/billing", "/jobs", "/sklad"];
+
 /** Max number of pinned quick items on the mobile bottom bar (excl. "Další"). */
 export const MOBILE_QUICK_MAX = 4;
 

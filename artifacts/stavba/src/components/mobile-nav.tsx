@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import {
   mobileMenuItems,
   MOBILE_DEFAULT_QUICK,
+  MOBILE_DEFAULT_QUICK_MANAGER,
   MOBILE_QUICK_MAX,
   MOBILE_QUICK_STORAGE_KEY,
   type NavItem,
@@ -36,14 +37,14 @@ function loadQuick(): string[] {
  * available destinations, de-duplicated, capped at MOBILE_QUICK_MAX. Falls back
  * to the (available) defaults so the bar never degrades to an unusable state.
  */
-function normalizeQuick(quick: string[], availableHrefs: Set<string>): string[] {
+function normalizeQuick(quick: string[], availableHrefs: Set<string>, defaults: string[] = MOBILE_DEFAULT_QUICK): string[] {
   const out: string[] = [];
   for (const href of quick) {
     if (availableHrefs.has(href) && !out.includes(href)) out.push(href);
     if (out.length >= MOBILE_QUICK_MAX) break;
   }
   if (out.length === 0) {
-    for (const href of MOBILE_DEFAULT_QUICK) {
+    for (const href of defaults) {
       if (availableHrefs.has(href) && !out.includes(href)) out.push(href);
       if (out.length >= MOBILE_QUICK_MAX) break;
     }
@@ -70,15 +71,20 @@ export function MobileNav({ location, isActive, can }: Props) {
   const availableHrefs = new Set(available.map((i) => i.href));
   const availableKey = available.map((i) => i.href).join(",");
 
+  const isManager = can("manageUsers");
+  const roleDefaults = isManager ? MOBILE_DEFAULT_QUICK_MANAGER : MOBILE_DEFAULT_QUICK;
+
   // Drop stale/unauthorized/duplicate hrefs whenever the available set changes
   // (e.g. role change), so the quick bar always reflects a valid, capped config.
+  // Manager users get billing included in the defaults so it's accessible without
+  // any customisation (they can still override via Přizpůsobit).
   useEffect(() => {
     setQuick((prev) => {
-      const next = normalizeQuick(prev, availableHrefs);
+      const next = normalizeQuick(prev, availableHrefs, roleDefaults);
       return sameOrder(prev, next) ? prev : next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableKey]);
+  }, [availableKey, isManager]);
 
   // Persist the normalized config.
   useEffect(() => {
@@ -97,7 +103,7 @@ export function MobileNav({ location, isActive, can }: Props) {
 
   const toggleQuick = (href: string) => {
     setQuick((prev) => {
-      const base = normalizeQuick(prev, availableHrefs);
+      const base = normalizeQuick(prev, availableHrefs, roleDefaults);
       if (base.includes(href)) return base.filter((h) => h !== href);
       if (base.length >= MOBILE_QUICK_MAX) return base;
       return [...base, href];

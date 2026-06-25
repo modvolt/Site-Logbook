@@ -6,8 +6,9 @@ import {
   useGetDashboardSummary, useGetTodayJobs, useUpdateJob, useUpdateJobStatus,
   getGetDashboardSummaryQueryKey, getGetTodayJobsQueryKey, getGetJobQueryKey,
   useListPeople, getListPeopleQueryKey, useListJobs, getListJobsQueryKey,
-  useReorderJobs,
+  useReorderJobs, useGetRisksSummary, getGetRisksSummaryQueryKey,
 } from "@workspace/api-client-react";
+import { type RiskMetricFilter } from "@workspace/api-client-react";
 import { useQueryClient, useIsFetching } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import {
@@ -21,7 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw, AlertTriangle, Banknote, FileSearch, PackageMinus, UserX, Tag, FileMinus, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import {
@@ -30,6 +31,173 @@ import {
   clearTimerNotification,
   syncTimerNotification,
 } from "@/lib/timer-notification";
+import { useAuth } from "@/hooks/use-auth";
+import { fmtKc } from "@/lib/billing-format";
+
+const SCREEN_TO_HREF: Record<string, string> = {
+  jobs: "/jobs",
+  "billing/documents": "/billing/documents",
+  warehouse: "/sklad",
+  billing: "/billing",
+  machines: "/stroje",
+};
+
+function buildRiskUrl(filter: RiskMetricFilter): string {
+  const base = SCREEN_TO_HREF[filter.screen] ?? `/${filter.screen}`;
+  const params = filter.params && Object.keys(filter.params).length > 0
+    ? `?${new URLSearchParams(filter.params).toString()}`
+    : "";
+  return `${base}${params}`;
+}
+
+type RiskRowProps = {
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  amount?: number | null;
+  href: string;
+  urgent?: boolean;
+};
+
+function RiskRow({ icon, label, count, amount, href, urgent }: RiskRowProps) {
+  const [, setLocation] = useLocation();
+  const hasIssue = count > 0;
+  return (
+    <button
+      type="button"
+      onClick={() => setLocation(href)}
+      className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-left transition-colors ${
+        hasIssue
+          ? urgent
+            ? "hover:bg-red-50 dark:hover:bg-red-950/20"
+            : "hover:bg-amber-50 dark:hover:bg-amber-950/20"
+          : "hover:bg-muted opacity-50"
+      }`}
+    >
+      <span className={`shrink-0 ${hasIssue ? (urgent ? "text-red-500" : "text-amber-500") : "text-muted-foreground"}`}>
+        {icon}
+      </span>
+      <span className={`flex-1 text-sm font-medium ${hasIssue ? "text-foreground" : "text-muted-foreground"}`}>
+        {label}
+      </span>
+      <span className="flex items-center gap-2 shrink-0">
+        {amount != null && hasIssue && (
+          <span className="text-xs text-muted-foreground">{fmtKc(amount, 0)}</span>
+        )}
+        <span className={`min-w-[1.5rem] text-center text-xs font-bold px-1.5 py-0.5 rounded-full ${
+          hasIssue
+            ? urgent
+              ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+            : "bg-muted text-muted-foreground"
+        }`}>
+          {count}
+        </span>
+        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+      </span>
+    </button>
+  );
+}
+
+function RiskPanel() {
+  const { data: risks, isLoading, isError } = useGetRisksSummary(undefined, {
+    query: {
+      queryKey: getGetRisksSummaryQueryKey(),
+      retry: false,
+    },
+  });
+
+  if (isLoading) return <Skeleton className="h-24 w-full mb-6" />;
+  if (isError || !risks) return null;
+
+  const totalIssues =
+    risks.readyToBill.count +
+    risks.documentsForReview.count +
+    risks.warehouseBelowMin.count +
+    risks.jobsWithoutCustomer.count +
+    risks.materialsWithoutPrice.count +
+    risks.longInProgress.count +
+    risks.documentsWithoutJob.count +
+    risks.machinesInspectionExpired.count;
+
+  return (
+    <Card className="mb-6 border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/10">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex-1">K řešení</h2>
+          {totalIssues > 0 && (
+            <span className="text-xs font-bold bg-amber-500 text-white px-2 py-0.5 rounded-full">{totalIssues}</span>
+          )}
+        </div>
+        <div className="space-y-0.5">
+          <RiskRow
+            icon={<Banknote className="w-4 h-4" />}
+            label="Hotové k fakturaci"
+            count={risks.readyToBill.count}
+            amount={risks.readyToBill.amount}
+            href={buildRiskUrl(risks.readyToBill.filter)}
+            urgent={risks.readyToBill.count > 0}
+          />
+          <RiskRow
+            icon={<FileSearch className="w-4 h-4" />}
+            label="Doklady ke kontrole"
+            count={risks.documentsForReview.count}
+            href={buildRiskUrl(risks.documentsForReview.filter)}
+            urgent={risks.documentsForReview.count > 0}
+          />
+          <RiskRow
+            icon={<FileMinus className="w-4 h-4" />}
+            label="Doklady bez zakázky"
+            count={risks.documentsWithoutJob.count}
+            href={buildRiskUrl(risks.documentsWithoutJob.filter)}
+          />
+          <RiskRow
+            icon={<PackageMinus className="w-4 h-4" />}
+            label="Sklad pod minimem"
+            count={risks.warehouseBelowMin.count}
+            href={buildRiskUrl(risks.warehouseBelowMin.filter)}
+          />
+          <RiskRow
+            icon={<UserX className="w-4 h-4" />}
+            label="Zakázky bez zákazníka"
+            count={risks.jobsWithoutCustomer.count}
+            href={buildRiskUrl(risks.jobsWithoutCustomer.filter)}
+          />
+          <RiskRow
+            icon={<Tag className="w-4 h-4" />}
+            label="Materiál bez ceny"
+            count={risks.materialsWithoutPrice.count}
+            href={buildRiskUrl(risks.materialsWithoutPrice.filter)}
+          />
+          <RiskRow
+            icon={<Clock className="w-4 h-4" />}
+            label={`Rozpracované déle než ${risks.staleDays} dní`}
+            count={risks.longInProgress.count}
+            href={buildRiskUrl(risks.longInProgress.filter)}
+          />
+          {risks.machinesInspectionExpired.count > 0 && (
+            <RiskRow
+              icon={<Wrench className="w-4 h-4" />}
+              label="Stroje — prošlá revize"
+              count={risks.machinesInspectionExpired.count}
+              href={buildRiskUrl(risks.machinesInspectionExpired.filter)}
+              urgent
+            />
+          )}
+          {risks.machinesInspectionSoon.count > 0 && (
+            <RiskRow
+              icon={<Wrench className="w-4 h-4" />}
+              label="Stroje — revize do 30 dní"
+              count={risks.machinesInspectionSoon.count}
+              href={buildRiskUrl(risks.machinesInspectionSoon.filter)}
+            />
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function useTimer(timerStartedAt: string | null | undefined) {
   const [elapsed, setElapsed] = useState(0);
@@ -327,6 +495,7 @@ function WeekEmployeeRow({ person, weekFrom, weekTo }: { person: any; weekFrom: 
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
+  const { can } = useAuth();
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() }
   });
@@ -404,6 +573,8 @@ export default function Dashboard() {
       </div>
 
       {jobs && <ActiveTimerBanner jobs={jobs} />}
+
+      {can("write") && <RiskPanel />}
 
       {loadingSummary ? (
         <Skeleton className="h-16 w-full mb-6" />

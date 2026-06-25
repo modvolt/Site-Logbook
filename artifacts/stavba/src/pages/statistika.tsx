@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addWeeks, addMonths, addYears } from "date-fns";
 import { cs } from "date-fns/locale";
-import { useGetStatsOverview, getGetStatsOverviewQueryKey } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Loader2, Briefcase, Users, Package, Warehouse, Banknote } from "lucide-react";
+import { useGetStatsOverview, getGetStatsOverviewQueryKey, useGetRisksSummary, getGetRisksSummaryQueryKey } from "@workspace/api-client-react";
+import { type RiskMetricFilter } from "@workspace/api-client-react";
+import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench } from "lucide-react";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JOB_TYPES } from "@/components/badges";
@@ -10,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { renderJobSheetPdf } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 import { loadCompanySettings } from "@/lib/company-settings";
+import { fmtKc as fmtKcBilling } from "@/lib/billing-format";
 
 const PRINT_CSS = `
 @media print {
@@ -32,6 +35,22 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 function fmtKc(n: number): string {
   return `${Math.round(n).toLocaleString("cs-CZ")} Kč`;
+}
+
+const SCREEN_TO_HREF: Record<string, string> = {
+  jobs: "/jobs",
+  "billing/documents": "/billing/documents",
+  warehouse: "/sklad",
+  billing: "/billing",
+  machines: "/stroje",
+};
+
+function buildRiskUrl(filter: RiskMetricFilter): string {
+  const base = SCREEN_TO_HREF[filter.screen] ?? `/${filter.screen}`;
+  const params = filter.params && Object.keys(filter.params).length > 0
+    ? `?${new URLSearchParams(filter.params).toString()}`
+    : "";
+  return `${base}${params}`;
 }
 
 function fmtHours(n: number): string {
@@ -87,6 +106,10 @@ export default function Statistika() {
     { from: fromStr, to: toStr },
     { query: { queryKey: getGetStatsOverviewQueryKey({ from: fromStr, to: toStr }) } },
   );
+
+  const { data: risks, isLoading: risksLoading } = useGetRisksSummary(undefined, {
+    query: { queryKey: getGetRisksSummaryQueryKey(), retry: false },
+  });
 
   const shift = (dir: -1 | 1) => {
     setAnchor((prev) => {
@@ -293,10 +316,131 @@ export default function Statistika() {
                 <Stat label="Pod minimem" value={String(stats.warehouse.lowStockCount)} />
               </div>
             </Section>
+
+            {/* Risks */}
+            {risksLoading ? (
+              <div className="mb-6 border border-neutral-300 rounded-md p-4 space-y-2">
+                <div className="h-4 bg-neutral-200 rounded w-2/3 animate-pulse" />
+                <div className="h-3 bg-neutral-100 rounded w-full animate-pulse" />
+                <div className="h-3 bg-neutral-100 rounded w-full animate-pulse" />
+              </div>
+            ) : risks ? (
+              <Section title="Rizika a nevyfakturované práce" icon={<AlertTriangle className="w-4 h-4" />}>
+                <p className="text-xs text-neutral-500 mb-3">Aktuální stav — nezávisí na zvoleném období. Kliknutím přejdete do příslušné fronty.</p>
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-neutral-300 text-left text-neutral-600">
+                      <th className="py-1 pr-2 font-semibold">Riziko</th>
+                      <th className="py-1 px-2 font-semibold text-right">Počet</th>
+                      <th className="py-1 pl-2 font-semibold text-right">Částka</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <RiskStatRow
+                      icon={<Banknote className="w-3.5 h-3.5" />}
+                      label="Hotové k fakturaci"
+                      count={risks.readyToBill.count}
+                      amount={risks.readyToBill.amount}
+                      href={buildRiskUrl(risks.readyToBill.filter)}
+                      urgent
+                    />
+                    <RiskStatRow
+                      icon={<FileSearch className="w-3.5 h-3.5" />}
+                      label="Doklady ke kontrole"
+                      count={risks.documentsForReview.count}
+                      href={buildRiskUrl(risks.documentsForReview.filter)}
+                      urgent
+                    />
+                    <RiskStatRow
+                      icon={<FileMinus className="w-3.5 h-3.5" />}
+                      label="Doklady bez zakázky"
+                      count={risks.documentsWithoutJob.count}
+                      href={buildRiskUrl(risks.documentsWithoutJob.filter)}
+                    />
+                    <RiskStatRow
+                      icon={<PackageMinus className="w-3.5 h-3.5" />}
+                      label="Sklad pod minimem"
+                      count={risks.warehouseBelowMin.count}
+                      href={buildRiskUrl(risks.warehouseBelowMin.filter)}
+                    />
+                    <RiskStatRow
+                      icon={<UserX className="w-3.5 h-3.5" />}
+                      label="Zakázky bez zákazníka"
+                      count={risks.jobsWithoutCustomer.count}
+                      href={buildRiskUrl(risks.jobsWithoutCustomer.filter)}
+                    />
+                    <RiskStatRow
+                      icon={<Tag className="w-3.5 h-3.5" />}
+                      label="Materiál bez ceny"
+                      count={risks.materialsWithoutPrice.count}
+                      href={buildRiskUrl(risks.materialsWithoutPrice.filter)}
+                    />
+                    <RiskStatRow
+                      icon={<Clock className="w-3.5 h-3.5" />}
+                      label={`Rozpracované déle než ${risks.staleDays} dní`}
+                      count={risks.longInProgress.count}
+                      href={buildRiskUrl(risks.longInProgress.filter)}
+                    />
+                    {risks.machinesInspectionExpired.count > 0 && (
+                      <RiskStatRow
+                        icon={<Wrench className="w-3.5 h-3.5" />}
+                        label="Stroje — prošlá revize"
+                        count={risks.machinesInspectionExpired.count}
+                        href={buildRiskUrl(risks.machinesInspectionExpired.filter)}
+                        urgent
+                      />
+                    )}
+                    {risks.machinesInspectionSoon.count > 0 && (
+                      <RiskStatRow
+                        icon={<Wrench className="w-3.5 h-3.5" />}
+                        label="Stroje — revize do 30 dní"
+                        count={risks.machinesInspectionSoon.count}
+                        href={buildRiskUrl(risks.machinesInspectionSoon.filter)}
+                      />
+                    )}
+                  </tbody>
+                </table>
+              </Section>
+            ) : null}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+type RiskStatRowProps = {
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  amount?: number | null;
+  href: string;
+  urgent?: boolean;
+};
+
+function RiskStatRow({ icon, label, count, amount, href, urgent }: RiskStatRowProps) {
+  const hasIssue = count > 0;
+  return (
+    <tr className={`border-b border-neutral-200 ${hasIssue ? "" : "opacity-40"}`}>
+      <td className="py-1.5 pr-2">
+        <Link href={href} className="flex items-center gap-1.5 hover:underline group">
+          <span className={hasIssue ? (urgent ? "text-red-500" : "text-amber-600") : "text-neutral-400"}>
+            {icon}
+          </span>
+          <span className={`text-sm ${hasIssue ? "font-medium" : "text-neutral-500"}`}>{label}</span>
+        </Link>
+      </td>
+      <td className="py-1.5 px-2 text-right">
+        <Link href={href}>
+          <span className={`text-sm font-bold ${hasIssue ? (urgent ? "text-red-600" : "text-amber-700") : "text-neutral-400"}`}>
+            {count}
+          </span>
+        </Link>
+      </td>
+      <td className="py-1.5 pl-2 text-right text-sm text-neutral-500">
+        {amount != null && hasIssue ? fmtKcBilling(amount, 0) : "—"}
+      </td>
+    </tr>
   );
 }
 
