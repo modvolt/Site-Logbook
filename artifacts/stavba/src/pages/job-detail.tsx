@@ -111,6 +111,7 @@ export default function JobDetail() {
   const { toast } = useToast();
   
   const [expandedSection, setExpandedSection] = useState<string | null>("info");
+  const [matHasUnsaved, setMatHasUnsaved] = useState(false);
   
   const { data: job, isLoading: loadingJob } = useGetJob(id, {
     query: { enabled: !!id, queryKey: getGetJobQueryKey(id) }
@@ -393,11 +394,11 @@ export default function JobDetail() {
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
-        <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} />
+        <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} onUnsavedChange={setMatHasUnsaved} />
         <JobTimeEntries jobId={id} />
         <JobSheetsSection jobId={id} isExpanded={expandedSection === "jobsheets"} onToggle={() => toggleSection("jobsheets")} />
-        <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} />
-        <CostsSection job={job} isExpanded={expandedSection === "costs"} onToggle={() => toggleSection("costs")} />
+        <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} matHasUnsaved={matHasUnsaved} />
+        <CostsSection job={job} isExpanded={expandedSection === "costs"} onToggle={() => toggleSection("costs")} matHasUnsaved={matHasUnsaved} />
       </div>
       <ConfirmDialog {...dialogPropsJob} />
     </div>
@@ -1182,7 +1183,7 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
   manual: { label: "Ručně", cls: "bg-muted text-muted-foreground" },
 };
 
-function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
+function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any) {
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
@@ -1211,6 +1212,9 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const newPriceErr = decimalError(newPrice);
   const editQtyErr = decimalError(editDraft.quantity ?? "");
   const editPriceErr = decimalError(editDraft.pricePerUnit ?? "");
+
+  const newMatNamePending = !!newName.trim();
+  useEffect(() => { onUnsavedChange?.(newMatNamePending); }, [newMatNamePending, onUnsavedChange]);
 
   const totalCost = materials?.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0) || 0;
   const summary = materials?.length ? `${materials.length} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
@@ -1869,7 +1873,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   );
 }
 
-function WorkSummarySection({ job, isExpanded, onToggle }: any) {
+function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
   const updateJob = useUpdateJob();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -1968,17 +1972,20 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
 
         <Button 
           onClick={handleSave} 
-          disabled={updateJob.isPending || workHasErrors} 
+          disabled={updateJob.isPending || workHasErrors || matHasUnsaved} 
           className={`w-full h-12 transition-colors ${saved ? "bg-green-500 hover:bg-green-500 text-white" : ""}`}
         >
           <Save className="w-5 h-5 mr-2" /> {saved ? "Uloženo ✓" : "Uložit souhrn"}
         </Button>
+        {matHasUnsaved && (
+          <p className="text-xs text-destructive text-center">Nejprve přidejte rozepsaný materiál</p>
+        )}
       </div>
     </SectionCard>
   );
 }
 
-function CostsSection({ job, isExpanded, onToggle }: any) {
+function CostsSection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
   const updateJob = useUpdateJob();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -2074,12 +2081,15 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
         </div>
         <Button 
           onClick={handleSave} 
-          disabled={updateJob.isPending || costsHaveErrors} 
+          disabled={updateJob.isPending || costsHaveErrors || matHasUnsaved} 
           variant="secondary"
           className={`w-full h-12 transition-colors ${saved ? "bg-green-500 hover:bg-green-500 text-white" : ""}`}
         >
           <Save className="w-5 h-5 mr-2" /> {saved ? "Uloženo ✓" : "Uložit výdaje"}
         </Button>
+        {matHasUnsaved && (
+          <p className="text-xs text-destructive text-center">Nejprve přidejte rozepsaný materiál</p>
+        )}
       </div>
     </SectionCard>
   );
