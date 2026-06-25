@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DecimalInput } from "@/components/decimal-input";
+import { DecimalInput, decimalError } from "@/components/decimal-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -145,6 +145,7 @@ export function ItemMovementHistoryDialog({
 
   const qty = Number(quantity.replace(",", "."));
   const qtyValid = Number.isFinite(qty) && qty > 0;
+  const quantityErr = decimalError(quantity, { positiveOnly: true });
 
   const refresh = () => {
     invalidateData(queryClient, "warehouse");
@@ -217,12 +218,15 @@ export function ItemMovementHistoryDialog({
                   <SelectItem value="out">Výdej (−)</SelectItem>
                 </SelectContent>
               </Select>
-              <DecimalInput
-                value={quantity}
-                onChange={(v) => setQuantity(v)}
-                placeholder={`Množství${unit ? ` (${unit})` : ""}`}
-                className="h-11"
-              />
+              <div>
+                <DecimalInput
+                  value={quantity}
+                  onChange={(v) => setQuantity(v)}
+                  placeholder={`Množství${unit ? ` (${unit})` : ""}`}
+                  className="h-11"
+                  error={quantityErr}
+                />
+              </div>
             </div>
             <Input
               value={note}

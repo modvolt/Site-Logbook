@@ -12,7 +12,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DecimalInput } from "@/components/decimal-input";
+import { DecimalInput, decimalError } from "@/components/decimal-input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +31,12 @@ type FormState = {
 };
 
 const EMPTY: FormState = { name: "", code: "", unit: "", salePrice: "", minQuantity: "" };
+
+const getFormErrors = (f: FormState) => ({
+  salePrice: decimalError(f.salePrice),
+  minQuantity: decimalError(f.minQuantity),
+});
+const formHasErrors = (f: FormState) => Object.values(getFormErrors(f)).some(Boolean);
 
 const num = (s: string): number | null => {
   const t = s.trim();
@@ -133,15 +139,22 @@ export default function Sklad() {
     );
   };
 
-  const formFields = (f: FormState, set: (f: FormState) => void) => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <Input value={f.name} onChange={(e) => set({ ...f, name: e.target.value })} placeholder="Název *" className="h-12 bg-background md:col-span-2" />
-      <Input value={f.code} onChange={(e) => set({ ...f, code: e.target.value })} placeholder="Kód / katalogové číslo" className="h-12 bg-background" />
-      <Input value={f.unit} onChange={(e) => set({ ...f, unit: e.target.value })} placeholder="Jednotka (ks, m, kg…)" className="h-12 bg-background" />
-      <DecimalInput value={f.salePrice} onChange={(v) => set({ ...f, salePrice: v })} placeholder="Prodejní cena (Kč)" className="h-12 bg-background" />
-      <DecimalInput value={f.minQuantity} onChange={(v) => set({ ...f, minQuantity: v })} placeholder="Min. množství (alert)" className="h-12 bg-background" />
-    </div>
-  );
+  const formFields = (f: FormState, set: (f: FormState) => void) => {
+    const errs = getFormErrors(f);
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Input value={f.name} onChange={(e) => set({ ...f, name: e.target.value })} placeholder="Název *" className="h-12 bg-background md:col-span-2" />
+        <Input value={f.code} onChange={(e) => set({ ...f, code: e.target.value })} placeholder="Kód / katalogové číslo" className="h-12 bg-background" />
+        <Input value={f.unit} onChange={(e) => set({ ...f, unit: e.target.value })} placeholder="Jednotka (ks, m, kg…)" className="h-12 bg-background" />
+        <div>
+          <DecimalInput value={f.salePrice} onChange={(v) => set({ ...f, salePrice: v })} placeholder="Prodejní cena (Kč)" className="h-12 bg-background" error={errs.salePrice} />
+        </div>
+        <div>
+          <DecimalInput value={f.minQuantity} onChange={(v) => set({ ...f, minQuantity: v })} placeholder="Min. množství (alert)" className="h-12 bg-background" error={errs.minQuantity} />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -184,7 +197,7 @@ export default function Sklad() {
               {formFields(form, setForm)}
               <div className="flex gap-2 justify-end">
                 <Button type="button" variant="ghost" onClick={() => { setForm(EMPTY); setShowForm(false); }}>Zrušit</Button>
-                <Button type="submit" disabled={!form.name.trim() || createItem.isPending}>Uložit</Button>
+                <Button type="submit" disabled={!form.name.trim() || createItem.isPending || formHasErrors(form)}>Uložit</Button>
               </div>
             </form>
           </CardContent>
@@ -204,7 +217,7 @@ export default function Sklad() {
                       {formFields(editForm, setEditForm)}
                       <div className="flex gap-2 justify-end">
                         <Button type="button" variant="ghost" onClick={() => setEditId(null)}><X className="h-4 w-4 mr-1" /> Zrušit</Button>
-                        <Button type="submit" disabled={!editForm.name.trim() || updateItem.isPending}><Save className="h-4 w-4 mr-1" /> Uložit</Button>
+                        <Button type="submit" disabled={!editForm.name.trim() || updateItem.isPending || formHasErrors(editForm)}><Save className="h-4 w-4 mr-1" /> Uložit</Button>
                       </div>
                     </form>
                   </CardContent>

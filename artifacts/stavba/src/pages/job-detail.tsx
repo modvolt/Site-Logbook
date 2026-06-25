@@ -55,7 +55,7 @@ import {
   clearTimerNotification,
 } from "@/lib/timer-notification";
 import { invalidateData } from "@/lib/query-invalidation";
-import { DecimalInput, parseDecimal } from "@/components/decimal-input";
+import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 
 // Po změně zakázky obnoví seznamy, kalendář, dashboard i statistiky – uživatel
 // nikdy nemusí obnovovat ručně. Vazby viz @/lib/query-invalidation.
@@ -946,6 +946,11 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<any>({});
 
+  const newQtyErr = decimalError(newQty);
+  const newPriceErr = decimalError(newPrice);
+  const editQtyErr = decimalError(editDraft.quantity ?? "");
+  const editPriceErr = decimalError(editDraft.pricePerUnit ?? "");
+
   const totalCost = materials?.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0) || 0;
   const summary = materials?.length ? `${materials.length} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
 
@@ -988,14 +993,18 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
             <div className="flex-1">
               <Autocomplete value={newName} onValueChange={setNewName} suggestions={materialSuggestions} placeholder="Název materiálu..." className="h-12 text-base bg-background" />
             </div>
-            <Button type="submit" disabled={!newName.trim() || createMaterial.isPending} className="h-12 px-4">
+            <Button type="submit" disabled={!newName.trim() || createMaterial.isPending || !!newQtyErr || !!newPriceErr} className="h-12 px-4">
               <Plus className="w-5 h-5" />
             </Button>
           </div>
-          <div className="flex gap-2">
-            <DecimalInput value={newQty} onChange={setNewQty} placeholder="Množství" className="h-10 text-sm w-24 bg-background" />
+          <div className="flex gap-2 items-start">
+            <div className="w-24 shrink-0">
+              <DecimalInput value={newQty} onChange={setNewQty} placeholder="Množství" className="h-10 text-sm w-full bg-background" error={newQtyErr} />
+            </div>
             <Input value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="Jednotka" className="h-10 text-sm w-20 bg-background" />
-            <DecimalInput value={newPrice} onChange={setNewPrice} placeholder="Cena/ks (Kč)" className="h-10 text-sm flex-1 bg-background" />
+            <div className="flex-1 min-w-0">
+              <DecimalInput value={newPrice} onChange={setNewPrice} placeholder="Cena/ks (Kč)" className="h-10 text-sm w-full bg-background" error={newPriceErr} />
+            </div>
           </div>
         </form>
 
@@ -1015,13 +1024,17 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
               editingId === m.id ? (
                 <div key={m.id} className="p-3 border rounded-lg space-y-2 bg-card">
                   <Input value={editDraft.name} onChange={e => setEditDraft((d: any) => ({ ...d, name: e.target.value }))} className="h-9 text-sm" autoFocus />
-                  <div className="flex gap-2">
-                    <DecimalInput value={editDraft.quantity} onChange={v => setEditDraft((d: any) => ({ ...d, quantity: v }))} placeholder="Množ." className="h-9 text-sm w-24" />
+                  <div className="flex gap-2 items-start">
+                    <div className="w-24 shrink-0">
+                      <DecimalInput value={editDraft.quantity} onChange={v => setEditDraft((d: any) => ({ ...d, quantity: v }))} placeholder="Množ." className="h-9 text-sm w-full" error={editQtyErr} />
+                    </div>
                     <Input value={editDraft.unit} onChange={e => setEditDraft((d: any) => ({ ...d, unit: e.target.value }))} placeholder="Jedn." className="h-9 text-sm w-20" />
-                    <DecimalInput value={editDraft.pricePerUnit} onChange={v => setEditDraft((d: any) => ({ ...d, pricePerUnit: v }))} placeholder="Cena/ks" className="h-9 text-sm flex-1" />
+                    <div className="flex-1 min-w-0">
+                      <DecimalInput value={editDraft.pricePerUnit} onChange={v => setEditDraft((d: any) => ({ ...d, pricePerUnit: v }))} placeholder="Cena/ks" className="h-9 text-sm w-full" error={editPriceErr} />
+                    </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={saveEdit} disabled={updateMaterial.isPending} className="h-8 text-xs px-3"><Save className="w-3.5 h-3.5 mr-1" /> Uložit</Button>
+                    <Button size="sm" onClick={saveEdit} disabled={updateMaterial.isPending || !!editQtyErr || !!editPriceErr} className="h-8 text-xs px-3"><Save className="w-3.5 h-3.5 mr-1" /> Uložit</Button>
                     <Button size="sm" variant="ghost" onClick={cancelEdit} className="h-8 text-xs px-2"><X className="w-3.5 h-3.5" /></Button>
                   </div>
                 </div>
@@ -1596,6 +1609,11 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
 
   const totalHours = (parseDecimal(hoursVasek) ?? 0) + (parseDecimal(hoursJonas) ?? 0);
 
+  const hoursVasekErr = decimalError(hoursVasek);
+  const hoursJonasErr = decimalError(hoursJonas);
+  const priceErr = decimalError(price);
+  const workHasErrors = !!(hoursVasekErr || hoursJonasErr || priceErr);
+
   const handleSave = () => {
     updateJob.mutate({ 
       id: job.id, 
@@ -1638,6 +1656,7 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
                 value={hoursVasek}
                 onChange={setHoursVasek}
                 className="h-14 text-lg pl-4 pr-10" placeholder="0,0"
+                error={hoursVasekErr}
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
             </div>
@@ -1649,6 +1668,7 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
                 value={hoursJonas}
                 onChange={setHoursJonas}
                 className="h-14 text-lg pl-4 pr-10" placeholder="0,0"
+                error={hoursJonasErr}
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
             </div>
@@ -1668,6 +1688,7 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
               value={price}
               onChange={setPrice}
               className="h-14 text-lg pr-14" placeholder="0"
+              error={priceErr}
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">Kč</span>
           </div>
@@ -1675,7 +1696,7 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
 
         <Button 
           onClick={handleSave} 
-          disabled={updateJob.isPending} 
+          disabled={updateJob.isPending || workHasErrors} 
           className={`w-full h-12 transition-colors ${saved ? "bg-green-500 hover:bg-green-500 text-white" : ""}`}
         >
           <Save className="w-5 h-5 mr-2" /> {saved ? "Uloženo ✓" : "Uložit souhrn"}
@@ -1696,6 +1717,11 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
     fines: job.fines?.toString() || "",
     parking: job.parking?.toString() || ""
   });
+
+  const transportKmErr = decimalError(costs.transportKm);
+  const parkingErr = decimalError(costs.parking);
+  const finesErr = decimalError(costs.fines);
+  const costsHaveErrors = !!(transportKmErr || parkingErr || finesErr);
 
   const handleSave = () => {
     const data = {
@@ -1742,6 +1768,7 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
                 onChange={v => setCosts(prev => ({...prev, transportKm: v}))}
                 className="h-14 text-base pr-12"
                 placeholder="0"
+                error={transportKmErr}
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">km</span>
             </div>
@@ -1754,6 +1781,7 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
                 onChange={v => setCosts(prev => ({...prev, parking: v}))}
                 className="h-14 text-base pr-12"
                 placeholder="0"
+                error={parkingErr}
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
             </div>
@@ -1766,6 +1794,7 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
                 onChange={v => setCosts(prev => ({...prev, fines: v}))}
                 className="h-14 text-base pr-12"
                 placeholder="0"
+                error={finesErr}
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
             </div>
@@ -1773,7 +1802,7 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
         </div>
         <Button 
           onClick={handleSave} 
-          disabled={updateJob.isPending} 
+          disabled={updateJob.isPending || costsHaveErrors} 
           variant="secondary"
           className={`w-full h-12 transition-colors ${saved ? "bg-green-500 hover:bg-green-500 text-white" : ""}`}
         >
