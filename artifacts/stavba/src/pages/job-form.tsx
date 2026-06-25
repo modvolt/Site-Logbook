@@ -61,6 +61,7 @@ export default function JobForm() {
     query: { queryKey: getListCustomerSitesQueryKey(formData.customerId ?? 0), enabled: !!formData.customerId },
   });
 
+  const [titleError, setTitleError] = useState<string | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -183,9 +184,10 @@ export default function JobForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title.trim()) {
-      toast({ title: "Název je povinný", variant: "destructive" });
+      setTitleError("Název zakázky je povinný.");
       return;
     }
+    setTitleError(null);
 
     const jobData = {
       title: formData.title,
@@ -265,12 +267,17 @@ export default function JobForm() {
             <Autocomplete
               id="title"
               value={formData.title}
-              onValueChange={v => setFormData(p => ({ ...p, title: v }))}
+              onValueChange={v => { setFormData(p => ({ ...p, title: v })); if (titleError) setTitleError(null); }}
               suggestions={titleSuggestions}
               placeholder="např. Oprava střechy"
-              className="h-14 text-lg"
+              className={`h-14 text-lg${titleError ? " border-destructive focus-visible:ring-destructive" : ""}`}
               autoFocus
+              aria-invalid={!!titleError}
+              aria-describedby={titleError ? "title-error" : undefined}
             />
+            {titleError && (
+              <p id="title-error" className="text-destructive text-sm" role="alert">{titleError}</p>
+            )}
           </div>
 
           <div className="space-y-2">

@@ -33,18 +33,21 @@ export default function UsersAdmin() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [newUser, setNewUser] = useState({ username: "", password: "", name: "", email: "", role: "guest" });
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "guest", isActive: true, password: "" });
+  const [editError, setEditError] = useState<string | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
 
   const handleCreate = () => {
     if (!newUser.username || !newUser.password || !newUser.name) {
-      toast({ title: "Vyplňte jméno, uživatelské jméno a heslo", variant: "destructive" });
+      setCreateError("Vyplňte jméno, uživatelské jméno a heslo.");
       return;
     }
-    if (newUser.password.length < 6) { toast({ title: "Heslo musí mít aspoň 6 znaků", variant: "destructive" }); return; }
+    if (newUser.password.length < 6) { setCreateError("Heslo musí mít aspoň 6 znaků."); return; }
+    setCreateError(null);
     createUser.mutate({
       data: {
         username: newUser.username,
@@ -59,9 +62,10 @@ export default function UsersAdmin() {
         refresh();
         setShowCreate(false);
         setNewUser({ username: "", password: "", name: "", email: "", role: "guest" });
+        setCreateError(null);
         toast({ title: "Uživatel vytvořen" });
       },
-      onError: (err: any) => toast({ title: "Vytvoření selhalo", description: err?.message, variant: "destructive" }),
+      onError: (err: any) => setCreateError(err?.message ?? "Vytvoření selhalo."),
     });
   };
 
@@ -72,7 +76,8 @@ export default function UsersAdmin() {
 
   const saveEdit = () => {
     if (editingId == null) return;
-    if (editDraft.password && editDraft.password.length < 6) { toast({ title: "Heslo musí mít aspoň 6 znaků", variant: "destructive" }); return; }
+    if (editDraft.password && editDraft.password.length < 6) { setEditError("Heslo musí mít aspoň 6 znaků."); return; }
+    setEditError(null);
     const data: any = {
       name: editDraft.name,
       email: editDraft.email || null,
@@ -84,9 +89,10 @@ export default function UsersAdmin() {
       onSuccess: () => {
         refresh();
         setEditingId(null);
+        setEditError(null);
         toast({ title: "Uloženo" });
       },
-      onError: (err: any) => toast({ title: "Uložení selhalo", description: err?.message, variant: "destructive" }),
+      onError: (err: any) => setEditError(err?.message ?? "Uložení selhalo."),
     });
   };
 
@@ -169,8 +175,11 @@ export default function UsersAdmin() {
                 </Select>
               </div>
             </div>
+            {createError && (
+              <p className="text-destructive text-sm" role="alert">{createError}</p>
+            )}
             <div className="flex gap-2 justify-end">
-              <Button variant="ghost" onClick={() => setShowCreate(false)}>Zrušit</Button>
+              <Button variant="ghost" onClick={() => { setShowCreate(false); setCreateError(null); }}>Zrušit</Button>
               <Button onClick={handleCreate} disabled={createUser.isPending}>
                 <Plus className="w-4 h-4 mr-1" /> Vytvořit
               </Button>
@@ -232,11 +241,14 @@ export default function UsersAdmin() {
                           </div>
                         </td>
                         <td className="px-2 py-2">
+                          {editError && (
+                            <p className="text-destructive text-xs mb-1" role="alert">{editError}</p>
+                          )}
                           <div className="flex gap-1 justify-end">
                             <Button size="sm" onClick={saveEdit} disabled={updateUser.isPending} className="h-8 px-2">
                               <Save className="w-3.5 h-3.5" />
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} className="h-8 px-2">
+                            <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditError(null); }} className="h-8 px-2">
                               <X className="w-3.5 h-3.5" />
                             </Button>
                           </div>

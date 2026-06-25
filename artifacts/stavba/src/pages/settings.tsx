@@ -386,6 +386,8 @@ function EmailSettingsCard() {
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [source, setSource] = useState<"db" | "env" | "none">("none");
+  const [portError, setPortError] = useState<string | null>(null);
+  const [testEmailError, setTestEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!data) return;
@@ -415,9 +417,10 @@ function EmailSettingsCard() {
   function handleSave() {
     const port = Number(form.port);
     if (!Number.isInteger(port) || port <= 0) {
-      toast({ title: "Neplatný port", variant: "destructive" });
+      setPortError("Zadejte platné číslo portu (např. 587 nebo 465).");
       return;
     }
+    setPortError(null);
     const body: EmailSettingsInput = {
       enabled: form.enabled,
       host: form.host.trim() || null,
@@ -445,9 +448,10 @@ function EmailSettingsCard() {
   function handleTest() {
     const to = testTo.trim();
     if (!to) {
-      toast({ title: "Zadejte e-mail příjemce testu", variant: "destructive" });
+      setTestEmailError("Zadejte e-mail příjemce testu.");
       return;
     }
+    setTestEmailError(null);
     testMutation.mutate(
       { data: { to } },
       {
@@ -523,9 +527,14 @@ function EmailSettingsCard() {
                   id="smtp-port"
                   type="number"
                   value={form.port}
-                  onChange={(e) => set("port", e.target.value)}
+                  onChange={(e) => { set("port", e.target.value); if (portError) setPortError(null); }}
                   placeholder="587"
+                  aria-invalid={!!portError}
+                  className={portError ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {portError && (
+                  <p className="text-destructive text-xs" role="alert">{portError}</p>
+                )}
               </div>
             </div>
 
@@ -606,14 +615,20 @@ function EmailSettingsCard() {
                 Nejprve uložte nastavení, poté ověřte odesílání na zvolenou adresu.
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  id="smtp-test"
-                  type="email"
-                  value={testTo}
-                  onChange={(e) => setTestTo(e.target.value)}
-                  placeholder="prijemce@example.com"
-                  className="sm:max-w-xs"
-                />
+                <div className="flex-1 sm:max-w-xs">
+                  <Input
+                    id="smtp-test"
+                    type="email"
+                    value={testTo}
+                    onChange={(e) => { setTestTo(e.target.value); if (testEmailError) setTestEmailError(null); }}
+                    placeholder="prijemce@example.com"
+                    aria-invalid={!!testEmailError}
+                    className={testEmailError ? "border-destructive focus-visible:ring-destructive" : ""}
+                  />
+                  {testEmailError && (
+                    <p className="text-destructive text-xs mt-1" role="alert">{testEmailError}</p>
+                  )}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -646,6 +661,8 @@ function EmailImportCard() {
   const testMutation = useTestEmailImportConnection();
   const pollMutation = usePollEmailImport();
   const retryMutation = useRetryEmailImportLog();
+  const [imapPortError, setImapPortError] = useState<string | null>(null);
+  const [imapPollError, setImapPollError] = useState<string | null>(null);
 
   function handleRetry(id: number) {
     retryMutation.mutate(
@@ -703,14 +720,16 @@ function EmailImportCard() {
   function handleSave() {
     const port = Number(form.port);
     if (!Number.isInteger(port) || port <= 0) {
-      toast({ title: "Neplatný port", variant: "destructive" });
+      setImapPortError("Zadejte platné číslo portu (např. 993 nebo 143).");
       return;
     }
+    setImapPortError(null);
     const pollMinutes = Number(form.pollMinutes);
     if (!Number.isInteger(pollMinutes) || pollMinutes < 1) {
-      toast({ title: "Neplatný interval", variant: "destructive" });
+      setImapPollError("Zadejte interval v minutách (min. 1).");
       return;
     }
+    setImapPollError(null);
     const body: EmailImportSettingsInput = {
       enabled: form.enabled,
       host: form.host.trim() || null,
@@ -850,9 +869,14 @@ function EmailImportCard() {
                   id="imap-port"
                   type="number"
                   value={form.port}
-                  onChange={(e) => set("port", e.target.value)}
+                  onChange={(e) => { set("port", e.target.value); if (imapPortError) setImapPortError(null); }}
                   placeholder="993"
+                  aria-invalid={!!imapPortError}
+                  className={imapPortError ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {imapPortError && (
+                  <p className="text-destructive text-xs" role="alert">{imapPortError}</p>
+                )}
               </div>
             </div>
 
@@ -918,9 +942,14 @@ function EmailImportCard() {
                   id="imap-poll"
                   type="number"
                   value={form.pollMinutes}
-                  onChange={(e) => set("pollMinutes", e.target.value)}
+                  onChange={(e) => { set("pollMinutes", e.target.value); if (imapPollError) setImapPollError(null); }}
                   placeholder="15"
+                  aria-invalid={!!imapPollError}
+                  className={imapPollError ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
+                {imapPollError && (
+                  <p className="text-destructive text-xs" role="alert">{imapPollError}</p>
+                )}
               </div>
               <div className="flex items-center justify-between rounded-lg border p-3 sm:col-span-1">
                 <Label className="font-medium text-sm">Označit jako přečtené</Label>
@@ -1044,19 +1073,21 @@ function SecurityQuestionsCard() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [questions, setQuestions] = useState(["", "", ""]);
   const [answers, setAnswers] = useState(["", "", ""]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const configured = status?.configured ?? false;
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword) {
-      toast({ title: "Zadejte své aktuální heslo", variant: "destructive" });
+      setFormError("Zadejte své aktuální heslo.");
       return;
     }
     if (questions.some((q) => !q.trim()) || answers.some((a) => !a.trim())) {
-      toast({ title: "Vyplňte všechny 3 otázky a odpovědi", variant: "destructive" });
+      setFormError("Vyplňte všechny 3 otázky a odpovědi.");
       return;
     }
+    setFormError(null);
     save.mutate(
       {
         data: {
@@ -1069,15 +1100,12 @@ function SecurityQuestionsCard() {
           toast({ title: "Bezpečnostní otázky uloženy" });
           setCurrentPassword("");
           setAnswers(["", "", ""]);
+          setFormError(null);
           void queryClient.invalidateQueries({ queryKey: getGetSecurityQuestionsStatusQueryKey() });
         },
         onError: (err: unknown) => {
           const msg = (err as { message?: string })?.message;
-          toast({
-            title: "Uložení selhalo",
-            description: msg?.includes("heslo") ? "Nesprávné aktuální heslo." : "Zkontrolujte zadané údaje.",
-            variant: "destructive",
-          });
+          setFormError(msg?.includes("heslo") ? "Nesprávné aktuální heslo." : "Zkontrolujte zadané údaje a zkuste to znovu.");
         },
       },
     );
@@ -1130,11 +1158,14 @@ function SecurityQuestionsCard() {
             <Input
               type="password"
               value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
+              onChange={(e) => { setCurrentPassword(e.target.value); if (formError) setFormError(null); }}
               autoComplete="current-password"
               placeholder="Pro potvrzení změny"
             />
           </div>
+          {formError && (
+            <p className="text-destructive text-sm" role="alert">{formError}</p>
+          )}
           <Button type="submit" disabled={save.isPending} className="gap-2 h-11">
             {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
             {configured ? "Změnit otázky" : "Uložit otázky"}

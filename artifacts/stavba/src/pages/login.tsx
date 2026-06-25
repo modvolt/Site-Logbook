@@ -24,10 +24,13 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
   const [answers, setAnswers] = useState<string[]>([]);
   const [newPassword, setNewPassword] = useState("");
   const [newPassword2, setNewPassword2] = useState("");
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   const handleFetch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim()) return;
+    setFetchError(null);
     fetchQuestions.mutate(
       { data: { username: username.trim() } },
       {
@@ -37,11 +40,7 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
           setAnswers(sorted.map(() => ""));
         },
         onError: () =>
-          toast({
-            title: "Obnova není dostupná",
-            description: "Pro tento účet nejsou nastavené bezpečnostní otázky.",
-            variant: "destructive",
-          }),
+          setFetchError("Pro tento účet nejsou nastavené bezpečnostní otázky."),
       },
     );
   };
@@ -50,17 +49,18 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     if (!questions) return;
     if (answers.some((a) => !a.trim())) {
-      toast({ title: "Odpovězte na všechny otázky", variant: "destructive" });
+      setResetError("Odpovězte na všechny otázky.");
       return;
     }
     if (newPassword.length < 6) {
-      toast({ title: "Nové heslo musí mít aspoň 6 znaků", variant: "destructive" });
+      setResetError("Nové heslo musí mít aspoň 6 znaků.");
       return;
     }
     if (newPassword !== newPassword2) {
-      toast({ title: "Hesla se neshodují", variant: "destructive" });
+      setResetError("Hesla se neshodují.");
       return;
     }
+    setResetError(null);
     reset.mutate(
       {
         data: {
@@ -75,11 +75,7 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
           onBack();
         },
         onError: () =>
-          toast({
-            title: "Obnova selhala",
-            description: "Odpovědi nejsou správné.",
-            variant: "destructive",
-          }),
+          setResetError("Odpovědi nejsou správné. Zkuste to znovu."),
       },
     );
   };
@@ -107,7 +103,18 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
         <form onSubmit={handleFetch} className="space-y-4">
           <div>
             <label className="text-sm font-medium block mb-1">Uživatelské jméno</label>
-            <Input value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" autoFocus />
+            <Input
+              value={username}
+              onChange={(e) => { setUsername(e.target.value); if (fetchError) setFetchError(null); }}
+              required
+              autoComplete="username"
+              autoFocus
+              aria-invalid={!!fetchError}
+              className={fetchError ? "border-destructive focus-visible:ring-destructive" : ""}
+            />
+            {fetchError && (
+              <p className="text-destructive text-xs mt-1">{fetchError}</p>
+            )}
           </div>
           <Button type="submit" disabled={fetchQuestions.isPending} className="w-full h-11">
             {fetchQuestions.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
@@ -121,7 +128,7 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
               <label className="text-sm font-medium block mb-1">{q.question}</label>
               <Input
                 value={answers[i]}
-                onChange={(e) => setAnswers((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
+                onChange={(e) => { setAnswers((prev) => prev.map((v, j) => (j === i ? e.target.value : v))); if (resetError) setResetError(null); }}
                 required
                 autoComplete="off"
               />
@@ -129,12 +136,15 @@ function ForgotPasswordFlow({ onBack }: { onBack: () => void }) {
           ))}
           <div>
             <label className="text-sm font-medium block mb-1">Nové heslo <span className="text-xs text-muted-foreground">(min. 6 znaků)</span></label>
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={6} required autoComplete="new-password" />
+            <Input type="password" value={newPassword} onChange={(e) => { setNewPassword(e.target.value); if (resetError) setResetError(null); }} minLength={6} required autoComplete="new-password" />
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Nové heslo znovu</label>
-            <Input type="password" value={newPassword2} onChange={(e) => setNewPassword2(e.target.value)} minLength={6} required autoComplete="new-password" />
+            <Input type="password" value={newPassword2} onChange={(e) => { setNewPassword2(e.target.value); if (resetError) setResetError(null); }} minLength={6} required autoComplete="new-password" />
           </div>
+          {resetError && (
+            <p className="text-destructive text-sm" role="alert">{resetError}</p>
+          )}
           <Button type="submit" disabled={reset.isPending} className="w-full h-11">
             {reset.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
             Změnit heslo
@@ -158,6 +168,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [showForgot, setShowForgot] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({});
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   const goToApp = () => {
     debugLog("auth", "login success → redirect to dashboard (/)");
@@ -180,7 +191,6 @@ export default function Login() {
       onSuccess: () => { goToApp(); toast({ title: `Vítej, ${username}` }); },
       onError: () => {
         setFieldErrors({ password: "Špatné uživatelské jméno nebo heslo." });
-        toast({ title: "Přihlášení selhalo", description: "Špatné jméno nebo heslo", variant: "destructive" });
       },
     });
   };
@@ -188,10 +198,11 @@ export default function Login() {
   const handleSetup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password || !name) return;
-    if (password.length < 6) { toast({ title: "Heslo musí mít aspoň 6 znaků", variant: "destructive" }); return; }
+    if (password.length < 6) { setSetupError("Heslo musí mít aspoň 6 znaků."); return; }
+    setSetupError(null);
     setup.mutate({ data: { username, password, name, email: email || null } }, {
       onSuccess: () => { goToApp(); toast({ title: "Admin účet vytvořen" }); },
-      onError: (err: any) => toast({ title: "Nepodařilo se vytvořit účet", description: err?.message, variant: "destructive" }),
+      onError: (err: any) => setSetupError(err?.message ?? "Nepodařilo se vytvořit účet."),
     });
   };
 
@@ -229,8 +240,11 @@ export default function Login() {
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Heslo * <span className="text-xs text-muted-foreground">(min. 6 znaků)</span></label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={6} required autoComplete="new-password" />
+              <Input type="password" value={password} onChange={e => { setPassword(e.target.value); if (setupError) setSetupError(null); }} minLength={6} required autoComplete="new-password" />
             </div>
+            {setupError && (
+              <p className="text-destructive text-sm" role="alert">{setupError}</p>
+            )}
             <div>
               <label className="text-sm font-medium block mb-1">Email <span className="text-xs text-muted-foreground">(volitelně, pro notifikace)</span></label>
               <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.cz" autoComplete="email" />
