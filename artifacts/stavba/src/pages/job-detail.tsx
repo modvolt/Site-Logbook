@@ -26,7 +26,7 @@ import {
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
   AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw,
-  Tag, Package, CircleDollarSign, UserX, Banknote, Image
+  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -648,6 +648,24 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
     });
   };
 
+  const [editingRecurrence, setEditingRecurrence] = useState(false);
+  const [recurrenceDraft, setRecurrenceDraft] = useState(
+    job.recurrenceIntervalDays != null ? String(job.recurrenceIntervalDays) : ""
+  );
+  const recurrenceErr = decimalError(recurrenceDraft, { positiveOnly: true, integerOnly: true });
+
+  const saveRecurrence = () => {
+    const days = recurrenceDraft.trim() ? parseInt(recurrenceDraft, 10) : null;
+    updateJob.mutate({ id: job.id, data: { recurrenceIntervalDays: days } as any }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
+        setEditingRecurrence(false);
+        toast({ title: "Interval opakování uložen" });
+      }
+    });
+  };
+
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [customerSearch, setCustomerSearch] = useState(job.clientSite || "");
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(job.customerId || null);
@@ -848,6 +866,47 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
             )}
           </div>
         </div>
+
+        {/* Recurrence interval — only for service_call jobs */}
+        {job.type === "service_call" && (
+          <div className="col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-muted-foreground flex items-center gap-1 text-sm">
+                <RefreshCw className="w-3.5 h-3.5 text-red-500" /> Opakovat servis
+              </p>
+              {!editingRecurrence ? (
+                <Button variant="ghost" size="sm" onClick={() => { setEditingRecurrence(true); setRecurrenceDraft(job.recurrenceIntervalDays != null ? String(job.recurrenceIntervalDays) : ""); }} className="h-7 text-xs">
+                  <Edit3 className="w-3 h-3 mr-1" /> Upravit
+                </Button>
+              ) : (
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingRecurrence(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
+                  <Button size="sm" onClick={saveRecurrence} disabled={updateJob.isPending || !!recurrenceErr} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
+                </div>
+              )}
+            </div>
+            {editingRecurrence ? (
+              <div className="flex items-start gap-2">
+                <span className="text-sm text-muted-foreground mt-2.5">každých</span>
+                <DecimalInput
+                  value={recurrenceDraft}
+                  onChange={setRecurrenceDraft}
+                  placeholder="např. 30"
+                  inputMode="numeric"
+                  className="h-10 w-28 text-sm"
+                  error={recurrenceErr}
+                />
+                <span className="text-sm text-muted-foreground mt-2.5">dní</span>
+              </div>
+            ) : (
+              <p className="text-sm font-medium">
+                {job.recurrenceIntervalDays != null
+                  ? `každých ${job.recurrenceIntervalDays} dní`
+                  : <span className="text-muted-foreground italic">Jednorázový výjezd</span>}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Address / Waze navigation */}
         <div className="col-span-2 pt-2">
