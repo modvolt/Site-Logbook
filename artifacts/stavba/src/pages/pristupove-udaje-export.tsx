@@ -8,6 +8,7 @@ import {
   useSendCredentialsEmail,
   useAuditCredentialExport,
   type DeviceCredential,
+  type NetworkDevice,
 } from "@workspace/api-client-react";
 import { ArrowLeft, Printer, Mail, Loader2, Eye, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -362,6 +363,57 @@ function CredBlock({ c, secretsRevealed }: { c: DeviceCredential; secretsReveale
                     {u.cards.length > 0 ? u.cards.join(", ") : "—"}
                   </td>
                 </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {c.networkTopology && (c.networkTopology as NetworkDevice[]).length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">
+            Topologie sítě
+          </p>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-neutral-300 text-left text-neutral-600">
+                <th className="py-1 pr-4 font-semibold">Typ</th>
+                <th className="py-1 pr-4 font-semibold">Název</th>
+                <th className="py-1 pr-4 font-semibold">IP adresa</th>
+                <th className="py-1 font-semibold">Počet</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(c.networkTopology as NetworkDevice[]).map((dev) => (
+                <>
+                  <tr key={dev.id} className="border-b border-neutral-200">
+                    <td className="py-1 pr-4 text-neutral-500">{dev.deviceType}</td>
+                    <td className="py-1 pr-4 font-medium">{dev.name || "—"}</td>
+                    <td className="py-1 pr-4 font-mono">{dev.ipAddress || "—"}</td>
+                    <td className="py-1">{dev.quantity}</td>
+                  </tr>
+                  {dev.ports.length > 0 && (
+                    <tr key={`${dev.id}-ports`} className="border-b border-neutral-200 bg-neutral-50">
+                      <td colSpan={4} className="py-1 pl-4 pr-2">
+                        <table className="w-full text-xs">
+                          <tbody>
+                            {dev.ports.map((port) => (
+                              <tr key={port.id}>
+                                <td className="pr-3 py-0.5 font-mono text-neutral-500 w-12">{port.portNumber}</td>
+                                <td className="pr-3 py-0.5">{port.name}</td>
+                                <td className="py-0.5 text-neutral-500">{port.connectedDevice}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                  {dev.note && (
+                    <tr key={`${dev.id}-note`} className="border-b border-neutral-200">
+                      <td colSpan={4} className="py-0.5 pl-4 text-xs text-neutral-500 italic">{dev.note}</td>
+                    </tr>
+                  )}
+                </>
               ))}
             </tbody>
           </table>

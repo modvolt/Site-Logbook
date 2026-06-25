@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { JablotronUser } from './jablotronUser';
+import type { NetworkDevice } from './networkDevice';
 
 export interface DeviceCredentialUpdate {
   /** @nullable */
@@ -27,4 +28,5 @@ export interface DeviceCredentialUpdate {
   /** @nullable */
   note?: string | null;
   users?: JablotronUser[];
+  networkTopology?: NetworkDevice[];
 }

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { JablotronUser } from './jablotronUser';
+import type { NetworkDevice } from './networkDevice';
 
 export interface DeviceCredentialInput {
   /** @nullable */
@@ -14,8 +15,8 @@ export interface DeviceCredentialInput {
   type?: string | null;
   /** @nullable */
   serialNumber?: string | null;
-  /** @minLength 1 */
-  ipAddress: string;
+  /** @nullable */
+  ipAddress?: string | null;
   /** @nullable */
   pin?: string | null;
   /** @nullable */
@@ -27,4 +28,5 @@ export interface DeviceCredentialInput {
   /** @nullable */
   note?: string | null;
   users?: JablotronUser[];
+  networkTopology?: NetworkDevice[];
 }

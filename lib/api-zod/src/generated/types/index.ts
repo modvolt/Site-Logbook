@@ -188,6 +188,8 @@ export * from './materialUpdate';
 export * from './meResponse';
 export * from './myJobSummary';
 export * from './myStats';
+export * from './networkDevice';
+export * from './networkPort';
 export * from './okResult';
 export * from './person';
 export * from './personInput';

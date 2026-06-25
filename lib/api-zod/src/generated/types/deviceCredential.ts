@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { JablotronUser } from './jablotronUser';
+import type { NetworkDevice } from './networkDevice';
 
 export interface DeviceCredential {
   id: number;
@@ -29,5 +30,6 @@ export interface DeviceCredential {
   /** @nullable */
   note?: string | null;
   users: JablotronUser[];
+  networkTopology: NetworkDevice[];
   createdAt: string;
 }

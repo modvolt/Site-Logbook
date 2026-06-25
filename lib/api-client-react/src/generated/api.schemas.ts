@@ -611,6 +611,24 @@ export interface JablotronUser {
   cards: string[];
 }
 
+export interface NetworkPort {
+  id: string;
+  portNumber: string;
+  name: string;
+  connectedDevice: string;
+}
+
+export interface NetworkDevice {
+  id: string;
+  deviceType: string;
+  name: string;
+  ipAddress: string;
+  /** @minimum 1 */
+  quantity: number;
+  note: string;
+  ports: NetworkPort[];
+}
+
 export interface DeviceCredential {
   id: number;
   customerId: number;
@@ -633,6 +651,7 @@ export interface DeviceCredential {
   /** @nullable */
   note?: string | null;
   users: JablotronUser[];
+  networkTopology: NetworkDevice[];
   createdAt: string;
 }
 
@@ -643,8 +662,8 @@ export interface DeviceCredentialInput {
   type?: string | null;
   /** @nullable */
   serialNumber?: string | null;
-  /** @minLength 1 */
-  ipAddress: string;
+  /** @nullable */
+  ipAddress?: string | null;
   /** @nullable */
   pin?: string | null;
   /** @nullable */
@@ -656,6 +675,7 @@ export interface DeviceCredentialInput {
   /** @nullable */
   note?: string | null;
   users?: JablotronUser[];
+  networkTopology?: NetworkDevice[];
 }
 
 export type CredentialAccessAuditInputAction = typeof CredentialAccessAuditInputAction[keyof typeof CredentialAccessAuditInputAction];
@@ -701,6 +721,7 @@ export interface DeviceCredentialUpdate {
   /** @nullable */
   note?: string | null;
   users?: JablotronUser[];
+  networkTopology?: NetworkDevice[];
 }
 
 export interface Machine {

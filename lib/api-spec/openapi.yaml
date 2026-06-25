@@ -5472,9 +5472,44 @@ components:
           items:
             type: string
 
+    NetworkPort:
+      type: object
+      required: [id, portNumber, name, connectedDevice]
+      properties:
+        id:
+          type: string
+        portNumber:
+          type: string
+        name:
+          type: string
+        connectedDevice:
+          type: string
+
+    NetworkDevice:
+      type: object
+      required: [id, deviceType, name, ipAddress, quantity, note, ports]
+      properties:
+        id:
+          type: string
+        deviceType:
+          type: string
+        name:
+          type: string
+        ipAddress:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        note:
+          type: string
+        ports:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkPort"
+
     DeviceCredential:
       type: object
-      required: [id, customerId, createdAt, users]
+      required: [id, customerId, createdAt, users, networkTopology]
       properties:
         id:
           type: integer
@@ -5502,13 +5537,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/JablotronUser"
+        networkTopology:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkDevice"
         createdAt:
           type: string
 
     DeviceCredentialInput:
       type: object
-      required:
-        - ipAddress
       properties:
         siteId:
           type: ["integer", "null"]
@@ -5517,8 +5554,7 @@ components:
         serialNumber:
           type: ["string", "null"]
         ipAddress:
-          type: string
-          minLength: 1
+          type: ["string", "null"]
         pin:
           type: ["string", "null"]
         username:
@@ -5533,6 +5569,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/JablotronUser"
+        networkTopology:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkDevice"
 
     DeviceCredentialUpdate:
       type: object
@@ -5559,6 +5599,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/JablotronUser"
+        networkTopology:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkDevice"
 
     Job:
       type: object

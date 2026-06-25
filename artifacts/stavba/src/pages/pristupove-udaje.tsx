@@ -15,6 +15,8 @@ import {
   getListDeviceCredentialsQueryKey,
   type DeviceCredential,
   type JablotronUser,
+  type NetworkDevice,
+  type NetworkPort,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
@@ -29,12 +31,13 @@ import {
   KeyRound, Plus, Save, X, Edit3, Trash2, Eye, EyeOff, Copy,
   Building2, MapPin, Server, User as UserIcon, Mail, FileText,
   Network, Hash, ScanLine, Users, CreditCard, FileDown, ShieldAlert,
-  ExternalLink, AlertTriangle,
+  ExternalLink, AlertTriangle, Router, GitBranch, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 
 const DEVICE_TYPES = [
+  "Lokální síť",
   "NVR",
   "Kamera",
   "Router",
@@ -45,10 +48,27 @@ const DEVICE_TYPES = [
 ] as const;
 
 const CUSTOM_TYPE = "__custom__";
+const NETWORK_TYPE = "Lokální síť";
 
 const USER_DEVICE_TYPES = ["Jablotron", "Access system", "Loxone"];
 const supportsUsers = (type: string) =>
   USER_DEVICE_TYPES.includes(type.trim());
+const isNetworkType = (type: string) => type.trim() === NETWORK_TYPE;
+
+const NETWORK_DEVICE_TYPES = [
+  "Router",
+  "Switch",
+  "Access Point",
+  "Firewall",
+  "NAS",
+  "Server",
+  "PC",
+  "Tiskárna",
+  "IP kamera",
+  "NVR",
+  "VoIP telefon",
+  "Jiné",
+] as const;
 
 const IP_PREFIXES: { label: string; prefix: string }[] = [
   { label: "10.0.0.x", prefix: "10.0.0." },
@@ -68,7 +88,25 @@ type CredForm = {
   email: string;
   note: string;
   users: JablotronUser[];
+  networkTopology: NetworkDevice[];
 };
+
+const emptyNetworkDevice = (): NetworkDevice => ({
+  id: newId(),
+  deviceType: "Router",
+  name: "",
+  ipAddress: "",
+  quantity: 1,
+  note: "",
+  ports: [],
+});
+
+const emptyNetworkPort = (): NetworkPort => ({
+  id: newId(),
+  portNumber: "",
+  name: "",
+  connectedDevice: "",
+});
 
 const emptyForm: CredForm = {
   siteId: "",
@@ -81,9 +119,176 @@ const emptyForm: CredForm = {
   email: "",
   note: "",
   users: [],
+  networkTopology: [],
 };
 
 const NO_SITE = "__none__";
+
+function NetworkDeviceRow({
+  device,
+  index,
+  onChange,
+  onRemove,
+}: {
+  device: NetworkDevice;
+  index: number;
+  onChange: (d: NetworkDevice) => void;
+  onRemove: () => void;
+}) {
+  const [showPorts, setShowPorts] = useState(false);
+  const set = (patch: Partial<NetworkDevice>) => onChange({ ...device, ...patch });
+
+  return (
+    <div className="rounded-md border border-input bg-background p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground w-5 shrink-0">
+          #{index + 1}
+        </span>
+        <select
+          value={device.deviceType}
+          onChange={(e) => set({ deviceType: e.target.value })}
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm w-36 shrink-0"
+        >
+          {NETWORK_DEVICE_TYPES.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+        <Input
+          value={device.name}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder="Název (např. Router hlavní)"
+          className="h-9 flex-1 min-w-0"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0 text-destructive hover:bg-destructive/10"
+          onClick={onRemove}
+          aria-label="Smazat zařízení"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 pl-7">
+        <Input
+          value={device.ipAddress}
+          onChange={(e) => set({ ipAddress: e.target.value })}
+          placeholder="IP adresa"
+          className="h-9"
+          inputMode="decimal"
+        />
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground shrink-0">Počet:</Label>
+          <Input
+            type="number"
+            min={1}
+            value={device.quantity}
+            onChange={(e) =>
+              set({ quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })
+            }
+            className="h-9 w-20"
+          />
+        </div>
+      </div>
+
+      <div className="pl-7">
+        <Input
+          value={device.note}
+          onChange={(e) => set({ note: e.target.value })}
+          placeholder="Poznámka (volitelné)"
+          className="h-9"
+        />
+      </div>
+
+      <div className="pl-7">
+        <button
+          type="button"
+          onClick={() => setShowPorts((v) => !v)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          {showPorts ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+          Porty / rozhraní ({device.ports.length})
+        </button>
+
+        {showPorts && (
+          <div className="mt-2 space-y-2">
+            {device.ports.map((port) => (
+              <div key={port.id} className="flex gap-2 items-center">
+                <Input
+                  value={port.portNumber}
+                  onChange={(e) =>
+                    set({
+                      ports: device.ports.map((p) =>
+                        p.id === port.id ? { ...p, portNumber: e.target.value } : p,
+                      ),
+                    })
+                  }
+                  placeholder="Port"
+                  className="h-8 w-16 shrink-0"
+                />
+                <Input
+                  value={port.name}
+                  onChange={(e) =>
+                    set({
+                      ports: device.ports.map((p) =>
+                        p.id === port.id ? { ...p, name: e.target.value } : p,
+                      ),
+                    })
+                  }
+                  placeholder="Název"
+                  className="h-8 flex-1 min-w-0"
+                />
+                <Input
+                  value={port.connectedDevice}
+                  onChange={(e) =>
+                    set({
+                      ports: device.ports.map((p) =>
+                        p.id === port.id
+                          ? { ...p, connectedDevice: e.target.value }
+                          : p,
+                      ),
+                    })
+                  }
+                  placeholder="Připojené zařízení"
+                  className="h-8 flex-1 min-w-0"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-destructive hover:bg-destructive/10"
+                  onClick={() =>
+                    set({ ports: device.ports.filter((p) => p.id !== port.id) })
+                  }
+                  aria-label="Smazat port"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-primary"
+              onClick={() =>
+                set({ ports: [...device.ports, emptyNetworkPort()] })
+              }
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" /> Přidat port
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function newId(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID
@@ -93,11 +298,12 @@ function newId(): string {
 
 function toPayload(f: CredForm) {
   const hasUsers = supportsUsers(f.type);
+  const hasNetwork = isNetworkType(f.type);
   return {
     siteId: f.siteId ? parseInt(f.siteId, 10) : null,
     type: f.type.trim() || null,
     serialNumber: f.serialNumber.trim() || null,
-    ipAddress: f.ipAddress.trim(),
+    ipAddress: f.ipAddress.trim() || null,
     pin: f.pin.trim() || null,
     username: f.username.trim() || null,
     password: f.password.trim() || null,
@@ -113,7 +319,98 @@ function toPayload(f: CredForm) {
           }))
           .filter((u) => u.name || u.pin || u.cards.length > 0)
       : [],
+    networkTopology: hasNetwork ? f.networkTopology : [],
   };
+}
+
+function NetworkTopologyView({ topology }: { topology: NetworkDevice[] }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) =>
+    setExpanded((p) => ({ ...p, [id]: !p[id] }));
+
+  return (
+    <div className="mt-1 space-y-2">
+      <div className="flex items-center gap-1.5 text-sm text-muted-foreground font-medium">
+        <Router className="h-3.5 w-3.5 text-blue-500" />
+        <span>Přehled sítě ({topology.length} zařízení)</span>
+      </div>
+      <div className="rounded-md border border-blue-100 dark:border-blue-900 overflow-hidden">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-blue-50 dark:bg-blue-950/30 text-muted-foreground">
+              <th className="text-left px-2 py-1.5 font-medium">Typ</th>
+              <th className="text-left px-2 py-1.5 font-medium">Název</th>
+              <th className="text-left px-2 py-1.5 font-medium">IP adresa</th>
+              <th className="text-right px-2 py-1.5 font-medium">Počet</th>
+              <th className="w-8 px-2 py-1.5"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {topology.map((dev) => (
+              <>
+                <tr
+                  key={dev.id}
+                  className={`border-t border-blue-100 dark:border-blue-900 ${dev.ports.length > 0 ? "cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-950/20" : ""}`}
+                  onClick={() => dev.ports.length > 0 && toggle(dev.id)}
+                >
+                  <td className="px-2 py-1.5 text-muted-foreground">{dev.deviceType}</td>
+                  <td className="px-2 py-1.5 font-medium">{dev.name || "—"}</td>
+                  <td className="px-2 py-1.5 font-mono">{dev.ipAddress || "—"}</td>
+                  <td className="px-2 py-1.5 text-right">{dev.quantity}</td>
+                  <td className="px-2 py-1.5 text-right text-muted-foreground">
+                    {dev.ports.length > 0 && (
+                      expanded[dev.id] ? (
+                        <ChevronDown className="h-3.5 w-3.5 inline" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 inline" />
+                      )
+                    )}
+                  </td>
+                </tr>
+                {expanded[dev.id] && dev.ports.length > 0 && (
+                  <tr key={`${dev.id}-ports`} className="border-t border-blue-100 dark:border-blue-900 bg-slate-50/80 dark:bg-slate-900/30">
+                    <td colSpan={5} className="px-4 pb-2 pt-1">
+                      <div className="text-xs text-muted-foreground mb-1 font-medium">Porty / rozhraní:</div>
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-muted-foreground">
+                            <th className="text-left pr-3 py-0.5 font-medium w-16">Port</th>
+                            <th className="text-left pr-3 py-0.5 font-medium">Název</th>
+                            <th className="text-left py-0.5 font-medium">Připojené zařízení</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dev.ports.map((port) => (
+                            <tr key={port.id}>
+                              <td className="pr-3 py-0.5 font-mono">{port.portNumber || "—"}</td>
+                              <td className="pr-3 py-0.5">{port.name || "—"}</td>
+                              <td className="py-0.5 text-muted-foreground">{port.connectedDevice || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {dev.note && (
+                        <p className="text-muted-foreground mt-1">
+                          <span className="font-medium">Pozn.:</span> {dev.note}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                {!expanded[dev.id] && dev.note && (
+                  <tr key={`${dev.id}-note`} className="border-t border-blue-100 dark:border-blue-900">
+                    <td colSpan={5} className="px-2 pb-1.5 text-muted-foreground italic">
+                      {dev.note}
+                    </td>
+                  </tr>
+                )}
+              </>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function PristupoveUdaje() {
@@ -205,7 +502,7 @@ export default function PristupoveUdaje() {
 
   const handleAdd = () => {
     if (!customerId) return;
-    if (!newForm.ipAddress.trim()) {
+    if (!isNetworkType(newForm.type) && !newForm.ipAddress.trim()) {
       toast({ title: "Vyplňte IP adresu", variant: "destructive" });
       return;
     }
@@ -244,11 +541,12 @@ export default function PristupoveUdaje() {
       email: c.email || "",
       note: c.note || "",
       users: c.users ?? [],
+      networkTopology: (c.networkTopology as NetworkDevice[]) ?? [],
     });
   };
 
   const handleUpdate = (id: number) => {
-    if (!editForm.ipAddress.trim()) {
+    if (!isNetworkType(editForm.type) && !editForm.ipAddress.trim()) {
       toast({ title: "Vyplňte IP adresu", variant: "destructive" });
       return;
     }
@@ -383,7 +681,11 @@ export default function PristupoveUdaje() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <Label className="mb-1 block">
-              IP adresa <span className="text-destructive">*</span>
+              IP adresa{isNetworkType(form.type) ? (
+                <span className="text-muted-foreground font-normal"> (gateway / nepovinné)</span>
+              ) : (
+                <span className="text-destructive"> *</span>
+              )}
             </Label>
             <div className="flex gap-2">
               <select
@@ -647,6 +949,59 @@ export default function PristupoveUdaje() {
           </div>
         )}
 
+        {isNetworkType(form.type) && (
+          <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2 m-0 text-blue-700 dark:text-blue-300">
+                <GitBranch className="h-4 w-4" /> Topologie sítě
+              </Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() =>
+                  setForm((p) => ({
+                    ...p,
+                    networkTopology: [...p.networkTopology, emptyNetworkDevice()],
+                  }))
+                }
+              >
+                <Plus className="h-4 w-4 mr-1" /> Přidat zařízení
+              </Button>
+            </div>
+            {form.networkTopology.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Žádná zařízení. Přidejte routery, switche a další prvky sítě.
+              </p>
+            ) : (
+              form.networkTopology.map((dev, di) => (
+                <NetworkDeviceRow
+                  key={dev.id}
+                  device={dev}
+                  index={di}
+                  onChange={(updated) =>
+                    setForm((p) => ({
+                      ...p,
+                      networkTopology: p.networkTopology.map((d) =>
+                        d.id === dev.id ? updated : d,
+                      ),
+                    }))
+                  }
+                  onRemove={() =>
+                    setForm((p) => ({
+                      ...p,
+                      networkTopology: p.networkTopology.filter(
+                        (d) => d.id !== dev.id,
+                      ),
+                    }))
+                  }
+                />
+              ))
+            )}
+          </div>
+        )}
+
         <div>
           <Label className="mb-1 block">Poznámka</Label>
           <Textarea
@@ -839,6 +1194,9 @@ export default function PristupoveUdaje() {
                     ))}
                   </div>
                 </div>
+              )}
+              {c.networkTopology && (c.networkTopology as NetworkDevice[]).length > 0 && (
+                <NetworkTopologyView topology={c.networkTopology as NetworkDevice[]} />
               )}
               {c.note && (
                 <div className="flex items-start gap-2 text-sm">

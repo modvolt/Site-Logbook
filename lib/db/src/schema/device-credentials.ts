@@ -23,6 +23,25 @@ export type JablotronUser = {
   cards: string[];
 };
 
+/** A single port (interface) on a network device. */
+export type NetworkPort = {
+  id: string;
+  portNumber: string;
+  name: string;
+  connectedDevice: string;
+};
+
+/** One physical or virtual device in a local-network topology map. */
+export type NetworkDevice = {
+  id: string;
+  deviceType: string;
+  name: string;
+  ipAddress: string;
+  quantity: number;
+  note: string;
+  ports: NetworkPort[];
+};
+
 export const deviceCredentialsTable = pgTable("device_credentials", {
   id: serial("id").primaryKey(),
   customerId: integer("customer_id")
@@ -40,6 +59,7 @@ export const deviceCredentialsTable = pgTable("device_credentials", {
   email: text("email"),
   note: text("note"),
   users: jsonb("users").$type<JablotronUser[]>().notNull().default([]),
+  networkTopology: jsonb("network_topology").$type<NetworkDevice[]>().notNull().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
