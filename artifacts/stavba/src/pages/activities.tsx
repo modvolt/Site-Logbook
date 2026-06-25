@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Link } from "wouter";
+import { useState, useMemo, useEffect } from "react";
+import { Link, useSearch, useLocation } from "wouter";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import {
@@ -37,16 +37,80 @@ function fmtDate(iso: string) {
 
 type Tab = "active" | "completed" | "archived";
 
+const VALID_TABS: Tab[] = ["active", "completed", "archived"];
+
+function readStateFromUrl(search: string) {
+  const p = new URLSearchParams(search);
+  const rawTab = p.get("tab");
+  const tab: Tab = VALID_TABS.includes(rawTab as Tab) ? (rawTab as Tab) : "active";
+  return {
+    tab,
+    filterNoCustomer: p.get("noCustomer") === "1",
+    filterWithMaterials: p.get("withMaterials") === "1",
+    filterWithDocs: p.get("withDocs") === "1",
+  };
+}
+
+function buildSearch(tab: Tab, noCustomer: boolean, withMaterials: boolean, withDocs: boolean) {
+  const p = new URLSearchParams();
+  if (tab !== "active") p.set("tab", tab);
+  if (noCustomer) p.set("noCustomer", "1");
+  if (withMaterials) p.set("withMaterials", "1");
+  if (withDocs) p.set("withDocs", "1");
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
+
 export default function Activities() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
   const { openConfirm, dialogProps } = useConfirmDialog();
+  const search_ = useSearch();
+  const [, setLocation] = useLocation();
 
-  const [tab, setTab] = useState<Tab>("active");
-  const [filterNoCustomer, setFilterNoCustomer] = useState(false);
-  const [filterWithMaterials, setFilterWithMaterials] = useState(false);
-  const [filterWithDocs, setFilterWithDocs] = useState(false);
+  const [tab, setTabState] = useState<Tab>(() => readStateFromUrl(search_).tab);
+  const [filterNoCustomer, setFilterNoCustomer] = useState(() => readStateFromUrl(search_).filterNoCustomer);
+  const [filterWithMaterials, setFilterWithMaterials] = useState(() => readStateFromUrl(search_).filterWithMaterials);
+  const [filterWithDocs, setFilterWithDocs] = useState(() => readStateFromUrl(search_).filterWithDocs);
+
+  useEffect(() => {
+    const s = readStateFromUrl(search_);
+    setTabState(s.tab);
+    setFilterNoCustomer(s.filterNoCustomer);
+    setFilterWithMaterials(s.filterWithMaterials);
+    setFilterWithDocs(s.filterWithDocs);
+  }, [search_]);
+
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    setLocation(buildSearch(t, filterNoCustomer, filterWithMaterials, filterWithDocs), { replace: true });
+  };
+
+  const toggleNoCustomer = () => {
+    const next = !filterNoCustomer;
+    setFilterNoCustomer(next);
+    setLocation(buildSearch(tab, next, filterWithMaterials, filterWithDocs), { replace: true });
+  };
+
+  const toggleWithMaterials = () => {
+    const next = !filterWithMaterials;
+    setFilterWithMaterials(next);
+    setLocation(buildSearch(tab, filterNoCustomer, next, filterWithDocs), { replace: true });
+  };
+
+  const toggleWithDocs = () => {
+    const next = !filterWithDocs;
+    setFilterWithDocs(next);
+    setLocation(buildSearch(tab, filterNoCustomer, filterWithMaterials, next), { replace: true });
+  };
+
+  const clearFilters = () => {
+    setFilterNoCustomer(false);
+    setFilterWithMaterials(false);
+    setFilterWithDocs(false);
+    setLocation(buildSearch(tab, false, false, false), { replace: true });
+  };
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", customerId: "" as string });
 
@@ -167,26 +231,26 @@ export default function Activities() {
       <div className="flex flex-wrap gap-2">
         <button
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filterNoCustomer ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
-          onClick={() => setFilterNoCustomer((v) => !v)}
+          onClick={toggleNoCustomer}
         >
           <User2 className="h-3.5 w-3.5" /> Bez zákazníka
         </button>
         <button
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filterWithMaterials ? "border-amber-400 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300" : "border-border text-muted-foreground hover:text-foreground"}`}
-          onClick={() => setFilterWithMaterials((v) => !v)}
+          onClick={toggleWithMaterials}
         >
           <Hammer className="h-3.5 w-3.5" /> S materiálem
         </button>
         <button
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filterWithDocs ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300" : "border-border text-muted-foreground hover:text-foreground"}`}
-          onClick={() => setFilterWithDocs((v) => !v)}
+          onClick={toggleWithDocs}
         >
           <Receipt className="h-3.5 w-3.5" /> S doklady
         </button>
         {hasExtraFilters && (
           <button
             className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => { setFilterNoCustomer(false); setFilterWithMaterials(false); setFilterWithDocs(false); }}
+            onClick={clearFilters}
           >
             <X className="h-3.5 w-3.5" /> Zrušit
           </button>
