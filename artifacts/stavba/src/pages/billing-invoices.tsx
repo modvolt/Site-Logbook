@@ -133,15 +133,19 @@ export default function BillingInvoices() {
             return (
               <Card
                 key={inv.id}
-                className={`hover:bg-muted/30 transition-colors cursor-pointer ${
+                className={`overflow-hidden ${
                   overdue != null
                     ? "border-red-200 dark:border-red-900/60"
                     : ""
                 }`}
-                onClick={() => setLocation(`/billing/invoices/${inv.id}`)}
               >
                 <CardContent className="p-4 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setLocation(`/billing/invoices/${inv.id}`)}
+                    className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+                    aria-label={`Otevřít fakturu ${inv.invoiceNumber || "koncept"}`}
+                  >
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-base">
                         {inv.invoiceNumber || "Koncept (bez čísla)"}
@@ -154,12 +158,16 @@ export default function BillingInvoices() {
                       {inv.issueDate ? ` · ${fmtDate(inv.issueDate)}` : ""}
                       {inv.dueDate ? ` · splatnost ${fmtDate(inv.dueDate)}` : ""}
                     </p>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={() => setLocation(`/billing/invoices/${inv.id}`)}
+                      className="text-right focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+                    >
                       <div className="font-bold">{fmtKc(inv.totalWithVat)}</div>
                       <div className="text-xs text-muted-foreground">s DPH</div>
-                    </div>
+                    </button>
                     {overdue != null && (
                       <Button
                         variant="outline"

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   useListWarehouseItemMovements,
   useCreateWarehouseMovement,
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DecimalInput } from "@/components/decimal-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -149,26 +150,46 @@ export function ItemMovementHistoryDialog({
     invalidateData(queryClient, "warehouse");
   };
 
-  const submit = (e: React.FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+  const [lastSaved, setLastSaved] = useState<{ direction: "in" | "out"; qty: number } | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current); }, []);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!qtyValid) return;
-    createMovement.mutate(
-      {
-        id: itemId,
-        data: { direction, quantity: qty, note: note.trim() || null },
-      },
-      {
-        onSuccess: () => {
-          setQuantity("");
-          setNote("");
-          setDirection("in");
-          refresh();
-          toast({ title: "Pohyb zaznamenán" });
-        },
-        onError: () =>
-          toast({ title: "Nepodařilo se zaznamenat pohyb", variant: "destructive" }),
-      },
-    );
+    if (!qtyValid || submitting || createMovement.isPending) return;
+    setSubmitting(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        createMovement.mutate(
+          {
+            id: itemId,
+            data: { direction, quantity: qty, note: note.trim() || null },
+          },
+          {
+            onSuccess: () => {
+              const saved = { direction, qty };
+              setQuantity("");
+              setNote("");
+              setDirection("in");
+              refresh();
+              toast({ title: "Pohyb zaznamenán" });
+              setLastSaved(saved);
+              if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+              savedTimerRef.current = setTimeout(() => setLastSaved(null), 4000);
+              resolve();
+            },
+            onError: (err) => {
+              toast({ title: "Nepodařilo se zaznamenat pohyb", variant: "destructive" });
+              reject(err);
+            },
+          },
+        );
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -196,10 +217,9 @@ export function ItemMovementHistoryDialog({
                   <SelectItem value="out">Výdej (−)</SelectItem>
                 </SelectContent>
               </Select>
-              <Input
-                inputMode="decimal"
+              <DecimalInput
                 value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
+                onChange={(v) => setQuantity(v)}
                 placeholder={`Množství${unit ? ` (${unit})` : ""}`}
                 className="h-11"
               />
@@ -210,9 +230,16 @@ export function ItemMovementHistoryDialog({
               placeholder="Poznámka (volitelné)"
               className="h-11"
             />
-            <div className="flex justify-end">
-              <Button type="submit" disabled={!qtyValid || createMovement.isPending}>
-                Zaznamenat pohyb
+            <div className="flex items-center justify-between gap-3">
+              {lastSaved ? (
+                <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                  ✓ {lastSaved.direction === "in" ? "+" : "−"}{lastSaved.qty} {unit ?? ""} uloženo
+                </span>
+              ) : (
+                <span />
+              )}
+              <Button type="submit" disabled={!qtyValid || submitting || createMovement.isPending}>
+                {submitting || createMovement.isPending ? "Ukládám pohyb…" : "Zaznamenat pohyb"}
               </Button>
             </div>
           </form>

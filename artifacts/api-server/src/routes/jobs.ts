@@ -307,6 +307,13 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     return;
   }
 
+  if (parsed.data.status === "done" && existing.customerId == null) {
+    res.status(422).json({
+      error: "Zakázku nelze označit jako hotovou bez přiřazeného zákazníka. Zákazníka přidejte v detailu zakázky.",
+    });
+    return;
+  }
+
   const [job] = await db
     .update(jobsTable)
     .set({ status: parsed.data.status })

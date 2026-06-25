@@ -55,6 +55,7 @@ import {
   clearTimerNotification,
 } from "@/lib/timer-notification";
 import { invalidateData } from "@/lib/query-invalidation";
+import { DecimalInput, parseDecimal } from "@/components/decimal-input";
 
 // Po změně zakázky obnoví seznamy, kalendář, dashboard i statistiky – uživatel
 // nikdy nemusí obnovovat ručně. Vazby viz @/lib/query-invalidation.
@@ -141,6 +142,14 @@ export default function JobDetail() {
   }
 
   const handleStatusChange = (newStatus: string) => {
+    if (newStatus === "done" && !job.customerId) {
+      toast({
+        title: "Přiřaďte zákazníka",
+        description: "Hotová zakázka musí mít zákazníka, aby mohla být vyfakturována. Zákazníka přidejte v sekci Informace.",
+        variant: "destructive",
+      });
+      return;
+    }
     updateStatus.mutate({ id, data: { status: newStatus } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
@@ -726,7 +735,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
 }
 
 function TasksSection({ jobId, isExpanded, onToggle }: any) {
-  const { data: tasks } = useListTasks(jobId, {
+  const { data: tasks, isLoading: tasksLoading, isError: tasksError } = useListTasks(jobId, {
     query: { enabled: isExpanded, queryKey: getListTasksQueryKey(jobId) }
   });
   
@@ -850,11 +859,20 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
           </div>
         )}
         
-        {totalCount === 0 && (
+        {tasksLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : tasksError ? (
+          <div className="flex items-center gap-2 text-destructive text-sm py-4">
+            <AlertCircle className="w-4 h-4" /> Nepodařilo se načíst úkoly.
+          </div>
+        ) : totalCount === 0 ? (
           <div className="text-center py-6 text-muted-foreground">
             Zatím žádné úkoly.
           </div>
-        )}
+        ) : null}
       </div>
     </SectionCard>
   );
@@ -905,7 +923,7 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
 };
 
 function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
-  const { data: materials } = useListMaterials(jobId, {
+  const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
   });
   const createMaterial = useCreateMaterial();
@@ -934,7 +952,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
-    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: newQty ? parseFloat(newQty) : null, unit: newUnit || null, pricePerUnit: newPrice ? parseFloat(newPrice) : null } }, {
+    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice) } }, {
       onSuccess: () => {
         setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
         invalidateData(queryClient, "jobs", "warehouse");
@@ -956,7 +974,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
   const cancelEdit = () => { setEditingId(null); setEditDraft({}); };
   const saveEdit = () => {
     if (!editDraft.name?.trim()) return;
-    updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: editDraft.quantity !== "" ? parseFloat(editDraft.quantity) : null, unit: editDraft.unit || null, pricePerUnit: editDraft.pricePerUnit !== "" ? parseFloat(editDraft.pricePerUnit) : null } }, {
+    updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: parseDecimal(editDraft.quantity), unit: editDraft.unit || null, pricePerUnit: parseDecimal(editDraft.pricePerUnit) } }, {
       onSuccess: () => { invalidateData(queryClient, "jobs", "warehouse"); cancelEdit(); }
     });
   };
@@ -975,23 +993,32 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
             </Button>
           </div>
           <div className="flex gap-2">
-            <Input value={newQty} onChange={e => setNewQty(e.target.value)} placeholder="Množství" type="number" min="0" step="any" className="h-10 text-sm w-24 bg-background" />
+            <DecimalInput value={newQty} onChange={setNewQty} placeholder="Množství" className="h-10 text-sm w-24 bg-background" />
             <Input value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="Jednotka" className="h-10 text-sm w-20 bg-background" />
-            <Input value={newPrice} onChange={e => setNewPrice(e.target.value)} placeholder="Cena/ks (Kč)" type="number" min="0" step="any" className="h-10 text-sm flex-1 bg-background" />
+            <DecimalInput value={newPrice} onChange={setNewPrice} placeholder="Cena/ks (Kč)" className="h-10 text-sm flex-1 bg-background" />
           </div>
         </form>
 
         {/* Materials list */}
-        {materials && materials.length > 0 ? (
+        {materialsLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : materialsError ? (
+          <div className="flex items-center gap-2 text-destructive text-sm py-4">
+            <AlertCircle className="w-4 h-4" /> Nepodařilo se načíst materiál.
+          </div>
+        ) : materials && materials.length > 0 ? (
           <div className="space-y-1.5">
             {materials.map((m: any) => (
               editingId === m.id ? (
                 <div key={m.id} className="p-3 border rounded-lg space-y-2 bg-card">
                   <Input value={editDraft.name} onChange={e => setEditDraft((d: any) => ({ ...d, name: e.target.value }))} className="h-9 text-sm" autoFocus />
                   <div className="flex gap-2">
-                    <Input value={editDraft.quantity} onChange={e => setEditDraft((d: any) => ({ ...d, quantity: e.target.value }))} placeholder="Množ." type="number" className="h-9 text-sm w-24" />
+                    <DecimalInput value={editDraft.quantity} onChange={v => setEditDraft((d: any) => ({ ...d, quantity: v }))} placeholder="Množ." className="h-9 text-sm w-24" />
                     <Input value={editDraft.unit} onChange={e => setEditDraft((d: any) => ({ ...d, unit: e.target.value }))} placeholder="Jedn." className="h-9 text-sm w-20" />
-                    <Input value={editDraft.pricePerUnit} onChange={e => setEditDraft((d: any) => ({ ...d, pricePerUnit: e.target.value }))} placeholder="Cena/ks" type="number" className="h-9 text-sm flex-1" />
+                    <DecimalInput value={editDraft.pricePerUnit} onChange={v => setEditDraft((d: any) => ({ ...d, pricePerUnit: v }))} placeholder="Cena/ks" className="h-9 text-sm flex-1" />
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={saveEdit} disabled={updateMaterial.isPending} className="h-8 text-xs px-3"><Save className="w-3.5 h-3.5 mr-1" /> Uložit</Button>
@@ -1048,7 +1075,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle }: any) {
             )}
           </div>
         ) : (
-          <div className="text-center py-6 text-muted-foreground text-sm">Žádný materiál zatím.</div>
+          <div className="text-center py-6 text-muted-foreground text-sm">Zatím žádný materiál.</div>
         )}
       </div>
     </SectionCard>
@@ -1148,7 +1175,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
 
 function DokladySection({ jobId, isExpanded, onToggle }: any) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data: attachments } = useListAttachments(jobId, {
+  const { data: attachments, isLoading: dokladyLoading, isError: dokladyError } = useListAttachments(jobId, {
     query: { queryKey: getListAttachmentsQueryKey(jobId) }
   });
   
@@ -1322,12 +1349,21 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
           </div>
         )}
 
-        {doklady.length === 0 && (
+        {dokladyLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        ) : dokladyError ? (
+          <div className="flex items-center gap-2 text-destructive text-sm py-4">
+            <AlertCircle className="w-4 h-4" /> Nepodařilo se načíst doklady.
+          </div>
+        ) : doklady.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <Receipt className="w-10 h-10 mx-auto mb-2 opacity-20" />
             <p className="text-sm">Přidejte faktury, účtenky nebo dodací listy.</p>
           </div>
-        )}
+        ) : null}
         {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
     </SectionCard>
@@ -1401,7 +1437,7 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
 function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const { data: attachments } = useListAttachments(jobId, {
+  const { data: attachments, isLoading: attachmentsLoading, isError: attachmentsError } = useListAttachments(jobId, {
     query: { queryKey: getListAttachmentsQueryKey(jobId) }
   });
   
@@ -1528,12 +1564,20 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
           </div>
         )}
         
-        {photos.length === 0 && (
+        {attachmentsLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : attachmentsError ? (
+          <div className="flex items-center gap-2 text-destructive text-sm py-4">
+            <AlertCircle className="w-4 h-4" /> Nepodařilo se načíst fotografie.
+          </div>
+        ) : photos.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <Camera className="w-10 h-10 mx-auto mb-2 opacity-20" />
             <p>Foťte průběh prací, stav stavby apod.</p>
           </div>
-        )}
+        ) : null}
         {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
     </SectionCard>
@@ -1550,18 +1594,18 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
   const [hoursJonas, setHoursJonas] = useState(job.hoursJonas?.toString() || "");
   const [price, setPrice] = useState(job.price?.toString() || "");
 
-  const totalHours = (parseFloat(hoursVasek) || 0) + (parseFloat(hoursJonas) || 0);
+  const totalHours = (parseDecimal(hoursVasek) ?? 0) + (parseDecimal(hoursJonas) ?? 0);
 
   const handleSave = () => {
     updateJob.mutate({ 
       id: job.id, 
       data: { 
-        hoursVasek: hoursVasek ? parseFloat(hoursVasek) : null,
-        hoursJonas: hoursJonas ? parseFloat(hoursJonas) : null,
+        hoursVasek: parseDecimal(hoursVasek),
+        hoursJonas: parseDecimal(hoursJonas),
         hoursSpent: totalHours || null,
         hoursFromPlan: false,
         hoursBeforePlan: null,
-        price: price ? parseFloat(price) : null
+        price: parseDecimal(price)
       } 
     }, {
       onSuccess: (data) => {
@@ -1590,10 +1634,10 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
           <div className="space-y-2">
             <label className="text-sm font-bold text-muted-foreground">Vašek (h)</label>
             <div className="relative">
-              <Input 
-                type="number" step="0.5" value={hoursVasek} 
-                onChange={e => setHoursVasek(e.target.value)} 
-                className="h-14 text-lg pl-4 pr-10" placeholder="0.0"
+              <DecimalInput
+                value={hoursVasek}
+                onChange={setHoursVasek}
+                className="h-14 text-lg pl-4 pr-10" placeholder="0,0"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
             </div>
@@ -1601,17 +1645,17 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
           <div className="space-y-2">
             <label className="text-sm font-bold text-muted-foreground">Jonáš (h)</label>
             <div className="relative">
-              <Input 
-                type="number" step="0.5" value={hoursJonas} 
-                onChange={e => setHoursJonas(e.target.value)} 
-                className="h-14 text-lg pl-4 pr-10" placeholder="0.0"
+              <DecimalInput
+                value={hoursJonas}
+                onChange={setHoursJonas}
+                className="h-14 text-lg pl-4 pr-10" placeholder="0,0"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">h</span>
             </div>
           </div>
         </div>
         
-        {(parseFloat(hoursVasek) > 0 || parseFloat(hoursJonas) > 0) && (
+        {((parseDecimal(hoursVasek) ?? 0) > 0 || (parseDecimal(hoursJonas) ?? 0) > 0) && (
           <div className="text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
             Celkem: <span className="font-semibold text-foreground">{totalHours.toFixed(1)} h</span>
           </div>
@@ -1620,9 +1664,9 @@ function WorkSummarySection({ job, isExpanded, onToggle }: any) {
         <div className="space-y-2">
           <label className="text-sm font-bold text-muted-foreground">Cena za práci (Kč) — volitelné</label>
           <div className="relative">
-            <Input 
-              type="number" step="1" value={price} 
-              onChange={e => setPrice(e.target.value)} 
+            <DecimalInput
+              value={price}
+              onChange={setPrice}
               className="h-14 text-lg pr-14" placeholder="0"
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">Kč</span>
@@ -1655,9 +1699,9 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
 
   const handleSave = () => {
     const data = {
-      transportKm: costs.transportKm ? parseFloat(costs.transportKm) : null,
-      fines: costs.fines ? parseFloat(costs.fines) : null,
-      parking: costs.parking ? parseFloat(costs.parking) : null,
+      transportKm: parseDecimal(costs.transportKm),
+      fines: parseDecimal(costs.fines),
+      parking: parseDecimal(costs.parking),
     };
     
     updateJob.mutate({ id: job.id, data }, {
@@ -1693,11 +1737,10 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
           <div className="col-span-2 space-y-2">
             <label className="text-sm font-bold text-muted-foreground">Vzdálenost</label>
             <div className="relative">
-              <Input 
-                type="number" 
-                value={costs.transportKm} 
-                onChange={e => setCosts(prev => ({...prev, transportKm: e.target.value}))} 
-                className="h-14 text-base pr-12" 
+              <DecimalInput
+                value={costs.transportKm}
+                onChange={v => setCosts(prev => ({...prev, transportKm: v}))}
+                className="h-14 text-base pr-12"
                 placeholder="0"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">km</span>
@@ -1706,11 +1749,10 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
           <div className="space-y-2">
             <label className="text-sm font-bold text-muted-foreground">Parkování (Kč)</label>
             <div className="relative">
-              <Input 
-                type="number" 
-                value={costs.parking} 
-                onChange={e => setCosts(prev => ({...prev, parking: e.target.value}))} 
-                className="h-14 text-base pr-12" 
+              <DecimalInput
+                value={costs.parking}
+                onChange={v => setCosts(prev => ({...prev, parking: v}))}
+                className="h-14 text-base pr-12"
                 placeholder="0"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
@@ -1719,11 +1761,10 @@ function CostsSection({ job, isExpanded, onToggle }: any) {
           <div className="space-y-2">
             <label className="text-sm font-bold text-muted-foreground">Pokuty (Kč)</label>
             <div className="relative">
-              <Input 
-                type="number" 
-                value={costs.fines} 
-                onChange={e => setCosts(prev => ({...prev, fines: e.target.value}))} 
-                className="h-14 text-base pr-12" 
+              <DecimalInput
+                value={costs.fines}
+                onChange={v => setCosts(prev => ({...prev, fines: v}))}
+                className="h-14 text-base pr-12"
                 placeholder="0"
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>

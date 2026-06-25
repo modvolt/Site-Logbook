@@ -56,6 +56,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AttachmentViewer } from "@/components/attachment-viewer";
+import { DecimalInput, parseDecimal } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import {
@@ -105,9 +106,7 @@ function dateValue(iso: string | null | undefined): string {
 }
 
 function numOrNull(v: string): number | null {
-  if (v.trim() === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return parseDecimal(v);
 }
 
 function saveErrorMessage(error: unknown): string | undefined {
@@ -639,27 +638,21 @@ function DocumentHeaderForm({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Základ bez DPH">
-            <Input
-              type="number"
-              inputMode="decimal"
+            <DecimalInput
               value={form.subtotalWithoutVat}
-              onChange={(e) => set("subtotalWithoutVat", e.target.value)}
+              onChange={(v) => set("subtotalWithoutVat", v)}
             />
           </Field>
           <Field label="DPH">
-            <Input
-              type="number"
-              inputMode="decimal"
+            <DecimalInput
               value={form.totalVat}
-              onChange={(e) => set("totalVat", e.target.value)}
+              onChange={(v) => set("totalVat", v)}
             />
           </Field>
           <Field label={`Celkem s DPH${optionalForDelivery}`}>
-            <Input
-              type="number"
-              inputMode="decimal"
+            <DecimalInput
               value={form.totalWithVat}
-              onChange={(e) => set("totalWithVat", e.target.value)}
+              onChange={(v) => set("totalWithVat", v)}
             />
           </Field>
         </div>
@@ -815,11 +808,9 @@ function LineCard({
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Množství</Label>
-            <Input
-              type="number"
-              inputMode="decimal"
+            <DecimalInput
               value={form.quantity}
-              onChange={(e) => set("quantity", e.target.value)}
+              onChange={(v) => set("quantity", v)}
             />
           </div>
           <div className="space-y-1">
@@ -828,11 +819,9 @@ function LineCard({
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Cena/MJ bez DPH</Label>
-            <Input
-              type="number"
-              inputMode="decimal"
+            <DecimalInput
               value={form.unitPriceWithoutVat}
-              onChange={(e) => set("unitPriceWithoutVat", e.target.value)}
+              onChange={(v) => set("unitPriceWithoutVat", v)}
             />
           </div>
         </div>
@@ -973,7 +962,7 @@ function SplitDialog({
     { quantity: String(line.quantity - half), jobId: NONE, allocationType: line.allocationType },
   ]);
 
-  const total = parts.reduce((s, p) => s + (Number(p.quantity) || 0), 0);
+  const total = parts.reduce((s, p) => s + (parseDecimal(p.quantity) ?? 0), 0);
   const balanced = Math.abs(total - line.quantity) < 0.0001;
 
   const setPart = (i: number, patch: Partial<SplitPart>) =>
@@ -995,7 +984,7 @@ function SplitDialog({
         lineId: line.id,
         data: {
           parts: parts.map((p) => ({
-            quantity: Number(p.quantity) || 0,
+            quantity: parseDecimal(p.quantity) ?? 0,
             jobId: p.jobId === NONE ? null : Number(p.jobId),
             allocationType:
               p.allocationType as CostDocumentLineSplitInput["parts"][number]["allocationType"],
@@ -1048,11 +1037,9 @@ function SplitDialog({
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Množství</Label>
-                  <Input
-                    type="number"
-                    inputMode="decimal"
+                  <DecimalInput
                     value={part.quantity}
-                    onChange={(e) => setPart(i, { quantity: e.target.value })}
+                    onChange={(v) => setPart(i, { quantity: v })}
                   />
                 </div>
                 <div className="space-y-1">

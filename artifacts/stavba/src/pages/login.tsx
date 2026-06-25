@@ -157,10 +157,8 @@ export default function Login() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [showForgot, setShowForgot] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({});
 
-  // After a successful login/setup, re-check /api/auth/me and send the user
-  // straight to the dashboard ("/"), so the router never lingers on the login
-  // view and the entry point matches the PWA start_url.
   const goToApp = () => {
     debugLog("auth", "login success → redirect to dashboard (/)");
     refresh();
@@ -169,11 +167,21 @@ export default function Login() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return;
+    const errs: typeof fieldErrors = {};
+    if (!username.trim()) errs.username = "Zadejte uživatelské jméno.";
+    if (!password) errs.password = "Zadejte heslo.";
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      return;
+    }
+    setFieldErrors({});
     debugLog("auth", "login attempt");
-    login.mutate({ data: { username, password } }, {
+    login.mutate({ data: { username: username.trim(), password } }, {
       onSuccess: () => { goToApp(); toast({ title: `Vítej, ${username}` }); },
-      onError: () => toast({ title: "Přihlášení selhalo", description: "Špatné jméno nebo heslo", variant: "destructive" }),
+      onError: () => {
+        setFieldErrors({ password: "Špatné uživatelské jméno nebo heslo." });
+        toast({ title: "Přihlášení selhalo", description: "Špatné jméno nebo heslo", variant: "destructive" });
+      },
     });
   };
 
@@ -232,17 +240,38 @@ export default function Login() {
             </Button>
           </form>
         ) : (
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4" noValidate>
             <div>
               <label className="text-sm font-medium block mb-1">Uživatelské jméno</label>
-              <Input value={username} onChange={e => setUsername(e.target.value)} required autoComplete="username" autoFocus />
+              <Input
+                value={username}
+                onChange={e => { setUsername(e.target.value); if (fieldErrors.username) setFieldErrors(p => ({ ...p, username: undefined })); }}
+                autoComplete="username"
+                autoFocus
+                aria-invalid={!!fieldErrors.username}
+                className={fieldErrors.username ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {fieldErrors.username && (
+                <p className="text-destructive text-xs mt-1">{fieldErrors.username}</p>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Heslo</label>
-              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
+              <Input
+                type="password"
+                value={password}
+                onChange={e => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors(p => ({ ...p, password: undefined })); }}
+                autoComplete="current-password"
+                aria-invalid={!!fieldErrors.password}
+                className={fieldErrors.password ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {fieldErrors.password && (
+                <p className="text-destructive text-xs mt-1">{fieldErrors.password}</p>
+              )}
             </div>
             <Button type="submit" disabled={login.isPending} className="w-full h-11">
-              <LogIn className="w-4 h-4 mr-2" /> Přihlásit se
+              {login.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LogIn className="w-4 h-4 mr-2" />}
+              Přihlásit se
             </Button>
             <button
               type="button"

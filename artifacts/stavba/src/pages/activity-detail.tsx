@@ -40,6 +40,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { debugLog } from "@/lib/pwa";
 import { prepareImageFile } from "@/lib/prepare-image";
 import { invalidateData } from "@/lib/query-invalidation";
+import { DecimalInput, parseDecimal } from "@/components/decimal-input";
 
 function getAttachmentUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -430,9 +431,9 @@ function MaterialsSection({
       activityId,
       data: {
         name: form.name.trim(),
-        quantity: form.quantity ? Number(form.quantity) : null,
+        quantity: parseDecimal(form.quantity),
         unit: form.unit.trim() || null,
-        pricePerUnit: form.pricePerUnit ? Number(form.pricePerUnit) : null,
+        pricePerUnit: parseDecimal(form.pricePerUnit),
       },
     }, {
       onSuccess: () => {
@@ -476,9 +477,9 @@ function MaterialsSection({
           <form onSubmit={handleAdd} className="space-y-2 p-3 border rounded-md bg-muted/30">
             <Autocomplete placeholder="Název" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} suggestions={materialSuggestions} autoFocus required />
             <div className="grid grid-cols-3 gap-2">
-              <Input placeholder="Množ." type="number" step="0.01" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
+              <DecimalInput placeholder="Množ." value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} />
               <Input placeholder="Jed." value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-              <Input placeholder="Kč/jed." type="number" step="0.01" value={form.pricePerUnit} onChange={(e) => setForm({ ...form, pricePerUnit: e.target.value })} />
+              <DecimalInput placeholder="Kč/jed." value={form.pricePerUnit} onChange={(v) => setForm({ ...form, pricePerUnit: v })} />
             </div>
             <div className="flex gap-2">
               <Button type="submit" size="sm">Přidat</Button>
@@ -549,8 +550,8 @@ function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWr
       data: {
         description: form.description.trim(),
         note: form.note.trim() || null,
-        hours: form.hours ? Number(form.hours) : null,
-        amount: form.amount ? Number(form.amount) : null,
+        hours: parseDecimal(form.hours),
+        amount: parseDecimal(form.amount),
       },
     }, {
       onSuccess: () => {
@@ -597,8 +598,8 @@ function ExtraWorksSection({ activityId, canWrite }: { activityId: number; canWr
             <Input placeholder="Co se dělalo navíc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} autoFocus required />
             <Textarea placeholder="Poznámka (volitelné)" rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
             <div className="grid grid-cols-2 gap-2">
-              <Input placeholder="Hodiny" type="number" step="0.01" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} />
-              <Input placeholder="Cena Kč" type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              <DecimalInput placeholder="Hodiny" value={form.hours} onChange={(v) => setForm({ ...form, hours: v })} />
+              <DecimalInput placeholder="Cena Kč" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />
             </div>
             <div className="flex gap-2">
               <Button type="submit" size="sm">Přidat</Button>

@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { db, warehouseItemsTable } from "@workspace/db";
+import { warehouseMovementsTable } from "@workspace/db";
+import { warehousePriceHistoryTable } from "@workspace/db";
 import {
   CreateWarehouseItemBody,
   UpdateWarehouseItemParams,
@@ -163,14 +165,38 @@ router.delete("/warehouse-items/:id", async (req, res): Promise<void> => {
   }
 
   const [item] = await db
-    .delete(warehouseItemsTable)
-    .where(eq(warehouseItemsTable.id, params.data.id))
-    .returning();
+    .select({ id: warehouseItemsTable.id, name: warehouseItemsTable.name })
+    .from(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, params.data.id));
 
   if (!item) {
     res.status(404).json({ error: "Warehouse item not found" });
     return;
   }
+
+  const [movRow] = await db
+    .select({ c: count() })
+    .from(warehouseMovementsTable)
+    .where(eq(warehouseMovementsTable.warehouseItemId, params.data.id));
+  const [priceRow] = await db
+    .select({ c: count() })
+    .from(warehousePriceHistoryTable)
+    .where(eq(warehousePriceHistoryTable.warehouseItemId, params.data.id));
+
+  const movCount = Number(movRow?.c ?? 0);
+  const priceCount = Number(priceRow?.c ?? 0);
+
+  if (movCount > 0 || priceCount > 0) {
+    const parts: string[] = [];
+    if (movCount > 0) parts.push(`${movCount} pohyb${movCount === 1 ? "" : movCount < 5 ? "y" : "ů"} na skladě`);
+    if (priceCount > 0) parts.push(`${priceCount} záznam${priceCount === 1 ? "" : priceCount < 5 ? "y" : "ů"} cenové historie`);
+    res.status(409).json({
+      error: `Položku „${item.name}" nelze smazat — má ${parts.join(" a ")}. Místo smazání ji ponechte ve skladu (bude mít nulový stav, ale historie zůstane dohledatelná).`,
+    });
+    return;
+  }
+
+  await db.delete(warehouseItemsTable).where(eq(warehouseItemsTable.id, params.data.id));
 
   res.sendStatus(204);
 });

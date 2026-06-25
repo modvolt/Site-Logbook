@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
+import { DecimalInput, parseDecimal } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -146,19 +147,13 @@ export default function BillingSettings() {
   // Build the full payload from the current form. Always include every field so
   // saving (or clearing the key) never wipes the other advanced overrides.
   const buildAiData = (form: NonNullable<typeof aiForm>, apiKey: string | null) => {
-    const num = (s: string): number | null => {
-      const t = s.trim();
-      if (t === "") return null;
-      const n = Number(t);
-      return Number.isFinite(n) ? n : null;
-    };
     return {
       enabled: form.enabled,
       model: form.model.trim() || null,
       systemPrompt: form.systemPrompt.trim() || null,
-      maxFileMb: num(form.maxFileMb),
-      requestTimeoutMs: num(form.timeoutMs),
-      confidenceThreshold: num(form.confidence),
+      maxFileMb: parseDecimal(form.maxFileMb),
+      requestTimeoutMs: parseDecimal(form.timeoutMs),
+      confidenceThreshold: parseDecimal(form.confidence),
       apiKey,
     };
   };
@@ -248,19 +243,13 @@ export default function BillingSettings() {
 
   const handleSaveLink = () => {
     if (!linkForm) return;
-    const num = (s: string): number | null => {
-      const t = s.trim();
-      if (t === "") return null;
-      const n = Number(t);
-      return Number.isFinite(n) ? n : null;
-    };
     updateLink.mutate(
       {
         data: {
           autoLinkEnabled: linkForm.autoLinkEnabled,
           autoConfirmEnabled: linkForm.autoConfirmEnabled,
-          autoLinkMinScore: num(linkForm.autoLinkMinScore),
-          autoConfirmMinScore: num(linkForm.autoConfirmMinScore),
+          autoLinkMinScore: parseDecimal(linkForm.autoLinkMinScore),
+          autoConfirmMinScore: parseDecimal(linkForm.autoConfirmMinScore),
         },
       },
       {
@@ -301,19 +290,16 @@ export default function BillingSettings() {
           bankAccount: trimOrNull(form.bankAccount),
           iban: trimOrNull(form.iban),
           bic: trimOrNull(form.bic),
-          defaultDueDays: form.defaultDueDays.trim() === "" ? null : Number(form.defaultDueDays),
+          defaultDueDays: parseDecimal(form.defaultDueDays),
           defaultPaymentMethod: trimOrNull(form.defaultPaymentMethod),
           vatPayer: form.vatPayer,
           vatModeDefault: form.vatModeDefault,
           invoiceFooterNote: trimOrNull(form.invoiceFooterNote),
-          materialMarkupPercent:
-            form.materialMarkupPercent.trim() === ""
-              ? null
-              : Number(form.materialMarkupPercent),
+          materialMarkupPercent: parseDecimal(form.materialMarkupPercent),
           numberPrefix: trimOrNull(form.numberPrefix),
           numberFormat: trimOrNull(form.numberFormat),
-          numberYear: form.numberYear.trim() === "" ? null : Number(form.numberYear),
-          numberNextSeq: form.numberNextSeq.trim() === "" ? null : Number(form.numberNextSeq),
+          numberYear: parseDecimal(form.numberYear),
+          numberNextSeq: parseDecimal(form.numberNextSeq),
           reminderEnabled: form.reminderEnabled,
           reminderDays: trimOrNull(form.reminderDays),
         },
@@ -411,10 +397,9 @@ export default function BillingSettings() {
               </Field>
             </div>
             <Field label="Výchozí splatnost (dnů)">
-              <Input
-                type="number"
+              <DecimalInput
                 value={form.defaultDueDays}
-                onChange={(e) => set("defaultDueDays", e.target.value)}
+                onChange={(v) => set("defaultDueDays", v)}
                 className="max-w-[160px]"
               />
             </Field>
@@ -452,12 +437,9 @@ export default function BillingSettings() {
               </Select>
             </Field>
             <Field label="Výchozí přirážka na materiál (%)">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
+              <DecimalInput
                 value={form.materialMarkupPercent}
-                onChange={(e) => set("materialMarkupPercent", e.target.value)}
+                onChange={(v) => set("materialMarkupPercent", v)}
                 className="max-w-[160px]"
               />
               <p className="text-xs text-muted-foreground mt-1">
@@ -499,18 +481,16 @@ export default function BillingSettings() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label="Rok řady">
-                <Input
-                  type="number"
+                <DecimalInput
                   value={form.numberYear}
-                  onChange={(e) => set("numberYear", e.target.value)}
+                  onChange={(v) => set("numberYear", v)}
                   placeholder="automaticky"
                 />
               </Field>
               <Field label="Další pořadové číslo">
-                <Input
-                  type="number"
+                <DecimalInput
                   value={form.numberNextSeq}
-                  onChange={(e) => set("numberNextSeq", e.target.value)}
+                  onChange={(v) => set("numberNextSeq", v)}
                 />
               </Field>
             </div>
@@ -631,37 +611,28 @@ export default function BillingSettings() {
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Field label="Max. velikost souboru (MB)">
-                    <Input
-                      type="number"
-                      min={1}
+                    <DecimalInput
                       value={aiForm.maxFileMb}
-                      onChange={(e) =>
-                        setAiForm((p) => (p ? { ...p, maxFileMb: e.target.value } : p))
+                      onChange={(v) =>
+                        setAiForm((p) => (p ? { ...p, maxFileMb: v } : p))
                       }
                       placeholder="32"
                     />
                   </Field>
                   <Field label="Časový limit (ms)">
-                    <Input
-                      type="number"
-                      min={1000}
-                      step={1000}
+                    <DecimalInput
                       value={aiForm.timeoutMs}
-                      onChange={(e) =>
-                        setAiForm((p) => (p ? { ...p, timeoutMs: e.target.value } : p))
+                      onChange={(v) =>
+                        setAiForm((p) => (p ? { ...p, timeoutMs: v } : p))
                       }
                       placeholder="60000"
                     />
                   </Field>
                   <Field label="Práh spolehlivosti (0–1)">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
+                    <DecimalInput
                       value={aiForm.confidence}
-                      onChange={(e) =>
-                        setAiForm((p) => (p ? { ...p, confidence: e.target.value } : p))
+                      onChange={(v) =>
+                        setAiForm((p) => (p ? { ...p, confidence: v } : p))
                       }
                       placeholder="0.7"
                     />
@@ -810,30 +781,22 @@ export default function BillingSettings() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Práh pro návrh (0–1)">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
+                    <DecimalInput
                       value={linkForm.autoLinkMinScore}
-                      onChange={(e) =>
+                      onChange={(v) =>
                         setLinkForm((p) =>
-                          p ? { ...p, autoLinkMinScore: e.target.value } : p,
+                          p ? { ...p, autoLinkMinScore: v } : p,
                         )
                       }
                       placeholder="0.6"
                     />
                   </Field>
                   <Field label="Práh pro potvrzení (0–1)">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.05}
+                    <DecimalInput
                       value={linkForm.autoConfirmMinScore}
-                      onChange={(e) =>
+                      onChange={(v) =>
                         setLinkForm((p) =>
-                          p ? { ...p, autoConfirmMinScore: e.target.value } : p,
+                          p ? { ...p, autoConfirmMinScore: v } : p,
                         )
                       }
                       placeholder="0.9"
@@ -927,8 +890,8 @@ function MaterialMarkupRulesCard() {
       toast({ title: "Zadejte kategorii", variant: "destructive" });
       return;
     }
-    const markup = Number(markupRaw);
-    if (!Number.isFinite(markup) || markup < 0) {
+    const markup = parseDecimal(markupRaw);
+    if (markup === null || markup < 0) {
       toast({ title: "Přirážka musí být nezáporné číslo", variant: "destructive" });
       return;
     }
@@ -1015,12 +978,9 @@ function MaterialMarkupRulesCard() {
                 <Label className="text-xs font-medium text-muted-foreground mb-1 block">
                   Přirážka (%)
                 </Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <DecimalInput
                   value={newMarkup}
-                  onChange={(e) => setNewMarkup(e.target.value)}
+                  onChange={(v) => setNewMarkup(v)}
                   placeholder="0"
                 />
               </div>
@@ -1063,12 +1023,9 @@ function MarkupRuleRow({
   return (
     <div className="flex items-center gap-2 px-3 py-2">
       <span className="flex-1 text-sm font-medium truncate">{category}</span>
-      <Input
-        type="number"
-        min="0"
-        step="0.01"
+      <DecimalInput
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(v) => setValue(v)}
         className="w-[110px]"
       />
       <span className="text-sm text-muted-foreground">%</span>

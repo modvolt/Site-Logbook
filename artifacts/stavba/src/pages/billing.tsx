@@ -151,37 +151,41 @@ export default function Billing() {
         <Card
           className={
             !isLoading && (data?.overdueCount ?? 0) > 0
-              ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/30 cursor-pointer hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors"
-              : ""
-          }
-          onClick={
-            !isLoading && (data?.overdueCount ?? 0) > 0
-              ? () => setLocation("/billing/invoices?status=overdue")
-              : undefined
+              ? "border-red-300 bg-red-50 dark:border-red-900 dark:bg-red-950/30 overflow-hidden"
+              : "overflow-hidden"
           }
         >
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-              {!isLoading && (data?.overdueCount ?? 0) > 0 && (
-                <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-              )}
-              Po splatnosti (s DPH)
-            </div>
-            <div
-              className={`text-xl font-bold ${
-                !isLoading && (data?.overdueCount ?? 0) > 0
-                  ? "text-red-700 dark:text-red-300"
-                  : ""
-              }`}
+          {!isLoading && (data?.overdueCount ?? 0) > 0 ? (
+            <button
+              type="button"
+              onClick={() => setLocation("/billing/invoices?status=overdue")}
+              className="w-full text-left hover:bg-red-100 dark:hover:bg-red-950/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-label="Zobrazit faktury po splatnosti"
             >
-              {isLoading ? "—" : fmtKc(data?.overdueTotalWithVat, 0)}
-            </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {isLoading
-                ? ""
-                : `${data?.overdueCount ?? 0} ${invoiceNoun(data?.overdueCount ?? 0)}`}
-            </div>
-          </CardContent>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  Po splatnosti (s DPH)
+                </div>
+                <div className="text-xl font-bold text-red-700 dark:text-red-300">
+                  {fmtKc(data?.overdueTotalWithVat, 0)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {`${data?.overdueCount ?? 0} ${invoiceNoun(data?.overdueCount ?? 0)}`}
+                </div>
+              </CardContent>
+            </button>
+          ) : (
+            <CardContent className="p-4">
+              <div className="text-xs text-muted-foreground mb-1">Po splatnosti (s DPH)</div>
+              <div className="text-xl font-bold">
+                {isLoading ? "—" : fmtKc(data?.overdueTotalWithVat, 0)}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {isLoading ? "" : `${data?.overdueCount ?? 0} ${invoiceNoun(data?.overdueCount ?? 0)}`}
+              </div>
+            </CardContent>
+          )}
         </Card>
       </div>
 
@@ -263,22 +267,28 @@ function NavCard({
   onClick: () => void;
 }) {
   return (
-    <Card className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={onClick}>
-      <CardContent className="p-4 flex items-center gap-3">
-        <div className="bg-muted p-2.5 rounded-full shrink-0">
-          <Icon className={`h-5 w-5 ${color}`} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-base">{title}</p>
-          <p className="text-sm text-muted-foreground">{subtitle}</p>
-        </div>
-        {badge != null && badge > 0 && (
-          <span className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white text-xs font-semibold min-w-[1.5rem] h-6 px-2 shrink-0">
-            {badge}
-          </span>
-        )}
-        <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
-      </CardContent>
+    <Card className="overflow-hidden">
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <CardContent className="p-4 flex items-center gap-3">
+          <div className="bg-muted p-2.5 rounded-full shrink-0">
+            <Icon className={`h-5 w-5 ${color}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-base">{title}</p>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
+          </div>
+          {badge != null && badge > 0 && (
+            <span className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white text-xs font-semibold min-w-[1.5rem] h-6 px-2 shrink-0">
+              {badge}
+            </span>
+          )}
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
+        </CardContent>
+      </button>
     </Card>
   );
 }

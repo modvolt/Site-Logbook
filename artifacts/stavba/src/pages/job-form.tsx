@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
 import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed, MapPin } from "lucide-react";
+import { DecimalInput, parseDecimal } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 
 export default function JobForm() {
@@ -215,9 +216,9 @@ export default function JobForm() {
             jobId: newJob.id,
             data: {
               name: m.name,
-              quantity: m.quantity ? parseFloat(m.quantity) : null,
+              quantity: parseDecimal(m.quantity),
               unit: m.unit || null,
-              pricePerUnit: m.pricePerUnit ? parseFloat(m.pricePerUnit) : null,
+              pricePerUnit: parseDecimal(m.pricePerUnit),
             },
           }).catch(() => {});
         }
@@ -531,13 +532,10 @@ export default function JobForm() {
                 className="h-12 text-base"
               />
               <div className="grid grid-cols-3 gap-2">
-                <Input
+                <DecimalInput
                   value={newMaterial.quantity}
-                  onChange={e => setNewMaterial(p => ({ ...p, quantity: e.target.value }))}
+                  onChange={v => setNewMaterial(p => ({ ...p, quantity: v }))}
                   placeholder="Množství"
-                  type="number"
-                  min="0"
-                  step="0.01"
                   className="h-10"
                 />
                 <Input
@@ -546,13 +544,10 @@ export default function JobForm() {
                   placeholder="Jednotka"
                   className="h-10"
                 />
-                <Input
+                <DecimalInput
                   value={newMaterial.pricePerUnit}
-                  onChange={e => setNewMaterial(p => ({ ...p, pricePerUnit: e.target.value }))}
+                  onChange={v => setNewMaterial(p => ({ ...p, pricePerUnit: v }))}
                   placeholder="Kč/ks"
-                  type="number"
-                  min="0"
-                  step="0.01"
                   className="h-10"
                 />
               </div>

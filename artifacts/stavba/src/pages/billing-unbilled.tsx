@@ -35,27 +35,30 @@ export default function BillingUnbilled() {
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)
         ) : data && data.length > 0 ? (
           data.map((c) => (
-            <Card
-              key={c.customerId}
-              className="hover:bg-muted/30 transition-colors cursor-pointer"
-              onClick={() => setLocation(`/billing/unbilled/${c.customerId}`)}
-            >
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className="bg-primary/10 p-2.5 rounded-full text-primary shrink-0">
-                  <Building2 className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-base truncate">{c.companyName}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {c.jobCount} {jobCountLabel(c.jobCount)}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="font-bold">{fmtKc(c.orientationalTotal, 0)}</div>
-                  <div className="text-xs text-muted-foreground">orientačně bez DPH</div>
-                </div>
-                <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 ml-1" />
-              </CardContent>
+            <Card key={c.customerId} className="overflow-hidden">
+              <button
+                type="button"
+                className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onClick={() => setLocation(`/billing/unbilled/${c.customerId}`)}
+                aria-label={`Otevřít zakázky zákazníka ${c.companyName}`}
+              >
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="bg-primary/10 p-2.5 rounded-full text-primary shrink-0">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-base truncate">{c.companyName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {c.jobCount} {jobCountLabel(c.jobCount)}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold">{fmtKc(c.orientationalTotal, 0)}</div>
+                    <div className="text-xs text-muted-foreground">orientačně bez DPH</div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 ml-1" />
+                </CardContent>
+              </button>
             </Card>
           ))
         ) : (

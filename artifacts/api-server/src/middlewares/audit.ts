@@ -19,7 +19,27 @@ const SKIP_PREFIXES = [
   "/billing/email-import/",
 ];
 
-const REDACT_KEYS = new Set(["password", "passwordHash", "currentPassword", "newPassword"]);
+const REDACT_KEYS = new Set([
+  "password", "passwordHash", "currentPassword", "newPassword",
+  "pin", "pinHash",
+  "apiKey", "api_key", "openaiApiKey", "accessToken", "refreshToken",
+  "token", "secret", "secretKey", "privateKey",
+  "cardNumber", "cvv", "cvc",
+  "answers",
+]);
+
+function redactSensitive(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = REDACT_KEYS.has(k) ? "[redacted]" : redactSensitive(v);
+    }
+    return out;
+  }
+  return value;
+}
 
 function actionForMethod(method: string): string {
   switch (method) {
@@ -65,12 +85,8 @@ function parsePath(path: string): { entityType: string; entityId: number | null 
 function buildSummary(method: string, path: string, body: unknown): string {
   let bodyStr = "";
   if (body && typeof body === "object") {
-    const redacted: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-      redacted[k] = REDACT_KEYS.has(k) ? "[redacted]" : v;
-    }
     try {
-      bodyStr = JSON.stringify(redacted);
+      bodyStr = JSON.stringify(redactSensitive(body));
     } catch {
       bodyStr = "";
     }

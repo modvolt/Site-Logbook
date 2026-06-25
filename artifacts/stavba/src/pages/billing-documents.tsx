@@ -380,36 +380,39 @@ function DocumentCard({
   onClick: () => void;
 }) {
   return (
-    <Card
-      className="hover:bg-muted/30 transition-colors cursor-pointer"
-      onClick={onClick}
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold truncate">
-                {doc.supplierName || doc.fileName || "Doklad bez dodavatele"}
-              </p>
-              <CostDocStatusBadge status={doc.status} />
-              <MaterialStateBadge state={doc.materialState} />
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
-              {doc.documentNumber ? ` · ${doc.documentNumber}` : ""}
-              {doc.issueDate ? ` · ${fmtDate(doc.issueDate)}` : ""}
-            </p>
-          </div>
-          <div className="text-right shrink-0">
-            <div className="font-bold">{fmtKc(doc.totalWithVat ?? null, 0)}</div>
-            {doc.variableSymbol && (
-              <div className="text-xs text-muted-foreground">
-                VS {doc.variableSymbol}
+    <Card className="overflow-hidden">
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-semibold truncate">
+                  {doc.supplierName || doc.fileName || "Doklad bez dodavatele"}
+                </p>
+                <CostDocStatusBadge status={doc.status} />
+                <MaterialStateBadge state={doc.materialState} />
               </div>
-            )}
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
+                {doc.documentNumber ? ` · ${doc.documentNumber}` : ""}
+                {doc.issueDate ? ` · ${fmtDate(doc.issueDate)}` : ""}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="font-bold">{fmtKc(doc.totalWithVat ?? null, 0)}</div>
+              {doc.variableSymbol && (
+                <div className="text-xs text-muted-foreground">
+                  VS {doc.variableSymbol}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </CardContent>
+        </CardContent>
+      </button>
     </Card>
   );
 }

@@ -124,7 +124,10 @@ export default function Sklad() {
           invalidate();
           toast({ title: "Položka smazána" });
         },
-        onError: () => toast({ title: "Nepodařilo se smazat", variant: "destructive" }),
+        onError: (err: any) => {
+          const msg = err?.data?.error ?? err?.message ?? "Nepodařilo se smazat položku.";
+          toast({ title: "Nelze smazat", description: msg, variant: "destructive" });
+        },
       },
     );
   };
