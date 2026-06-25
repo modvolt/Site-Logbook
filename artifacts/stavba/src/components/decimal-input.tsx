@@ -69,10 +69,11 @@ export function parseDecimal(v: string): number | null {
  * @param opts
  *   - allowNegative  Allow values below zero (default: false — negatives error)
  *   - positiveOnly   Value must be strictly > 0 (implies allowNegative: false)
+ *   - max            Value must be ≤ max (checked after sign checks)
  */
 export function decimalError(
   v: string,
-  opts?: { allowNegative?: boolean; positiveOnly?: boolean },
+  opts?: { allowNegative?: boolean; positiveOnly?: boolean; max?: number },
 ): string | undefined {
   const t = (v ?? "").trim();
   if (t === "") return undefined;
@@ -80,5 +81,6 @@ export function decimalError(
   if (n === null) return "Neplatné číslo";
   if (opts?.positiveOnly && n <= 0) return "Musí být větší než 0";
   if (!opts?.allowNegative && n < 0) return "Nesmí být záporné";
+  if (opts?.max !== undefined && n > opts.max) return `Nesmí přesáhnout ${opts.max}`;
   return undefined;
 }

@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
-import { DecimalInput, parseDecimal } from "@/components/decimal-input";
+import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -324,6 +324,35 @@ export default function BillingSettings() {
     );
   }
 
+  const formErrors = {
+    defaultDueDays: decimalError(form.defaultDueDays, { positiveOnly: true }),
+    materialMarkupPercent: decimalError(form.materialMarkupPercent),
+    numberYear: decimalError(form.numberYear, { positiveOnly: true }),
+    numberNextSeq: decimalError(form.numberNextSeq, { positiveOnly: true }),
+  };
+  const formHasErrors = Object.values(formErrors).some(Boolean);
+
+  const aiFormErrors = aiForm
+    ? {
+        maxFileMb: decimalError(aiForm.maxFileMb, { positiveOnly: true }),
+        timeoutMs: decimalError(aiForm.timeoutMs, { positiveOnly: true }),
+        confidence: decimalError(aiForm.confidence, { max: 1 }),
+      }
+    : undefined;
+  const aiFormHasErrors = aiFormErrors
+    ? Object.values(aiFormErrors).some(Boolean)
+    : false;
+
+  const linkFormErrors = linkForm
+    ? {
+        autoLinkMinScore: decimalError(linkForm.autoLinkMinScore, { max: 1 }),
+        autoConfirmMinScore: decimalError(linkForm.autoConfirmMinScore, { max: 1 }),
+      }
+    : undefined;
+  const linkFormHasErrors = linkFormErrors
+    ? Object.values(linkFormErrors).some(Boolean)
+    : false;
+
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto w-full">
       <Button
@@ -401,6 +430,7 @@ export default function BillingSettings() {
                 value={form.defaultDueDays}
                 onChange={(v) => set("defaultDueDays", v)}
                 className="max-w-[160px]"
+                error={formErrors.defaultDueDays}
               />
             </Field>
           </CardContent>
@@ -441,6 +471,7 @@ export default function BillingSettings() {
                 value={form.materialMarkupPercent}
                 onChange={(v) => set("materialMarkupPercent", v)}
                 className="max-w-[160px]"
+                error={formErrors.materialMarkupPercent}
               />
               <p className="text-xs text-muted-foreground mt-1">
                 Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
@@ -485,12 +516,14 @@ export default function BillingSettings() {
                   value={form.numberYear}
                   onChange={(v) => set("numberYear", v)}
                   placeholder="automaticky"
+                  error={formErrors.numberYear}
                 />
               </Field>
               <Field label="Další pořadové číslo">
                 <DecimalInput
                   value={form.numberNextSeq}
                   onChange={(v) => set("numberNextSeq", v)}
+                  error={formErrors.numberNextSeq}
                 />
               </Field>
             </div>
@@ -617,6 +650,7 @@ export default function BillingSettings() {
                         setAiForm((p) => (p ? { ...p, maxFileMb: v } : p))
                       }
                       placeholder="32"
+                      error={aiFormErrors?.maxFileMb}
                     />
                   </Field>
                   <Field label="Časový limit (ms)">
@@ -626,6 +660,7 @@ export default function BillingSettings() {
                         setAiForm((p) => (p ? { ...p, timeoutMs: v } : p))
                       }
                       placeholder="60000"
+                      error={aiFormErrors?.timeoutMs}
                     />
                   </Field>
                   <Field label="Práh spolehlivosti (0–1)">
@@ -635,6 +670,7 @@ export default function BillingSettings() {
                         setAiForm((p) => (p ? { ...p, confidence: v } : p))
                       }
                       placeholder="0.7"
+                      error={aiFormErrors?.confidence}
                     />
                   </Field>
                 </div>
@@ -674,7 +710,7 @@ export default function BillingSettings() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <Button onClick={handleSaveAi} disabled={updateAi.isPending}>
+                  <Button onClick={handleSaveAi} disabled={updateAi.isPending || aiFormHasErrors}>
                     {updateAi.isPending ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
@@ -789,6 +825,7 @@ export default function BillingSettings() {
                         )
                       }
                       placeholder="0.6"
+                      error={linkFormErrors?.autoLinkMinScore}
                     />
                   </Field>
                   <Field label="Práh pro potvrzení (0–1)">
@@ -800,6 +837,7 @@ export default function BillingSettings() {
                         )
                       }
                       placeholder="0.9"
+                      error={linkFormErrors?.autoConfirmMinScore}
                     />
                   </Field>
                 </div>
@@ -809,7 +847,7 @@ export default function BillingSettings() {
                 </p>
 
                 <div className="flex justify-end">
-                  <Button onClick={handleSaveLink} disabled={updateLink.isPending}>
+                  <Button onClick={handleSaveLink} disabled={updateLink.isPending || linkFormHasErrors}>
                     {updateLink.isPending ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
@@ -858,7 +896,7 @@ export default function BillingSettings() {
         </Card>
 
         <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={update.isPending} className="h-11 px-6">
+          <Button onClick={handleSave} disabled={update.isPending || formHasErrors} className="h-11 px-6">
             <Save className="h-4 w-4 mr-2" /> Uložit nastavení
           </Button>
         </div>
@@ -982,12 +1020,13 @@ function MaterialMarkupRulesCard() {
                   value={newMarkup}
                   onChange={(v) => setNewMarkup(v)}
                   placeholder="0"
+                  error={decimalError(newMarkup)}
                 />
               </div>
               <Button
                 type="button"
                 onClick={() => saveRule(newCategory, newMarkup)}
-                disabled={upsert.isPending}
+                disabled={upsert.isPending || !!decimalError(newMarkup)}
               >
                 <Plus className="h-4 w-4 mr-1" /> Přidat
               </Button>
@@ -1019,6 +1058,7 @@ function MarkupRuleRow({
     setValue(String(markupPercent));
   }, [markupPercent]);
   const dirty = value.trim() !== String(markupPercent);
+  const valueError = decimalError(value);
 
   return (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -1027,6 +1067,7 @@ function MarkupRuleRow({
         value={value}
         onChange={(v) => setValue(v)}
         className="w-[110px]"
+        error={valueError}
       />
       <span className="text-sm text-muted-foreground">%</span>
       <Button
@@ -1034,7 +1075,7 @@ function MarkupRuleRow({
         variant="outline"
         size="sm"
         onClick={() => onSave(value)}
-        disabled={!dirty || saving}
+        disabled={!dirty || saving || !!valueError}
       >
         <Save className="h-4 w-4" />
       </Button>
