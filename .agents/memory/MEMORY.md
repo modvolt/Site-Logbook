@@ -54,3 +54,4 @@
 - [Cost-doc materialState badge](cost-doc-material-state-badge.md) — derived (no DB col) doc-level "Materiál přiřazen/odsouhlasen" from material lines (lineType=material & !feeType); list uses 1 grouped inArray query; nullable OpenAPI enum = type:["string","null"]+enum:[...,null] codegens cleanly.
 - [Cost-doc save FK validation & error surfacing](cost-doc-fk-error-surfacing.md) — validate jobId/customerId exist before update (clean 400, no raw SQL 500) & surface error.data.error in save toasts; ApiError not exported.
 - [EmailImportMessage field names](email-import-fields.md) — schema uses `sentAt` (not receivedAt), `error` (not errorMessage), and `billingDocumentId` on attachments (not documentId).
+- [E2E test setup (Playwright)](e2e-playwright-setup.md) — global setup + storageState; rate limiter localhost skip; dev DB must be schema-synced before tests; toast strict-mode needs exact:true or data-component-name selector.

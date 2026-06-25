@@ -10,12 +10,19 @@ const router: IRouter = Router();
 
 // Brute-force protection: limit credential-guessing on login and first-admin
 // setup. Keyed per client IP (X-Forwarded-For via the app's "trust proxy").
+// Localhost is skipped so that E2E tests (which connect directly, before any
+// reverse proxy) are never blocked. In production the proxy sets
+// X-Forwarded-For and req.ip is the real external IP, so the skip never fires.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." },
+  skip: (req) => {
+    const ip = req.ip ?? "";
+    return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  },
 });
 
 function serializeUser(u: User) {
