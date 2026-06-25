@@ -13,7 +13,16 @@ import {
 import { ArrowLeft, Printer, Mail, Loader2, Eye, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
@@ -49,6 +58,9 @@ export default function PristupoveUdajeExport() {
   const [company] = useState(() => loadCompanySettings());
   const [secretsRevealed, setSecretsRevealed] = useState(false);
   const [includeSecretsPrint, setIncludeSecretsPrint] = useState(false);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [sendTo, setSendTo] = useState("");
+  const [sendToError, setSendToError] = useState("");
   const { toast } = useToast();
   const sendEmail = useSendCredentialsEmail();
   const auditExport = useAuditCredentialExport();
@@ -118,21 +130,31 @@ export default function PristupoveUdajeExport() {
     setSecretsRevealed(true);
   };
 
-  const handleSendEmail = async () => {
-    const recipient = customer?.email?.trim();
-    if (!recipient) {
-      toast({
-        variant: "destructive",
-        title: "Chybí e-mail zákazníka",
-        description: "Přidejte e-mail u zákazníka a zkuste to znovu.",
-      });
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const handleOpenSendDialog = () => {
+    setSendTo(customer?.email?.trim() ?? "");
+    setSendToError("");
+    setSendDialogOpen(true);
+  };
+
+  const handleConfirmSend = async () => {
+    const to = sendTo.trim();
+    if (!to) {
+      setSendToError("E-mailová adresa je povinná.");
       return;
     }
+    if (!EMAIL_RE.test(to)) {
+      setSendToError("Zadejte platnou e-mailovou adresu.");
+      return;
+    }
+    setSendToError("");
     const element = document.getElementById("pristupy-list");
     if (!element) return;
     try {
       const pdfBase64 = await jobSheetPdfBase64(element);
-      const result = await sendEmail.mutateAsync({ id: customerId, data: { pdfBase64 } });
+      const result = await sendEmail.mutateAsync({ id: customerId, data: { pdfBase64, to } });
+      setSendDialogOpen(false);
       toast({
         title: "E-mail odeslán",
         description: `Přístupové údaje byly odeslány na ${result.to}.`,
@@ -199,7 +221,7 @@ export default function PristupoveUdajeExport() {
           )}
           <Button
             variant="outline"
-            onClick={handleSendEmail}
+            onClick={handleOpenSendDialog}
             disabled={sendEmail.isPending}
             className="shrink-0"
           >
@@ -240,6 +262,54 @@ export default function PristupoveUdajeExport() {
           </div>
         </div>
       </div>
+
+      {/* Send email dialog */}
+      <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Odeslat přístupové údaje e-mailem</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="send-to">Komu (e-mail)</Label>
+              <Input
+                id="send-to"
+                type="email"
+                placeholder="adresa@example.com"
+                value={sendTo}
+                onChange={(e) => {
+                  setSendTo(e.target.value);
+                  if (sendToError) setSendToError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleConfirmSend();
+                }}
+                autoFocus
+              />
+              {sendToError && (
+                <p className="text-sm text-destructive">{sendToError}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSendDialogOpen(false)}
+              disabled={sendEmail.isPending}
+            >
+              Zrušit
+            </Button>
+            <Button onClick={handleConfirmSend} disabled={sendEmail.isPending}>
+              {sendEmail.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4 mr-2" />
+              )}
+              Odeslat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Document */}
       <div className="max-w-3xl mx-auto w-full p-4 md:p-8">
