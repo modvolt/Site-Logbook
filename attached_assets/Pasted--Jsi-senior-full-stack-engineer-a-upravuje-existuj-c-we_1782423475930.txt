@@ -1,0 +1,607 @@
+
+Jsi senior full-stack engineer a upravuješ existující webovou aplikaci Site-Logbook / Stavba pro Modvolt s.r.o. Aplikace běží jako interní web, žádná desktop exe aplikace se nedělá. Cílem není redesign pro efekt, ale zrychlení každodenní práce elektro firmy: administrátor, fakturace, majitel, skladník a technik v detailu zakázky musí rychle poznat, co je rozpracované, hotové, problémové, nevyfakturované a rizikové.
+
+Nepřidávej ani neřeš nový „rychlý záznam technika“. Ten je z tohoto zadání výslovně vyjmutý.
+
+### Kontext Z Auditu
+
+Byl proveden ruční UI audit přes publikovanou Replit verzi a lokální čtení kódu. Závěr:
+
+- Aplikace má dobrý funkční základ, ale mnoho obrazovek je spíš evidence než pracovní fronta.
+- Největší priorita mimo sklad/fakturaci je modul Zakázky, protože je střed celé aplikace.
+- Detail zakázky i detail dlouhodobé akce už mají hodně funkcí, ale přehledy a hlavičky neukazují dost jasně riziko a další krok.
+- Sklad a přijaté/dodací faktury mají samostatná doporučení; přesto je nutné převzít jeden lokálně opravený bugfix skladu.
+- Přístupové údaje jsou citlivý modul a potřebují lepší audit zobrazení/kopírování tajných údajů. Nikdy neloguj samotná hesla, PINy ani karty.
+
+### Lokální Bugfix, Který Převzít
+
+BUG: Skladovou položku s pohyby nebo cenovou historií šlo smazat, čímž se mohla ztratit dohledatelnost skladové historie.
+
+Implementuj nebo zkontroluj tuto opravu:
+
+- V `artifacts/api-server/src/routes/warehouse-items.ts` před `DELETE /warehouse-items/:id` ověř, zda existuje záznam v `warehouse_movements` nebo `warehouse_price_history` pro danou položku.
+- Pokud existuje pohyb nebo cenová historie, vrať HTTP 409.
+- Chybová hláška má být lidská, například:
+  `Skladovou položku s pohyby nebo cenovou historií nelze smazat. Kvůli dohledatelnosti zásob ji ponechte ve skladu a případnou opravu proveďte opačným pohybem.`
+- V `artifacts/stavba/src/pages/sklad.tsx` zobraz konkrétní chybovou zprávu z API v toastu, ne jen obecné `Nepodařilo se smazat`.
+- Dlouhodobě preferuj akci `Archivovat` před hard delete u skladových položek.
+
+### Hlavní Implementační Cíl
+
+Přestav vybrané přehledy z pasivní evidence na pracovní fronty:
+
+- co je potřeba řešit,
+- proč je to problém,
+- jaký je další krok,
+- kolik je v tom peněz nebo rizika,
+- kam kliknout dál.
+
+Zachovej současný vizuální styl aplikace, Shadcn UI komponenty, lucide ikony, existující routy a datové modely, pokud není níže výslovně uvedeno jinak. Nedělej velký brand redesign.
+
+## 1. Dnes / Dashboard
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/dashboard.tsx`
+- případně API pro dashboard summary
+- případně billing/warehouse summary endpointy
+
+Problém:
+
+Dashboard je dobrý jako denní plán technika, ale majitel/admin/fakturace zde nevidí rizika: hotové nevyfakturované práce, doklady ke kontrole, sklad pod minimem, zakázky bez zákazníka, práce bez ceny materiálu.
+
+Úprava:
+
+- Přidej kompaktní panel `K řešení` pro admin/majitel/fakturační role.
+- Panel nesmí nahrazovat dnešní program; má doplnit manažerský pohled.
+- Doporučené položky:
+  - `Hotové k fakturaci`
+  - `Doklady ke kontrole`
+  - `Sklad pod minimem`
+  - `Zakázky bez zákazníka`
+  - `Materiál bez ceny`
+  - `Rozpracované déle než X dní`
+- Každá položka má být klikací skutečný `Link` nebo `button`, ne jen `div onClick`.
+- U každé položky ukaž počet a pokud je dostupná částka, i částku.
+- Pokud data zatím nejsou dostupná, implementuj bezpečný fallback a nezobrazuj zavádějící nuly.
+
+Akceptace:
+
+- Admin po otevření dashboardu do 5 sekund pozná, co blokuje fakturaci a peníze.
+- Technikův dnešní program zůstane použitelný.
+- Mobilní layout se nerozbije.
+
+## 2. Zakázky
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/jobs.tsx`
+- `artifacts/stavba/src/components/job-card.tsx`
+- `artifacts/stavba/src/pages/job-detail.tsx`
+- `artifacts/stavba/src/components/badges.tsx`
+- případně jobs API pro doplnění summary polí
+
+Problém:
+
+Seznam zakázek funguje jako evidence, ale ne jako pracovní fronta. Člověk nevidí rychle, které zakázky jsou hotové k fakturaci, problémové, bez zákazníka, bez ceny, bez dokladů nebo dlouho rozpracované.
+
+Úprava seznamu:
+
+- Nad seznam přidej segmenty nebo rychlé filtry:
+  - `Vše`
+  - `Rozpracované`
+  - `Hotové k fakturaci`
+  - `Problémové`
+  - `Bez zákazníka`
+  - `Bez ceny`
+  - `Zrušené / archiv`
+- Zachovej existující vyhledávání a status filtr, ale dej mu jasnější pracovní smysl.
+- Na kartu zakázky přidej malé pracovní signály podle dostupných dat:
+  - `K fakturaci`
+  - `Chybí zákazník`
+  - `Chybí cena`
+  - `Doklady: N`
+  - `Materiál: X Kč`
+  - `Rozpracováno N dní`
+- Nezatěžuj kartu velkými texty; použij malé badges.
+
+Úprava detailu:
+
+- Do horní části detailu přidej panel `Připravenost zakázky`.
+- Panel má shrnout:
+  - zákazník OK/chybí,
+  - práce/hodiny,
+  - materiál počet a cena,
+  - doklady počet,
+  - fotky počet,
+  - fakturační stav: čeká / k fakturaci / vyfakturováno / blokováno.
+- U chybějících věcí zobraz akci: například `Doplnit zákazníka`, `Doplnit cenu`, `Nahrát doklad`, `Otevřít fakturaci`.
+
+Akceptace:
+
+- Admin najde hotové nevyfakturované nebo problémové zakázky bez procházení všech detailů.
+- Detail zakázky jasně řekne, co chybí před fakturací.
+- Stávající časovač, fotky, doklady a zakázkový list zůstanou funkční.
+
+## 3. Dlouhodobé Akce
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/activities.tsx`
+- `artifacts/stavba/src/pages/activity-detail.tsx`
+- `lib/db/src/schema/activities.ts`
+- activity API
+
+Problém:
+
+Dlouhodobé akce jsou užitečné pro projekty mimo kalendář, ale přehled neukazuje termín, prioritu, odpovědnost, fakturační stav, poslední aktivitu ani blokace. Detail má materiál, čas, vícepráce, doklady a fotky, ale přehledově chybí „co je potřeba dotáhnout“.
+
+Úprava bez povinné DB migrace:
+
+- Do seznamu přidej filtry:
+  - `Aktivní`
+  - `Dokončené`
+  - `Archiv`
+  - `Bez zákazníka`
+  - `S materiálem`
+  - `S doklady`
+- Na kartu akce přidej shrnutí:
+  - zákazník,
+  - hodiny,
+  - materiál Kč,
+  - vícepráce Kč/h,
+  - doklady počet,
+  - fotky počet,
+  - poslední změna, pokud je dostupná.
+- V detailu přidej horní panel `Stav akce`, který ukáže: dokončeno/aktivní, hodiny, materiál, vícepráce, doklady, podklad k fakturaci.
+
+Volitelná produktová úprava s migrací:
+
+- Přidej `priority`, `dueDate`, `ownerPersonId`.
+- Využij existující `billingStatus` z `activities` jako UI stav:
+  - `Nefakturovat`
+  - `K fakturaci`
+  - `Vyfakturováno`
+- Pokud migrace není bezpečná v této iteraci, připrav UI tak, aby fungovalo bez těchto polí.
+
+Akceptace:
+
+- Admin pozná, které dlouhodobé akce jsou živé, dokončené, fakturovatelné nebo zanedbané.
+- Detail zůstane rychlý a nepřijde o materiál, doklady, fotky ani vícepráce.
+
+## 4. Stroje
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/stroje.tsx`
+- `artifacts/stavba/src/pages/stroj-detail.tsx`
+- machines API
+
+Problém:
+
+Modul Stroje má dobrý základ: typ stroje/nářadí/auto, QR, skenování, sériové číslo, přiřazení, revize/STK. Přehled ale neukazuje provozní rizika.
+
+Úprava:
+
+- Nad seznam přidej souhrn:
+  - `Revize propadlé`
+  - `Revize do 30 dnů`
+  - `Nepřiřazeno`
+  - `Bez sériového čísla`
+- Přidej filtry:
+  - druh: stroj/nářadí/auto,
+  - přiřazení,
+  - revize OK/brzy končí/propadlé,
+  - bez SN.
+- Na kartě stroje zvýrazni `Revize do` nebo `STK do`:
+  - OK = neutrální,
+  - do 30 dnů = amber,
+  - po termínu = destructive.
+- V detailu přidej jasné akce:
+  - `Přiřadit`
+  - `Upravit revizi/STK`
+  - `Stáhnout QR`
+
+Akceptace:
+
+- Majitel/admin hned vidí, co má propadlou revizi nebo brzy končí.
+- QR workflow zůstane zachováno.
+
+## 5. Přístupové Údaje
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/pristupove-udaje.tsx`
+- device credentials API
+- audit middleware/service
+- `artifacts/stavba/src/pages/audit-log.tsx`
+
+Problém:
+
+Modul je užitečný, ale pracuje s citlivými hodnotami. UI zatím dostatečně neukazuje audit, oprávnění a bezpečné zacházení se zobrazením/kopírováním hesel, PINů a karet.
+
+Úprava UI:
+
+- Bez vybraného zákazníka zobraz kromě textu také akci `Vybrat zákazníka`/`Přidat zákazníka`, pokud má uživatel právo.
+- Po výběru zákazníka přidej filtry podle lokality a typu zařízení.
+- Přidej bezpečnostní nápovědu: `Zobrazení a kopírování přístupů se zapisuje do záznamu změn.`
+- Před uložením přístupu bez lokality zobraz nenásilné varování, že přístup bude uložen jen k zákazníkovi.
+- Přidej proklik na detail zákazníka/lokality, pokud existuje.
+
+Úprava auditu:
+
+- Při kliknutí na `Zobrazit PIN`, `Zobrazit heslo`, `Kopírovat PIN`, `Kopírovat heslo`, `Kopírovat kartu` vytvoř audit událost.
+- Audit log nesmí obsahovat samotnou tajnou hodnotu.
+- Summary má být například:
+  - `Uživatel Admin zobrazil heslo k zařízení Router u zákazníka Novák`
+  - `Uživatel Admin zkopíroval PIN k zařízení Jablotron u zákazníka Novák`
+- Pokud audit endpoint pro klientské bezpečnostní události neexistuje, vytvoř malý endpoint typu `POST /audit-events/security` s whitelistovanými typy událostí a bez payloadu tajných hodnot.
+
+Akceptace:
+
+- U citlivých údajů je jasné, kdo a kdy s nimi pracoval.
+- V žádném logu, toastu ani audit summary není heslo/PIN/karta v otevřené hodnotě.
+
+## 6. Zákazníci
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/customers.tsx`
+- `artifacts/stavba/src/pages/customer-detail.tsx`
+- jobs/billing/access modules
+
+Problém:
+
+Zákazník by měl být pracovní rozcestník, ne jen adresa a kontakt. Admin potřebuje z detailu zákazníka skočit na zakázky, faktury, doklady, přístupy a lokality.
+
+Úprava:
+
+- Na kartu nebo detail zákazníka přidej souhrny:
+  - aktivní zakázky,
+  - hotové k fakturaci,
+  - doklady,
+  - faktury,
+  - přístupové údaje,
+  - poslední práce.
+- Přidej přímé odkazy:
+  - `Zakázky zákazníka`
+  - `Hotové k fakturaci`
+  - `Přístupy`
+  - `Doklady`
+  - `Faktury`
+- Empty state ponech, ale doplň jasná CTA: `Přidat zákazníka`, `Import CSV`.
+
+Akceptace:
+
+- Admin z detailu zákazníka nemusí ručně hledat v menu.
+
+## 7. Zaměstnanci
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/people.tsx`
+- people/jobs/machines API
+
+Problém:
+
+Modul je nyní jen seznam jmen. Pro firmu je užitečnější vidět provozní stav lidí.
+
+Úprava:
+
+- Rozšiř kartu pracovníka o dostupná data:
+  - dnešní zakázky,
+  - hodiny tento týden,
+  - přiřazené stroje,
+  - aktivní časovač,
+  - aktivní/neaktivní stav, pokud ho datový model podporuje.
+- Pokud data zatím nejsou dostupná, přidej jen připravený UI pattern a nezobrazuj zavádějící nuly.
+
+Akceptace:
+
+- Admin pozná, kdo má dnes práci a kdo má přiřazené stroje.
+
+## 8. Statistika
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/statistika.tsx`
+- stats API
+- billing/warehouse summaries
+
+Problém:
+
+Statistika je dobrá jako exportovatelný dokument, ale majitel potřebuje vidět i únik peněz a rizika.
+
+Úprava:
+
+- Přidej sekci `Rizika a nevyfakturované práce`.
+- Doporučené řádky:
+  - `Hotovo nevyfakturováno`
+  - `Doklady bez zakázky`
+  - `Materiál bez nákupní ceny`
+  - `Sklad pod minimem`
+  - `Rozpracováno déle než X dní`
+- Řádky mají mít počet, částku pokud existuje, a odkaz do fronty.
+
+Akceptace:
+
+- Majitel ve statistice vidí nejen minulost, ale i peníze, které mohou utéct.
+
+## 9. Admin / Záznam Změn
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/audit-log.tsx`
+- audit middleware/service
+
+Problém:
+
+Audit log už zobrazuje summary a filtry, což je dobrý směr. Je potřeba zajistit, aby summary byly lidské a konzistentní pro klíčové entity, hlavně sklad, fakturace, přístupy a mazání.
+
+Úprava:
+
+- Přidej proklik `Otevřít`, pokud audit záznam odkazuje na existující entitu.
+- Přidej vizuální odlišení bezpečnostních událostí.
+- Zlepši summary pro:
+  - skladový pohyb,
+  - pokus o smazání skladové položky,
+  - schválení dokladu,
+  - změnu ceny,
+  - zobrazení/kopírování přístupového údaje.
+- Tajné hodnoty vždy redigovat.
+
+Akceptace:
+
+- Majitel přečte audit bez znalosti JSON a backendu.
+- Citlivé hodnoty nejsou nikdy vypsané.
+
+## 10. Sklad A Dodávkové Faktury
+
+Tento bod navazuje na předchozí audit a je stále důležitý.
+
+Sklad:
+
+- Převzít P0 bugfix blokace mazání skladové položky s historií.
+- Přidat silnější stav ukládání u ručního pohybu, aby se stejný příjem/výdej neposlal dvakrát.
+- Zobrazit na skladové kartě nákupní cenu, prodejní cenu, marži, zdroj ceny, dodavatele, datum a doklad.
+- Přidat filtry: pod minimem, bez nákupní ceny, dodavatel, kategorie, poslední změna.
+
+Dodávkové/přijaté faktury:
+
+- Odsouhlasení po jednotlivých kartách je pro delší doklady zdlouhavé.
+- Přidej tabulkový režim `Rychlá kontrola položek`.
+- Umožni:
+  - inline edit položek,
+  - hromadně potvrdit bezpečné položky,
+  - zobrazit jen konflikty,
+  - uložit všechny změny,
+  - vidět před schválením dopad na sklad, zakázky a ceny.
+
+Dotčené soubory:
+
+- `artifacts/stavba/src/pages/sklad.tsx`
+- `artifacts/stavba/src/components/warehouse-movements.tsx`
+- `artifacts/api-server/src/routes/warehouse-items.ts`
+- `artifacts/stavba/src/pages/billing-document-detail.tsx`
+- cost document / warehouse / pricing services
+
+## 11. Kompletní Scope Z Doporučení P0, P1, P2, P3 A Dodatků
+
+Tato sekce je závazný kontrolní seznam. Implementuj všechny body P0, P1, P2, P3 bod 1, P3 bod 3, P3 bod 4 a všechny dodatky z auditu. P3 bod 2 `rychlý záznam technika` je záměrně vyjmutý a neimplementuj ho v této iteraci.
+
+### P0: Nutné Opravit Před Produkcí
+
+1. Česká desetinná čárka ve všech relevantních číselných polích.
+   - Problém: uživatelé běžně píší `1,5`, ale `type="number"` nebo `parseFloat` může hodnotu odmítnout nebo zkrátit.
+   - Implementace: používej parser pro český zápis, `type="text"`, `inputMode="decimal"` a jasnou validaci.
+   - Dotčené moduly: `job-form`, `job-detail`, `billing-document-detail`, `billing-settings`, skladové a activity materiály, vícepráce, výdaje.
+
+2. Hotová zakázka bez zákaznické karty se nesmí ztratit z fakturace.
+   - Problém: hotová práce bez `customerId` nemusí být ve frontě fakturace.
+   - Implementace: před přepnutím do `Hotovo` vyžaduj zákazníka, nebo zobraz samostatnou frontu `Hotové bez zákazníka`.
+   - Dotčené moduly: Jobs, Billing Unbilled, API query, dashboard risk board.
+
+3. Detail po uložení nesmí krátce ukazovat falešně prázdné sekce.
+   - Problém: texty typu `Žádné úkoly/materiál` před načtením vypadají jako ztráta dat.
+   - Implementace: rozliš `Načítám...`, `Zatím nic není`, `Nepodařilo se načíst`.
+   - Dotčené moduly: `job-detail.tsx`, query invalidation, sekce materiál/doklady/fotky/úkoly.
+
+4. Audit log nesmí uložit citlivé hodnoty.
+   - Problém: audit a backup DB nesmí obsahovat tokeny, hesla, PINy, karty nebo API klíče.
+   - Implementace: rekurzivně rediguj tajné klíče ve všech auditovaných payloads. Převzít nebo zachovat lokální opravu redakce audit middleware.
+   - Dotčené soubory: audit middleware/service, `middlewares/audit.ts`.
+
+5. Skladovou položku s pohyby nebo cenovou historií nelze hard-delete.
+   - Implementace je popsaná výše v lokálním bugfixu. Ponech/implementuj HTTP 409 a lidskou hlášku.
+
+6. Klikací karty ve fakturaci musí být skutečné odkazy nebo tlačítka.
+   - Problém: `div onClick` není přístupný klávesnicí a nevypadá jednoznačně jako akce.
+   - Implementace: použij `Link`/`button`, focus ring, keyboard activation, CTA `Otevřít`, `Zpracovat`, `Zkontrolovat`.
+   - Dotčené soubory: `billing.tsx`, `billing-unbilled.tsx`, `billing-documents.tsx`, `billing-invoices.tsx`.
+
+7. Ruční pohyb skladu nesmí jít omylem zopakovat slabou zpětnou vazbou.
+   - Implementace: disabled stav během ukládání, `Ukládám pohyb...`, inline potvrzení aktuálního stavu, zvážit idempotency key a `Storno posledního pohybu`.
+   - Dotčené soubory: `warehouse-movements.tsx`, warehouse API.
+
+### P1: Velmi Doporučené Pro Každodenní Používání
+
+1. Přihlášení a obnova hesla nesmí mlčet při chybě nebo prázdném submitu.
+   - Implementace: toast a/nebo inline chyba, jasný text `Vyplňte uživatelské jméno a heslo`, `Přihlášení selhalo`.
+   - Dotčený soubor: `login.tsx`.
+
+2. Přidej frontu problémových zakázek.
+   - Obsah: bez zákazníka, bez ceny, bez dokladů, hotové nevyfakturované, rozpracované příliš dlouho, čeká na materiál.
+   - Dotčené moduly: Dashboard, Jobs, Billing.
+
+3. E-mail import bez konfigurace nesmí mluvit na fakturanta technicky.
+   - Implementace: běžný text `E-mailový import není zapnutý`, CTA pro admina `Otevřít nastavení importu`, technické env detaily až v rozbalovacím admin detailu.
+   - Dotčený soubor: `billing-email-import`.
+
+4. Zmenši dopad velkých JS chunků na mobil.
+   - Implementace: lazy-load těžké části dokladů, AI, HEIC konverze, PDF exporty a další vzácně používané moduly.
+   - Dotčené oblasti: Vite routes, `heic2any`, billing pages, PDF export.
+
+5. Import e-mailů nesmí shodit API při IMAP chybě.
+   - Implementace: ověř a doplň listener `client.on("error")`, bezpečné retry/logging, alert při opakovaných chybách.
+   - Dotčené soubory: `email-import.ts`, monitoring/logging.
+
+6. Fakturace musí být pracovní fronta.
+   - Implementace: hlavní stránka `Fakturace` má mít `K vyřízení`: hotové k fakturaci, doklady ke kontrole, chyby importu, po splatnosti.
+   - Zobraz počet i částku, pokud existuje.
+   - Nulové metriky dej do sekundární části.
+
+7. Přejmenuj technické názvy na pracovní.
+   - `Nevyfakturované zakázky` -> `Hotové k fakturaci`
+   - `Kontrola AI dokladů` -> `Doklady ke kontrole`
+   - `Přijaté doklady` -> `Doklady a dodací listy`
+   - `Párování plateb z banky` -> `Platby z banky`
+   - Sjednoť texty v navigaci, nadpisech, prázdných stavech a CTA.
+
+8. Nastavení fakturace rozděl do přehledných záložek.
+   - Záložky: `Firma a platby`, `DPH a marže`, `Číslování faktur`, `AI a doklady`, `Párování a automatizace`, `Upomínky`.
+   - Nahoře zobraz stavovou kontrolu: `Fakturace připravena`, `Chybí účet`, `Chybí číselná řada`, `AI vypnuto`.
+   - Dotčený soubor: `billing-settings.tsx`.
+
+9. Přidej obousměrné prokliky mezi zákazníkem, zakázkou, dokladem a fakturou.
+   - Z fakturační fronty na zákazníka, zakázky a rozpracovanou fakturu.
+   - Z dokladu na zakázku, zákazníka, původní soubor a fakturu, kde byl použit.
+   - Z faktury na zdrojové zakázky a doklady.
+   - Z detailu zákazníka na `Hotové k fakturaci`, `Doklady`, `Faktury`, `Přístupy`, `Přílohy`.
+   - U duplicit přidej `Otevřít nalezený doklad` před volbu `Nahrát i přesto`.
+
+10. Sklad musí ukazovat cenový původ.
+    - Na kartě/detailu zobraz nákupní cenu, prodejní cenu, marži, zdroj ceny, dodavatele, doklad, datum a historii cen.
+    - Zvýrazni položky bez nákupní ceny nebo se zastaralou cenou.
+
+11. Odsouhlasení dodacích/přijatých faktur musí mít rychlý tabulkový režim.
+    - Inline edit popisu, množství, jednotky, ceny, zakázky a režimu.
+    - Hromadné akce: potvrdit bezpečné, přiřadit návrhy nad 90 %, označit jako sklad, uložit vše, zobrazit jen konflikty.
+    - Před schválením zobraz panel `Po schválení se stane...`.
+
+12. Sklad musí mít pracovní přehled a filtry.
+    - Souhrn: hodnota skladu v nákupních cenách, položky pod minimem, pohyby dnes, položky bez ceny, čeká na fakturu.
+    - Filtry: kategorie, dodavatel, pod minimem, bez ceny, poslední změna.
+
+13. Dashboard, zakázky, dlouhodobé akce, stroje a přístupy implementuj podle sekcí 1 až 9 výše.
+
+### P2: Zlepšení Komfortu
+
+1. Dlouhé názvy musí být lépe skenovatelné.
+   - Přidej nebo připrav kratší interní název / číslo zakázky.
+   - Dlouhý popis nech v detailu.
+   - U kalendáře a karet preferuj krátký pracovní název, datum, stav a zákazníka sekundárně.
+
+2. AI review empty state musí rozlišit prázdnou databázi a dokončenou kontrolu.
+   - `Žádné doklady zatím nejsou nahrané`
+   - `Všechny doklady jsou zkontrolované`
+   - `Import není zapnutý`
+   - `Nemáte oprávnění`
+   - Dotčený soubor: `billing-review-queue.tsx`.
+
+3. Zákazníci prázdní, ale práce běží přes volný text.
+   - Po uložení zakázky s volným textem zákazníka nabídni `Vytvořit zákazníka z tohoto textu`.
+   - Na empty state zákazníků dej CTA `Přidat zákazníka` a `Import CSV`.
+
+4. Změna statusu musí mít potvrzení v místě.
+   - Toast nestačí u dlouhého detailu.
+   - Přidej inline flash u status dropdownu: `Stav uložen`, `Nepodařilo se uložit`.
+
+5. Zjemni KPI karty a nulové metriky.
+   - Důležité problémy mají mít prioritu, velké nuly patří do sekundární části.
+
+6. Vylepši loading/empty states podle kontextu napříč aplikací.
+   - Nepiš jen `Načítám...`, ale `Načítám faktury...`, `Načítám doklady...`, `Ověřuji nastavení e-mail importu...`.
+
+7. Mobilní navigace má zohlednit roli.
+   - Zachovej přizpůsobitelnou mobilní lištu.
+   - Admin/majitel/fakturace musí snadno připnout `Fakturace`.
+   - Nepřidávej nový rychlý záznam technika.
+
+8. Zákazníci, zaměstnanci, statistika a audit musí být pracovní, ne jen evidenční.
+   - Zákazník jako rozcestník.
+   - Zaměstnanec s dnešní prací, hodinami, stroji a aktivním časovačem.
+   - Statistika se sekcí rizik.
+   - Audit s prokliky a lidským summary.
+
+### P3: Budoucí Směr, Implementuj Body 1, 3 A 4
+
+1. Majitel chce vidět únik peněz.
+   - Implementuj nebo připrav přehledy: `hotovo bez faktury`, `materiál bez ceny`, `doklad bez zakázky`, `rozpracováno dlouho`, `neodeslané faktury`.
+   - Dotčené moduly: Dashboard, Billing, Statistika.
+
+2. Tento bod záměrně přeskoč.
+   - Neimplementuj `rychlý záznam technika`.
+
+3. AI vytěžení potřebuje důvěru.
+   - Přidej audit trail AI: původní soubor, model, confidence, kdo opravil kterou položku, kdy byla oprava provedena.
+   - U položek zobraz důvod nízké jistoty a stav `vyžaduje kontrolu`.
+   - Dotčené moduly: Billing docs, review queue, audit.
+
+4. Citlivé přílohy a přístupové údaje potřebují retenci, export, obnovitelnost a ACL.
+   - Připrav/implementuj přístupová práva po zákazníkovi.
+   - Zobraz vlastnictví, poslední změnu a bezpečnostní audit.
+   - U exportu přístupů ověř oprávnění a loguj export bez tajných hodnot v summary.
+   - Dotčené moduly: Storage, GDPR, ACL, Přístupové údaje, Audit.
+
+### Všechny Dodatky Z Auditu Jsou Součástí Scope
+
+Implementuj také tyto dodatky:
+
+- `UI Komfort A Fakturace`: skutečné odkazy/tlačítka, pracovní fronta fakturace, přejmenování názvů, záložky nastavení, česká desetinná čárka, obousměrné prokliky, kontextové empty/loading stavy, role-aware mobilní quick nav.
+- `Sklad, Doklady A Zbytek UI`: blokace mazání skladu s historií, silný stav ukládání pohybů, skladové ceny a zdroj ceny, rychlá kontrola dodacích faktur, dopad schválení, skladové filtry, dashboard risk board.
+- `Menu, Zakázky, Akce, Stroje A Přístupy`: zakázkové fronty, připravenost zakázky, dlouhodobé akce jako řízené projekty, revizní rizika strojů, audit přístupových údajů, zákazník jako rozcestník, zaměstnanci jako provozní přehled, statistika jako manažerská kontrola rizik.
+
+## Obecná UI Pravidla Pro Implementaci
+
+- Klikací karty používej jako skutečné `Link` nebo `button`, ne jen `div onClick`.
+- Každá akce musí mít jasný stav: ukládám, uloženo, chyba.
+- Chybové hlášky piš lidsky česky, bez technických detailů, pokud nejsou v rozbaleném admin detailu.
+- Na mobilu musí být hlavní akce dosažitelné bez vodorovného scrollu.
+- Nulové metriky nezvětšuj vizuálně, pokud nejsou důležité.
+- U citlivých dat nikdy neloguj tajné hodnoty.
+- Zachovej přístupnost: focus ring, keyboard activation, aria-label u ikonových tlačítek.
+
+## Doporučené Pořadí Práce
+
+1. Převzít všechny P0 body: desetinná čárka, hotovo bez zákazníka, falešné prázdné loading stavy, audit redakce, blokace smazání skladu, klikací karty, silný stav skladového pohybu.
+2. Přidat dashboard panel `K řešení` a frontu problémových zakázek.
+3. Upravit Zakázky: segmenty, badge signály, panel připravenosti v detailu, inline potvrzení změny statusu.
+4. Přestavět Fakturaci na pracovní frontu včetně názvů, záložek nastavení, prokliků, e-mail importu a rychlé kontroly dokladů.
+5. Upravit Sklad: cenový původ, skladové metriky, filtry, pohyby, storno/idempotency.
+6. Upravit Stroje: revizní souhrn, filtry, barevný stav revize/STK.
+7. Upravit Dlouhodobé akce: filtry, silnější karty, stavový panel v detailu.
+8. Upravit Přístupové údaje: filtry, bezpečnostní text, audit reveal/copy bez tajných hodnot, ACL/retence/export.
+9. Doplnit Zákazníky, Zaměstnance, Statistiku a Audit log o prokliky a manažerské souhrny.
+10. Vyřešit P1 technické body: lazy-load velkých chunků a odolnost IMAP importu.
+11. Doplnit P3 body 1, 3 a 4: únik peněz, AI audit trail, citlivé přílohy/přístupy. P3 rychlý záznam technika vynechat.
+
+## Testování
+
+Po implementaci spusť minimálně:
+
+- frontend typecheck,
+- api-server typecheck,
+- frontend build,
+- relevantní unit/integration testy, pokud existují.
+
+Ruční E2E ověření:
+
+- desktop a mobilní viewport,
+- role admin/master/guest podle existujících oprávnění,
+- klávesnicí projít klikací karty,
+- vytvořit a upravit zakázku,
+- otevřít detail zakázky a ověřit panel připravenosti,
+- otevřít dlouhodobé akce a ověřit filtry,
+- založit stroj s revizí do minulosti a do 30 dnů,
+- vybrat zákazníka v Přístupových údajích a ověřit, že reveal/copy nevypíše tajnou hodnotu do logu,
+- zkusit smazat skladovou položku s pohybem a ověřit HTTP 409 + lidskou hlášku.
+
+Hotovo je až tehdy, když je v UI jasné:
+
+- kam kliknout,
+- co se uložilo,
+- co selhalo,
+- proč to selhalo,
+- co má člověk udělat dál.
+
+---
