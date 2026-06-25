@@ -101,6 +101,7 @@ import type {
   GdprEraseResult,
   GdprExport,
   GetMyDoneJobsParams,
+  GetRisksSummaryParams,
   GetStatsOverviewParams,
   HealthStatus,
   Invoice,
@@ -140,6 +141,7 @@ import type {
   ResetPasswordWithAnswersInput,
   RestoreResult,
   RetryEmailImportLog200,
+  RiskSummary,
   SaveJobSheetInput,
   SecurityQuestionsStatus,
   SendCredentialsEmailInput,
@@ -4816,6 +4818,94 @@ export function useGetTodayJobs<TData = Awaited<ReturnType<typeof getTodayJobs>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTodayJobsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetRisksSummaryUrl = (params?: GetRisksSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/risks/summary?${stringifiedParams}` : `/api/risks/summary`
+}
+
+/**
+ * Returns all risk metrics in one call so dashboards, job lists, billing, and statistics
+can display consistent alert badges without computing the numbers independently.
+Admin/billing role required.
+
+ * @summary Cross-domain risk metrics and work-queue counts
+ */
+export const getRisksSummary = async (params?: GetRisksSummaryParams, options?: RequestInit): Promise<RiskSummary> => {
+
+  return customFetch<RiskSummary>(getGetRisksSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetRisksSummaryQueryKey = (params?: GetRisksSummaryParams,) => {
+    return [
+    `/api/risks/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetRisksSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getRisksSummary>>, TError = ErrorType<void>>(params?: GetRisksSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRisksSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRisksSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRisksSummary>>> = ({ signal }) => getRisksSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRisksSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetRisksSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getRisksSummary>>>
+export type GetRisksSummaryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Cross-domain risk metrics and work-queue counts
+ */
+
+export function useGetRisksSummary<TData = Awaited<ReturnType<typeof getRisksSummary>>, TError = ErrorType<void>>(
+ params?: GetRisksSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRisksSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetRisksSummaryQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

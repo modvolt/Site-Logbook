@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gte, lte, sql, count, inArray, max, isNull } from "drizzle-orm";
-import { db, jobsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable } from "@workspace/db";
+import { eq, and, gte, lte, sql, count, inArray, max, isNull, isNotNull, ne, or } from "drizzle-orm";
+import { db, jobsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
   CreateJobBody,
@@ -149,6 +149,32 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
   };
 }
 
+const DEFAULT_STALE_DAYS = 14;
+
+async function getBilledJobIdSet(): Promise<Set<number>> {
+  const rows = await db
+    .select({ jobId: invoiceSourceLinksTable.jobId })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .where(
+      and(
+        ne(invoicesTable.status, "cancelled"),
+        isNotNull(invoiceSourceLinksTable.jobId),
+      ),
+    );
+  const ids = new Set<number>();
+  for (const r of rows) {
+    if (r.jobId != null) ids.add(r.jobId);
+  }
+  return ids;
+}
+
+function subtractDaysIso(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 router.get("/jobs", async (req, res): Promise<void> => {
   const parsed = ListJobsQueryParams.safeParse(req.query);
   if (!parsed.success) {
@@ -157,18 +183,132 @@ router.get("/jobs", async (req, res): Promise<void> => {
   }
 
   const { from, to, status, assignedPersonId } = parsed.data;
+  const segmentRaw = typeof req.query.segment === "string" ? req.query.segment : undefined;
+  const staleDaysRaw = Number(req.query.staleDays);
+  const staleDays =
+    Number.isInteger(staleDaysRaw) && staleDaysRaw > 0 ? staleDaysRaw : DEFAULT_STALE_DAYS;
+
   const conditions = [];
 
   if (from) conditions.push(gte(jobsTable.date, from));
   if (to) conditions.push(lte(jobsTable.date, to));
-  if (status) conditions.push(eq(jobsTable.status, status));
   if (assignedPersonId != null) conditions.push(eq(jobsTable.assignedPersonId, assignedPersonId));
 
-  const jobs = await db
-    .select()
-    .from(jobsTable)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(jobsTable.date, jobsTable.startTime);
+  let jobs: (typeof jobsTable.$inferSelect)[];
+
+  if (segmentRaw) {
+    const today = new Date().toISOString().slice(0, 10);
+
+    switch (segmentRaw) {
+      case "in_progress": {
+        conditions.push(eq(jobsTable.status, "in_progress"));
+        jobs = await db
+          .select()
+          .from(jobsTable)
+          .where(and(...conditions))
+          .orderBy(jobsTable.date, jobsTable.startTime);
+        break;
+      }
+      case "ready_to_bill": {
+        const billedIds = await getBilledJobIdSet();
+        conditions.push(eq(jobsTable.status, "done"));
+        if (billedIds.size > 0) {
+          const billedArr = Array.from(billedIds);
+          conditions.push(
+            sql`${jobsTable.id} not in (${sql.join(billedArr.map((id) => sql`${id}`), sql`, `)})`,
+          );
+        }
+        jobs = await db
+          .select()
+          .from(jobsTable)
+          .where(and(...conditions))
+          .orderBy(jobsTable.date, jobsTable.startTime);
+        break;
+      }
+      case "problematic": {
+        const staleThreshold = subtractDaysIso(today, staleDays);
+        conditions.push(
+          or(
+            eq(jobsTable.status, "planned"),
+            eq(jobsTable.status, "in_progress"),
+          ),
+        );
+        conditions.push(
+          or(
+            isNull(jobsTable.customerId),
+            isNull(jobsTable.price),
+            and(
+              eq(jobsTable.status, "in_progress"),
+              lte(jobsTable.date, staleThreshold),
+            ),
+          ),
+        );
+        jobs = await db
+          .select()
+          .from(jobsTable)
+          .where(and(...conditions))
+          .orderBy(jobsTable.date, jobsTable.startTime);
+        break;
+      }
+      case "without_customer": {
+        conditions.push(
+          or(eq(jobsTable.status, "planned"), eq(jobsTable.status, "in_progress")),
+        );
+        conditions.push(isNull(jobsTable.customerId));
+        jobs = await db
+          .select()
+          .from(jobsTable)
+          .where(and(...conditions))
+          .orderBy(jobsTable.date, jobsTable.startTime);
+        break;
+      }
+      case "without_price": {
+        // Jobs (active) that have at least one material without a unit price.
+        // Consistent with the materialsWithoutPrice risk metric.
+        const unpricedJobIds = await db
+          .selectDistinct({ jobId: materialsTable.jobId })
+          .from(materialsTable)
+          .where(
+            or(isNull(materialsTable.pricePerUnit), eq(materialsTable.pricePerUnit, "0")),
+          );
+        const jobIdList = unpricedJobIds.map((r) => r.jobId).filter((x): x is number => x != null);
+        if (jobIdList.length === 0) {
+          jobs = [];
+          break;
+        }
+        conditions.push(
+          or(eq(jobsTable.status, "planned"), eq(jobsTable.status, "in_progress")),
+        );
+        conditions.push(inArray(jobsTable.id, jobIdList));
+        jobs = await db
+          .select()
+          .from(jobsTable)
+          .where(and(...conditions))
+          .orderBy(jobsTable.date, jobsTable.startTime);
+        break;
+      }
+      case "cancelled": {
+        conditions.push(eq(jobsTable.status, "cancelled"));
+        jobs = await db
+          .select()
+          .from(jobsTable)
+          .where(and(...conditions))
+          .orderBy(jobsTable.date, jobsTable.startTime);
+        break;
+      }
+      default: {
+        res.status(400).json({ error: `Unknown segment: ${segmentRaw}` });
+        return;
+      }
+    }
+  } else {
+    if (status) conditions.push(eq(jobsTable.status, status));
+    jobs = await db
+      .select()
+      .from(jobsTable)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(jobsTable.date, jobsTable.startTime);
+  }
 
   const enriched = await Promise.all(jobs.map(enrichJob));
   res.json(enriched);

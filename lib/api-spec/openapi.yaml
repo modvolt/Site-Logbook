@@ -48,6 +48,8 @@ tags:
     description: Audit log of data changes (admin)
   - name: gdpr
     description: GDPR data subject export and erasure (admin)
+  - name: risks
+    description: Cross-domain risk metrics and work-queue summaries
 
 paths:
   /healthz:
@@ -91,6 +93,32 @@ paths:
           required: false
           schema:
             type: ["integer", "null"]
+        - name: segment
+          in: query
+          required: false
+          description: |
+            Work-queue segment filter. Mutually exclusive with `status`.
+            - `in_progress` — status = in_progress
+            - `ready_to_bill` — status = done AND not linked to an active invoice
+            - `problematic` — active jobs missing customer, price, or stale in_progress
+            - `without_customer` — planned/in_progress without a customer
+            - `without_price` — planned/in_progress without a price
+            - `cancelled` — status = cancelled
+          schema:
+            type: string
+            enum:
+              - in_progress
+              - ready_to_bill
+              - problematic
+              - without_customer
+              - without_price
+              - cancelled
+        - name: staleDays
+          in: query
+          required: false
+          description: "For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14)."
+          schema:
+            type: integer
       responses:
         "200":
           description: List of jobs
@@ -1389,6 +1417,32 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Job"
+
+  /risks/summary:
+    get:
+      operationId: getRisksSummary
+      tags: [risks]
+      summary: Cross-domain risk metrics and work-queue counts
+      description: |
+        Returns all risk metrics in one call so dashboards, job lists, billing, and statistics
+        can display consistent alert badges without computing the numbers independently.
+        Admin/billing role required.
+      parameters:
+        - name: staleDays
+          in: query
+          required: false
+          description: Days a job must be in_progress before it is counted as stale (default 14).
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Risk summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskSummary"
+        "403":
+          description: Forbidden
 
   /auth/login:
     post:
@@ -8651,3 +8705,81 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EmailImportAttachment"
+
+    RiskMetricFilter:
+      type: object
+      description: Describes how a UI should navigate to the items counted by this metric.
+      required: [screen]
+      properties:
+        screen:
+          type: string
+          description: Logical screen name (e.g. "jobs", "billing/documents", "warehouse", "machines").
+        params:
+          type: object
+          description: Query-parameter key/value pairs to pre-apply when navigating.
+          additionalProperties:
+            type: string
+
+    RiskMetric:
+      type: object
+      description: A single risk or work-queue counter with optional monetary amount and navigation hint.
+      required: [count, filter]
+      properties:
+        count:
+          type: integer
+          description: Number of items in this risk bucket.
+        amount:
+          type: ["number", "null"]
+          description: Optional monetary aggregate (CZK) relevant for this metric.
+        filter:
+          $ref: "#/components/schemas/RiskMetricFilter"
+
+    RiskSummary:
+      type: object
+      description: All cross-domain risk metrics computed in one request.
+      required:
+        - readyToBill
+        - documentsForReview
+        - warehouseBelowMin
+        - jobsWithoutCustomer
+        - materialsWithoutPrice
+        - longInProgress
+        - documentsWithoutJob
+        - machinesInspectionExpired
+        - machinesInspectionSoon
+        - staleDays
+        - computedAt
+      properties:
+        readyToBill:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Done jobs not yet linked to a non-cancelled invoice.
+        documentsForReview:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Billing documents with status needs_review.
+        warehouseBelowMin:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Warehouse items whose quantity is below their configured minimum.
+        jobsWithoutCustomer:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Active (planned/in_progress) jobs without an assigned customer.
+        materialsWithoutPrice:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Job materials without a unit price.
+        longInProgress:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Jobs that have been in_progress for more than staleDays days.
+        documentsWithoutJob:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Cost documents in a reviewable status with no job link and no confirmed reference.
+        machinesInspectionExpired:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Machines whose inspection date has passed.
+        machinesInspectionSoon:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Machines whose inspection date falls within the next 30 days.
+        staleDays:
+          type: integer
+          description: The staleness threshold (days) used for this response.
+        computedAt:
+          type: string
+          description: ISO timestamp when this summary was computed.

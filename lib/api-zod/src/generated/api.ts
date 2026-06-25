@@ -23,7 +23,9 @@ export const ListJobsQueryParams = zod.object({
   "from": zod.coerce.string().optional(),
   "to": zod.coerce.string().optional(),
   "status": zod.coerce.string().optional(),
-  "assignedPersonId": zod.coerce.number().nullish()
+  "assignedPersonId": zod.coerce.number().nullish(),
+  "segment": zod.enum(['in_progress', 'ready_to_bill', 'problematic', 'without_customer', 'without_price', 'cancelled']).optional().describe('Work-queue segment filter. Mutually exclusive with `status`.\n- `in_progress` — status = in_progress\n- `ready_to_bill` — status = done AND not linked to an active invoice\n- `problematic` — active jobs missing customer, price, or stale in_progress\n- `without_customer` — planned\/in_progress without a customer\n- `without_price` — planned\/in_progress without a price\n- `cancelled` — status = cancelled\n'),
+  "staleDays": zod.coerce.number().optional().describe('For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).')
 })
 
 export const ListJobsResponseItem = zod.object({
@@ -1439,6 +1441,95 @@ export const GetTodayJobsResponseItem = zod.object({
   "createdAt": zod.string()
 })
 export const GetTodayJobsResponse = zod.array(GetTodayJobsResponseItem)
+
+
+/**
+ * Returns all risk metrics in one call so dashboards, job lists, billing, and statistics
+can display consistent alert badges without computing the numbers independently.
+Admin/billing role required.
+
+ * @summary Cross-domain risk metrics and work-queue counts
+ */
+export const GetRisksSummaryQueryParams = zod.object({
+  "staleDays": zod.coerce.number().optional().describe('Days a job must be in_progress before it is counted as stale (default 14).')
+})
+
+export const GetRisksSummaryResponse = zod.object({
+  "readyToBill": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Done jobs not yet linked to a non-cancelled invoice.'),
+  "documentsForReview": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Billing documents with status needs_review.'),
+  "warehouseBelowMin": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Warehouse items whose quantity is below their configured minimum.'),
+  "jobsWithoutCustomer": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Active (planned\/in_progress) jobs without an assigned customer.'),
+  "materialsWithoutPrice": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Job materials without a unit price.'),
+  "longInProgress": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Jobs that have been in_progress for more than staleDays days.'),
+  "documentsWithoutJob": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Cost documents in a reviewable status with no job link and no confirmed reference.'),
+  "machinesInspectionExpired": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Machines whose inspection date has passed.'),
+  "machinesInspectionSoon": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Machines whose inspection date falls within the next 30 days.'),
+  "staleDays": zod.number().describe('The staleness threshold (days) used for this response.'),
+  "computedAt": zod.string().describe('ISO timestamp when this summary was computed.')
+}).describe('All cross-domain risk metrics computed in one request.')
 
 
 /**

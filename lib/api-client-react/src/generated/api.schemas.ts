@@ -858,6 +858,63 @@ export interface DashboardSummary {
   totalRevenueThisWeek: number;
 }
 
+/**
+ * Query-parameter key/value pairs to pre-apply when navigating.
+ */
+export type RiskMetricFilterParams = {[key: string]: string};
+
+/**
+ * Describes how a UI should navigate to the items counted by this metric.
+ */
+export interface RiskMetricFilter {
+  /** Logical screen name (e.g. "jobs", "billing/documents", "warehouse", "machines"). */
+  screen: string;
+  /** Query-parameter key/value pairs to pre-apply when navigating. */
+  params?: RiskMetricFilterParams;
+}
+
+/**
+ * A single risk or work-queue counter with optional monetary amount and navigation hint.
+ */
+export interface RiskMetric {
+  /** Number of items in this risk bucket. */
+  count: number;
+  /**
+     * Optional monetary aggregate (CZK) relevant for this metric.
+     * @nullable
+     */
+  amount?: number | null;
+  filter: RiskMetricFilter;
+}
+
+/**
+ * All cross-domain risk metrics computed in one request.
+ */
+export interface RiskSummary {
+  /** Done jobs not yet linked to a non-cancelled invoice. */
+  readyToBill: RiskMetric;
+  /** Billing documents with status needs_review. */
+  documentsForReview: RiskMetric;
+  /** Warehouse items whose quantity is below their configured minimum. */
+  warehouseBelowMin: RiskMetric;
+  /** Active (planned/in_progress) jobs without an assigned customer. */
+  jobsWithoutCustomer: RiskMetric;
+  /** Job materials without a unit price. */
+  materialsWithoutPrice: RiskMetric;
+  /** Jobs that have been in_progress for more than staleDays days. */
+  longInProgress: RiskMetric;
+  /** Cost documents in a reviewable status with no job link and no confirmed reference. */
+  documentsWithoutJob: RiskMetric;
+  /** Machines whose inspection date has passed. */
+  machinesInspectionExpired: RiskMetric;
+  /** Machines whose inspection date falls within the next 30 days. */
+  machinesInspectionSoon: RiskMetric;
+  /** The staleness threshold (days) used for this response. */
+  staleDays: number;
+  /** ISO timestamp when this summary was computed. */
+  computedAt: string;
+}
+
 export interface LoginInput {
   /** @minLength 1 */
   username: string;
@@ -3029,7 +3086,34 @@ status?: string;
  * @nullable
  */
 assignedPersonId?: number | null;
+/**
+ * Work-queue segment filter. Mutually exclusive with `status`.
+- `in_progress` — status = in_progress
+- `ready_to_bill` — status = done AND not linked to an active invoice
+- `problematic` — active jobs missing customer, price, or stale in_progress
+- `without_customer` — planned/in_progress without a customer
+- `without_price` — planned/in_progress without a price
+- `cancelled` — status = cancelled
+
+ */
+segment?: ListJobsSegment;
+/**
+ * For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).
+ */
+staleDays?: number;
 };
+
+export type ListJobsSegment = typeof ListJobsSegment[keyof typeof ListJobsSegment];
+
+
+export const ListJobsSegment = {
+  in_progress: 'in_progress',
+  ready_to_bill: 'ready_to_bill',
+  problematic: 'problematic',
+  without_customer: 'without_customer',
+  without_price: 'without_price',
+  cancelled: 'cancelled',
+} as const;
 
 export type GetStatsOverviewParams = {
 /**
@@ -3059,6 +3143,13 @@ export const ListWarehouseMovementsDirection = {
   in: 'in',
   out: 'out',
 } as const;
+
+export type GetRisksSummaryParams = {
+/**
+ * Days a job must be in_progress before it is counted as stale (default 14).
+ */
+staleDays?: number;
+};
 
 export type RetryEmailImportLog200 = {
   ok: boolean;
