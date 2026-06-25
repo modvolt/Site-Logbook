@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { ArrowLeft, Printer, Mail, Loader2, Eye, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
@@ -26,8 +27,17 @@ const PRINT_CSS = `
   #pristupy-list, #pristupy-list * { visibility: visible !important; }
   #pristupy-list { position: absolute; left: 0; top: 0; width: 100%; margin: 0; box-shadow: none !important; }
   .no-print { display: none !important; }
-  .masked-secret { display: none !important; }
-  .revealed-secret { display: table-row !important; }
+
+  /* Secret rows/cells hidden by default; shown only when checkbox was checked */
+  .secret-row { display: none !important; }
+  .print-include-secrets .secret-row { display: table-row !important; }
+  .secret-cell { display: none !important; }
+  .print-include-secrets .secret-cell { display: table-cell !important; }
+
+  /* Print-only elements are hidden on screen, shown only in print */
+  .print-only { display: inline !important; }
+  /* Screen-only elements are always hidden in print */
+  .screen-only { display: none !important; }
 }
 `;
 
@@ -38,6 +48,7 @@ export default function PristupoveUdajeExport() {
   const customerId = parseInt(params.id || "0", 10);
   const [company] = useState(() => loadCompanySettings());
   const [secretsRevealed, setSecretsRevealed] = useState(false);
+  const [includeSecretsPrint, setIncludeSecretsPrint] = useState(false);
   const { toast } = useToast();
   const sendEmail = useSendCredentialsEmail();
   const auditExport = useAuditCredentialExport();
@@ -97,6 +108,11 @@ export default function PristupoveUdajeExport() {
     return keys;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grouped, sites]);
+
+  const handleIncludeSecretsChange = (checked: boolean) => {
+    setIncludeSecretsPrint(checked);
+    if (!checked) setSecretsRevealed(false);
+  };
 
   const handleRevealSecrets = () => {
     setSecretsRevealed(true);
@@ -161,7 +177,17 @@ export default function PristupoveUdajeExport() {
           <h1 className="text-lg font-bold flex-1 min-w-0 truncate">
             Přístupové údaje – export
           </h1>
-          {!secretsRevealed && (
+
+          {/* Include secrets in print checkbox */}
+          <label className="flex items-center gap-2 cursor-pointer shrink-0 select-none text-sm">
+            <Checkbox
+              checked={includeSecretsPrint}
+              onCheckedChange={(v) => handleIncludeSecretsChange(!!v)}
+            />
+            Tisknout hesla a PINy
+          </label>
+
+          {includeSecretsPrint && !secretsRevealed && (
             <Button
               variant="outline"
               onClick={handleRevealSecrets}
@@ -195,9 +221,19 @@ export default function PristupoveUdajeExport() {
             <ShieldAlert className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
               Otevření exportu bylo zaznamenáno do záznamu změn.
-              {!secretsRevealed && (
+              {!includeSecretsPrint && (
                 <span>
-                  {" "}Hesla a PINy jsou skryta — klikněte na „Zobrazit hesla a PINy" pro zobrazení.
+                  {" "}Hesla a PINy nejsou zahrnuty v tisku — zaškrtněte „Tisknout hesla a PINy" pro jejich vložení.
+                </span>
+              )}
+              {includeSecretsPrint && !secretsRevealed && (
+                <span>
+                  {" "}Hesla a PINy budou zahrnuta v tisku. Na obrazovce jsou skryta — klikněte na „Zobrazit hesla a PINy" pro zobrazení.
+                </span>
+              )}
+              {includeSecretsPrint && secretsRevealed && (
+                <span>
+                  {" "}Hesla a PINy jsou zobrazena a budou zahrnuta v tisku.
                 </span>
               )}
             </span>
@@ -209,7 +245,7 @@ export default function PristupoveUdajeExport() {
       <div className="max-w-3xl mx-auto w-full p-4 md:p-8">
         <div
           id="pristupy-list"
-          className="bg-white text-neutral-900 shadow-lg mx-auto p-8 md:p-10"
+          className={`bg-white text-neutral-900 shadow-lg mx-auto p-8 md:p-10${includeSecretsPrint ? " print-include-secrets" : ""}`}
           style={{ maxWidth: "210mm" }}
         >
           {/* Header */}
@@ -278,7 +314,12 @@ export default function PristupoveUdajeExport() {
                   </h3>
                   <div className="space-y-4">
                     {list.map((c) => (
-                      <CredBlock key={c.id} c={c} secretsRevealed={secretsRevealed} />
+                      <CredBlock
+                        key={c.id}
+                        c={c}
+                        secretsRevealed={secretsRevealed}
+                        includeSecretsPrint={includeSecretsPrint}
+                      />
                     ))}
                   </div>
                 </div>
@@ -296,7 +337,15 @@ export default function PristupoveUdajeExport() {
   );
 }
 
-function CredBlock({ c, secretsRevealed }: { c: DeviceCredential; secretsRevealed: boolean }) {
+function CredBlock({
+  c,
+  secretsRevealed,
+  includeSecretsPrint,
+}: {
+  c: DeviceCredential;
+  secretsRevealed: boolean;
+  includeSecretsPrint: boolean;
+}) {
   const MASK = "••••••••";
 
   const publicRows: { label: string; value: string }[] = [];
@@ -322,12 +371,21 @@ function CredBlock({ c, secretsRevealed }: { c: DeviceCredential; secretsReveale
               </tr>
             ))}
             {secretRows.map((r) => (
-              <tr key={r.label} className="border-b border-neutral-200 last:border-0">
+              <tr
+                key={r.label}
+                className={`border-b border-neutral-200 last:border-0 secret-row${!includeSecretsPrint ? " hidden" : ""}`}
+              >
                 <td className="py-1 pr-4 text-neutral-500 align-top w-32">{r.label}</td>
                 <td className="py-1 font-medium font-mono break-all">
-                  {secretsRevealed ? r.value : (
-                    <span className="text-neutral-400 tracking-widest">{r.masked}</span>
-                  )}
+                  {/* Screen: masked until admin reveals */}
+                  <span className="screen-only">
+                    {secretsRevealed
+                      ? r.value
+                      : <span className="text-neutral-400 tracking-widest">{r.masked}</span>
+                    }
+                  </span>
+                  {/* Print: always the real value (hidden on screen via display:none) */}
+                  <span className="print-only" style={{ display: "none" }}>{r.value}</span>
                 </td>
               </tr>
             ))}
@@ -343,7 +401,7 @@ function CredBlock({ c, secretsRevealed }: { c: DeviceCredential; secretsReveale
             <thead>
               <tr className="border-b border-neutral-300 text-left text-neutral-600">
                 <th className="py-1 pr-4 font-semibold">Jméno</th>
-                <th className="py-1 pr-4 font-semibold">PIN</th>
+                <th className={`py-1 pr-4 font-semibold secret-cell${!includeSecretsPrint ? " hidden" : ""}`}>PIN</th>
                 <th className="py-1 font-semibold">Karty</th>
               </tr>
             </thead>
@@ -351,13 +409,20 @@ function CredBlock({ c, secretsRevealed }: { c: DeviceCredential; secretsReveale
               {c.users.map((u) => (
                 <tr key={u.id} className="border-b border-neutral-200 last:border-0">
                   <td className="py-1 pr-4">{u.name || "—"}</td>
-                  <td className="py-1 pr-4 font-medium font-mono">
-                    {u.pin
-                      ? secretsRevealed
-                        ? u.pin
-                        : <span className="text-neutral-400 tracking-widest">••••</span>
-                      : "—"
-                    }
+                  <td className={`py-1 pr-4 font-medium font-mono secret-cell${!includeSecretsPrint ? " hidden" : ""}`}>
+                    {/* Screen: masked until admin reveals */}
+                    <span className="screen-only">
+                      {u.pin
+                        ? secretsRevealed
+                          ? u.pin
+                          : <span className="text-neutral-400 tracking-widest">••••</span>
+                        : "—"
+                      }
+                    </span>
+                    {/* Print: always the real value */}
+                    <span className="print-only" style={{ display: "none" }}>
+                      {u.pin || "—"}
+                    </span>
                   </td>
                   <td className="py-1 break-all">
                     {u.cards.length > 0 ? u.cards.join(", ") : "—"}
