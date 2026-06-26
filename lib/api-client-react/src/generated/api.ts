@@ -109,6 +109,7 @@ import type {
   GetMyDoneJobsParams,
   GetRisksSummaryParams,
   GetStatsOverviewParams,
+  GetWarehouseActivityMarginTrendParams,
   GetWarehouseJobMarginSummaryParams,
   GetWarehouseJobMarginTrendParams,
   HealthStatus,
@@ -180,6 +181,7 @@ import type {
   UserPreferences,
   UserPreferencesInput,
   UserUpdate,
+  WarehouseActivityMarginTrend,
   WarehouseImportInput,
   WarehouseImportResult,
   WarehouseItem,
@@ -5443,6 +5445,90 @@ export function useGetWarehouseJobMarginTrend<TData = Awaited<ReturnType<typeof 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetWarehouseJobMarginTrendQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetWarehouseActivityMarginTrendUrl = (params: GetWarehouseActivityMarginTrendParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/warehouse-movements/activity-margin-trend?${stringifiedParams}` : `/api/warehouse-movements/activity-margin-trend`
+}
+
+/**
+ * @summary Get weekly cumulative margin trend for all OUT movements on a single activity
+ */
+export const getWarehouseActivityMarginTrend = async (params: GetWarehouseActivityMarginTrendParams, options?: RequestInit): Promise<WarehouseActivityMarginTrend> => {
+
+  return customFetch<WarehouseActivityMarginTrend>(getGetWarehouseActivityMarginTrendUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWarehouseActivityMarginTrendQueryKey = (params?: GetWarehouseActivityMarginTrendParams,) => {
+    return [
+    `/api/warehouse-movements/activity-margin-trend`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetWarehouseActivityMarginTrendQueryOptions = <TData = Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>, TError = ErrorType<unknown>>(params: GetWarehouseActivityMarginTrendParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWarehouseActivityMarginTrendQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>> = ({ signal }) => getWarehouseActivityMarginTrend(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWarehouseActivityMarginTrendQueryResult = NonNullable<Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>>
+export type GetWarehouseActivityMarginTrendQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get weekly cumulative margin trend for all OUT movements on a single activity
+ */
+
+export function useGetWarehouseActivityMarginTrend<TData = Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>, TError = ErrorType<unknown>>(
+ params: GetWarehouseActivityMarginTrendParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseActivityMarginTrend>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWarehouseActivityMarginTrendQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

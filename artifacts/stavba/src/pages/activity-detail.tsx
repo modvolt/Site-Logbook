@@ -13,12 +13,17 @@ import {
   useListActivityExtraWorks, getListActivityExtraWorksQueryKey,
   useCreateActivityExtraWork, useUpdateActivityExtraWork, useDeleteActivityExtraWork,
   useListWarehouseItems, getListWarehouseItemsQueryKey,
+  useGetWarehouseActivityMarginTrend, getGetWarehouseActivityMarginTrendQueryKey,
   useListCustomers, getGetMyStatsQueryKey,
   useListActivityTimeEntries, getListActivityTimeEntriesQueryKey,
   useCreateActivityTimeEntry, useStartActivityTimeEntry, useStopActivityTimeEntry,
   useUpdateActivityTimeEntry, useDeleteActivityTimeEntry,
   useListPeople, getListPeopleQueryKey,
 } from "@workspace/api-client-react";
+import {
+  ResponsiveContainer, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+} from "recharts";
 import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useUpload } from "@workspace/object-storage-web";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
@@ -48,6 +53,66 @@ function getAttachmentUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("data:")) return url;
   return `/api/storage${url}`;
+}
+
+type TrendPoint = {
+  period: string;
+  cumulativeSaleValue: number;
+  cumulativeCostValue: number;
+  cumulativeMarginPct?: number | null;
+};
+
+function formatWeek(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+
+function MarginTrendChart({ points }: { points: TrendPoint[] }) {
+  const hasNegative = points.some((p) => (p.cumulativeMarginPct ?? 0) < 0);
+  const chartData = points.map((p) => ({
+    period: formatWeek(p.period),
+    marze: p.cumulativeMarginPct,
+  }));
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/60">
+      <p className="text-xs text-muted-foreground mb-2">Vývoj kumulativní marže po týdnech</p>
+      <ResponsiveContainer width="100%" height={120}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="activityMarginGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"} stopOpacity={0.25} />
+              <stop offset="95%" stopColor={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"} stopOpacity={0.0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+          <XAxis dataKey="period" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+          <Tooltip
+            formatter={(v) => {
+              const n = v as number | null | undefined;
+              return n != null ? [`${n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`, "Marže"] : ["—", "Marže"];
+            }}
+            labelFormatter={(l) => `Týden od ${l}`}
+            contentStyle={{ fontSize: 11 }}
+          />
+          <ReferenceLine y={0} stroke="rgb(239 68 68)" strokeDasharray="4 2" strokeWidth={1} />
+          <Area
+            type="monotone"
+            dataKey="marze"
+            stroke={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"}
+            strokeWidth={2}
+            fill="url(#activityMarginGrad)"
+            dot={{ r: 3, fill: hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)", strokeWidth: 0 }}
+            connectNulls
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 async function downloadAttachment(src: string, fileName: string) {
@@ -560,6 +625,10 @@ function MaterialsSection({
 }) {
   const { toast } = useToast();
   const { data: warehouseItems } = useListWarehouseItems(undefined, { query: { queryKey: getListWarehouseItemsQueryKey() } });
+  const { data: marginTrend } = useGetWarehouseActivityMarginTrend(
+    { activityId },
+    { query: { queryKey: getGetWarehouseActivityMarginTrendQueryKey({ activityId }) } },
+  );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const [showAdd, setShowAdd] = useState(false);
@@ -731,6 +800,10 @@ function MaterialsSection({
               );
             })}
           </ul>
+        )}
+
+        {marginTrend && marginTrend.points.length >= 3 && (
+          <MarginTrendChart points={marginTrend.points} />
         )}
       </CardContent>
       <ConfirmDialog {...dialogPropsMat} />

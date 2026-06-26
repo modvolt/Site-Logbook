@@ -699,6 +699,44 @@ router.get("/warehouse-movements/job-margin-trend", async (req, res): Promise<vo
   res.json({ jobId, points });
 });
 
+router.get("/warehouse-movements/activity-margin-trend", async (req, res): Promise<void> => {
+  const activityId = parseInt(req.query.activityId as string, 10);
+  if (!Number.isInteger(activityId) || activityId <= 0) {
+    res.status(400).json({ error: "activityId (integer) je povinný parametr." });
+    return;
+  }
+
+  // Bucket OUT movements for this activity by ISO week (via activity_material source link)
+  const rows = (await db.execute(sql`
+    select
+      date_trunc('week', ${warehouseMovementsTable.createdAt})::date::text as period,
+      coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
+      coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.costPriceAtTime} * ${warehouseMovementsTable.quantity} else 0 end), 0) as period_cost_value
+    from ${warehouseMovementsTable}
+    where ${warehouseMovementsTable.sourceType} = 'activity_material'
+      and ${warehouseMovementsTable.sourceId} in (
+        select id from activity_materials where activity_id = ${activityId}
+      )
+      and ${warehouseMovementsTable.direction} = 'out'
+    group by date_trunc('week', ${warehouseMovementsTable.createdAt})
+    order by period asc
+  `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> };
+
+  // Compute cumulative values
+  let cumSale = 0;
+  let cumCost = 0;
+  const points = rows.rows.map((r) => {
+    cumSale = round2(cumSale + num(r.period_sale_value));
+    cumCost = round2(cumCost + num(r.period_cost_value));
+    const cumulativeMarginPct = cumSale > 0
+      ? round2(((cumSale - cumCost) / cumSale) * 100)
+      : null;
+    return { period: r.period, cumulativeSaleValue: cumSale, cumulativeCostValue: cumCost, cumulativeMarginPct };
+  });
+
+  res.json({ activityId, points });
+});
+
 router.get("/warehouse-movements/job-margin-summary", async (req, res): Promise<void> => {
   const jobId = parseInt(req.query.jobId as string, 10);
   if (!Number.isInteger(jobId) || jobId <= 0) {

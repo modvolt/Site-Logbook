@@ -1080,6 +1080,11 @@ export interface WarehouseJobMarginTrend {
   points: WarehouseJobMarginTrendPoint[];
 }
 
+export interface WarehouseActivityMarginTrend {
+  activityId: number;
+  points: WarehouseJobMarginTrendPoint[];
+}
+
 export interface DashboardSummary {
   todayCount: number;
   weekCount: number;
@@ -3449,6 +3454,10 @@ export const GetWarehouseJobMarginTrendGranularity = {
   week: 'week',
   month: 'month',
 } as const;
+
+export type GetWarehouseActivityMarginTrendParams = {
+activityId: number;
+};
 
 export type ListWarehouseMovementsParams = {
 warehouseItemId?: number;

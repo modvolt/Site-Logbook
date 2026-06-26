@@ -1628,6 +1628,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/WarehouseJobMarginTrend"
 
+  /warehouse-movements/activity-margin-trend:
+    get:
+      operationId: getWarehouseActivityMarginTrend
+      tags: [warehouse]
+      summary: Get weekly cumulative margin trend for all OUT movements on a single activity
+      parameters:
+        - name: activityId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Weekly cumulative margin trend for the activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseActivityMarginTrend"
+
   /warehouse-movements:
     get:
       operationId: listWarehouseMovements
@@ -7307,6 +7326,17 @@ components:
       required: [jobId, points]
       properties:
         jobId:
+          type: integer
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseJobMarginTrendPoint"
+
+    WarehouseActivityMarginTrend:
+      type: object
+      required: [activityId, points]
+      properties:
+        activityId:
           type: integer
         points:
           type: array
