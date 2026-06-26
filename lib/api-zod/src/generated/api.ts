@@ -821,7 +821,9 @@ export const GetStatsOverviewResponse = zod.object({
   "saleRevenue": zod.number(),
   "purchaseCost": zod.number(),
   "grossProfit": zod.number()
-}))
+})),
+  "incompleteMovements": zod.number().describe('Number of OUT movements in the period with no cost_price_at_time (excluded from profit calculation)'),
+  "incompleteMovementsShare": zod.number().describe('Fraction of OUT movements missing a cost price (0–1)')
 })
 })
 

@@ -527,6 +527,10 @@ export type StatsOverviewWarehouse = {
   materialGrossProfit: number;
   hasPartialCosts: boolean;
   topProfitItems: StatsWarehouseProfitItem[];
+  /** Number of OUT movements in the period with no cost_price_at_time (excluded from profit calculation) */
+  incompleteMovements: number;
+  /** Fraction of OUT movements missing a cost price (0–1) */
+  incompleteMovementsShare: number;
 };
 
 export interface StatsEmployee {

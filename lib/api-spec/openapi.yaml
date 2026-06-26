@@ -5376,7 +5376,7 @@ components:
                 $ref: "#/components/schemas/StatsMaterialRow"
         warehouse:
           type: object
-          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts, topProfitItems]
+          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts, topProfitItems, incompleteMovements, incompleteMovementsShare]
           properties:
             itemCount:
               type: integer
@@ -5396,6 +5396,12 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/StatsWarehouseProfitItem"
+            incompleteMovements:
+              type: integer
+              description: Number of OUT movements in the period with no cost_price_at_time (excluded from profit calculation)
+            incompleteMovementsShare:
+              type: number
+              description: Fraction of OUT movements missing a cost price (0–1)
 
     CustomerInput:
       type: object

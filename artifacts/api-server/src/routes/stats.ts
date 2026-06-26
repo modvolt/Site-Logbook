@@ -174,7 +174,11 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
   const materialSaleRevenue = num(warehouseProfitAgg?.saleRevenue);
   const materialPurchaseCost = num(warehouseProfitAgg?.purchaseCost);
   const materialGrossProfit = materialSaleRevenue - materialPurchaseCost;
-  const hasPartialCosts = num(warehouseProfitAgg?.movementsWithCost) < num(warehouseProfitAgg?.movementsTotal);
+  const movementsTotal = num(warehouseProfitAgg?.movementsTotal);
+  const movementsWithCost = num(warehouseProfitAgg?.movementsWithCost);
+  const incompleteMovements = movementsTotal - movementsWithCost;
+  const incompleteMovementsShare = movementsTotal > 0 ? incompleteMovements / movementsTotal : 0;
+  const hasPartialCosts = incompleteMovements > 0;
 
   const work = num(jobAgg?.price) + num(jobAgg?.parking) + num(jobAgg?.fines) + num(jobAgg?.transport);
   const material = num(materialAgg?.totalCost);
@@ -217,6 +221,8 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       materialGrossProfit,
       hasPartialCosts,
       topProfitItems,
+      incompleteMovements,
+      incompleteMovementsShare,
     },
   });
 });
