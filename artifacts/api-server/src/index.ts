@@ -4,6 +4,7 @@ import { startBackupScheduler } from "./lib/backup";
 import { startReminderScheduler } from "./lib/invoice-reminders";
 import { startExtractionWorker } from "./lib/extraction-worker";
 import { startEmailImportWorker } from "./lib/email-import";
+import { startClientErrorPurgeScheduler } from "./routes/client-errors";
 import { describeObjectStorageConfig } from "./lib/objectStorage";
 
 const rawPort = process.env["PORT"];
@@ -32,4 +33,5 @@ app.listen(port, (err) => {
   startReminderScheduler();
   startExtractionWorker();
   startEmailImportWorker();
+  startClientErrorPurgeScheduler();
 });

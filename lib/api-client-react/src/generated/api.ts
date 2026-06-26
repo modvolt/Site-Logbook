@@ -50,6 +50,7 @@ import type {
   CancelInvoiceInput,
   ClientErrorInput,
   ClientErrorList,
+  ClientErrorPurgeResult,
   CostDocument,
   CostDocumentDetail,
   CostDocumentLineSplitInput,
@@ -149,6 +150,7 @@ import type {
   Person,
   PersonInput,
   PersonStats,
+  PurgeClientErrorsParams,
   ResetPasswordWithAnswersInput,
   RestoreResult,
   RetryEmailImportLog200,
@@ -5933,6 +5935,83 @@ export function useListClientErrors<TData = Awaited<ReturnType<typeof listClient
 
 
 
+
+export const getPurgeClientErrorsUrl = (params?: PurgeClientErrorsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/client-errors?${stringifiedParams}` : `/api/client-errors`
+}
+
+/**
+ * @summary Delete client error records older than N days (admin)
+ */
+export const purgeClientErrors = async (params?: PurgeClientErrorsParams, options?: RequestInit): Promise<ClientErrorPurgeResult> => {
+
+  return customFetch<ClientErrorPurgeResult>(getPurgeClientErrorsUrl(params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getPurgeClientErrorsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purgeClientErrors>>, TError,{params?: PurgeClientErrorsParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof purgeClientErrors>>, TError,{params?: PurgeClientErrorsParams}, TContext> => {
+
+const mutationKey = ['purgeClientErrors'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof purgeClientErrors>>, {params?: PurgeClientErrorsParams}> = (props) => {
+          const {params} = props ?? {};
+
+          return  purgeClientErrors(params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PurgeClientErrorsMutationResult = NonNullable<Awaited<ReturnType<typeof purgeClientErrors>>>
+
+    export type PurgeClientErrorsMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete client error records older than N days (admin)
+ */
+export const usePurgeClientErrors = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purgeClientErrors>>, TError,{params?: PurgeClientErrorsParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof purgeClientErrors>>,
+        TError,
+        {params?: PurgeClientErrorsParams},
+        TContext
+      > => {
+      return useMutation(getPurgeClientErrorsMutationOptions(options));
+    }
 
 export const getLoginUrl = () => {
 

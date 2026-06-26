@@ -1892,6 +1892,19 @@ export const ListClientErrorsResponse = zod.object({
 
 
 /**
+ * @summary Delete client error records older than N days (admin)
+ */
+export const PurgeClientErrorsQueryParams = zod.object({
+  "olderThanDays": zod.coerce.number().optional().describe('Delete entries older than this many days (default from CLIENT_ERRORS_RETENTION_DAYS env or 90)')
+})
+
+export const PurgeClientErrorsResponse = zod.object({
+  "deleted": zod.number().describe('Number of rows deleted'),
+  "olderThanDays": zod.number().describe('Retention threshold used')
+})
+
+
+/**
  * @summary Sign in with username and password
  */
 

@@ -1194,6 +1194,13 @@ export interface ClientErrorList {
   total: number;
 }
 
+export interface ClientErrorPurgeResult {
+  /** Number of rows deleted */
+  deleted: number;
+  /** Retention threshold used */
+  olderThanDays: number;
+}
+
 export interface LoginInput {
   /** @minLength 1 */
   username: string;
@@ -3460,6 +3467,13 @@ staleDays?: number;
 export type ListClientErrorsParams = {
 limit?: number;
 offset?: number;
+};
+
+export type PurgeClientErrorsParams = {
+/**
+ * Delete entries older than this many days (default from CLIENT_ERRORS_RETENTION_DAYS env or 90)
+ */
+olderThanDays?: number;
 };
 
 export type RetryEmailImportLog200 = {

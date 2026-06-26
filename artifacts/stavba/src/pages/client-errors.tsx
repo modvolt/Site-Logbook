@@ -1,12 +1,38 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { useListClientErrors, getListClientErrorsQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useListClientErrors,
+  getListClientErrorsQueryKey,
+  usePurgeClientErrors,
+} from "@workspace/api-client-react";
 import type { ClientError } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bug, ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Bug,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 const PAGE_SIZE = 50;
+
+const DEFAULT_RETENTION_DAYS = 90;
 
 function ExpandableRow({ error }: { error: ClientError }) {
   const [expanded, setExpanded] = useState(false);
@@ -78,15 +104,35 @@ function ExpandableRow({ error }: { error: ClientError }) {
 
 export default function ClientErrors() {
   const [page, setPage] = useState(0);
+  const qc = useQueryClient();
 
   const params = { limit: PAGE_SIZE, offset: page * PAGE_SIZE };
   const { data, isLoading } = useListClientErrors(params, {
     query: { queryKey: getListClientErrorsQueryKey(params) },
   });
 
+  const purge = usePurgeClientErrors({
+    mutation: {
+      onSuccess: (result) => {
+        const { deleted, olderThanDays } = result;
+        if (deleted === 0) {
+          toast.info(`Žádné záznamy starší než ${olderThanDays} dní.`);
+        } else {
+          toast.success(`Smazáno ${deleted} záznam${deleted === 1 ? "" : deleted < 5 ? "y" : "ů"} starších než ${olderThanDays} dní.`);
+        }
+        setPage(0);
+        void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).includes("client-errors") });
+      },
+      onError: () => {
+        toast.error("Nepodařilo se smazat záznamy.");
+      },
+    },
+  });
+
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const retentionDays = DEFAULT_RETENTION_DAYS;
 
   return (
     <div className="p-4 md:p-6 w-full">
@@ -95,9 +141,37 @@ export default function ClientErrors() {
           <Bug className="w-7 h-7 text-rose-600" />
           <h1 className="text-2xl font-bold">Frontend chyby</h1>
         </div>
-        <p className="text-sm text-muted-foreground mb-6">
-          Záznamy pádů aplikace zachycené hranicí chyb — klikněte na řádek pro zobrazení stack trace.
-        </p>
+        <div className="flex items-start justify-between gap-4 mb-6">
+          <p className="text-sm text-muted-foreground">
+            Záznamy pádů aplikace zachycené hranicí chyb — klikněte na řádek pro zobrazení stack trace.
+          </p>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" className="shrink-0 gap-1.5 text-muted-foreground hover:text-destructive hover:border-destructive">
+                <Trash2 className="w-4 h-4" />
+                Smazat staré záznamy
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Smazat staré záznamy chyb?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Tato akce trvale smaže všechny záznamy starší než{" "}
+                  <strong>{retentionDays} dní</strong>. Nedá se vrátit zpět.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Zrušit</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => purge.mutate({ params: { olderThanDays: retentionDays } })}
+                >
+                  Smazat
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
 
         <div className="bg-card border rounded-xl overflow-hidden">
           <div className="overflow-x-auto">

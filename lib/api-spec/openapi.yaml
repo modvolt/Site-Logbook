@@ -1771,6 +1771,26 @@ paths:
                 $ref: "#/components/schemas/ClientErrorList"
         "403":
           description: Forbidden
+    delete:
+      operationId: purgeClientErrors
+      tags: [client-errors]
+      summary: Delete client error records older than N days (admin)
+      parameters:
+        - name: olderThanDays
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Delete entries older than this many days (default from CLIENT_ERRORS_RETENTION_DAYS env or 90)
+      responses:
+        "200":
+          description: Number of rows deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientErrorPurgeResult"
+        "403":
+          description: Forbidden
 
   /auth/login:
     post:
@@ -5309,6 +5329,17 @@ components:
             $ref: "#/components/schemas/ClientError"
         total:
           type: integer
+
+    ClientErrorPurgeResult:
+      type: object
+      required: [deleted, olderThanDays]
+      properties:
+        deleted:
+          type: integer
+          description: Number of rows deleted
+        olderThanDays:
+          type: integer
+          description: Retention threshold used
 
     HealthStatus:
       type: object

@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
-import { desc, sql } from "drizzle-orm";
+import { desc, sql, lt } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, clientErrorsTable } from "@workspace/db";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { z } from "zod/v4";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -25,6 +26,61 @@ const ReportClientErrorBody = z.object({
   componentStack: z.string().max(10000).optional(),
   path: z.string().max(2000).optional(),
 });
+
+/** Default retention period in days (overridden by CLIENT_ERRORS_RETENTION_DAYS env var). */
+export const DEFAULT_RETENTION_DAYS = 90;
+
+/** Resolve the effective retention period from env or the default. */
+export function resolveRetentionDays(override?: number): number {
+  if (override !== undefined && Number.isInteger(override) && override > 0) return override;
+  const env = Number(process.env.CLIENT_ERRORS_RETENTION_DAYS);
+  return Number.isInteger(env) && env > 0 ? env : DEFAULT_RETENTION_DAYS;
+}
+
+/**
+ * Delete client error rows older than `retentionDays` days.
+ * Returns the number of rows deleted.
+ */
+export async function purgeOldClientErrors(retentionDays?: number): Promise<number> {
+  const days = resolveRetentionDays(retentionDays);
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const result = await db
+    .delete(clientErrorsTable)
+    .where(lt(clientErrorsTable.createdAt, cutoff))
+    .returning({ id: clientErrorsTable.id });
+  return result.length;
+}
+
+let schedulerStarted = false;
+
+/**
+ * Start the periodic client-error purge. Idempotent.
+ * Runs every 24 hours. Retention window is CLIENT_ERRORS_RETENTION_DAYS (default 90).
+ */
+export function startClientErrorPurgeScheduler(): void {
+  if (schedulerStarted) return;
+  schedulerStarted = true;
+
+  const tick = (): void => {
+    const days = resolveRetentionDays();
+    purgeOldClientErrors(days)
+      .then((deleted) => {
+        if (deleted > 0) {
+          logger.info({ deleted, retentionDays: days }, "Purged old client error records");
+        }
+      })
+      .catch((err) => logger.error({ err }, "Client error purge failed"));
+  };
+
+  const intervalMs = 24 * 60 * 60 * 1000;
+  const timer = setInterval(tick, intervalMs);
+  timer.unref();
+
+  logger.info(
+    { retentionDays: resolveRetentionDays(), intervalHours: 24 },
+    "Client error purge scheduler started",
+  );
+}
 
 router.post("/client-errors", requireAuth, errorLimiter, async (req, res): Promise<void> => {
   const parsed = ReportClientErrorBody.safeParse(req.body);
@@ -74,6 +130,15 @@ router.get("/client-errors", requireRole("admin", "master"), async (req, res): P
     })),
     total: total ?? 0,
   });
+});
+
+router.delete("/client-errors", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const rawDays = Number(req.query.olderThanDays);
+  const olderThanDays = Number.isInteger(rawDays) && rawDays > 0 ? rawDays : undefined;
+  const days = resolveRetentionDays(olderThanDays);
+  const deleted = await purgeOldClientErrors(days);
+  req.log.info({ deleted, retentionDays: days }, "Admin triggered client error purge");
+  res.json({ deleted, olderThanDays: days });
 });
 
 export default router;
