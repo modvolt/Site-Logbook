@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
-import { db, customersTable, invoicesTable } from "@workspace/db";
+import { db, customersTable, invoicesTable, auditLogTable } from "@workspace/db";
 import {
   CreateCustomerBody,
   UpdateCustomerBody,
@@ -159,6 +159,17 @@ router.delete("/customers/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
+
+  await db.insert(auditLogTable).values({
+    actorUserId: req.auth?.userId ?? null,
+    actorName: req.auth?.name ?? req.auth?.username ?? null,
+    action: "delete",
+    entityType: "customer",
+    entityId: customer.id,
+    summary: `Zákazník smazán: ${customer.companyName ?? `#${customer.id}`} (vč. přístupových údajů a dalších dat)`,
+    method: "DELETE",
+    path: req.path,
+  });
 
   res.sendStatus(204);
 });
