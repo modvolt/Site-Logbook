@@ -102,6 +102,11 @@ function extOf(fileName: string): string {
   return i >= 0 ? fileName.slice(i + 1).toLowerCase() : "";
 }
 
+function stemOf(fileName: string): string {
+  const i = fileName.lastIndexOf(".");
+  return i >= 0 ? fileName.slice(0, i).toLowerCase() : fileName.toLowerCase();
+}
+
 /**
  * Resolve the effective content type for an attachment. Trusts a recognised
  * declared type; otherwise infers from the filename extension. Returns null when
@@ -322,6 +327,41 @@ function collectAttachments(node: unknown): AttachmentPart[] {
   };
   visit(node);
   return out;
+}
+
+/**
+ * For any group of attachments sharing the same base filename stem (e.g.
+ * "faktura"), if a PDF is present, drop all ISDOC entries from that group.
+ * ISDOC files are machine-generated companions to PDFs — importing both would
+ * create a duplicate document for the same invoice. A lone ISDOC (no matching
+ * PDF) is kept unchanged. Dropped ISDOCs are logged so the import audit trail
+ * shows why the file was not imported.
+ */
+function deduplicateAttachments(
+  attachments: AttachmentPart[],
+  messageId: string,
+): AttachmentPart[] {
+  const pdfStems = new Set<string>();
+  for (const att of attachments) {
+    const ct = resolveAttachmentType(att.contentType, att.fileName);
+    if (ct === "application/pdf") {
+      pdfStems.add(stemOf(att.fileName));
+    }
+  }
+  if (!pdfStems.size) return attachments;
+
+  const result: AttachmentPart[] = [];
+  for (const att of attachments) {
+    if (extOf(att.fileName) === "isdoc" && pdfStems.has(stemOf(att.fileName))) {
+      logger.info(
+        { filename: att.fileName, messageId },
+        "isdoc skipped – pdf present",
+      );
+      continue;
+    }
+    result.push(att);
+  }
+  return result;
 }
 
 function senderOf(msg: FetchMessageObject): string | null {
@@ -552,8 +592,11 @@ async function pollFolder(
         : null;
 
       try {
-        const attachments = collectAttachments(msg.bodyStructure).filter((a) =>
-          resolveAttachmentType(a.contentType, a.fileName),
+        const attachments = deduplicateAttachments(
+          collectAttachments(msg.bodyStructure).filter((a) =>
+            resolveAttachmentType(a.contentType, a.fileName),
+          ),
+          messageId,
         );
 
         if (!attachments.length) {

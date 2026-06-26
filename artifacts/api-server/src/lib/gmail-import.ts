@@ -406,6 +406,50 @@ export interface DiscoveredAttachment {
   skipReason: string | null;
 }
 
+function stemOf(fileName: string): string {
+  const i = fileName.lastIndexOf(".");
+  return i >= 0 ? fileName.slice(0, i).toLowerCase() : fileName.toLowerCase();
+}
+
+/**
+ * For any group of attachments sharing the same base filename stem, if a PDF is
+ * present, mark all ISDOC entries in that group as skipped. ISDOC files are
+ * machine-generated companions to PDFs — importing both would create a duplicate
+ * document for the same invoice. A lone ISDOC (no matching PDF) is kept.
+ * Skipped ISDOCs are logged so the import audit trail shows why.
+ */
+function deduplicateAttachments(
+  attachments: DiscoveredAttachment[],
+  messageId: string,
+): DiscoveredAttachment[] {
+  const pdfStems = new Set<string>();
+  for (const att of attachments) {
+    if (/\.pdf$/i.test(att.fileName) || att.contentType === "application/pdf") {
+      pdfStems.add(stemOf(att.fileName));
+    }
+  }
+  if (!pdfStems.size) return attachments;
+
+  return attachments.map((att) => {
+    if (
+      /\.isdoc$/i.test(att.fileName) &&
+      pdfStems.has(stemOf(att.fileName)) &&
+      !att.skipReason
+    ) {
+      logger.info(
+        { filename: att.fileName, messageId },
+        "isdoc skipped – pdf present",
+      );
+      return {
+        ...att,
+        supported: false,
+        skipReason: "ISDOC přeskočen – PDF z téhož dokumentu je přítomno",
+      };
+    }
+    return att;
+  });
+}
+
 /** Walk the MIME tree and collect downloadable attachments (skip inline parts). */
 export function collectAttachments(payload: GmailPart | undefined): DiscoveredAttachment[] {
   const out: DiscoveredAttachment[] = [];
@@ -664,7 +708,7 @@ export async function syncAccount(actor: Actor): Promise<SyncResult> {
         : null;
       const { name: fromName, address: fromAddress } = parseFrom(fromRaw);
 
-      const attachments = collectAttachments(msg.payload);
+      const attachments = deduplicateAttachments(collectAttachments(msg.payload), id);
 
       await db.transaction(async (tx) => {
         const [row] = await tx
