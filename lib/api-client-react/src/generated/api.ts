@@ -181,6 +181,7 @@ import type {
   WarehouseJobMarginSummary,
   WarehouseMovement,
   WarehouseMovementInput,
+  WarehouseMovementPatch,
   WarehousePriceHistory,
   WarehousePriceUpdateResult,
   WarehouseSummary
@@ -5205,6 +5206,78 @@ export const useCancelLastWarehouseMovement = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCancelLastWarehouseMovementMutationOptions(options));
+    }
+
+export const getUpdateWarehouseMovementUrl = (id: number,) => {
+
+
+
+
+  return `/api/warehouse-movements/${id}`
+}
+
+/**
+ * @summary Correct the cost price (costPriceAtTime) on an existing OUT movement (admin only)
+ */
+export const updateWarehouseMovement = async (id: number,
+    warehouseMovementPatch: WarehouseMovementPatch, options?: RequestInit): Promise<WarehouseMovement> => {
+
+  return customFetch<WarehouseMovement>(getUpdateWarehouseMovementUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      warehouseMovementPatch,)
+  }
+);}
+
+
+
+
+export const getUpdateWarehouseMovementMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementPatch>}, TContext> => {
+
+const mutationKey = ['updateWarehouseMovement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWarehouseMovement>>, {id: number;data: BodyType<WarehouseMovementPatch>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateWarehouseMovement(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateWarehouseMovementMutationResult = NonNullable<Awaited<ReturnType<typeof updateWarehouseMovement>>>
+    export type UpdateWarehouseMovementMutationBody = BodyType<WarehouseMovementPatch>
+    export type UpdateWarehouseMovementMutationError = ErrorType<void>
+
+    /**
+ * @summary Correct the cost price (costPriceAtTime) on an existing OUT movement (admin only)
+ */
+export const useUpdateWarehouseMovement = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWarehouseMovement>>, TError,{id: number;data: BodyType<WarehouseMovementPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateWarehouseMovement>>,
+        TError,
+        {id: number;data: BodyType<WarehouseMovementPatch>},
+        TContext
+      > => {
+      return useMutation(getUpdateWarehouseMovementMutationOptions(options));
     }
 
 export const getGetWarehouseJobMarginSummaryUrl = (params: GetWarehouseJobMarginSummaryParams,) => {

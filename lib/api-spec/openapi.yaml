@@ -1539,6 +1539,37 @@ paths:
         "409":
           description: Last movement already reversed
 
+  /warehouse-movements/{id}:
+    patch:
+      operationId: updateWarehouseMovement
+      tags: [warehouse]
+      summary: Correct the cost price (costPriceAtTime) on an existing OUT movement (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarehouseMovementPatch"
+      responses:
+        "200":
+          description: Updated movement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseMovement"
+        "400":
+          description: Invalid input or movement is not an OUT movement
+        "403":
+          description: Forbidden – admin or master role required
+        "404":
+          description: Movement not found
+
   /warehouse-movements/job-margin-summary:
     get:
       operationId: getWarehouseJobMarginSummary
@@ -7263,6 +7294,14 @@ components:
         idempotencyKey:
           type: ["string", "null"]
           description: Optional client-generated key; re-submitting the same key returns the existing movement (409) instead of creating a duplicate
+
+    WarehouseMovementPatch:
+      type: object
+      required: [costPriceAtTime]
+      properties:
+        costPriceAtTime:
+          type: ["number", "null"]
+          description: Purchase/cost price at the time of the OUT movement; null clears the value
 
     AuditLogEntry:
       type: object

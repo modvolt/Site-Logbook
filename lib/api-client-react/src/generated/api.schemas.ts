@@ -1021,6 +1021,14 @@ export interface WarehouseMovementInput {
   idempotencyKey?: string | null;
 }
 
+export interface WarehouseMovementPatch {
+  /**
+     * Purchase/cost price at the time of the OUT movement; null clears the value
+     * @nullable
+     */
+  costPriceAtTime: number | null;
+}
+
 export interface WarehouseJobMarginSummary {
   jobId: number;
   /** Total quantity issued (OUT) for this job */

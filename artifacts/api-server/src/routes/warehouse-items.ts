@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, count, eq, isNull, lte, sql, desc, ilike } from "drizzle-orm";
-import { db, warehouseItemsTable } from "@workspace/db";
+import { db, warehouseItemsTable, auditLogTable } from "@workspace/db";
 import { warehouseMovementsTable } from "@workspace/db";
 import { warehousePriceHistoryTable } from "@workspace/db";
 import { billingDocumentsTable, billingDocumentLinesTable } from "@workspace/db";
@@ -13,6 +13,8 @@ import {
   ListWarehouseItemMovementsParams,
   CreateWarehouseMovementParams,
   CreateWarehouseMovementBody,
+  UpdateWarehouseMovementParams,
+  UpdateWarehouseMovementBody,
   ListWarehouseMovementsQueryParams,
   ListWarehouseItemsQueryParams,
   ListWarehouseItemPriceHistoryParams,
@@ -26,6 +28,7 @@ import {
   type AppError,
 } from "../lib/warehouse-service";
 import { num, round2 } from "../lib/invoice-calc";
+import { requireRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -518,6 +521,63 @@ router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> =>
     const e = err as AppError;
     res.status(e.statusCode ?? 500).json({ error: e.message });
   }
+});
+
+router.patch("/warehouse-movements/:id", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = UpdateWarehouseMovementParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const parsed = UpdateWarehouseMovementBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [movement] = await db
+    .select()
+    .from(warehouseMovementsTable)
+    .where(eq(warehouseMovementsTable.id, params.data.id));
+
+  if (!movement) {
+    res.status(404).json({ error: "Movement not found" });
+    return;
+  }
+
+  if (movement.direction !== "out") {
+    res.status(400).json({ error: "Nákupní cenu lze opravit pouze na výdejovém pohybu (OUT)." });
+    return;
+  }
+
+  const oldPrice = movement.costPriceAtTime != null ? Number(movement.costPriceAtTime) : null;
+  const newPrice = parsed.data.costPriceAtTime;
+
+  const costStr = newPrice != null ? String(newPrice) : null;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(warehouseMovementsTable)
+      .set({ costPriceAtTime: costStr })
+      .where(eq(warehouseMovementsTable.id, params.data.id));
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: req.auth?.userId ?? null,
+      actorName: req.auth?.name ?? "Systém",
+      action: "update_cost_price",
+      entityType: "warehouse_movement",
+      entityId: params.data.id,
+      summary: `Nákupní cena pohybu #${params.data.id} opravena: ${oldPrice ?? "—"} → ${newPrice ?? "—"} Kč`,
+      method: req.method,
+      path: req.path,
+    });
+  });
+
+  const all = await listMovements(db, { warehouseItemId: movement.warehouseItemId, limit: 1000 });
+  const updated = all.find((m) => m.id === params.data.id) ?? all[0];
+
+  res.json(updated);
 });
 
 router.get("/warehouse-movements/job-margin-summary", async (req, res): Promise<void> => {

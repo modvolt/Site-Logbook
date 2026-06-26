@@ -1585,6 +1585,38 @@ export const CancelLastWarehouseMovementParams = zod.object({
 
 
 /**
+ * @summary Correct the cost price (costPriceAtTime) on an existing OUT movement (admin only)
+ */
+export const UpdateWarehouseMovementParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateWarehouseMovementBody = zod.object({
+  "costPriceAtTime": zod.number().nullable().describe('Purchase\/cost price at the time of the OUT movement; null clears the value')
+})
+
+export const UpdateWarehouseMovementResponse = zod.object({
+  "id": zod.number(),
+  "warehouseItemId": zod.number(),
+  "warehouseItemName": zod.string().nullish(),
+  "direction": zod.enum(['in', 'out']),
+  "quantity": zod.number(),
+  "signedQuantity": zod.number(),
+  "unitPrice": zod.number().nullish(),
+  "costPriceAtTime": zod.number().nullish(),
+  "sourceType": zod.string(),
+  "sourceId": zod.number().nullish(),
+  "billingDocumentId": zod.number().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "jobId": zod.number().nullish(),
+  "jobTitle": zod.string().nullish(),
+  "note": zod.string().nullish(),
+  "createdByName": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary Get cost vs. sale margin summary for all OUT movements on a single job
  */
 export const GetWarehouseJobMarginSummaryQueryParams = zod.object({

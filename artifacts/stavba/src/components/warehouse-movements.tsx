@@ -3,6 +3,7 @@ import {
   useListWarehouseItemMovements,
   useCreateWarehouseMovement,
   useCancelLastWarehouseMovement,
+  useUpdateWarehouseMovement,
   useListWarehouseItemPriceHistory,
   getListWarehouseItemMovementsQueryKey,
   getListWarehouseItemsQueryKey,
@@ -35,7 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowDownToLine, ArrowUpFromLine, History, RotateCcw, TrendingDown } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, History, RotateCcw, TrendingDown, Pencil, Check, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -86,11 +87,73 @@ function newIdempotencyKey(): string {
 export function MovementRow({
   m,
   showItem = false,
+  canEditCostPrice = false,
+  onEdited,
 }: {
   m: WarehouseMovement;
   showItem?: boolean;
+  canEditCostPrice?: boolean;
+  onEdited?: () => void;
 }) {
   const isIn = m.direction === "in";
+  const { toast } = useToast();
+  const updateMovement = useUpdateWarehouseMovement();
+
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setEditValue(m.costPriceAtTime != null ? String(m.costPriceAtTime) : "");
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setEditValue("");
+  };
+
+  const saveEdit = async () => {
+    if (saving || updateMovement.isPending) return;
+    const raw = editValue.trim().replace(",", ".");
+    const parsed = raw === "" ? null : Number(raw);
+    if (raw !== "" && (Number.isNaN(parsed) || (parsed as number) < 0)) {
+      toast({ title: "Neplatná hodnota", description: "Zadejte kladné číslo nebo nechte prázdné pro vymazání.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        updateMovement.mutate(
+          { id: m.id, data: { costPriceAtTime: parsed } },
+          {
+            onSuccess: () => {
+              setEditing(false);
+              setEditValue("");
+              toast({ title: "Nákupní cena uložena" });
+              onEdited?.();
+              resolve();
+            },
+            onError: (err: any) => {
+              const msg = err?.data?.error ?? err?.message ?? "Nepodařilo se uložit cenu.";
+              toast({ title: "Chyba ukládání", description: msg, variant: "destructive" });
+              reject(err);
+            },
+          },
+        );
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") { e.preventDefault(); void saveEdit(); }
+    if (e.key === "Escape") cancelEdit();
+  };
+
+  const showEditButton = canEditCostPrice && !isIn;
+
   return (
     <div className="flex items-start justify-between gap-3 py-2.5 border-b last:border-0">
       <div className="flex items-start gap-2.5 min-w-0">
@@ -133,8 +196,56 @@ export function MovementRow({
           {fmtQty(m.quantity)}
         </div>
         {!isIn && (
-          <div className="text-xs text-muted-foreground tabular-nums">
-            Nák.&nbsp;{fmtKc(m.costPriceAtTime)}
+          <div className="flex items-center gap-1">
+            {editing ? (
+              <div className="flex items-center gap-1">
+                <Input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Nák. cena"
+                  className="h-6 w-24 text-xs px-1.5 tabular-nums"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  disabled={saving}
+                  onClick={() => void saveEdit()}
+                  title="Uložit"
+                >
+                  <Check className="h-3 w-3 text-emerald-600" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={cancelEdit}
+                  title="Zrušit"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  Nák.&nbsp;{fmtKc(m.costPriceAtTime)}
+                </span>
+                {showEditButton && (
+                  <button
+                    type="button"
+                    onClick={startEdit}
+                    className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                    title="Opravit nákupní cenu"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -404,7 +515,7 @@ export function ItemMovementHistoryDialog({
               ) : movements && movements.length > 0 ? (
                 <div>
                   {movements.map((m) => (
-                    <MovementRow key={m.id} m={m} />
+                    <MovementRow key={m.id} m={m} canEditCostPrice={canCorrect} onEdited={refresh} />
                   ))}
                 </div>
               ) : (

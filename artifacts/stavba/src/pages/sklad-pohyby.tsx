@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Link } from "wouter";
 import {
   useListWarehouseMovements,
@@ -11,6 +11,9 @@ import {
   getGetWarehouseJobMarginSummaryQueryKey,
 } from "@workspace/api-client-react";
 import type { ListWarehouseMovementsParams } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidateData } from "@/lib/query-invalidation";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +42,15 @@ export default function SkladPohyby() {
   const [direction, setDirection] = useState<string>(ALL);
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
+
+  const { can } = useAuth();
+  const canEditCostPrice = can("write");
+  const queryClient = useQueryClient();
+
+  const refreshMovements = useCallback(() => {
+    invalidateData(queryClient, "warehouse");
+    queryClient.invalidateQueries({ queryKey: getGetWarehouseJobMarginSummaryQueryKey() });
+  }, [queryClient]);
 
   const { data: items } = useListWarehouseItems(undefined, {
     query: { queryKey: getListWarehouseItemsQueryKey() },
@@ -222,7 +234,7 @@ export default function SkladPohyby() {
           ) : movements && movements.length > 0 ? (
             <div>
               {movements.map((m) => (
-                <MovementRow key={m.id} m={m} showItem />
+                <MovementRow key={m.id} m={m} showItem canEditCostPrice={canEditCostPrice} onEdited={refreshMovements} />
               ))}
             </div>
           ) : (

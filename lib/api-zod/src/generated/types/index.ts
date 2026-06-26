@@ -256,6 +256,7 @@ export * from './warehouseMovement';
 export * from './warehouseMovementDirection';
 export * from './warehouseMovementInput';
 export * from './warehouseMovementInputDirection';
+export * from './warehouseMovementPatch';
 export * from './warehousePriceHistory';
 export * from './warehousePriceUpdateItem';
 export * from './warehousePriceUpdateItemMatchedBy';
