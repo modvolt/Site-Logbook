@@ -98,7 +98,23 @@ export default function Statistika() {
   const [company] = useState(() => loadCompanySettings());
   const { toast } = useToast();
 
-  const [profitSort, setProfitSort] = useState<{ col: ProfitCol; dir: SortDir }>({ col: "grossProfit", dir: "desc" });
+  const [profitSort, setProfitSortRaw] = useState<{ col: ProfitCol; dir: SortDir }>(() => {
+    try {
+      const saved = localStorage.getItem("statistika.profitSort");
+      if (saved) {
+        const parsed = JSON.parse(saved) as { col: ProfitCol; dir: SortDir };
+        if (parsed.col && parsed.dir) return parsed;
+      }
+    } catch {
+    }
+    return { col: "grossProfit", dir: "desc" };
+  });
+
+  const setProfitSort = (next: { col: ProfitCol; dir: SortDir }) => {
+    try { localStorage.setItem("statistika.profitSort", JSON.stringify(next)); } catch { }
+    setProfitSortRaw(next);
+  };
+
   const [profitFilter, setProfitFilter] = useState("");
 
   const { from, to } = getRange(period, anchor);
@@ -359,9 +375,9 @@ export default function Statistika() {
                   items={stats.warehouse.topProfitItems}
                   sort={profitSort}
                   onSort={(col) =>
-                    setProfitSort((prev) =>
-                      prev.col === col
-                        ? { col, dir: prev.dir === "desc" ? "asc" : "desc" }
+                    setProfitSort(
+                      profitSort.col === col
+                        ? { col, dir: profitSort.dir === "desc" ? "asc" : "desc" }
                         : { col, dir: col === "name" ? "asc" : "desc" }
                     )
                   }
