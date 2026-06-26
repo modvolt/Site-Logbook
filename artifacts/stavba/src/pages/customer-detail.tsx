@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Building2, Phone, User, Edit3, Save, X, Plus,
   Briefcase, ChevronRight, Trash2, Hash, FileText, MapPin, Mail, Users, Store,
-  KeyRound, Receipt, FileCheck, Clock, ExternalLink, Banknote, CalendarCheck,
+  KeyRound, Receipt, FileCheck, Clock, ExternalLink, Banknote, CalendarCheck, RefreshCw,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
@@ -50,7 +50,7 @@ export default function CustomerDetail() {
   const { openConfirm, dialogProps } = useConfirmDialog();
   const { role } = useAuth();
 
-  const { data: customers, isLoading: loadingCustomer, isError: customersError } = useListCustomers({
+  const { data: customers, isLoading: loadingCustomer, isRefetching: isRefetchingCustomers, isError: customersError, refetch: refetchCustomers } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() },
   });
   const customer = customers?.find((c) => c.id === id);
@@ -360,7 +360,7 @@ export default function CustomerDetail() {
     });
   };
 
-  if (loadingCustomer) {
+  if (loadingCustomer || isRefetchingCustomers) {
     return (
       <div className="p-4 space-y-4">
         <Skeleton className="h-10 w-40" />
@@ -375,7 +375,10 @@ export default function CustomerDetail() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
         <Building2 className="h-12 w-12 opacity-20" />
         <p className="font-medium">Nepodařilo se načíst zákazníka</p>
-        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <p className="text-sm">Zkontrolujte připojení a zkuste to znovu.</p>
+        <Button variant="outline" onClick={() => refetchCustomers()}>
+          <RefreshCw className="h-4 w-4 mr-2" /> Zkusit znovu
+        </Button>
         <Button variant="ghost" onClick={() => setLocation("/customers")}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na zákazníky
         </Button>

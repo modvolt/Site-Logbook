@@ -130,7 +130,7 @@ export default function BillingDocumentDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading, isError: docError } = useGetCostDocument(id, {
+  const { data, isLoading, isRefetching, isError: docError, refetch } = useGetCostDocument(id, {
     query: { queryKey: getGetCostDocumentQueryKey(id), enabled: !!id },
   });
   const { data: customers } = useListCustomers({
@@ -155,7 +155,7 @@ export default function BillingDocumentDetail() {
 
   const doc = data?.document;
 
-  if (isLoading) {
+  if (isLoading || isRefetching) {
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-3">
         <Skeleton className="h-8 w-48" />
@@ -170,7 +170,10 @@ export default function BillingDocumentDetail() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
         <AlertTriangle className="h-12 w-12 opacity-30" />
         <p className="font-medium">Nepodařilo se načíst doklad</p>
-        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <p className="text-sm">Zkontrolujte připojení a zkuste to znovu.</p>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4 mr-2" /> Zkusit znovu
+        </Button>
         <Button variant="ghost" onClick={() => setLocation("/billing/documents")}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na doklady
         </Button>

@@ -114,7 +114,7 @@ export default function JobDetail() {
   const [expandedSection, setExpandedSection] = useState<string | null>("info");
   const [matHasUnsaved, setMatHasUnsaved] = useState(false);
   
-  const { data: job, isLoading: loadingJob, isError: jobError } = useGetJob(id, {
+  const { data: job, isLoading: loadingJob, isRefetching: isRefetchingJob, isError: jobError, refetch: refetchJob } = useGetJob(id, {
     query: { enabled: !!id, queryKey: getGetJobQueryKey(id) }
   });
   
@@ -134,7 +134,7 @@ export default function JobDetail() {
     setExpandedSection(prev => prev === section ? null : section);
   };
 
-  if (loadingJob) {
+  if (loadingJob || isRefetchingJob) {
     return (
       <div className="p-4 md:p-8 max-w-3xl mx-auto w-full space-y-4">
         <Skeleton className="h-12 w-full mb-8" />
@@ -149,7 +149,10 @@ export default function JobDetail() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
         <AlertCircle className="h-12 w-12 opacity-30" />
         <p className="font-medium">Nepodařilo se načíst zakázku</p>
-        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <p className="text-sm">Zkontrolujte připojení a zkuste to znovu.</p>
+        <Button variant="outline" onClick={() => refetchJob()}>
+          <RefreshCw className="h-4 w-4 mr-2" /> Zkusit znovu
+        </Button>
         <Button variant="ghost" onClick={() => setLocation("/jobs")}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na zakázky
         </Button>

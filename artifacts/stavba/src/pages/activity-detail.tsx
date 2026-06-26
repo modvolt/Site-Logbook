@@ -35,7 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
   ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Download,
-  Receipt, FileImage, Banknote,
+  Receipt, FileImage, Banknote, RefreshCw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -107,7 +107,7 @@ export default function ActivityDetail() {
   const detailKey = getGetActivityQueryKey(id);
   const matsKey = getListActivityMaterialsQueryKey(id);
 
-  const { data: activity, isLoading, isError: activityError } = useGetActivity(id, { query: { queryKey: detailKey, enabled: Number.isFinite(id) } });
+  const { data: activity, isLoading, isRefetching, isError: activityError, refetch } = useGetActivity(id, { query: { queryKey: detailKey, enabled: Number.isFinite(id) } });
   const { data: materials } = useListActivityMaterials(id, { query: { queryKey: matsKey, enabled: Number.isFinite(id) } });
   const { data: customers } = useListCustomers();
 
@@ -140,7 +140,7 @@ export default function ActivityDetail() {
     invalidateData(queryClient, "activities", "warehouse");
   };
 
-  if (isLoading) {
+  if (isLoading || isRefetching) {
     return (
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
         <Skeleton className="h-10 w-48" />
@@ -154,7 +154,10 @@ export default function ActivityDetail() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
         <Hammer className="h-12 w-12 opacity-20" />
         <p className="font-medium">Nepodařilo se načíst aktivitu</p>
-        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <p className="text-sm">Zkontrolujte připojení a zkuste to znovu.</p>
+        <Button variant="outline" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4 mr-2" /> Zkusit znovu
+        </Button>
         <Button variant="ghost" onClick={() => setLocation("/activities")}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na aktivity
         </Button>
