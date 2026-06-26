@@ -7,6 +7,7 @@ import {
   getGetDashboardSummaryQueryKey, getGetTodayJobsQueryKey, getGetJobQueryKey,
   useListPeople, getListPeopleQueryKey, useListJobs, getListJobsQueryKey,
   useReorderJobs, useGetRisksSummary, getGetRisksSummaryQueryKey,
+  useGetWarehouseJobsMarginSummary,
 } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
 import { useQueryClient, useIsFetching } from "@tanstack/react-query";
@@ -22,6 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
+import { LowMarginBadge } from "@/components/job-card";
 import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw, AlertTriangle, Banknote, FileSearch, PackageMinus, UserX, Tag, FileMinus, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PullToRefresh } from "@/components/pull-to-refresh";
@@ -241,7 +243,7 @@ function formatElapsed(seconds: number) {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
-function DashboardJobRow({ job }: { job: any }) {
+function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; marginPercent?: number | null; marginThreshold?: number | null }) {
   const updateJob = useUpdateJob();
   const updateStatus = useUpdateJobStatus();
   const queryClient = useQueryClient();
@@ -318,9 +320,10 @@ function DashboardJobRow({ job }: { job: any }) {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-2 mb-3 items-center">
           <TypeBadge type={job.type} />
           <StatusBadge status={job.status} />
+          <LowMarginBadge jobId={job.id} marginPercent={marginPercent} threshold={marginThreshold} />
         </div>
 
         <div className="space-y-1 text-sm text-muted-foreground">
@@ -380,7 +383,7 @@ function DashboardJobRow({ job }: { job: any }) {
   );
 }
 
-function SortableJobRow({ job }: { job: any }) {
+function SortableJobRow({ job, marginPercent, marginThreshold }: { job: any; marginPercent?: number | null; marginThreshold?: number | null }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: job.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -401,7 +404,7 @@ function SortableJobRow({ job }: { job: any }) {
       >
         <GripVertical className="w-5 h-5" />
       </div>
-      <DashboardJobRow job={job} />
+      <DashboardJobRow job={job} marginPercent={marginPercent} marginThreshold={marginThreshold} />
     </div>
   );
 }
@@ -505,6 +508,12 @@ export default function Dashboard() {
   });
 
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+
+  const { data: jobMargins } = useGetWarehouseJobsMarginSummary();
+  const marginByJobId = new Map<number, number | null>(
+    (jobMargins?.items ?? []).map((m) => [m.jobId, m.marginPercent ?? null])
+  );
+  const marginThreshold = jobMargins?.alertThresholdPercent ?? 0;
 
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -691,7 +700,7 @@ export default function Dashboard() {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={orderedJobs.map(j => j.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-4">
-              {orderedJobs.map(job => <SortableJobRow key={job.id} job={job} />)}
+              {orderedJobs.map(job => <SortableJobRow key={job.id} job={job} marginPercent={marginByJobId.get(job.id)} marginThreshold={marginThreshold} />)}
             </div>
           </SortableContext>
         </DndContext>

@@ -322,6 +322,7 @@ export default function Jobs() {
   const marginByJobId = new Map<number, number | null>(
     (jobMargins?.items ?? []).map((m) => [m.jobId, m.marginPercent ?? null])
   );
+  const marginThreshold = jobMargins?.alertThresholdPercent ?? 0;
 
   const { data: exportJobs } = useListJobs(
     {
@@ -532,6 +533,7 @@ export default function Jobs() {
               selected={selectMode ? selectedIds.has(job.id) : undefined}
               onSelect={selectMode ? handleSelect : undefined}
               marginPercent={marginByJobId.get(job.id)}
+              marginThreshold={marginThreshold}
             />
           ))
         ) : (

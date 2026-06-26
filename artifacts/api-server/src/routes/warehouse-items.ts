@@ -808,7 +808,8 @@ router.get("/warehouse-movements/jobs-margin-summary", async (_req, res): Promis
     };
   });
 
-  res.json({ items });
+  const settings = await ensureBillingSettings();
+  res.json({ items, alertThresholdPercent: num(settings.marginAlertThresholdPercent) });
 });
 
 router.get("/warehouse-movements", async (req, res): Promise<void> => {

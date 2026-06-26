@@ -13,15 +13,46 @@ function formatCzk(amount: number): string {
   return `${Math.round(amount)} Kč`;
 }
 
-function JobSignalBadges({ job, marginPercent }: { job: Job; marginPercent?: number | null }) {
+export function LowMarginBadge({
+  jobId,
+  marginPercent,
+  threshold,
+}: {
+  jobId: number;
+  marginPercent?: number | null;
+  threshold?: number | null;
+}) {
   const [, navigate] = useLocation();
+  const thresholdPct = threshold ?? 0;
+  if (marginPercent == null || marginPercent >= thresholdPct) return null;
+  const deep = marginPercent < -10;
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`/jobs/${jobId}?section=materials`); }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); navigate(`/jobs/${jobId}?section=materials`); } }}
+      title={`Marže skladu pod hranicí rentability: ${marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} % — zobrazit materiál`}
+      className={`inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full cursor-pointer transition-opacity hover:opacity-80 ${
+        deep
+          ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+          : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+      }`}
+    >
+      <TrendingDown className="w-3 h-3" />
+      Marže {marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %
+    </span>
+  );
+}
+
+function JobSignalBadges({ job, marginPercent, marginThreshold }: { job: Job; marginPercent?: number | null; marginThreshold?: number | null }) {
   const isActive = job.status === "planned" || job.status === "in_progress";
   const isDone = job.status === "done";
 
   const badges: { label: string; icon: React.ReactNode; className: string; key: string }[] = [];
 
-  const showMargin = marginPercent != null && marginPercent < 0;
-  const marginIsDeep = marginPercent != null && marginPercent < -10;
+  const thresholdPct = marginThreshold ?? 0;
+  const showMargin = marginPercent != null && marginPercent < thresholdPct;
 
   if (isDone && !(job as any).billingLinked) {
     badges.push({
@@ -103,23 +134,7 @@ function JobSignalBadges({ job, marginPercent }: { job: Job; marginPercent?: num
 
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
-      {showMargin && (
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`/jobs/${job.id}?section=materials`); }}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); navigate(`/jobs/${job.id}?section=materials`); } }}
-          title={`Záporná marže skladu: ${marginPercent!.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} % — zobrazit materiál`}
-          className={`inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full cursor-pointer transition-opacity hover:opacity-80 ${
-            marginIsDeep
-              ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-          }`}
-        >
-          <TrendingDown className="w-3 h-3" />
-          Marže {marginPercent!.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %
-        </span>
-      )}
+      <LowMarginBadge jobId={job.id} marginPercent={marginPercent} threshold={marginThreshold} />
       {badges.map(b => (
         <span
           key={b.key}
@@ -138,9 +153,10 @@ interface JobCardProps {
   selected?: boolean;
   onSelect?: (id: number, checked: boolean) => void;
   marginPercent?: number | null;
+  marginThreshold?: number | null;
 }
 
-export function JobCard({ job, selected, onSelect, marginPercent }: JobCardProps) {
+export function JobCard({ job, selected, onSelect, marginPercent, marginThreshold }: JobCardProps) {
   const finished = isJobFinished(job.status);
   const shortName = (job as any).shortName as string | null;
   const isSelectable = onSelect != null;
@@ -192,7 +208,7 @@ export function JobCard({ job, selected, onSelect, marginPercent }: JobCardProps
           )}
         </div>
 
-        <JobSignalBadges job={job} marginPercent={marginPercent} />
+        <JobSignalBadges job={job} marginPercent={marginPercent} marginThreshold={marginThreshold} />
 
         <div className="space-y-1.5 text-sm text-muted-foreground mt-2">
           <div className="flex items-center gap-2">

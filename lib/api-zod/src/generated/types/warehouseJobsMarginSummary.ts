@@ -9,4 +9,6 @@ import type { WarehouseJobMarginSummary } from './warehouseJobMarginSummary';
 
 export interface WarehouseJobsMarginSummary {
   items: WarehouseJobMarginSummary[];
+  /** Operator-configured margin warning threshold in percent; a job is flagged low-margin when its cumulative margin drops below this value */
+  alertThresholdPercent: number;
 }

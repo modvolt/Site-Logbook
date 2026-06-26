@@ -1656,7 +1656,8 @@ export const GetWarehouseJobsMarginSummaryResponse = zod.object({
   "coveredQtyOut": zod.number().describe('Qty issued where unitPrice is known (used to compute sale coverage)'),
   "coveredCostQtyOut": zod.number().describe('Qty issued where costPriceAtTime is known (used to compute cost coverage)'),
   "marginPercent": zod.number().nullish().describe('(totalSaleValue − totalCostValue) \/ totalSaleValue × 100, null when totalSaleValue = 0')
-}))
+})),
+  "alertThresholdPercent": zod.number().describe('Operator-configured margin warning threshold in percent; a job is flagged low-margin when its cumulative margin drops below this value')
 })
 
 

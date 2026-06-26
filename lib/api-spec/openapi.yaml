@@ -7319,12 +7319,15 @@ components:
 
     WarehouseJobsMarginSummary:
       type: object
-      required: [items]
+      required: [items, alertThresholdPercent]
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/WarehouseJobMarginSummary"
+        alertThresholdPercent:
+          type: number
+          description: Operator-configured margin warning threshold in percent; a job is flagged low-margin when its cumulative margin drops below this value
 
     WarehouseJobMarginTrendPoint:
       type: object
