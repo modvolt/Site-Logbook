@@ -616,7 +616,7 @@ function ProfitItemsTable({
           title="Stáhnout jako CSV pro Excel"
         >
           <Download className="w-3 h-3" />
-          CSV
+          Stáhnout CSV
         </button>
       </div>
       <div className="no-print relative mb-2">
