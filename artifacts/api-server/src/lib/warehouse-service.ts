@@ -14,7 +14,7 @@
  * affected `warehouse_items` row FOR UPDATE so two concurrent operations on the
  * same item serialize and the quantity never drifts.
  */
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   billingDocumentsTable,
   billingDocumentLinesTable,
@@ -395,6 +395,55 @@ export async function reconcileActivityMaterialStockMovement(
   actor: Actor,
 ): Promise<void> {
   await reconcileMaterialLike(tx, "activity_material", material, actor);
+}
+
+// ---------------------------------------------------------------------------
+// Backfill cost prices on existing OUT movements (called on document approval)
+// ---------------------------------------------------------------------------
+
+/**
+ * Backfill `costPriceAtTime` on OUT movements that were created on or after
+ * `sinceDate` and still have the field set to null. Called as part of document
+ * approval after the catalogue prices have been updated; idempotent — only
+ * touches rows where `costPriceAtTime` is still null.
+ *
+ * Each updated row gets the backfill source appended to its `note` column so
+ * the audit trail makes it clear the price was filled retroactively, not at
+ * movement creation time.
+ *
+ * Returns the total number of movement rows updated.
+ */
+export async function backfillOutMovementCostPrices(
+  tx: DbTx,
+  updates: Array<{ warehouseItemId: number; purchasePrice: number }>,
+  sinceDate: Date,
+  documentLabel: string,
+): Promise<number> {
+  let total = 0;
+  const flag = `Zpětně doplněna nák. cena z ${documentLabel}`;
+  for (const { warehouseItemId, purchasePrice } of updates) {
+    if (!(purchasePrice > 0)) continue;
+    const result = await tx
+      .update(warehouseMovementsTable)
+      .set({
+        costPriceAtTime: String(round2(purchasePrice)),
+        note: sql<string>`CASE
+          WHEN ${warehouseMovementsTable.note} IS NULL OR ${warehouseMovementsTable.note} = ''
+          THEN ${flag}
+          ELSE ${warehouseMovementsTable.note} || ' · ' || ${flag}
+        END`,
+      })
+      .where(
+        and(
+          eq(warehouseMovementsTable.warehouseItemId, warehouseItemId),
+          eq(warehouseMovementsTable.direction, "out"),
+          isNull(warehouseMovementsTable.costPriceAtTime),
+          gte(warehouseMovementsTable.createdAt, sinceDate),
+        ),
+      );
+    total += result.rowCount ?? 0;
+  }
+  return total;
 }
 
 // ---------------------------------------------------------------------------

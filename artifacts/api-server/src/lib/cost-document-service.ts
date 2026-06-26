@@ -50,6 +50,7 @@ import {
   reconcileDocumentStockMovements,
   reconcileSourceMovements,
   reconcileMaterialStockMovement,
+  backfillOutMovementCostPrices,
 } from "./warehouse-service";
 
 const objectStorage = new ObjectStorageService();
@@ -2094,7 +2095,18 @@ export async function approveDocument(id: number, actor: Actor) {
     // Receive every stock-allocated line into the warehouse (příjem).
     await reconcileDocumentStockMovements(tx, id, actor);
     // Update warehouse catalogue fields + purchase price + append price history.
-    await applyWarehouseCatalogAndPriceHistory(tx, id, actor);
+    const { updated: priceUpdates } = await applyWarehouseCatalogAndPriceHistory(tx, id, actor);
+    // Backfill costPriceAtTime on OUT movements for the same items that were
+    // created on or after the invoice date and still have the field null.
+    // This reduces the "chybí cena pohybu" count without any manual effort.
+    if (doc.issueDate && priceUpdates.length > 0) {
+      await backfillOutMovementCostPrices(
+        tx,
+        priceUpdates.map((u) => ({ warehouseItemId: u.warehouseItemId, purchasePrice: u.newPrice })),
+        new Date(doc.issueDate),
+        doc.documentNumber ? `dokladu ${doc.documentNumber}` : "schváleného nákladového dokladu",
+      );
+    }
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
