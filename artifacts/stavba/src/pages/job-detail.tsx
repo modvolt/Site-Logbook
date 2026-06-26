@@ -27,7 +27,7 @@ import {
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
   AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw,
-  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw
+  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -1408,6 +1408,12 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                     {warehouseMargin.marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %
                   </span>
                 </>
+              )}
+              {warehouseMargin.coveredCostQtyOut < warehouseMargin.totalQtyOut && (
+                <span className="col-span-2 flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 mt-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  {(warehouseMargin.totalQtyOut - warehouseMargin.coveredCostQtyOut).toLocaleString("cs-CZ")} vydaných ks bez nákupní ceny — marže je podhodnocena
+                </span>
               )}
             </div>
           </div>

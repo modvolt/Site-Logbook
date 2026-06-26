@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollText, ArrowLeft, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ScrollText, ArrowLeft, TrendingUp, TrendingDown, Minus, AlertTriangle } from "lucide-react";
 import { MovementRow } from "@/components/warehouse-movements";
 
 const ALL = "all";
@@ -155,46 +155,59 @@ export default function SkladPohyby() {
       </div>
 
       {selectedJobId != null && hasCostOrSale && margin && (
-        <div className="mb-4 rounded-xl border bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Vydáno (ks)</p>
-            <p className="font-semibold tabular-nums">{margin.totalQtyOut.toLocaleString("cs-CZ")}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Prodejní hodnota</p>
-            <p className="font-semibold tabular-nums text-emerald-600">
-              {margin.coveredQtyOut > 0
-                ? `${margin.totalSaleValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`
-                : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Nákupní náklady</p>
-            <p className="font-semibold tabular-nums text-orange-600">
-              {margin.coveredCostQtyOut > 0
-                ? `${margin.totalCostValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`
-                : "—"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Marže</p>
-            <div className="flex items-center gap-1">
-              <MarginIcon pct={margin.marginPercent ?? null} />
-              <p
-                className={`font-semibold tabular-nums ${
-                  margin.marginPercent == null
-                    ? "text-muted-foreground"
-                    : margin.marginPercent >= 0
-                    ? "text-emerald-600"
-                    : "text-destructive"
-                }`}
-              >
-                {margin.marginPercent != null
-                  ? `${margin.marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`
+        <div className="mb-4 space-y-2">
+          <div className="rounded-xl border bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Vydáno (ks)</p>
+              <p className="font-semibold tabular-nums">{margin.totalQtyOut.toLocaleString("cs-CZ")}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Prodejní hodnota</p>
+              <p className="font-semibold tabular-nums text-emerald-600">
+                {margin.coveredQtyOut > 0
+                  ? `${margin.totalSaleValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`
                   : "—"}
               </p>
             </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Nákupní náklady</p>
+              <p className="font-semibold tabular-nums text-orange-600">
+                {margin.coveredCostQtyOut > 0
+                  ? `${margin.totalCostValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`
+                  : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-0.5">Marže</p>
+              <div className="flex items-center gap-1">
+                <MarginIcon pct={margin.marginPercent ?? null} />
+                <p
+                  className={`font-semibold tabular-nums ${
+                    margin.marginPercent == null
+                      ? "text-muted-foreground"
+                      : margin.marginPercent >= 0
+                      ? "text-emerald-600"
+                      : "text-destructive"
+                  }`}
+                >
+                  {margin.marginPercent != null
+                    ? `${margin.marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`
+                    : "—"}
+                </p>
+              </div>
+            </div>
           </div>
+          {margin.coveredCostQtyOut < margin.totalQtyOut && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {(margin.totalQtyOut - margin.coveredCostQtyOut).toLocaleString("cs-CZ")} vydaných ks bez nákupní ceny — marže je podhodnocena.{" "}
+                <Link href="/sklad" className="font-medium underline underline-offset-2">
+                  Doplnit nákupní ceny ve skladu
+                </Link>
+              </span>
+            </div>
+          )}
         </div>
       )}
 
