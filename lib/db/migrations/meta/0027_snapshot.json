@@ -1,6 +1,6 @@
 {
-"id": "80be7053-eda6-48e2-a8b6-1636151221b2",
-  "prevId": "0a08711f-99c5-44ae-9c57-6558d91b622c",
+  "id": "218b1935-9f34-4380-9854-24e1d1d87e81",
+  "prevId": "80be7053-eda6-48e2-a8b6-1636151221b2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1598,7 +1598,12 @@
           "primaryKey": false,
           "notNull": false
         },
-
+        "cost_price_at_time": {
+          "name": "cost_price_at_time",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "note": {
           "name": "note",
           "type": "text",

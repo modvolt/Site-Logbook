@@ -514,6 +514,10 @@ export type StatsOverviewWarehouse = {
   itemCount: number;
   stockValue: number;
   lowStockCount: number;
+  materialSaleRevenue: number;
+  materialPurchaseCost: number;
+  materialGrossProfit: number;
+  hasPartialCosts: boolean;
 };
 
 export interface StatsEmployee {

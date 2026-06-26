@@ -190,6 +190,13 @@
       "when": 1782496877565,
       "tag": "0026_tidy_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1782497469928,
+      "tag": "0027_flashy_nicolaos",
+      "breakpoints": true
     }
   ]
 }

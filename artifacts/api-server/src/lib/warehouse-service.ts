@@ -101,11 +101,15 @@ async function appliedSignedFor(
   return num(res.rows[0]?.qty ?? 0);
 }
 
-async function lockItem(tx: DbTx, warehouseItemId: number): Promise<void> {
-  await tx.execute(sql`
-    select 1 from ${warehouseItemsTable}
+async function lockItem(
+  tx: DbTx,
+  warehouseItemId: number,
+): Promise<{ purchasePrice: string | null }> {
+  const res = (await tx.execute(sql`
+    select purchase_price from ${warehouseItemsTable}
     where ${warehouseItemsTable.id} = ${warehouseItemId} for update
-  `);
+  `)) as unknown as { rows: Array<{ purchase_price: string | null }> };
+  return { purchasePrice: res.rows[0]?.purchase_price ?? null };
 }
 
 async function appendDelta(
@@ -124,12 +128,19 @@ async function appendDelta(
 ): Promise<void> {
   const { delta } = params;
   if (Math.abs(delta) < EPSILON) return;
-  await lockItem(tx, params.warehouseItemId);
+  const { purchasePrice } = await lockItem(tx, params.warehouseItemId);
+  const isOut = delta < 0;
+  // Capture the purchase price at the time of issue for OUT movements so that
+  // gross-profit statistics can be computed per period.
+  const costPriceAtTime = isOut && purchasePrice != null
+    ? String(round2(num(purchasePrice)))
+    : null;
   await tx.insert(warehouseMovementsTable).values({
     warehouseItemId: params.warehouseItemId,
-    direction: delta > 0 ? "in" : "out",
+    direction: isOut ? "out" : "in",
     quantity: String(round2(Math.abs(delta))),
     unitPrice: params.unitPrice == null ? null : String(round2(params.unitPrice)),
+    costPriceAtTime,
     sourceType: params.sourceType,
     sourceId: params.sourceId,
     billingDocumentId: params.billingDocumentId,
@@ -388,6 +399,10 @@ export async function createManualMovement(
       .where(eq(warehouseItemsTable.id, warehouseItemId));
     if (!item) throw appError(404, "Skladová položka nenalezena.");
     await lockItem(tx, warehouseItemId);
+    const isOut = input.direction === "out";
+    const costPriceAtTime = isOut && item.purchasePrice != null
+      ? String(round2(num(item.purchasePrice)))
+      : null;
     const [movement] = await tx
       .insert(warehouseMovementsTable)
       .values({
@@ -396,6 +411,7 @@ export async function createManualMovement(
         quantity: String(qty),
         unitPrice:
           input.unitPrice == null ? null : String(round2(input.unitPrice)),
+        costPriceAtTime,
         sourceType: "manual",
         sourceId: null,
         idempotencyKey: input.idempotencyKey ?? null,

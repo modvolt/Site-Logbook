@@ -810,7 +810,11 @@ export const GetStatsOverviewResponse = zod.object({
   "warehouse": zod.object({
   "itemCount": zod.number(),
   "stockValue": zod.number(),
-  "lowStockCount": zod.number()
+  "lowStockCount": zod.number(),
+  "materialSaleRevenue": zod.number(),
+  "materialPurchaseCost": zod.number(),
+  "materialGrossProfit": zod.number(),
+  "hasPartialCosts": zod.boolean()
 })
 })
 

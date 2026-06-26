@@ -3,7 +3,7 @@ import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, 
 import { cs } from "date-fns/locale";
 import { useGetStatsOverview, getGetStatsOverviewQueryKey, useGetRisksSummary, getGetRisksSummaryQueryKey } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -314,6 +314,26 @@ export default function Statistika() {
                 <Stat label="Položek" value={String(stats.warehouse.itemCount)} />
                 <Stat label="Hodnota skladu" value={fmtKc(stats.warehouse.stockValue)} />
                 <Stat label="Pod minimem" value={String(stats.warehouse.lowStockCount)} />
+              </div>
+            </Section>
+
+            {/* Material profit */}
+            <Section title="Zisk z materiálu" icon={<TrendingUp className="w-4 h-4" />}>
+              <p className="text-xs text-neutral-500 mb-3">Výdeje ze skladu za zvolené období.</p>
+              <div className="text-sm space-y-1 max-w-sm">
+                <PriceRow label="Tržby z materiálu" value={fmtKc(stats.warehouse.materialSaleRevenue)} />
+                <PriceRow label="Náklady na materiál" value={fmtKc(stats.warehouse.materialPurchaseCost)} />
+                <div className="flex justify-between border-t-2 border-neutral-900 pt-2 mt-2 text-base font-bold">
+                  <span>Hrubý zisk</span>
+                  <span className={stats.warehouse.materialGrossProfit >= 0 ? "text-green-700" : "text-red-600"}>
+                    {fmtKc(stats.warehouse.materialGrossProfit)}
+                  </span>
+                </div>
+                {stats.warehouse.hasPartialCosts && (
+                  <p className="text-xs text-amber-600 pt-1">
+                    * část pohybů bez nákupní ceny — náklady jsou podhodnoceny
+                  </p>
+                )}
               </div>
             </Section>
 

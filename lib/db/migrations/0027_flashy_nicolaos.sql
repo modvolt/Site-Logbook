@@ -1,0 +1,1 @@
+ALTER TABLE "warehouse_movements" ADD COLUMN "cost_price_at_time" numeric(10, 2);

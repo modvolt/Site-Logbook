@@ -5361,7 +5361,7 @@ components:
                 $ref: "#/components/schemas/StatsMaterialRow"
         warehouse:
           type: object
-          required: [itemCount, stockValue, lowStockCount]
+          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts]
           properties:
             itemCount:
               type: integer
@@ -5369,6 +5369,14 @@ components:
               type: number
             lowStockCount:
               type: integer
+            materialSaleRevenue:
+              type: number
+            materialPurchaseCost:
+              type: number
+            materialGrossProfit:
+              type: number
+            hasPartialCosts:
+              type: boolean
 
     CustomerInput:
       type: object

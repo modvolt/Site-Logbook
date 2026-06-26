@@ -62,6 +62,12 @@ export const warehouseMovementsTable = pgTable(
       onDelete: "set null",
     }),
 
+    // Purchase price per unit at the time of issue (OUT movements only).
+    // Populated automatically from warehouse_items.purchase_price when the
+    // movement is created; null for IN movements and for legacy rows where the
+    // price was not captured. Used to compute gross profit in period stats.
+    costPriceAtTime: numeric("cost_price_at_time", { precision: 10, scale: 2 }),
+
     note: text("note"),
     // Optional client-generated idempotency key. If the same key is submitted
     // again for the same item, the handler returns the existing movement (409)

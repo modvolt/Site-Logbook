@@ -7,6 +7,7 @@ import {
   peopleTable,
   timeEntriesTable,
   warehouseItemsTable,
+  warehouseMovementsTable,
 } from "@workspace/db";
 import { GetStatsOverviewQueryParams } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
@@ -128,6 +129,29 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     })
     .from(warehouseItemsTable);
 
+  // --- Warehouse profit: period-bound OUT movements via sale vs purchase price ---
+  // unitPrice = prodejní cena za ks (what the customer pays)
+  // costPriceAtTime = nákupní cena za ks captured at the moment of issue
+  const periodOutFilter = and(
+    eq(warehouseMovementsTable.direction, "out"),
+    gte(warehouseMovementsTable.createdAt, new Date(`${from}T00:00:00`)),
+    lte(warehouseMovementsTable.createdAt, new Date(`${to}T23:59:59.999`)),
+  );
+  const [warehouseProfitAgg] = await db
+    .select({
+      saleRevenue: sql<number>`coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.quantity} * ${warehouseMovementsTable.unitPrice} else 0 end), 0)`.mapWith(Number),
+      purchaseCost: sql<number>`coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.quantity} * ${warehouseMovementsTable.costPriceAtTime} else 0 end), 0)`.mapWith(Number),
+      movementsWithCost: sql<number>`count(case when ${warehouseMovementsTable.costPriceAtTime} is not null then 1 end)`.mapWith(Number),
+      movementsTotal: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(warehouseMovementsTable)
+    .where(periodOutFilter);
+
+  const materialSaleRevenue = num(warehouseProfitAgg?.saleRevenue);
+  const materialPurchaseCost = num(warehouseProfitAgg?.purchaseCost);
+  const materialGrossProfit = materialSaleRevenue - materialPurchaseCost;
+  const hasPartialCosts = num(warehouseProfitAgg?.movementsWithCost) < num(warehouseProfitAgg?.movementsTotal);
+
   const work = num(jobAgg?.price) + num(jobAgg?.parking) + num(jobAgg?.fines) + num(jobAgg?.transport);
   const material = num(materialAgg?.totalCost);
 
@@ -164,6 +188,10 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       itemCount: warehouseAgg?.itemCount ?? 0,
       stockValue: num(warehouseAgg?.stockValue),
       lowStockCount: num(warehouseAgg?.lowStockCount),
+      materialSaleRevenue,
+      materialPurchaseCost,
+      materialGrossProfit,
+      hasPartialCosts,
     },
   });
 });
