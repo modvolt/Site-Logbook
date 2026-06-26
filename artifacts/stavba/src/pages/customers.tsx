@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search } from "lucide-react";
+import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CustomerCsvImport from "@/components/customer-csv-import";
 
@@ -62,7 +62,7 @@ export default function Customers() {
   const search_ = useSearch();
   const { openConfirm, dialogProps } = useConfirmDialog();
 
-  const { data: customers, isLoading } = useListCustomers({
+  const { data: customers, isLoading, isError } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() }
   });
 
@@ -322,6 +322,12 @@ export default function Customers() {
       <div className="space-y-3">
         {isLoading ? (
           [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+            <AlertCircle className="h-10 w-10 opacity-30" />
+            <p className="font-medium">Nepodařilo se načíst zákazníky</p>
+            <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+          </div>
         ) : filtered && filtered.length > 0 ? (
           filtered.map(customer => (
             <Card key={customer.id} className="hover:bg-muted/30 transition-colors">

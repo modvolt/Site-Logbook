@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
 import { sortJobsDoneLast } from "@/lib/job-sort";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Download, Calendar, Save, Pencil, Trash2, X, CheckSquare, Square } from "lucide-react";
+import { Search, Download, Calendar, Save, Pencil, Trash2, X, CheckSquare, Square, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
@@ -303,7 +303,7 @@ export default function Jobs() {
     ? { status }
     : {};
 
-  const { data: jobs, isLoading } = useListJobs(
+  const { data: jobs, isLoading, isError } = useListJobs(
     queryParams,
     { query: { queryKey: getListJobsQueryKey(queryParams) } }
   );
@@ -512,6 +512,12 @@ export default function Jobs() {
       <div className="space-y-4">
         {isLoading ? (
           [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full" />)
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+            <AlertCircle className="h-10 w-10 opacity-30" />
+            <p className="font-medium">Nepodařilo se načíst zakázky</p>
+            <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+          </div>
         ) : sortedFiltered && sortedFiltered.length > 0 ? (
           sortedFiltered.map(job => (
             <JobCard

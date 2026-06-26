@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Hammer, Plus, Trash2, ChevronRight, Archive, ArchiveRestore, Clock,
-  Play, X, CheckCircle2, Receipt, Camera, PlusCircle, User2,
+  Play, X, CheckCircle2, Receipt, Camera, PlusCircle, User2, AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -117,7 +117,7 @@ export default function Activities() {
   const archived = tab === "archived";
   const params = { archived };
   const queryKey = getListActivitiesQueryKey(params);
-  const { data: allActivities, isLoading } = useListActivities(params, { query: { queryKey } });
+  const { data: allActivities, isLoading, isError } = useListActivities(params, { query: { queryKey } });
   const { data: customers } = useListCustomers();
 
   const activities = useMemo(() => {
@@ -302,6 +302,12 @@ export default function Activities() {
       {isLoading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+          <AlertCircle className="h-10 w-10 opacity-30" />
+          <p className="font-medium">Nepodařilo se načíst aktivity</p>
+          <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
         </div>
       ) : !activities || activities.length === 0 ? (
         <Card>

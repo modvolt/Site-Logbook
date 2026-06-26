@@ -22,7 +22,7 @@ import {
 import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
 import { fmtKc, fmtDate, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, FileText, Plus, ChevronRight, CircleDollarSign, BellRing } from "lucide-react";
+import { ArrowLeft, FileText, Plus, ChevronRight, CircleDollarSign, BellRing, AlertCircle } from "lucide-react";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "Všechny stavy" },
@@ -48,7 +48,7 @@ export default function BillingInvoices() {
 
   // "overdue" is a client-side view over all invoices, not a server status.
   const params = status === "all" || status === "overdue" ? undefined : { status };
-  const { data, isLoading } = useListInvoices(params, {
+  const { data, isLoading, isError } = useListInvoices(params, {
     query: { queryKey: getListInvoicesQueryKey(params) },
   });
 
@@ -126,6 +126,12 @@ export default function BillingInvoices() {
       <div className="space-y-3">
         {isLoading ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+            <AlertCircle className="h-10 w-10 opacity-30" />
+            <p className="font-medium">Nepodařilo se načíst faktury</p>
+            <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+          </div>
         ) : invoices && invoices.length > 0 ? (
           invoices.map((inv) => {
             const overdue = overdueDays(inv.dueDate, inv.status);

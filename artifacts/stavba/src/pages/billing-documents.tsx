@@ -44,7 +44,7 @@ import {
   expandZipArchive,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
-import { ArrowLeft, FileText, Inbox, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Inbox, Sparkles, Upload, AlertCircle } from "lucide-react";
 
 const UPLOAD_ACCEPT =
   "image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.xml,.isdoc,.isdocx,.zip,application/zip";
@@ -82,7 +82,7 @@ export default function BillingDocuments() {
   } | null>(null);
 
   const params = statusFilter === "all" ? undefined : { status: statusFilter };
-  const { data: docs, isLoading } = useListCostDocuments(params, {
+  const { data: docs, isLoading, isError } = useListCostDocuments(params, {
     query: { queryKey: getListCostDocumentsQueryKey(params) },
   });
 
@@ -296,6 +296,12 @@ export default function BillingDocuments() {
           {[1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-20 w-full" />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+          <AlertCircle className="h-10 w-10 opacity-30" />
+          <p className="font-medium">Nepodařilo se načíst doklady</p>
+          <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
         </div>
       ) : !docs || docs.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
