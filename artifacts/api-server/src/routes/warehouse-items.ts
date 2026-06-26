@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, count, eq, isNull, lte, sql, desc, ilike } from "drizzle-orm";
+import { and, count, eq, isNull, lte, sql, desc, ilike, inArray } from "drizzle-orm";
 import { db, warehouseItemsTable, auditLogTable } from "@workspace/db";
 import { warehouseMovementsTable } from "@workspace/db";
 import { warehousePriceHistoryTable } from "@workspace/db";
@@ -104,6 +104,19 @@ router.get("/warehouse-summary", async (_req, res): Promise<void> => {
       ),
     );
 
+  // Count items with at least one OUT movement missing a cost price
+  const [missingCostRow] = await db
+    .select({ c: count() })
+    .from(warehouseItemsTable)
+    .where(
+      sql`exists (
+        select 1 from ${warehouseMovementsTable}
+        where ${warehouseMovementsTable.warehouseItemId} = ${warehouseItemsTable.id}
+          and ${warehouseMovementsTable.direction} = 'out'
+          and ${warehouseMovementsTable.costPriceAtTime} is null
+      )`,
+    );
+
   res.json({
     stockValue: round2(num(agg?.stockValue ?? 0)),
     itemCount: Number(agg?.itemCount ?? 0),
@@ -112,6 +125,7 @@ router.get("/warehouse-summary", async (_req, res): Promise<void> => {
     itemsWithNoPriceAtAll: Number(agg?.itemsWithNoPriceAtAll ?? 0),
     movementsToday: Number(movRow?.c ?? 0),
     waitingForInvoice: Number(waitRow?.c ?? 0),
+    itemsMissingCostPrice: Number(missingCostRow?.c ?? 0),
   });
 });
 
@@ -125,7 +139,7 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const { category, supplierName, belowMin, noPrice, noPriceAtAll, changedAfter } = query.data;
+  const { category, supplierName, belowMin, noPrice, noPriceAtAll, missingCostPrice, changedAfter } = query.data;
 
   const conds = [];
   if (category) conds.push(ilike(warehouseItemsTable.category, `%${category}%`));
@@ -149,6 +163,16 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
   } else if (noPrice === true) {
     conds.push(isNull(warehouseItemsTable.purchasePrice));
   }
+  if (missingCostPrice === true) {
+    conds.push(
+      sql`exists (
+        select 1 from ${warehouseMovementsTable}
+        where ${warehouseMovementsTable.warehouseItemId} = ${warehouseItemsTable.id}
+          and ${warehouseMovementsTable.direction} = 'out'
+          and ${warehouseMovementsTable.costPriceAtTime} is null
+      )`,
+    );
+  }
   if (changedAfter) {
     const since = new Date(`${changedAfter}T00:00:00`);
     conds.push(
@@ -160,31 +184,60 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     );
   }
 
-  // Fetch latest price dates for all items in one query (also used to determine hasPriceHistory)
-  const priceRows = await db
-    .select({
-      warehouseItemId: warehousePriceHistoryTable.warehouseItemId,
-      latestDate: sql<string>`max(${warehousePriceHistoryTable.createdAt})`,
-    })
-    .from(warehousePriceHistoryTable)
-    .groupBy(warehousePriceHistoryTable.warehouseItemId);
-
-  const priceDateMap = new Map<number, string>();
-  for (const r of priceRows) {
-    if (r.latestDate) priceDateMap.set(r.warehouseItemId, new Date(r.latestDate).toISOString());
-  }
-
   const items = await db
     .select()
     .from(warehouseItemsTable)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(warehouseItemsTable.name);
 
-  res.json(items.map((item) => serializeWarehouseItem(
-    item,
-    priceDateMap.get(item.id) ?? null,
-    priceDateMap.has(item.id),
-  )));
+  // Fetch price history + missing cost counts in parallel, filtered to returned items
+  const itemIds = items.map((i) => i.id);
+
+  const [priceRows, missingCostRows] = await Promise.all([
+    itemIds.length
+      ? db
+          .select({
+            warehouseItemId: warehousePriceHistoryTable.warehouseItemId,
+            latestDate: sql<string>`max(${warehousePriceHistoryTable.createdAt})`,
+          })
+          .from(warehousePriceHistoryTable)
+          .where(inArray(warehousePriceHistoryTable.warehouseItemId, itemIds))
+          .groupBy(warehousePriceHistoryTable.warehouseItemId)
+      : Promise.resolve([] as Array<{ warehouseItemId: number; latestDate: string }>),
+    itemIds.length
+      ? db
+          .select({
+            warehouseItemId: warehouseMovementsTable.warehouseItemId,
+            missingCount: sql<number>`count(*)`.mapWith(Number),
+          })
+          .from(warehouseMovementsTable)
+          .where(
+            and(
+              inArray(warehouseMovementsTable.warehouseItemId, itemIds),
+              sql`${warehouseMovementsTable.direction} = 'out'`,
+              isNull(warehouseMovementsTable.costPriceAtTime),
+            ),
+          )
+          .groupBy(warehouseMovementsTable.warehouseItemId)
+      : Promise.resolve([] as Array<{ warehouseItemId: number; missingCount: number }>),
+  ]);
+
+  const priceDateMap = new Map<number, string>();
+  for (const r of priceRows) {
+    if (r.latestDate) priceDateMap.set(r.warehouseItemId, new Date(r.latestDate).toISOString());
+  }
+
+  const missingCostMap = new Map<number, number>();
+  for (const r of missingCostRows) {
+    missingCostMap.set(r.warehouseItemId, r.missingCount);
+  }
+
+  res.json(
+    items.map((item) => ({
+      ...serializeWarehouseItem(item, priceDateMap.get(item.id) ?? null, priceDateMap.has(item.id)),
+      missingCostPriceCount: missingCostMap.get(item.id) ?? null,
+    })),
+  );
 });
 
 router.post("/warehouse-items", async (req, res): Promise<void> => {

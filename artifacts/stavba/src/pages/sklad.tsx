@@ -39,6 +39,7 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
+  CircleDollarSign,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -103,14 +104,25 @@ function SummaryCard({
   label,
   value,
   alert,
+  onClick,
+  active,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
   alert?: boolean;
+  onClick?: () => void;
+  active?: boolean;
 }) {
   return (
-    <Card className={alert ? "border-amber-400/60 bg-amber-50 dark:bg-amber-950/20" : ""}>
+    <Card
+      className={[
+        alert ? "border-amber-400/60 bg-amber-50 dark:bg-amber-950/20" : "",
+        active ? "ring-2 ring-primary" : "",
+        onClick ? "cursor-pointer hover:bg-muted/60 transition-colors" : "",
+      ].filter(Boolean).join(" ")}
+      onClick={onClick}
+    >
       <CardContent className="p-4 flex items-center gap-3">
         <div className={`p-2 rounded-full ${alert ? "bg-amber-100 text-amber-600 dark:bg-amber-900/50" : "bg-primary/10 text-primary"}`}>
           {icon}
@@ -130,6 +142,7 @@ type SkladFilters = {
   belowMin: boolean;
   noPrice: boolean;
   noPriceAtAll: boolean;
+  missingCostPrice: boolean;
   changedAfter: string;
 };
 
@@ -141,6 +154,7 @@ function readFiltersFromUrl(search: string): SkladFilters {
     belowMin: p.get("belowMin") === "1",
     noPrice: p.get("noPrice") === "1",
     noPriceAtAll: p.get("noPriceAtAll") === "1",
+    missingCostPrice: p.get("missingCostPrice") === "1",
     changedAfter: p.get("changedAfter") ?? "",
   };
 }
@@ -152,13 +166,14 @@ function buildSkladSearch(f: SkladFilters): string {
   if (f.belowMin) p.set("belowMin", "1");
   if (f.noPrice) p.set("noPrice", "1");
   if (f.noPriceAtAll) p.set("noPriceAtAll", "1");
+  if (f.missingCostPrice) p.set("missingCostPrice", "1");
   if (f.changedAfter) p.set("changedAfter", f.changedAfter);
   const qs = p.toString();
   return qs ? `?${qs}` : "";
 }
 
 function hasActiveFilters(f: SkladFilters): boolean {
-  return !!(f.category || f.supplier || f.belowMin || f.noPrice || f.noPriceAtAll || f.changedAfter);
+  return !!(f.category || f.supplier || f.belowMin || f.noPrice || f.noPriceAtAll || f.missingCostPrice || f.changedAfter);
 }
 
 export default function Sklad() {
@@ -182,6 +197,7 @@ export default function Sklad() {
   const [filterBelowMin, setFilterBelowMin] = useState(() => readFiltersFromUrl(search_).belowMin);
   const [filterNoPrice, setFilterNoPrice] = useState(() => readFiltersFromUrl(search_).noPrice);
   const [filterNoPriceAtAll, setFilterNoPriceAtAll] = useState(() => readFiltersFromUrl(search_).noPriceAtAll);
+  const [filterMissingCostPrice, setFilterMissingCostPrice] = useState(() => readFiltersFromUrl(search_).missingCostPrice);
   const [filterChangedAfter, setFilterChangedAfter] = useState(() => readFiltersFromUrl(search_).changedAfter);
   // Auto-open filter panel if URL contains active filters
   const [showFilters, setShowFilters] = useState(() => hasActiveFilters(readFiltersFromUrl(search_)));
@@ -194,6 +210,7 @@ export default function Sklad() {
     setFilterBelowMin(f.belowMin);
     setFilterNoPrice(f.noPrice);
     setFilterNoPriceAtAll(f.noPriceAtAll);
+    setFilterMissingCostPrice(f.missingCostPrice);
     setFilterChangedAfter(f.changedAfter);
     if (hasActiveFilters(f)) setShowFilters(true);
   }, [search_]);
@@ -206,6 +223,7 @@ export default function Sklad() {
       belowMin: filterBelowMin,
       noPrice: filterNoPrice,
       noPriceAtAll: filterNoPriceAtAll,
+      missingCostPrice: filterMissingCostPrice,
       changedAfter: filterChangedAfter,
       ...patch,
     };
@@ -214,11 +232,12 @@ export default function Sklad() {
     setFilterBelowMin(next.belowMin);
     setFilterNoPrice(next.noPrice);
     setFilterNoPriceAtAll(next.noPriceAtAll);
+    setFilterMissingCostPrice(next.missingCostPrice);
     setFilterChangedAfter(next.changedAfter);
     setLocation(buildSkladSearch(next), { replace: true });
   };
 
-  const clearFilters = () => applyFilter({ category: "", supplier: "", belowMin: false, noPrice: false, noPriceAtAll: false, changedAfter: "" });
+  const clearFilters = () => applyFilter({ category: "", supplier: "", belowMin: false, noPrice: false, noPriceAtAll: false, missingCostPrice: false, changedAfter: "" });
 
   const activeFilterCount =
     (filterCategory ? 1 : 0) +
@@ -226,6 +245,7 @@ export default function Sklad() {
     (filterBelowMin ? 1 : 0) +
     (filterNoPrice ? 1 : 0) +
     (filterNoPriceAtAll ? 1 : 0) +
+    (filterMissingCostPrice ? 1 : 0) +
     (filterChangedAfter ? 1 : 0);
 
   const listParams: ListWarehouseItemsParams | undefined = useMemo(() => {
@@ -235,9 +255,10 @@ export default function Sklad() {
     if (filterBelowMin) p.belowMin = true;
     if (filterNoPriceAtAll) p.noPriceAtAll = true;
     else if (filterNoPrice) p.noPrice = true;
+    if (filterMissingCostPrice) p.missingCostPrice = true;
     if (filterChangedAfter) p.changedAfter = filterChangedAfter;
     return Object.keys(p).length ? p : undefined;
-  }, [filterCategory, filterSupplier, filterBelowMin, filterNoPrice, filterNoPriceAtAll, filterChangedAfter]);
+  }, [filterCategory, filterSupplier, filterBelowMin, filterNoPrice, filterNoPriceAtAll, filterMissingCostPrice, filterChangedAfter]);
 
   const { data: items, isLoading } = useListWarehouseItems(listParams, {
     query: { queryKey: getListWarehouseItemsQueryKey(listParams) },
@@ -387,6 +408,8 @@ export default function Sklad() {
             label="Pod minimem"
             value={summary.itemsBelowMin}
             alert={summary.itemsBelowMin > 0}
+            onClick={summary.itemsBelowMin > 0 ? () => { setShowFilters(true); applyFilter({ belowMin: true }); } : undefined}
+            active={filterBelowMin}
           />
           {summary.itemsWithNoPriceAtAll > 0 ? (
             <SummaryCard
@@ -394,6 +417,8 @@ export default function Sklad() {
               label="Zcela bez ceny"
               value={`${summary.itemsWithNoPriceAtAll} z ${summary.itemsWithoutPrice}`}
               alert
+              onClick={summary.itemsWithoutPrice > 0 ? () => { setShowFilters(true); applyFilter({ noPrice: true }); } : undefined}
+              active={filterNoPrice}
             />
           ) : (
             <SummaryCard
@@ -401,8 +426,18 @@ export default function Sklad() {
               label="Bez nákupní ceny"
               value={summary.itemsWithoutPrice}
               alert={summary.itemsWithoutPrice > 0}
+              onClick={summary.itemsWithoutPrice > 0 ? () => { setShowFilters(true); applyFilter({ noPrice: true }); } : undefined}
+              active={filterNoPrice}
             />
           )}
+          <SummaryCard
+            icon={<CircleDollarSign className="h-4 w-4" />}
+            label="Chybí cena pohybu"
+            value={summary.itemsMissingCostPrice}
+            alert={summary.itemsMissingCostPrice > 0}
+            onClick={summary.itemsMissingCostPrice > 0 ? () => { setShowFilters(true); applyFilter({ missingCostPrice: true }); } : undefined}
+            active={filterMissingCostPrice}
+          />
           <SummaryCard
             icon={<FileQuestion className="h-4 w-4" />}
             label="Čeká na fakturu"
@@ -504,6 +539,14 @@ export default function Sklad() {
                     Zcela bez ceny (ani bez historie)
                   </Label>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="missingCostPrice"
+                    checked={filterMissingCostPrice}
+                    onCheckedChange={(v) => applyFilter({ missingCostPrice: v })}
+                  />
+                  <Label htmlFor="missingCostPrice" className="cursor-pointer">Pohyby bez nákupní ceny</Label>
+                </div>
                 <div>
                   <Label className="text-xs mb-1 block text-muted-foreground">Pohyb od (poslední změna)</Label>
                   <Input
@@ -577,6 +620,7 @@ export default function Sklad() {
             const stalePrice = !noPrice && isPriceStale(item);
             const low = item.minQuantity != null && item.quantity <= item.minQuantity;
             const mar = margin(item);
+            const missingCost = (item.missingCostPriceCount ?? 0) > 0;
 
             // Card border style — red for truly unpriced, amber for no current price but has history, yellow for stale
             const cardClass = noPriceAtAll
@@ -609,6 +653,12 @@ export default function Sklad() {
                         {stalePrice && (
                           <span className="inline-flex items-center gap-1 text-xs text-yellow-700 dark:text-yellow-400 font-medium">
                             <Clock className="h-3 w-3" /> Zastaralá cena
+                          </span>
+                        )}
+                        {missingCost && (
+                          <span className="inline-flex items-center gap-1 text-xs text-orange-700 dark:text-orange-400 font-medium">
+                            <CircleDollarSign className="h-3 w-3" />
+                            {item.missingCostPriceCount} {item.missingCostPriceCount === 1 ? "pohyb bez ceny" : (item.missingCostPriceCount ?? 0) < 5 ? "pohyby bez ceny" : "pohybů bez ceny"}
                           </span>
                         )}
                       </div>

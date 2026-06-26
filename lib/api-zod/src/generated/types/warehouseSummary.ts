@@ -21,4 +21,6 @@ export interface WarehouseSummary {
   movementsToday: number;
   /** Pending billing documents with stock-allocated lines */
   waitingForInvoice: number;
+  /** Items that have at least one OUT movement without a costPriceAtTime recorded */
+  itemsMissingCostPrice: number;
 }

@@ -37,5 +37,10 @@ export interface WarehouseItem {
   latestPriceDate?: string | null;
   /** True when at least one price-history record exists for this item */
   hasPriceHistory?: boolean;
+  /**
+     * Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements
+     * @nullable
+     */
+  missingCostPriceCount?: number | null;
   createdAt: string;
 }

@@ -1349,6 +1349,12 @@ paths:
           description: Filter items that have no current purchase price AND no price history at all
           schema:
             type: boolean
+        - name: missingCostPrice
+          in: query
+          required: false
+          description: "When true, return only items that have at least one OUT movement without a costPriceAtTime recorded"
+          schema:
+            type: boolean
         - name: changedAfter
           in: query
           required: false
@@ -7183,7 +7189,7 @@ components:
 
     WarehouseSummary:
       type: object
-      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, itemsWithNoPriceAtAll, movementsToday, waitingForInvoice]
+      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, itemsWithNoPriceAtAll, movementsToday, waitingForInvoice, itemsMissingCostPrice]
       properties:
         stockValue:
           type: number
@@ -7206,6 +7212,9 @@ components:
         waitingForInvoice:
           type: integer
           description: Pending billing documents with stock-allocated lines
+        itemsMissingCostPrice:
+          type: integer
+          description: Items that have at least one OUT movement without a costPriceAtTime recorded
 
     WarehouseJobMarginSummary:
       type: object
@@ -7331,6 +7340,9 @@ components:
         hasPriceHistory:
           type: boolean
           description: True when at least one price-history record exists for this item
+        missingCostPriceCount:
+          type: ["integer", "null"]
+          description: Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements
         createdAt:
           type: string
 

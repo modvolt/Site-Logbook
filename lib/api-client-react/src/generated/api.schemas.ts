@@ -857,6 +857,8 @@ export interface WarehouseSummary {
   movementsToday: number;
   /** Pending billing documents with stock-allocated lines */
   waitingForInvoice: number;
+  /** Items that have at least one OUT movement without a costPriceAtTime recorded */
+  itemsMissingCostPrice: number;
 }
 
 export interface WarehouseItem {
@@ -890,6 +892,11 @@ export interface WarehouseItem {
   latestPriceDate?: string | null;
   /** True when at least one price-history record exists for this item */
   hasPriceHistory?: boolean;
+  /**
+     * Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements
+     * @nullable
+     */
+  missingCostPriceCount?: number | null;
   createdAt: string;
 }
 
@@ -3407,6 +3414,10 @@ noPrice?: boolean;
  * Filter items that have no current purchase price AND no price history at all
  */
 noPriceAtAll?: boolean;
+/**
+ * When true, return only items that have at least one OUT movement without a costPriceAtTime recorded
+ */
+missingCostPrice?: boolean;
 /**
  * Filter items that had any movement on or after this date (YYYY-MM-DD)
  */

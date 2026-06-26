@@ -1380,7 +1380,8 @@ export const GetWarehouseSummaryResponse = zod.object({
   "itemsWithoutPrice": zod.number().describe('Items without a current purchase price (may still have price history)'),
   "itemsWithNoPriceAtAll": zod.number().describe('Items with no current purchase price AND no price history at all'),
   "movementsToday": zod.number().describe('Number of stock movements recorded today'),
-  "waitingForInvoice": zod.number().describe('Pending billing documents with stock-allocated lines')
+  "waitingForInvoice": zod.number().describe('Pending billing documents with stock-allocated lines'),
+  "itemsMissingCostPrice": zod.number().describe('Items that have at least one OUT movement without a costPriceAtTime recorded')
 })
 
 
@@ -1393,6 +1394,7 @@ export const ListWarehouseItemsQueryParams = zod.object({
   "belowMin": zod.coerce.boolean().optional(),
   "noPrice": zod.coerce.boolean().optional(),
   "noPriceAtAll": zod.coerce.boolean().optional().describe('Filter items that have no current purchase price AND no price history at all'),
+  "missingCostPrice": zod.coerce.boolean().optional().describe('When true, return only items that have at least one OUT movement without a costPriceAtTime recorded'),
   "changedAfter": zod.date().optional().describe('Filter items that had any movement on or after this date (YYYY-MM-DD)')
 })
 
@@ -1412,6 +1414,7 @@ export const ListWarehouseItemsResponseItem = zod.object({
   "supplierIc": zod.string().nullish(),
   "latestPriceDate": zod.string().nullish().describe('ISO date of the most recent purchase-price record'),
   "hasPriceHistory": zod.boolean().optional().describe('True when at least one price-history record exists for this item'),
+  "missingCostPriceCount": zod.number().nullish().describe('Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements'),
   "createdAt": zod.string()
 })
 export const ListWarehouseItemsResponse = zod.array(ListWarehouseItemsResponseItem)
@@ -1492,6 +1495,7 @@ export const UpdateWarehouseItemResponse = zod.object({
   "supplierIc": zod.string().nullish(),
   "latestPriceDate": zod.string().nullish().describe('ISO date of the most recent purchase-price record'),
   "hasPriceHistory": zod.boolean().optional().describe('True when at least one price-history record exists for this item'),
+  "missingCostPriceCount": zod.number().nullish().describe('Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements'),
   "createdAt": zod.string()
 })
 

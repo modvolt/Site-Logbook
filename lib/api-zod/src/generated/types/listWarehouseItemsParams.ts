@@ -16,6 +16,10 @@ noPrice?: boolean;
  */
 noPriceAtAll?: boolean;
 /**
+ * When true, return only items that have at least one OUT movement without a costPriceAtTime recorded
+ */
+missingCostPrice?: boolean;
+/**
  * Filter items that had any movement on or after this date (YYYY-MM-DD)
  */
 changedAfter?: Date;
