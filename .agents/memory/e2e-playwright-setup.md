@@ -19,8 +19,16 @@ description: Lessons from setting up Playwright E2E tests in the Stavba monorepo
 ## Dev DB schema drift
 - Dev DB is provisioned via `drizzle push` and may lag behind new migrations. Columns added by recent migrations won't exist.
 - Before running DB-backed E2E tests, verify with `psql $DATABASE_URL -c "\d table_name"` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS …` for any missing columns.
-- Known gaps that were patched: `jobs.short_name` (TEXT), `warehouse_movements.idempotency_key` (TEXT).
+- Known gaps that were patched: `jobs.short_name` (TEXT), `warehouse_movements.idempotency_key` (TEXT) + `warehouse_movements.cost_price_at_time` (numeric(10,2)), `billing_settings.margin_alert_threshold_percent` (numeric(6,2) NOT NULL DEFAULT '0').
 - **How to apply:** any test that creates/queries a record and gets a 500 (not 401) = check for missing columns first, not an auth issue.
+
+## Running the suite (cwd matters)
+- `storageState`/`globalSetup` paths are resolved relative to **cwd**, and global setup writes the auth file under `e2e/.auth/`. Run from inside `e2e/` (`cd e2e && pnpm test <filter>`), NOT the root `pnpm run test:e2e` — the root script runs from repo root so every storageState test fails with `ENOENT .auth/admin.json`.
+- `pnpm test <substring>` filters by spec filename; the `-- <file>` form does not filter.
+
+## API field types when seeding via request
+- `POST /api/warehouse-items` wants `purchasePrice`/`salePrice`/`quantity` as **numbers**, not strings (Zod `invalid_type` 400). `POST /api/jobs/:id/materials` `pricePerUnit` is also a number.
+- A job material linked to a warehouse item creates the OUT movement: `unitPrice` = material `pricePerUnit` (sale), `costPriceAtTime` = item `purchasePrice` (cost). So purchasePrice 100 + pricePerUnit 50 → cumulative margin -100%.
 
 ## Toast locator strict mode
 - Shadcn/ui toasts render both a visible div AND an aria-live `<span role="status">` announcement. Both contain the toast text, so `getByText("...")` (without `exact: true`) hits a strict-mode violation (2 elements).

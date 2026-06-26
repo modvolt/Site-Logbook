@@ -429,6 +429,7 @@ export default function JobDetail() {
         >
           <FileText className="w-4 h-4 mr-2" /> Zakázkový list (PDF / e-mail)
         </Button>
+        <JobMarginAlert jobId={id} />
         <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
@@ -1309,6 +1310,40 @@ function MarginTrendChart({
   );
 }
 
+function JobMarginAlert({ jobId }: { jobId: number }) {
+  const { data: marginTrend } = useGetWarehouseJobMarginTrend(
+    { jobId },
+    { query: { enabled: !!jobId, queryKey: getGetWarehouseJobMarginTrendQueryKey({ jobId }) } },
+  );
+  if (!marginTrend?.points?.length) return null;
+  const lastPoint = marginTrend.points[marginTrend.points.length - 1];
+  const latestPct = lastPoint?.cumulativeMarginPct ?? null;
+  const thresholdPct = marginTrend.alertThresholdPercent ?? 0;
+  if (latestPct === null || latestPct >= thresholdPct) return null;
+  const isDeep = latestPct < -10;
+  const fmt = (n: number) => n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 });
+  return (
+    <a
+      href={`/sklad/pohyby?jobId=${jobId}`}
+      data-testid="job-margin-alert"
+      className={`flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm font-medium shadow-sm transition-colors hover:opacity-90 ${
+        isDeep
+          ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+          : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+      }`}
+    >
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+      <span>
+        <strong>Nízká marže zakázky.</strong>{" "}
+        Aktuální kumulativní marže skladu je <strong>{fmt(latestPct)} %</strong>, což je pod
+        nastavenou hranicí <strong>{fmt(thresholdPct)} %</strong>. Zkontrolujte nákupní a prodejní
+        ceny materiálu.{" "}
+        <span className="underline underline-offset-2">Zobrazit pohyby skladu</span>
+      </span>
+    </a>
+  );
+}
+
 function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any) {
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
@@ -1526,33 +1561,6 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                 </span>
               )}
             </div>
-            {(() => {
-              const lastPoint = marginTrend?.points?.length
-                ? marginTrend.points[marginTrend.points.length - 1]
-                : null;
-              const latestPct = lastPoint?.cumulativeMarginPct ?? null;
-              const thresholdPct = marginTrend?.alertThresholdPercent ?? 0;
-              if (latestPct === null || latestPct >= thresholdPct) return null;
-              const isDeep = latestPct < -10;
-              return (
-                <a
-                  href={`/sklad/pohyby?jobId=${jobId}`}
-                  className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors hover:opacity-90 ${
-                    isDeep
-                      ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
-                      : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                  }`}
-                >
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    Kumulativní marže skladu klesla na{" "}
-                    <strong>{latestPct.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %</strong>{" "}
-                    — zakázka je pod hranicí rentability.{" "}
-                    <span className="underline underline-offset-2">Zobrazit pohyby skladu</span>
-                  </span>
-                </a>
-              );
-            })()}
             {marginTrend && marginTrend.points.length >= 2 && (
               <MarginTrendChart points={marginTrend.points} granularity={trendGranularity} onGranularityChange={setTrendGranularity} />
             )}
