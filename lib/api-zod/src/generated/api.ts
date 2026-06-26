@@ -329,7 +329,7 @@ export const SendJobEmailBody = zod.object({
 
 export const SendJobEmailResponse = zod.object({
   "sent": zod.boolean(),
-  "to": zod.string()
+  "to": zod.string().describe('Comma-separated list of recipients the email was sent to')
 })
 
 
@@ -751,14 +751,14 @@ export const SendCredentialsEmailParams = zod.object({
 
 export const SendCredentialsEmailBody = zod.object({
   "pdfBase64": zod.string().describe('Base64-encoded PDF of the access-credentials sheet'),
-  "to": zod.string().nullish().describe('Optional override recipient; defaults to the customer\'s stored email'),
+  "to": zod.array(zod.string()).optional().describe('Optional list of recipient email addresses; defaults to the customer\'s stored email when omitted or empty.\n'),
   "subject": zod.string().nullish(),
   "message": zod.string().nullish()
 })
 
 export const SendCredentialsEmailResponse = zod.object({
   "sent": zod.boolean(),
-  "to": zod.string()
+  "to": zod.string().describe('Comma-separated list of recipients the email was sent to')
 })
 
 

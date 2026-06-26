@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, emailSettingsTable } from "@workspace/db";
 
 export type SendEmailParams = {
-  to: string;
+  to: string | string[];
   subject: string;
   text: string;
   pdfBase64: string;

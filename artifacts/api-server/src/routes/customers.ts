@@ -209,15 +209,22 @@ router.post("/customers/:id/send-credentials-email", requireRole("master", "admi
     return;
   }
 
-  const to = (parsed.data.to ?? customer.email ?? "").trim();
-  if (!to) {
+  const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+  // Build the recipient list: use supplied addresses or fall back to the
+  // customer's stored email.
+  const rawTo = parsed.data.to && parsed.data.to.length > 0
+    ? parsed.data.to.map((a) => a.trim()).filter(Boolean)
+    : [customer.email?.trim() ?? ""].filter(Boolean);
+
+  if (rawTo.length === 0) {
     res.status(400).json({ error: "Zákazník nemá uložený e-mail." });
     return;
   }
 
-  const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-  if (!emailPattern.test(to)) {
-    res.status(400).json({ error: "Neplatná e-mailová adresa příjemce." });
+  const invalidAddress = rawTo.find((addr) => !emailPattern.test(addr));
+  if (invalidAddress) {
+    res.status(400).json({ error: `Neplatná e-mailová adresa příjemce: ${invalidAddress}` });
     return;
   }
 
@@ -233,7 +240,7 @@ router.post("/customers/:id/send-credentials-email", requireRole("master", "admi
 
   try {
     await sendEmailWithPdf({
-      to,
+      to: rawTo,
       subject,
       text: message,
       pdfBase64: parsed.data.pdfBase64,
@@ -245,7 +252,7 @@ router.post("/customers/:id/send-credentials-email", requireRole("master", "admi
     return;
   }
 
-  res.json({ sent: true, to });
+  res.json({ sent: true, to: rawTo.join(", ") });
 });
 
 export default router;

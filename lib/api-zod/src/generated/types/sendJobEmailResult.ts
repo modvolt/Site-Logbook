@@ -8,5 +8,6 @@
 
 export interface SendJobEmailResult {
   sent: boolean;
+  /** Comma-separated list of recipients the email was sent to */
   to: string;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "wouter";
 import { format } from "date-fns";
 import {
@@ -10,7 +10,7 @@ import {
   type DeviceCredential,
   type NetworkDevice,
 } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Mail, Loader2, Eye, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Printer, Mail, Loader2, Eye, ShieldAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -60,10 +60,12 @@ export default function PristupoveUdajeExport() {
   const [secretsRevealed, setSecretsRevealed] = useState(false);
   const [includeSecretsPrint, setIncludeSecretsPrint] = useState(false);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
-  const [sendTo, setSendTo] = useState("");
+  const [sendRecipients, setSendRecipients] = useState<string[]>([]);
+  const [recipientInput, setRecipientInput] = useState("");
   const [sendToError, setSendToError] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const recipientInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const sendEmail = useSendCredentialsEmail();
   const auditExport = useAuditCredentialExport();
@@ -143,23 +145,64 @@ export default function PristupoveUdajeExport() {
     `S pozdravem,\nModvolt s.r.o.`;
 
   const handleOpenSendDialog = () => {
-    setSendTo(customer?.email?.trim() ?? "");
+    const initial = customer?.email?.trim() ?? "";
+    setSendRecipients(initial ? [initial] : []);
+    setRecipientInput("");
     setSendToError("");
     setEmailSubject(defaultSubject);
     setEmailBody(defaultBody(customer?.companyName));
     setSendDialogOpen(true);
   };
 
+  const commitRecipientInput = (): boolean => {
+    const val = recipientInput.trim().replace(/,+$/, "");
+    if (!val) return true;
+    if (!EMAIL_RE.test(val)) {
+      setSendToError(`Neplatná e-mailová adresa: ${val}`);
+      return false;
+    }
+    if (!sendRecipients.includes(val)) {
+      setSendRecipients((prev) => [...prev, val]);
+    }
+    setRecipientInput("");
+    setSendToError("");
+    return true;
+  };
+
+  const handleRecipientKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "," || e.key === "Tab") {
+      e.preventDefault();
+      commitRecipientInput();
+    } else if (e.key === "Backspace" && recipientInput === "" && sendRecipients.length > 0) {
+      setSendRecipients((prev) => prev.slice(0, -1));
+    }
+  };
+
+  const handleRemoveRecipient = (addr: string) => {
+    setSendRecipients((prev) => prev.filter((a) => a !== addr));
+  };
+
   const handleConfirmSend = async () => {
-    const to = sendTo.trim();
-    if (!to) {
-      setSendToError("E-mailová adresa je povinná.");
+    const ok = commitRecipientInput();
+    if (!ok) return;
+
+    const recipients = [...sendRecipients];
+    if (recipientInput.trim()) {
+      const val = recipientInput.trim().replace(/,+$/, "");
+      if (val && !recipients.includes(val)) recipients.push(val);
+    }
+
+    if (recipients.length === 0) {
+      setSendToError("Zadejte alespoň jednu e-mailovou adresu.");
       return;
     }
-    if (!EMAIL_RE.test(to)) {
-      setSendToError("Zadejte platnou e-mailovou adresu.");
+
+    const invalid = recipients.find((a) => !EMAIL_RE.test(a));
+    if (invalid) {
+      setSendToError(`Neplatná e-mailová adresa: ${invalid}`);
       return;
     }
+
     setSendToError("");
     const element = document.getElementById("pristupy-list");
     if (!element) return;
@@ -169,7 +212,7 @@ export default function PristupoveUdajeExport() {
         id: customerId,
         data: {
           pdfBase64,
-          to,
+          to: recipients,
           subject: emailSubject.trim() || undefined,
           message: emailBody.trim() || undefined,
         },
@@ -287,21 +330,54 @@ export default function PristupoveUdajeExport() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1">
-              <Label htmlFor="send-to">Komu (e-mail)</Label>
-              <Input
-                id="send-to"
-                type="email"
-                placeholder="adresa@example.com"
-                value={sendTo}
-                onChange={(e) => {
-                  setSendTo(e.target.value);
-                  if (sendToError) setSendToError("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleConfirmSend();
-                }}
-                autoFocus
-              />
+              <Label htmlFor="send-to">
+                Komu (e-mail)
+                <span className="ml-1 text-xs font-normal text-muted-foreground">
+                  — oddělte čárkou nebo stiskněte Enter pro více adres
+                </span>
+              </Label>
+              {/* Multi-chip recipient field */}
+              <div
+                className="flex flex-wrap gap-1.5 min-h-10 px-3 py-2 rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 cursor-text"
+                onClick={() => recipientInputRef.current?.focus()}
+              >
+                {sendRecipients.map((addr) => (
+                  <span
+                    key={addr}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary border border-primary/20 max-w-[220px]"
+                  >
+                    <span className="truncate">{addr}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleRemoveRecipient(addr); }}
+                      className="shrink-0 rounded-full hover:bg-primary/20 p-0.5 transition-colors"
+                      aria-label={`Odebrat ${addr}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  id="send-to"
+                  ref={recipientInputRef}
+                  type="email"
+                  inputMode="email"
+                  placeholder={sendRecipients.length === 0 ? "adresa@example.com" : "Přidat adresu…"}
+                  value={recipientInput}
+                  onChange={(e) => {
+                    setRecipientInput(e.target.value);
+                    if (sendToError) setSendToError("");
+                    if (e.target.value.endsWith(",")) {
+                      setRecipientInput(e.target.value.slice(0, -1));
+                      commitRecipientInput();
+                    }
+                  }}
+                  onKeyDown={handleRecipientKeyDown}
+                  onBlur={commitRecipientInput}
+                  autoFocus
+                  className="flex-1 min-w-[140px] border-0 bg-transparent outline-none text-sm placeholder:text-muted-foreground py-0.5"
+                />
+              </div>
               {sendToError && (
                 <p className="text-sm text-destructive">{sendToError}</p>
               )}

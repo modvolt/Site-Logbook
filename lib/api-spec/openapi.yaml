@@ -5247,8 +5247,12 @@ components:
           type: string
           description: Base64-encoded PDF of the access-credentials sheet
         to:
-          type: ["string", "null"]
-          description: Optional override recipient; defaults to the customer's stored email
+          type: array
+          items:
+            type: string
+          description: >
+            Optional list of recipient email addresses; defaults to the
+            customer's stored email when omitted or empty.
         subject:
           type: ["string", "null"]
         message:
@@ -5262,6 +5266,7 @@ components:
           type: boolean
         to:
           type: string
+          description: Comma-separated list of recipients the email was sent to
 
     StatsJobTypeCount:
       type: object

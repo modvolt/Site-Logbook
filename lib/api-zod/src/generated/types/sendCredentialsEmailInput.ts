@@ -9,11 +9,9 @@
 export interface SendCredentialsEmailInput {
   /** Base64-encoded PDF of the access-credentials sheet */
   pdfBase64: string;
-  /**
-     * Optional override recipient; defaults to the customer's stored email
-     * @nullable
-     */
-  to?: string | null;
+  /** Optional list of recipient email addresses; defaults to the customer's stored email when omitted or empty.
+   */
+  to?: string[];
   /** @nullable */
   subject?: string | null;
   /** @nullable */
