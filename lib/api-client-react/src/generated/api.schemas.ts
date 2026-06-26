@@ -1082,6 +1082,8 @@ export interface WarehouseJobMarginTrendPoint {
 export interface WarehouseJobMarginTrend {
   jobId: number;
   points: WarehouseJobMarginTrendPoint[];
+  /** Operator-configured margin warning threshold in percent; the alert fires when the latest cumulative margin drops below this value */
+  alertThresholdPercent: number;
 }
 
 export interface WarehouseActivityMarginTrend {
@@ -1988,6 +1990,8 @@ export interface BillingSettings {
   invoiceFooterNote?: string | null;
   /** Default percent markup applied to material lines when proposing an invoice (0 = no markup) */
   materialMarkupPercent?: number;
+  /** Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin) */
+  marginAlertThresholdPercent?: number;
   numberPrefix: string;
   numberFormat: string;
   /** @nullable */
@@ -2032,6 +2036,11 @@ export interface BillingSettingsInput {
      * @nullable
      */
   materialMarkupPercent?: number | null;
+  /**
+     * Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
+     * @nullable
+     */
+  marginAlertThresholdPercent?: number | null;
   /** @nullable */
   numberPrefix?: string | null;
   /** @nullable */

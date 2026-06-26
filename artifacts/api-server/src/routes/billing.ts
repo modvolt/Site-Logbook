@@ -133,6 +133,8 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
       invoiceFooterNote: d.invoiceFooterNote,
       // materialMarkupPercent non-nullable: null = "leave unchanged".
       materialMarkupPercent: d.materialMarkupPercent ?? undefined,
+      // marginAlertThresholdPercent non-nullable: null = "leave unchanged".
+      marginAlertThresholdPercent: d.marginAlertThresholdPercent ?? undefined,
       // reminderEnabled non-nullable: null = "leave unchanged".
       reminderEnabled: d.reminderEnabled ?? undefined,
       // reminderDays nullable on input but normalized to a default if cleared.

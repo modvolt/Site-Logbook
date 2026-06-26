@@ -218,6 +218,13 @@
       "when": 1782498339420,
       "tag": "0030_old_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1782800000000,
+      "tag": "0031_margin_alert_threshold",
+      "breakpoints": true
     }
   ]
 }

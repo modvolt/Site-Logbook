@@ -138,6 +138,7 @@ export function serializeSettings(row: BillingSettings) {
     vatModeDefault: row.vatModeDefault as VatMode,
     invoiceFooterNote: row.invoiceFooterNote,
     materialMarkupPercent: num(row.materialMarkupPercent),
+    marginAlertThresholdPercent: num(row.marginAlertThresholdPercent),
     numberPrefix: row.numberPrefix,
     numberFormat: row.numberFormat,
     numberYear: row.numberYear,
@@ -164,6 +165,7 @@ export interface BillingSettingsInput {
   vatModeDefault?: VatMode;
   invoiceFooterNote?: string | null;
   materialMarkupPercent?: number;
+  marginAlertThresholdPercent?: number;
   numberPrefix?: string;
   numberFormat?: string;
   numberYear?: number | null;
@@ -199,6 +201,12 @@ export async function updateBillingSettings(
       throw appError(400, "Přirážka na materiál nesmí být záporná.");
     }
     set.materialMarkupPercent = String(round2(input.materialMarkupPercent));
+  }
+  if (input.marginAlertThresholdPercent !== undefined) {
+    if (!Number.isFinite(input.marginAlertThresholdPercent)) {
+      throw appError(400, "Prahová hodnota marže musí být číslo.");
+    }
+    set.marginAlertThresholdPercent = String(round2(input.marginAlertThresholdPercent));
   }
   assign("numberPrefix", "numberPrefix");
   assign("numberFormat", "numberFormat");

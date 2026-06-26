@@ -40,6 +40,11 @@ export interface BillingSettingsInput {
      * @nullable
      */
   materialMarkupPercent?: number | null;
+  /**
+     * Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
+     * @nullable
+     */
+  marginAlertThresholdPercent?: number | null;
   /** @nullable */
   numberPrefix?: string | null;
   /** @nullable */

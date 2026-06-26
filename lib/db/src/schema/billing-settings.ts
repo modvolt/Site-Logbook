@@ -36,6 +36,13 @@ export const billingSettingsTable = pgTable("billing_settings", {
   materialMarkupPercent: numeric("material_markup_percent", { precision: 6, scale: 2 })
     .notNull()
     .default("0"),
+  // Operator-configurable margin warning threshold (in percent). The job-detail
+  // warehouse margin alert fires when the cumulative margin drops below this
+  // value. Default 0 = warn only on a negative margin; a positive floor (e.g. 5)
+  // warns earlier, a negative value (e.g. -10) only on a deep loss.
+  marginAlertThresholdPercent: numeric("margin_alert_threshold_percent", { precision: 6, scale: 2 })
+    .notNull()
+    .default("0"),
   // Number series.
   numberPrefix: text("number_prefix").notNull().default("FV"),
   numberFormat: text("number_format").notNull().default("{PREFIX}{YYYY}{SEQ4}"),

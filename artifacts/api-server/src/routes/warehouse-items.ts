@@ -28,6 +28,7 @@ import {
   type AppError,
 } from "../lib/warehouse-service";
 import { num, round2 } from "../lib/invoice-calc";
+import { ensureBillingSettings } from "../lib/invoice-service";
 import { requireRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -696,7 +697,8 @@ router.get("/warehouse-movements/job-margin-trend", async (req, res): Promise<vo
     return { period: r.period, cumulativeSaleValue: cumSale, cumulativeCostValue: cumCost, cumulativeMarginPct };
   });
 
-  res.json({ jobId, points });
+  const settings = await ensureBillingSettings();
+  res.json({ jobId, points, alertThresholdPercent: num(settings.marginAlertThresholdPercent) });
 });
 
 router.get("/warehouse-movements/activity-margin-trend", async (req, res): Promise<void> => {

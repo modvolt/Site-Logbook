@@ -7345,7 +7345,7 @@ components:
 
     WarehouseJobMarginTrend:
       type: object
-      required: [jobId, points]
+      required: [jobId, points, alertThresholdPercent]
       properties:
         jobId:
           type: integer
@@ -7353,6 +7353,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WarehouseJobMarginTrendPoint"
+        alertThresholdPercent:
+          type: number
+          description: Operator-configured margin warning threshold in percent; the alert fires when the latest cumulative margin drops below this value
 
     WarehouseActivityMarginTrend:
       type: object
@@ -7797,6 +7800,9 @@ components:
         materialMarkupPercent:
           type: number
           description: Default percent markup applied to material lines when proposing an invoice (0 = no markup)
+        marginAlertThresholdPercent:
+          type: number
+          description: Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin)
         numberPrefix:
           type: string
         numberFormat:
@@ -7846,6 +7852,9 @@ components:
         materialMarkupPercent:
           type: ["number", "null"]
           description: Default percent markup applied to material lines (0 = no markup)
+        marginAlertThresholdPercent:
+          type: ["number", "null"]
+          description: Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
         numberPrefix:
           type: ["string", "null"]
         numberFormat:

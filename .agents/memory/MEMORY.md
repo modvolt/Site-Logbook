@@ -7,6 +7,7 @@
 - [Drizzle push interactive conflict](drizzle-push-conflict.md) — push can prompt rename & fail in non-TTY; add single columns via direct SQL ALTER, never blind push --force (can drop user_sessions).
 - [Production migration-parity check](production-migration-parity-check.md) — offline `db run generate` saying "No schema changes" = committed migrations fully match schema = prod safe; dev-DB "relation/column does not exist" test fails are dev-DB drift, not a prod defect.
 - [Rebase migration-slot & isolated-dev-DB](rebase-migration-slot-collision.md) — on rebase: regenerate colliding Drizzle migration to next slot (snapshots are cumulative), regenerate API codegen, and apply incoming migrations' DDL to isolated dev DB via direct psql.
+- [generate blocked by snapshot collision](drizzle-generate-blocked-by-snapshot-collision.md) — if two committed snapshots share an id, generate aborts; hand-write next .sql+snapshot(new id/prev)+journal (meta only affects generate, not migrate).
 - [jsPDF Czech diacritics](pdf-czech-diacritics.md) — built-in fonts can't render ř/š/ě; must embed Roboto TTF on every autoTable style; group headers go in table head to avoid orphaning.
 - [Stavba frontend imports](stavba-frontend-imports.md) — stavba pages import hooks AND param/response types from @workspace/api-client-react, never @workspace/api-zod (not a dep).
 - [Vite peer-variants](vite-peer-variants.md) — adding a vite plugin (e.g. vite-plugin-pwa pulls terser) to one artifact can break another artifact's typecheck; unify the peer set.

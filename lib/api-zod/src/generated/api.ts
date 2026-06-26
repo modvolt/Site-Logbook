@@ -1677,7 +1677,8 @@ export const GetWarehouseJobMarginTrendResponse = zod.object({
   "cumulativeSaleValue": zod.number().describe('Running total of sale value up to and including this period'),
   "cumulativeCostValue": zod.number().describe('Running total of cost value up to and including this period'),
   "cumulativeMarginPct": zod.number().nullish().describe('(cumulativeSaleValue − cumulativeCostValue) \/ cumulativeSaleValue × 100, null when cumulativeSaleValue = 0')
-}))
+})),
+  "alertThresholdPercent": zod.number().describe('Operator-configured margin warning threshold in percent; the alert fires when the latest cumulative margin drops below this value')
 })
 
 
@@ -3219,6 +3220,7 @@ export const GetBillingSettingsResponse = zod.object({
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
   "invoiceFooterNote": zod.string().nullish(),
   "materialMarkupPercent": zod.number().optional().describe('Default percent markup applied to material lines when proposing an invoice (0 = no markup)'),
+  "marginAlertThresholdPercent": zod.number().optional().describe('Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin)'),
   "numberPrefix": zod.string(),
   "numberFormat": zod.string(),
   "numberYear": zod.number().nullish(),
@@ -3248,6 +3250,7 @@ export const UpdateBillingSettingsBody = zod.object({
   "vatModeDefault": zod.string().nullish(),
   "invoiceFooterNote": zod.string().nullish(),
   "materialMarkupPercent": zod.number().nullish().describe('Default percent markup applied to material lines (0 = no markup)'),
+  "marginAlertThresholdPercent": zod.number().nullish().describe('Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)'),
   "numberPrefix": zod.string().nullish(),
   "numberFormat": zod.string().nullish(),
   "numberYear": zod.number().nullish(),
@@ -3273,6 +3276,7 @@ export const UpdateBillingSettingsResponse = zod.object({
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
   "invoiceFooterNote": zod.string().nullish(),
   "materialMarkupPercent": zod.number().optional().describe('Default percent markup applied to material lines when proposing an invoice (0 = no markup)'),
+  "marginAlertThresholdPercent": zod.number().optional().describe('Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin)'),
   "numberPrefix": zod.string(),
   "numberFormat": zod.string(),
   "numberYear": zod.number().nullish(),

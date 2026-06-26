@@ -10,4 +10,6 @@ import type { WarehouseJobMarginTrendPoint } from './warehouseJobMarginTrendPoin
 export interface WarehouseJobMarginTrend {
   jobId: number;
   points: WarehouseJobMarginTrendPoint[];
+  /** Operator-configured margin warning threshold in percent; the alert fires when the latest cumulative margin drops below this value */
+  alertThresholdPercent: number;
 }

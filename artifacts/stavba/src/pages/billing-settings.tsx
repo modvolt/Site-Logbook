@@ -82,6 +82,7 @@ type Form = {
   vatModeDefault: string;
   invoiceFooterNote: string;
   materialMarkupPercent: string;
+  marginAlertThresholdPercent: string;
   numberPrefix: string;
   numberFormat: string;
   numberYear: string;
@@ -107,6 +108,7 @@ function toForm(s: BillingSettings): Form {
     vatModeDefault: s.vatModeDefault,
     invoiceFooterNote: s.invoiceFooterNote ?? "",
     materialMarkupPercent: String(s.materialMarkupPercent ?? 0),
+    marginAlertThresholdPercent: String(s.marginAlertThresholdPercent ?? 0),
     numberPrefix: s.numberPrefix ?? "",
     numberFormat: s.numberFormat ?? "",
     numberYear: s.numberYear != null ? String(s.numberYear) : "",
@@ -295,6 +297,7 @@ export default function BillingSettings() {
           vatModeDefault: form.vatModeDefault,
           invoiceFooterNote: trimOrNull(form.invoiceFooterNote),
           materialMarkupPercent: parseDecimal(form.materialMarkupPercent),
+          marginAlertThresholdPercent: parseDecimal(form.marginAlertThresholdPercent),
           numberPrefix: trimOrNull(form.numberPrefix),
           numberFormat: trimOrNull(form.numberFormat),
           numberYear: parseDecimal(form.numberYear),
@@ -326,6 +329,7 @@ export default function BillingSettings() {
   const formErrors = {
     defaultDueDays: decimalError(form.defaultDueDays, { positiveOnly: true }),
     materialMarkupPercent: decimalError(form.materialMarkupPercent),
+    marginAlertThresholdPercent: decimalError(form.marginAlertThresholdPercent, { allowNegative: true }),
     numberYear: decimalError(form.numberYear, { positiveOnly: true }),
     numberNextSeq: decimalError(form.numberNextSeq, { positiveOnly: true }),
   };
@@ -606,6 +610,20 @@ export default function BillingSettings() {
                   Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
                   0 = bez přirážky. Lze upravit i při vytváření konkrétní faktury.
                   Netýká se práce, dopravy ani pokut.
+                </p>
+              </Field>
+              <Field label="Prahová hodnota marže (%)">
+                <DecimalInput
+                  value={form.marginAlertThresholdPercent}
+                  onChange={(v) => set("marginAlertThresholdPercent", v)}
+                  className="max-w-[160px]"
+                  error={formErrors.marginAlertThresholdPercent}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upozornění na nízkou marži v detailu zakázky se zobrazí, když
+                  kumulativní marže klesne pod tuto hodnotu. 0 = varovat až při
+                  záporné marži; kladná hodnota (např. 5) varuje dříve, záporná
+                  (např. −10) až při hlubší ztrátě.
                 </p>
               </Field>
               <Field label="Patička faktury (poznámka)">

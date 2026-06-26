@@ -1226,8 +1226,6 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
 type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
 type TrendGranularity = "week" | "month";
 
-const MARGIN_ALERT_THRESHOLD_PCT = 0;
-
 function formatPeriodLabel(iso: string, granularity: TrendGranularity) {
   try {
     const d = new Date(iso);
@@ -1533,7 +1531,8 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                 ? marginTrend.points[marginTrend.points.length - 1]
                 : null;
               const latestPct = lastPoint?.cumulativeMarginPct ?? null;
-              if (latestPct === null || latestPct >= MARGIN_ALERT_THRESHOLD_PCT) return null;
+              const thresholdPct = marginTrend?.alertThresholdPercent ?? 0;
+              if (latestPct === null || latestPct >= thresholdPct) return null;
               const isDeep = latestPct < -10;
               return (
                 <a

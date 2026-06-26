@@ -34,6 +34,8 @@ export interface BillingSettings {
   invoiceFooterNote?: string | null;
   /** Default percent markup applied to material lines when proposing an invoice (0 = no markup) */
   materialMarkupPercent?: number;
+  /** Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin) */
+  marginAlertThresholdPercent?: number;
   numberPrefix: string;
   numberFormat: string;
   /** @nullable */
