@@ -5,7 +5,9 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetWarehouseJobMarginTrendGranularity } from './getWarehouseJobMarginTrendGranularity';
 
 export type GetWarehouseJobMarginTrendParams = {
 jobId: number;
+granularity?: GetWarehouseJobMarginTrendGranularity;
 };

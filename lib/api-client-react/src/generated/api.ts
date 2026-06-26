@@ -5387,7 +5387,7 @@ export const getGetWarehouseJobMarginTrendUrl = (params: GetWarehouseJobMarginTr
 }
 
 /**
- * @summary Get weekly cumulative margin trend for all OUT movements on a single job
+ * @summary Get cumulative margin trend (weekly or monthly) for all OUT movements on a single job
  */
 export const getWarehouseJobMarginTrend = async (params: GetWarehouseJobMarginTrendParams, options?: RequestInit): Promise<WarehouseJobMarginTrend> => {
 
@@ -5434,7 +5434,7 @@ export type GetWarehouseJobMarginTrendQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Get weekly cumulative margin trend for all OUT movements on a single job
+ * @summary Get cumulative margin trend (weekly or monthly) for all OUT movements on a single job
  */
 
 export function useGetWarehouseJobMarginTrend<TData = Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>, TError = ErrorType<unknown>>(

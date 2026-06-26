@@ -3437,7 +3437,16 @@ jobId: number;
 
 export type GetWarehouseJobMarginTrendParams = {
 jobId: number;
+granularity?: GetWarehouseJobMarginTrendGranularity;
 };
+
+export type GetWarehouseJobMarginTrendGranularity = typeof GetWarehouseJobMarginTrendGranularity[keyof typeof GetWarehouseJobMarginTrendGranularity];
+
+
+export const GetWarehouseJobMarginTrendGranularity = {
+  week: 'week',
+  month: 'month',
+} as const;
 
 export type ListWarehouseMovementsParams = {
 warehouseItemId?: number;

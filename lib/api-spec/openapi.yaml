@@ -1606,16 +1606,23 @@ paths:
     get:
       operationId: getWarehouseJobMarginTrend
       tags: [warehouse]
-      summary: Get weekly cumulative margin trend for all OUT movements on a single job
+      summary: Get cumulative margin trend (weekly or monthly) for all OUT movements on a single job
       parameters:
         - name: jobId
           in: query
           required: true
           schema:
             type: integer
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [week, month]
+            default: week
       responses:
         "200":
-          description: Weekly cumulative margin trend for the job
+          description: Cumulative margin trend for the job
           content:
             application/json:
               schema:

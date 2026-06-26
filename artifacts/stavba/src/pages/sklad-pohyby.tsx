@@ -42,26 +42,56 @@ function MarginIcon({ pct }: { pct: number | null }) {
 }
 
 type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
+type TrendGranularity = "week" | "month";
 
-function formatWeekLabel(iso: string) {
+function formatPeriodLabel(iso: string, granularity: TrendGranularity) {
   try {
     const d = new Date(iso);
+    if (granularity === "month") {
+      return d.toLocaleString("cs-CZ", { month: "short", year: "2-digit" });
+    }
     return `${d.getDate()}.${d.getMonth() + 1}.`;
   } catch {
     return iso;
   }
 }
 
-function MarginTrendChart({ points }: { points: TrendPoint[] }) {
+function MarginTrendChart({
+  points,
+  granularity,
+  onGranularityChange,
+}: {
+  points: TrendPoint[];
+  granularity: TrendGranularity;
+  onGranularityChange: (g: TrendGranularity) => void;
+}) {
   const hasNegative = points.some((p) => (p.cumulativeMarginPct ?? 0) < 0);
   const chartData = points.map((p) => ({
-    period: formatWeekLabel(p.period),
+    period: formatPeriodLabel(p.period, granularity),
     marze: p.cumulativeMarginPct,
   }));
 
   return (
     <div className="mt-3 pt-3 border-t border-border/60">
-      <p className="text-xs text-muted-foreground mb-2">Vývoj kumulativní marže po týdnech</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-muted-foreground">Vývoj kumulativní marže</p>
+        <div className="flex items-center rounded-md border border-border overflow-hidden text-xs">
+          <button
+            type="button"
+            onClick={() => onGranularityChange("week")}
+            className={`px-2 py-0.5 transition-colors ${granularity === "week" ? "bg-muted font-medium" : "hover:bg-muted/50"}`}
+          >
+            Týden
+          </button>
+          <button
+            type="button"
+            onClick={() => onGranularityChange("month")}
+            className={`px-2 py-0.5 transition-colors border-l border-border ${granularity === "month" ? "bg-muted font-medium" : "hover:bg-muted/50"}`}
+          >
+            Měsíc
+          </button>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={120}>
         <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>
@@ -78,7 +108,7 @@ function MarginTrendChart({ points }: { points: TrendPoint[] }) {
               const n = v as number | null | undefined;
               return n != null ? [`${n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`, "Marže"] : ["—", "Marže"];
             }}
-            labelFormatter={(l) => `Týden od ${l}`}
+            labelFormatter={(l) => granularity === "month" ? `Měsíc ${l}` : `Týden od ${l}`}
             contentStyle={{ fontSize: 11 }}
           />
           <ReferenceLine y={0} stroke="rgb(239 68 68)" strokeDasharray="4 2" strokeWidth={1} />
@@ -103,6 +133,7 @@ export default function SkladPohyby() {
   const [direction, setDirection] = useState<string>(ALL);
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
+  const [trendGranularity, setTrendGranularity] = useState<"week" | "month">("week");
 
   const { can } = useAuth();
   const canEditCostPrice = can("write");
@@ -137,13 +168,14 @@ export default function SkladPohyby() {
   });
 
   const marginParams = selectedJobId != null ? { jobId: selectedJobId } : undefined;
+  const trendParams = selectedJobId != null ? { jobId: selectedJobId, granularity: trendGranularity } : undefined;
   const { data: margin } = useGetWarehouseJobMarginSummary(
     marginParams!,
     { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginSummaryQueryKey(marginParams) } },
   );
   const { data: marginTrend } = useGetWarehouseJobMarginTrend(
-    marginParams!,
-    { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginTrendQueryKey(marginParams) } },
+    trendParams!,
+    { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
   );
 
   const hasCostOrSale = margin && (margin.totalQtyOut > 0);
@@ -285,8 +317,8 @@ export default function SkladPohyby() {
               </span>
             </div>
           )}
-          {marginTrend && marginTrend.points.length >= 3 && (
-            <MarginTrendChart points={marginTrend.points} />
+          {marginTrend && marginTrend.points.length >= 2 && (
+            <MarginTrendChart points={marginTrend.points} granularity={trendGranularity} onGranularityChange={setTrendGranularity} />
           )}
         </div>
       )}

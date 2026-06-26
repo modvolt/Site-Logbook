@@ -655,19 +655,32 @@ router.get("/warehouse-movements/job-margin-trend", async (req, res): Promise<vo
     res.status(400).json({ error: "jobId (integer) je povinný parametr." });
     return;
   }
+  const granularity = req.query.granularity === "month" ? "month" : "week";
 
-  // Bucket OUT movements by ISO week, ordered ascending
-  const rows = (await db.execute(sql`
-    select
-      date_trunc('week', ${warehouseMovementsTable.createdAt})::date::text as period,
-      coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
-      coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.costPriceAtTime} * ${warehouseMovementsTable.quantity} else 0 end), 0) as period_cost_value
-    from ${warehouseMovementsTable}
-    where ${warehouseMovementsTable.jobId} = ${jobId}
-      and ${warehouseMovementsTable.direction} = 'out'
-    group by date_trunc('week', ${warehouseMovementsTable.createdAt})
-    order by period asc
-  `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> };
+  // Bucket OUT movements by ISO week or calendar month, ordered ascending
+  const rows = granularity === "month"
+    ? (await db.execute(sql`
+        select
+          date_trunc('month', ${warehouseMovementsTable.createdAt})::date::text as period,
+          coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
+          coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.costPriceAtTime} * ${warehouseMovementsTable.quantity} else 0 end), 0) as period_cost_value
+        from ${warehouseMovementsTable}
+        where ${warehouseMovementsTable.jobId} = ${jobId}
+          and ${warehouseMovementsTable.direction} = 'out'
+        group by date_trunc('month', ${warehouseMovementsTable.createdAt})
+        order by period asc
+      `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> }
+    : (await db.execute(sql`
+        select
+          date_trunc('week', ${warehouseMovementsTable.createdAt})::date::text as period,
+          coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)             as period_sale_value,
+          coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.costPriceAtTime} * ${warehouseMovementsTable.quantity} else 0 end), 0) as period_cost_value
+        from ${warehouseMovementsTable}
+        where ${warehouseMovementsTable.jobId} = ${jobId}
+          and ${warehouseMovementsTable.direction} = 'out'
+        group by date_trunc('week', ${warehouseMovementsTable.createdAt})
+        order by period asc
+      `)) as unknown as { rows: Array<{ period: string; period_sale_value: string; period_cost_value: string }> };
 
   // Compute cumulative values
   let cumSale = 0;

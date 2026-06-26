@@ -141,6 +141,7 @@ export * from './getMyDoneJobsParams';
 export * from './getRisksSummaryParams';
 export * from './getStatsOverviewParams';
 export * from './getWarehouseJobMarginSummaryParams';
+export * from './getWarehouseJobMarginTrendGranularity';
 export * from './getWarehouseJobMarginTrendParams';
 export * from './healthStatus';
 export * from './invoice';

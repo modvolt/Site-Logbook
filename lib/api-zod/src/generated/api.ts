@@ -1643,10 +1643,13 @@ export const GetWarehouseJobMarginSummaryResponse = zod.object({
 
 
 /**
- * @summary Get weekly cumulative margin trend for all OUT movements on a single job
+ * @summary Get cumulative margin trend (weekly or monthly) for all OUT movements on a single job
  */
+export const getWarehouseJobMarginTrendQueryGranularityDefault = `week`;
+
 export const GetWarehouseJobMarginTrendQueryParams = zod.object({
-  "jobId": zod.coerce.number()
+  "jobId": zod.coerce.number(),
+  "granularity": zod.enum(['week', 'month']).default(getWarehouseJobMarginTrendQueryGranularityDefault)
 })
 
 export const GetWarehouseJobMarginTrendResponse = zod.object({

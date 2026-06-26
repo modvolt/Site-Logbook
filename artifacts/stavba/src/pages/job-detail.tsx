@@ -1213,26 +1213,56 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
 };
 
 type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
+type TrendGranularity = "week" | "month";
 
-function formatWeek(iso: string) {
+function formatPeriodLabel(iso: string, granularity: TrendGranularity) {
   try {
     const d = new Date(iso);
+    if (granularity === "month") {
+      return d.toLocaleString("cs-CZ", { month: "short", year: "2-digit" });
+    }
     return `${d.getDate()}.${d.getMonth() + 1}.`;
   } catch {
     return iso;
   }
 }
 
-function MarginTrendChart({ points }: { points: TrendPoint[] }) {
+function MarginTrendChart({
+  points,
+  granularity,
+  onGranularityChange,
+}: {
+  points: TrendPoint[];
+  granularity: TrendGranularity;
+  onGranularityChange: (g: TrendGranularity) => void;
+}) {
   const hasNegative = points.some((p) => (p.cumulativeMarginPct ?? 0) < 0);
   const chartData = points.map((p) => ({
-    period: formatWeek(p.period),
+    period: formatPeriodLabel(p.period, granularity),
     marze: p.cumulativeMarginPct,
   }));
 
   return (
     <div className="mt-3 pt-3 border-t border-border/60">
-      <p className="text-xs text-muted-foreground mb-2">Vývoj kumulativní marže po týdnech</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-muted-foreground">Vývoj kumulativní marže</p>
+        <div className="flex items-center rounded-md border border-border overflow-hidden text-xs">
+          <button
+            type="button"
+            onClick={() => onGranularityChange("week")}
+            className={`px-2 py-0.5 transition-colors ${granularity === "week" ? "bg-muted font-medium" : "hover:bg-muted/50"}`}
+          >
+            Týden
+          </button>
+          <button
+            type="button"
+            onClick={() => onGranularityChange("month")}
+            className={`px-2 py-0.5 transition-colors border-l border-border ${granularity === "month" ? "bg-muted font-medium" : "hover:bg-muted/50"}`}
+          >
+            Měsíc
+          </button>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={120}>
         <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>
@@ -1249,7 +1279,7 @@ function MarginTrendChart({ points }: { points: TrendPoint[] }) {
               const n = v as number | null | undefined;
               return n != null ? [`${n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`, "Marže"] : ["—", "Marže"];
             }}
-            labelFormatter={(l) => `Týden od ${l}`}
+            labelFormatter={(l) => granularity === "month" ? `Měsíc ${l}` : `Týden od ${l}`}
             contentStyle={{ fontSize: 11 }}
           />
           <ReferenceLine y={0} stroke="rgb(239 68 68)" strokeDasharray="4 2" strokeWidth={1} />
@@ -1281,13 +1311,15 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
   const { data: warehouseItems } = useListWarehouseItems(undefined, {
     query: { enabled: isExpanded, queryKey: getListWarehouseItemsQueryKey() }
   });
+  const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>("week");
   const { data: warehouseMargin } = useGetWarehouseJobMarginSummary(
     { jobId },
     { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginSummaryQueryKey({ jobId }) } },
   );
+  const trendParams = { jobId, granularity: trendGranularity };
   const { data: marginTrend } = useGetWarehouseJobMarginTrend(
-    { jobId },
-    { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginTrendQueryKey({ jobId }) } },
+    trendParams,
+    { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
   );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const stockNames = new Set(
@@ -1483,8 +1515,8 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                 </span>
               )}
             </div>
-            {marginTrend && marginTrend.points.length >= 3 && (
-              <MarginTrendChart points={marginTrend.points} />
+            {marginTrend && marginTrend.points.length >= 2 && (
+              <MarginTrendChart points={marginTrend.points} granularity={trendGranularity} onGranularityChange={setTrendGranularity} />
             )}
           </div>
         )}
