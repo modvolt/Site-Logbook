@@ -21,6 +21,7 @@ import {
   jobsTable,
   warehouseItemsTable,
   warehouseMovementsTable,
+  warehousePriceHistoryTable,
   type WarehouseMovement,
 } from "@workspace/db";
 import { num, round2 } from "./invoice-calc";
@@ -421,6 +422,35 @@ export async function createManualMovement(
       })
       .returning();
     await recomputeItemQuantity(tx, warehouseItemId);
+
+    // For IN movements with a unit price, record a purchase-price history entry
+    // if the price differs from the most recent history row (or no history exists).
+    // Also keep warehouse_items.purchase_price in sync so future OUT movements
+    // capture the latest known cost.
+    if (!isOut && input.unitPrice != null) {
+      const newPrice = round2(input.unitPrice);
+      const [lastEntry] = await tx
+        .select({ purchasePrice: warehousePriceHistoryTable.purchasePrice })
+        .from(warehousePriceHistoryTable)
+        .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
+        .orderBy(desc(warehousePriceHistoryTable.createdAt), desc(warehousePriceHistoryTable.id))
+        .limit(1);
+      const lastPrice = lastEntry ? num(lastEntry.purchasePrice) : null;
+      if (lastPrice === null || Math.abs(lastPrice - newPrice) >= EPSILON) {
+        await tx.insert(warehousePriceHistoryTable).values({
+          warehouseItemId,
+          purchasePrice: String(newPrice),
+          note: input.note?.trim() || "Ruční příjem",
+          createdByUserId: actor.userId,
+          createdByName: actor.name,
+        });
+        await tx
+          .update(warehouseItemsTable)
+          .set({ purchasePrice: String(newPrice) })
+          .where(eq(warehouseItemsTable.id, warehouseItemId));
+      }
+    }
+
     return movement;
   });
 }

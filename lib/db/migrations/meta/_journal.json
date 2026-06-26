@@ -204,6 +204,13 @@
       "when": 1782518400000,
       "tag": "0028_backfill_cost_price_at_time",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782777600000,
+      "tag": "0029_backfill_purchase_price_history",
+      "breakpoints": true
     }
   ]
 }
