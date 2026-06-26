@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { desc, sql, lt } from "drizzle-orm";
+import { desc, sql, lt, gte } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, clientErrorsTable } from "@workspace/db";
 import { requireAuth, requireRole } from "../middlewares/auth";
@@ -113,14 +113,21 @@ router.get("/client-errors", requireRole("admin", "master"), async (req, res): P
   const rawOffset = Number(req.query.offset);
   const offset = Number.isInteger(rawOffset) && rawOffset > 0 ? rawOffset : 0;
 
+  const sinceRaw = typeof req.query.since === "string" ? req.query.since : undefined;
+  const sinceDate = sinceRaw ? new Date(sinceRaw) : undefined;
+  const sinceFilter = sinceDate && !isNaN(sinceDate.getTime())
+    ? gte(clientErrorsTable.createdAt, sinceDate)
+    : undefined;
+
+  const baseQuery = db.select().from(clientErrorsTable);
+  const countQuery = db.select({ total: sql<number>`count(*)::int` }).from(clientErrorsTable);
+
   const [items, [{ total }]] = await Promise.all([
-    db
-      .select()
-      .from(clientErrorsTable)
+    (sinceFilter ? baseQuery.where(sinceFilter) : baseQuery)
       .orderBy(desc(clientErrorsTable.createdAt))
       .limit(limit)
       .offset(offset),
-    db.select({ total: sql<number>`count(*)::int` }).from(clientErrorsTable),
+    sinceFilter ? countQuery.where(sinceFilter) : countQuery,
   ]);
 
   res.json({

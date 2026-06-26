@@ -1877,7 +1877,8 @@ export const ReportClientErrorBody = zod.object({
  */
 export const ListClientErrorsQueryParams = zod.object({
   "limit": zod.coerce.number().optional(),
-  "offset": zod.coerce.number().optional()
+  "offset": zod.coerce.number().optional(),
+  "since": zod.coerce.string().optional()
 })
 
 export const ListClientErrorsResponse = zod.object({

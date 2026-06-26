@@ -1,14 +1,46 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Briefcase, Plus, LogOut, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuickAddDate } from "@/hooks/use-quick-add-date";
-import { useLogout } from "@workspace/api-client-react";
+import { useLogout, useListClientErrors, getListClientErrorsQueryKey } from "@workspace/api-client-react";
 import { clearApiCache } from "@/lib/pwa";
 import { clearTimerNotification } from "@/lib/timer-notification";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileNav } from "@/components/mobile-nav";
 import { mainNavItems, adminNavItems, type NavItem } from "@/components/nav-items";
+
+const CLIENT_ERRORS_SEEN_KEY = "stavba.clientErrorsLastSeen";
+const CLIENT_ERRORS_PATH = "/admin/client-errors";
+const FALLBACK_HOURS = 24;
+
+function useCrashBadgeCount(enabled: boolean) {
+  const [since, setSince] = useState<string>(() => {
+    const stored = localStorage.getItem(CLIENT_ERRORS_SEEN_KEY);
+    if (stored) return stored;
+    return new Date(Date.now() - FALLBACK_HOURS * 60 * 60 * 1000).toISOString();
+  });
+
+  const params = useMemo(() => ({ limit: 1, since }), [since]);
+
+  const { data } = useListClientErrors(params, {
+    query: {
+      queryKey: getListClientErrorsQueryKey(params),
+      enabled,
+      refetchInterval: 5 * 60 * 1000,
+      staleTime: 60 * 1000,
+    },
+  });
+
+  const markSeen = () => {
+    const now = new Date().toISOString();
+    localStorage.setItem(CLIENT_ERRORS_SEEN_KEY, now);
+    setSince(now);
+  };
+
+  return { count: data?.total ?? 0, markSeen };
+}
 
 const ROLE_BADGE: Record<string, string> = {
   admin: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
@@ -22,6 +54,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { quickAddDate } = useQuickAddDate();
   const queryClient = useQueryClient();
   const logout = useLogout();
+
+  const canSeeErrors = can("manageUsers");
+  const { count: crashCount, markSeen } = useCrashBadgeCount(canSeeErrors);
+
+  useEffect(() => {
+    if (location === CLIENT_ERRORS_PATH) markSeen();
+  }, [location]);
 
   const handleLogout = () => {
     logout.mutate(undefined, {
@@ -86,6 +125,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 .filter((item) => !item.requires || can(item.requires))
                 .map((item) => {
                   const active = isActive(item);
+                  const showCrashBadge = item.href === CLIENT_ERRORS_PATH && crashCount > 0;
                   return (
                     <Link
                       key={item.href}
@@ -95,7 +135,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       }`}
                     >
                       <item.icon className={`h-5 w-5 ${active ? "text-white" : item.color}`} />
-                      {item.label}
+                      <span className="flex-1 min-w-0 truncate">{item.label}</span>
+                      {showCrashBadge && (
+                        <span className={`ml-auto shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full text-[0.65rem] font-semibold flex items-center justify-center ${active ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
+                          {crashCount > 99 ? "99+" : crashCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

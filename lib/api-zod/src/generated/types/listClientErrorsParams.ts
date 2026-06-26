@@ -9,4 +9,8 @@
 export type ListClientErrorsParams = {
 limit?: number;
 offset?: number;
+/**
+ * ISO datetime string; only return errors at or after this timestamp
+ */
+since?: string;
 };

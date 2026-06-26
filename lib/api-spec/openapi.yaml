@@ -1769,6 +1769,12 @@ paths:
           required: false
           schema:
             type: integer
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            description: ISO datetime string; only return errors at or after this timestamp
       responses:
         "200":
           description: Paginated list of client errors
