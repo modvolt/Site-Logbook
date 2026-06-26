@@ -1215,6 +1215,8 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
 type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
 type TrendGranularity = "week" | "month";
 
+const MARGIN_ALERT_THRESHOLD_PCT = 0;
+
 function formatPeriodLabel(iso: string, granularity: TrendGranularity) {
   try {
     const d = new Date(iso);
@@ -1515,6 +1517,32 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                 </span>
               )}
             </div>
+            {(() => {
+              const lastPoint = marginTrend?.points?.length
+                ? marginTrend.points[marginTrend.points.length - 1]
+                : null;
+              const latestPct = lastPoint?.cumulativeMarginPct ?? null;
+              if (latestPct === null || latestPct >= MARGIN_ALERT_THRESHOLD_PCT) return null;
+              const isDeep = latestPct < -10;
+              return (
+                <a
+                  href={`/sklad/pohyby?jobId=${jobId}`}
+                  className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors hover:opacity-90 ${
+                    isDeep
+                      ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+                      : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                  }`}
+                >
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Kumulativní marže skladu klesla na{" "}
+                    <strong>{latestPct.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %</strong>{" "}
+                    — zakázka je pod hranicí rentability.{" "}
+                    <span className="underline underline-offset-2">Zobrazit pohyby skladu</span>
+                  </span>
+                </a>
+              );
+            })()}
             {marginTrend && marginTrend.points.length >= 2 && (
               <MarginTrendChart points={marginTrend.points} granularity={trendGranularity} onGranularityChange={setTrendGranularity} />
             )}

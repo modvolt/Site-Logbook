@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearch } from "wouter";
 import { Link } from "wouter";
 import {
   useListWarehouseMovements,
@@ -128,9 +129,17 @@ function MarginTrendChart({
 }
 
 export default function SkladPohyby() {
+  const search = useSearch();
+  const initialJobId = new URLSearchParams(search).get("jobId") ?? ALL;
   const [itemId, setItemId] = useState<string>(ALL);
-  const [jobId, setJobId] = useState<string>(ALL);
+  const [jobId, setJobId] = useState<string>(initialJobId);
   const [direction, setDirection] = useState<string>(ALL);
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const jid = params.get("jobId");
+    if (jid) setJobId(jid);
+  }, [search]);
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
   const [trendGranularity, setTrendGranularity] = useState<"week" | "month">("week");
