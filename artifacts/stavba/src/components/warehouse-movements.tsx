@@ -152,7 +152,7 @@ export function MovementRow({
     if (e.key === "Escape") cancelEdit();
   };
 
-  const showEditButton = canEditCostPrice && !isIn;
+  const showEditButton = canEditCostPrice && !isIn && m.costPriceAtTime == null;
 
   return (
     <div className="flex items-start justify-between gap-3 py-2.5 border-b last:border-0">
