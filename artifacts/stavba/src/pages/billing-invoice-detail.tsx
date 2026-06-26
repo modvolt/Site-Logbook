@@ -78,7 +78,7 @@ export default function BillingInvoiceDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: inv, isLoading } = useGetInvoice(id, {
+  const { data: inv, isLoading, isError: invError } = useGetInvoice(id, {
     query: { queryKey: getGetInvoiceQueryKey(id), enabled: !!id },
   });
 
@@ -367,8 +367,29 @@ export default function BillingInvoiceDetail() {
     );
   }
 
+  if (invError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <AlertCircle className="h-12 w-12 opacity-30" />
+        <p className="font-medium">Nepodařilo se načíst fakturu</p>
+        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <Button variant="ghost" onClick={() => setLocation("/billing/invoices")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na faktury
+        </Button>
+      </div>
+    );
+  }
+
   if (!inv) {
-    return <div className="p-8 text-center text-muted-foreground">Faktura nenalezena.</div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <AlertCircle className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Faktura nenalezena.</p>
+        <Button variant="ghost" onClick={() => setLocation("/billing/invoices")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na faktury
+        </Button>
+      </div>
+    );
   }
 
   const isDraft = inv.status === "draft";

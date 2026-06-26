@@ -130,7 +130,7 @@ export default function BillingDocumentDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading } = useGetCostDocument(id, {
+  const { data, isLoading, isError: docError } = useGetCostDocument(id, {
     query: { queryKey: getGetCostDocumentQueryKey(id), enabled: !!id },
   });
   const { data: customers } = useListCustomers({
@@ -165,10 +165,27 @@ export default function BillingDocumentDetail() {
     );
   }
 
+  if (docError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <AlertTriangle className="h-12 w-12 opacity-30" />
+        <p className="font-medium">Nepodařilo se načíst doklad</p>
+        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <Button variant="ghost" onClick={() => setLocation("/billing/documents")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na doklady
+        </Button>
+      </div>
+    );
+  }
+
   if (!doc) {
     return (
-      <div className="p-8 text-center text-muted-foreground">
-        Doklad nenalezen.
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <FileText className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Doklad nenalezen.</p>
+        <Button variant="ghost" onClick={() => setLocation("/billing/documents")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na doklady
+        </Button>
       </div>
     );
   }

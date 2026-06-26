@@ -50,7 +50,7 @@ export default function CustomerDetail() {
   const { openConfirm, dialogProps } = useConfirmDialog();
   const { role } = useAuth();
 
-  const { data: customers, isLoading: loadingCustomer } = useListCustomers({
+  const { data: customers, isLoading: loadingCustomer, isError: customersError } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() },
   });
   const customer = customers?.find((c) => c.id === id);
@@ -370,12 +370,25 @@ export default function CustomerDetail() {
     );
   }
 
+  if (customersError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <Building2 className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Nepodařilo se načíst zákazníka</p>
+        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <Button variant="ghost" onClick={() => setLocation("/customers")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na zákazníky
+        </Button>
+      </div>
+    );
+  }
+
   if (!customer) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground">
-        <Building2 className="h-12 w-12 mb-4 opacity-20" />
-        <p>Zákazník nenalezen.</p>
-        <Button variant="ghost" className="mt-4" onClick={() => setLocation("/customers")}>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <Building2 className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Zákazník nenalezen.</p>
+        <Button variant="ghost" onClick={() => setLocation("/customers")}>
           <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na zákazníky
         </Button>
       </div>

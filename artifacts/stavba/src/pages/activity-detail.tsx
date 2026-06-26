@@ -107,7 +107,7 @@ export default function ActivityDetail() {
   const detailKey = getGetActivityQueryKey(id);
   const matsKey = getListActivityMaterialsQueryKey(id);
 
-  const { data: activity, isLoading } = useGetActivity(id, { query: { queryKey: detailKey, enabled: Number.isFinite(id) } });
+  const { data: activity, isLoading, isError: activityError } = useGetActivity(id, { query: { queryKey: detailKey, enabled: Number.isFinite(id) } });
   const { data: materials } = useListActivityMaterials(id, { query: { queryKey: matsKey, enabled: Number.isFinite(id) } });
   const { data: customers } = useListCustomers();
 
@@ -140,11 +140,36 @@ export default function ActivityDetail() {
     invalidateData(queryClient, "activities", "warehouse");
   };
 
-  if (isLoading || !activity) {
+  if (isLoading) {
     return (
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4">
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+
+  if (activityError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <Hammer className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Nepodařilo se načíst aktivitu</p>
+        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <Button variant="ghost" onClick={() => setLocation("/activities")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na aktivity
+        </Button>
+      </div>
+    );
+  }
+
+  if (!activity) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <Hammer className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Aktivita nenalezena</p>
+        <Button variant="ghost" onClick={() => setLocation("/activities")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na aktivity
+        </Button>
       </div>
     );
   }

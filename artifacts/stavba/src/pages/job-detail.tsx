@@ -113,7 +113,7 @@ export default function JobDetail() {
   const [expandedSection, setExpandedSection] = useState<string | null>("info");
   const [matHasUnsaved, setMatHasUnsaved] = useState(false);
   
-  const { data: job, isLoading: loadingJob } = useGetJob(id, {
+  const { data: job, isLoading: loadingJob, isError: jobError } = useGetJob(id, {
     query: { enabled: !!id, queryKey: getGetJobQueryKey(id) }
   });
   
@@ -143,8 +143,29 @@ export default function JobDetail() {
     );
   }
 
+  if (jobError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <AlertCircle className="h-12 w-12 opacity-30" />
+        <p className="font-medium">Nepodařilo se načíst zakázku</p>
+        <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
+        <Button variant="ghost" onClick={() => setLocation("/jobs")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na zakázky
+        </Button>
+      </div>
+    );
+  }
+
   if (!job) {
-    return <div className="p-8 text-center">Zakázka nenalezena</div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
+        <AlertCircle className="h-12 w-12 opacity-20" />
+        <p className="font-medium">Zakázka nenalezena</p>
+        <Button variant="ghost" onClick={() => setLocation("/jobs")}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na zakázky
+        </Button>
+      </div>
+    );
   }
 
   const handleStatusChange = (newStatus: string) => {
