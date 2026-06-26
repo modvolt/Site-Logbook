@@ -93,7 +93,18 @@ function rangeLabel(period: Period, from: Date, to: Date): string {
 }
 
 export default function Statistika() {
-  const [period, setPeriod] = useState<Period>("month");
+  const [period, setPeriodRaw] = useState<Period>(() => {
+    try {
+      const saved = localStorage.getItem("statistika.period");
+      if (saved === "week" || saved === "month" || saved === "year") return saved;
+    } catch {
+    }
+    return "month";
+  });
+  const setPeriod = (next: Period) => {
+    try { localStorage.setItem("statistika.period", next); } catch { }
+    setPeriodRaw(next);
+  };
   const [anchor, setAnchor] = useState<Date>(new Date());
   const [exporting, setExporting] = useState(false);
   const [company] = useState(() => loadCompanySettings());
