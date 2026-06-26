@@ -3,7 +3,7 @@ import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, 
 import { cs } from "date-fns/locale";
 import { useGetStatsOverview, getGetStatsOverviewQueryKey, useGetRisksSummary, getGetRisksSummaryQueryKey } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp, ShieldOff } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { renderJobSheetPdf } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 import { loadCompanySettings } from "@/lib/company-settings";
 import { fmtKc as fmtKcBilling } from "@/lib/billing-format";
+import { useAuth } from "@/hooks/use-auth";
 
 const PRINT_CSS = `
 @media print {
@@ -97,6 +98,8 @@ export default function Statistika() {
   const [exporting, setExporting] = useState(false);
   const [company] = useState(() => loadCompanySettings());
   const { toast } = useToast();
+  const { role, isLoading: authLoading } = useAuth();
+  const isAdmin = role === "admin";
 
   const [profitSort, setProfitSortRaw] = useState<{ col: ProfitCol; dir: SortDir }>(() => {
     try {
@@ -127,11 +130,11 @@ export default function Statistika() {
 
   const { data: stats, isLoading } = useGetStatsOverview(
     { from: fromStr, to: toStr },
-    { query: { queryKey: getGetStatsOverviewQueryKey({ from: fromStr, to: toStr }) } },
+    { query: { queryKey: getGetStatsOverviewQueryKey({ from: fromStr, to: toStr }), enabled: isAdmin } },
   );
 
   const { data: risks, isLoading: risksLoading } = useGetRisksSummary(undefined, {
-    query: { queryKey: getGetRisksSummaryQueryKey(), retry: false },
+    query: { queryKey: getGetRisksSummaryQueryKey(), retry: false, enabled: isAdmin },
   });
 
   const shift = (dir: -1 | 1) => {
@@ -155,6 +158,21 @@ export default function Statistika() {
       setExporting(false);
     }
   };
+
+  if (!authLoading && !isAdmin) {
+    return (
+      <div className="min-h-[100dvh] bg-neutral-200 dark:bg-neutral-800 flex items-center justify-center p-8">
+        <div className="bg-card rounded-2xl shadow-lg p-10 max-w-sm w-full flex flex-col items-center gap-4 text-center">
+          <ShieldOff className="w-12 h-12 text-muted-foreground" />
+          <h2 className="text-xl font-bold">Přístup zamítnut</h2>
+          <p className="text-sm text-muted-foreground">Tato stránka je dostupná pouze pro administrátory.</p>
+          <Button variant="outline" onClick={() => window.history.back()}>
+            <ArrowLeft className="h-4 w-4 mr-2" /> Zpět
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] bg-neutral-200 dark:bg-neutral-800 pb-16">
