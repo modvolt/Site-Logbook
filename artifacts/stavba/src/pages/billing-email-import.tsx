@@ -732,14 +732,27 @@ function MessageAttachments({ messageId }: { messageId: number }) {
   return (
     <div className="border-t divide-y">
       {attachments.map((att: EmailImportAttachment) => (
-        <div key={att.id} className="px-3 py-2 flex items-center gap-2 text-xs">
-          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="flex-1 truncate">{att.fileName || "Příloha"}</span>
+        <div
+          key={att.id}
+          className={`px-3 py-2 flex items-start gap-2 text-xs${att.skipped ? " opacity-60" : ""}`}
+        >
+          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <span className="truncate block">{att.fileName || "Příloha"}</span>
+            {att.skipped && att.skipReason && (
+              <span className="text-amber-600 dark:text-amber-400 block mt-0.5">
+                ⚠ {att.skipReason}
+              </span>
+            )}
+          </div>
           <span className="text-muted-foreground shrink-0">{att.contentType}</span>
           {att.billingDocumentId && (
             <span className="text-emerald-600 dark:text-emerald-400 shrink-0">
               ✓ importováno
             </span>
+          )}
+          {att.skipped && !att.billingDocumentId && (
+            <span className="text-muted-foreground shrink-0">přeskočeno</span>
           )}
         </div>
       ))}
