@@ -113,6 +113,24 @@ async function lockItem(
   return { purchasePrice: res.rows[0]?.purchase_price ?? null };
 }
 
+/**
+ * Returns the most recent purchase_price from price history for the given item,
+ * or null if no history exists. Used as a fallback when the item has no current
+ * purchase_price set but an OUT movement still needs a cost_price_at_time.
+ */
+async function latestHistoryPrice(
+  tx: DbTx,
+  warehouseItemId: number,
+): Promise<string | null> {
+  const [entry] = await tx
+    .select({ purchasePrice: warehousePriceHistoryTable.purchasePrice })
+    .from(warehousePriceHistoryTable)
+    .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
+    .orderBy(desc(warehousePriceHistoryTable.createdAt), desc(warehousePriceHistoryTable.id))
+    .limit(1);
+  return entry?.purchasePrice ?? null;
+}
+
 async function appendDelta(
   tx: DbTx,
   params: {
@@ -133,9 +151,13 @@ async function appendDelta(
   const isOut = delta < 0;
   // Capture the purchase price at the time of issue for OUT movements so that
   // gross-profit statistics can be computed per period.
-  const costPriceAtTime = isOut && purchasePrice != null
-    ? String(round2(num(purchasePrice)))
-    : null;
+  // If the item has no current purchase_price, fall back to the most recent
+  // price-history entry so fewer movements end up with a NULL cost_price_at_time.
+  let costPriceAtTime: string | null = null;
+  if (isOut) {
+    const rawPrice = purchasePrice ?? await latestHistoryPrice(tx, params.warehouseItemId);
+    if (rawPrice != null) costPriceAtTime = String(round2(num(rawPrice)));
+  }
   await tx.insert(warehouseMovementsTable).values({
     warehouseItemId: params.warehouseItemId,
     direction: isOut ? "out" : "in",
@@ -401,9 +423,13 @@ export async function createManualMovement(
     if (!item) throw appError(404, "Skladová položka nenalezena.");
     await lockItem(tx, warehouseItemId);
     const isOut = input.direction === "out";
-    const costPriceAtTime = isOut && item.purchasePrice != null
-      ? String(round2(num(item.purchasePrice)))
-      : null;
+    // If the item has no current purchase_price, fall back to the most recent
+    // price-history entry so fewer OUT movements end up with a NULL cost_price_at_time.
+    let costPriceAtTime: string | null = null;
+    if (isOut) {
+      const rawPrice = item.purchasePrice ?? await latestHistoryPrice(tx, warehouseItemId);
+      if (rawPrice != null) costPriceAtTime = String(round2(num(rawPrice)));
+    }
     const [movement] = await tx
       .insert(warehouseMovementsTable)
       .values({
