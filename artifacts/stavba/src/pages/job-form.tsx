@@ -283,7 +283,6 @@ export default function JobForm() {
               suggestions={titleSuggestions}
               placeholder="např. Oprava střechy"
               className={`h-14 text-lg${titleError ? " border-destructive focus-visible:ring-destructive" : ""}`}
-              autoFocus
               aria-invalid={!!titleError}
               aria-describedby={titleError ? "title-error" : undefined}
             />
