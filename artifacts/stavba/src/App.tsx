@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, Component, type ReactNode, type ErrorInfo } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
@@ -52,6 +52,62 @@ import BillingReviewQueue from "@/pages/billing-review-queue";
 import BillingEmailImport from "@/pages/billing-email-import";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class PageErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[PageErrorBoundary]", error, info.componentStack);
+  }
+
+  handleReload = () => {
+    window.location.reload();
+  };
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[50dvh] flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <p className="text-lg font-semibold">Stránku se nepodařilo načíst</p>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Došlo k neočekávané chybě. Zkuste obnovit stránku nebo se vraťte zpět.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={this.handleReset}
+              className="px-4 py-2 text-sm rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              Zkusit znovu
+            </button>
+            <button
+              onClick={this.handleReload}
+              className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Obnovit stránku
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -99,6 +155,7 @@ function AuthenticatedApp() {
   return (
     <QuickAddDateProvider>
       <Layout>
+        <PageErrorBoundary>
         <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/calendar" component={Calendar} />
@@ -140,6 +197,7 @@ function AuthenticatedApp() {
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
         <Route component={NotFound} />
         </Switch>
+        </PageErrorBoundary>
       </Layout>
     </QuickAddDateProvider>
   );
