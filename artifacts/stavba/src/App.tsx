@@ -36,6 +36,7 @@ import SkladPohyby from "@/pages/sklad-pohyby";
 import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
 import AuditLog from "@/pages/audit-log";
+import ClientErrors from "@/pages/client-errors";
 import Gdpr from "@/pages/gdpr";
 import Statistika from "@/pages/statistika";
 import Billing from "@/pages/billing";
@@ -69,6 +70,19 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundary
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[PageErrorBoundary]", error, info.componentStack);
+    try {
+      fetch("/api/client-errors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: error.message.slice(0, 2000),
+          stack: error.stack?.slice(0, 10000) ?? null,
+          componentStack: info.componentStack?.slice(0, 10000) ?? null,
+          path: window.location.pathname.slice(0, 2000),
+        }),
+      }).catch(() => {});
+    } catch {
+    }
   }
 
   handleReload = () => {
@@ -194,6 +208,7 @@ function AuthenticatedApp() {
         <Route path="/billing">{() => <AdminOnly component={Billing} />}</Route>
         <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
         <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
+        <Route path="/admin/client-errors">{() => <AdminOnly component={ClientErrors} />}</Route>
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
         <Route component={NotFound} />
         </Switch>

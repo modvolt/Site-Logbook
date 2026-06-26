@@ -211,6 +211,13 @@
       "when": 1782777600000,
       "tag": "0029_backfill_purchase_price_history",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782498339420,
+      "tag": "0030_old_rafael_vega",
+      "breakpoints": true
     }
   ]
 }

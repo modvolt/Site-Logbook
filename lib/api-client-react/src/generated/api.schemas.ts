@@ -1125,6 +1125,49 @@ export interface RiskSummary {
   computedAt: string;
 }
 
+export interface ClientErrorInput {
+  /** @maxLength 2000 */
+  message: string;
+  /**
+     * @maxLength 10000
+     * @nullable
+     */
+  stack?: string | null;
+  /**
+     * @maxLength 10000
+     * @nullable
+     */
+  componentStack?: string | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  path?: string | null;
+}
+
+export interface ClientError {
+  id: number;
+  /** @nullable */
+  userId?: number | null;
+  /** @nullable */
+  userRole?: string | null;
+  message: string;
+  /** @nullable */
+  stack?: string | null;
+  /** @nullable */
+  componentStack?: string | null;
+  /** @nullable */
+  path?: string | null;
+  /** @nullable */
+  userAgent?: string | null;
+  createdAt: string;
+}
+
+export interface ClientErrorList {
+  items: ClientError[];
+  total: number;
+}
+
 export interface LoginInput {
   /** @minLength 1 */
   username: string;
@@ -3378,6 +3421,11 @@ export type GetRisksSummaryParams = {
  * Days a job must be in_progress before it is counted as stale (default 14).
  */
 staleDays?: number;
+};
+
+export type ListClientErrorsParams = {
+limit?: number;
+offset?: number;
 };
 
 export type RetryEmailImportLog200 = {

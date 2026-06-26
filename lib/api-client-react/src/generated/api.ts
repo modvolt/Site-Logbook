@@ -48,6 +48,8 @@ import type {
   BillingSummary,
   BulkUpdateResult,
   CancelInvoiceInput,
+  ClientErrorInput,
+  ClientErrorList,
   CostDocument,
   CostDocumentDetail,
   CostDocumentLineSplitInput,
@@ -123,6 +125,7 @@ import type {
   ListActivitiesParams,
   ListApprovedCostLinesParams,
   ListAuditLogsParams,
+  ListClientErrorsParams,
   ListCostDocumentsParams,
   ListEmailImportMessagesParams,
   ListInvoicesParams,
@@ -5678,6 +5681,161 @@ export function useGetRisksSummary<TData = Awaited<ReturnType<typeof getRisksSum
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetRisksSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getReportClientErrorUrl = () => {
+
+
+
+
+  return `/api/client-errors`
+}
+
+/**
+ * @summary Report a frontend crash from the error boundary
+ */
+export const reportClientError = async (clientErrorInput: ClientErrorInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getReportClientErrorUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      clientErrorInput,)
+  }
+);}
+
+
+
+
+export const getReportClientErrorMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reportClientError>>, TError,{data: BodyType<ClientErrorInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reportClientError>>, TError,{data: BodyType<ClientErrorInput>}, TContext> => {
+
+const mutationKey = ['reportClientError'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reportClientError>>, {data: BodyType<ClientErrorInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  reportClientError(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReportClientErrorMutationResult = NonNullable<Awaited<ReturnType<typeof reportClientError>>>
+    export type ReportClientErrorMutationBody = BodyType<ClientErrorInput>
+    export type ReportClientErrorMutationError = ErrorType<void>
+
+    /**
+ * @summary Report a frontend crash from the error boundary
+ */
+export const useReportClientError = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reportClientError>>, TError,{data: BodyType<ClientErrorInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reportClientError>>,
+        TError,
+        {data: BodyType<ClientErrorInput>},
+        TContext
+      > => {
+      return useMutation(getReportClientErrorMutationOptions(options));
+    }
+
+export const getListClientErrorsUrl = (params?: ListClientErrorsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/client-errors?${stringifiedParams}` : `/api/client-errors`
+}
+
+/**
+ * @summary List recent client-side crashes (admin)
+ */
+export const listClientErrors = async (params?: ListClientErrorsParams, options?: RequestInit): Promise<ClientErrorList> => {
+
+  return customFetch<ClientErrorList>(getListClientErrorsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListClientErrorsQueryKey = (params?: ListClientErrorsParams,) => {
+    return [
+    `/api/client-errors`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListClientErrorsQueryOptions = <TData = Awaited<ReturnType<typeof listClientErrors>>, TError = ErrorType<void>>(params?: ListClientErrorsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientErrors>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListClientErrorsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listClientErrors>>> = ({ signal }) => listClientErrors(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listClientErrors>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListClientErrorsQueryResult = NonNullable<Awaited<ReturnType<typeof listClientErrors>>>
+export type ListClientErrorsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List recent client-side crashes (admin)
+ */
+
+export function useListClientErrors<TData = Awaited<ReturnType<typeof listClientErrors>>, TError = ErrorType<void>>(
+ params?: ListClientErrorsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientErrors>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListClientErrorsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

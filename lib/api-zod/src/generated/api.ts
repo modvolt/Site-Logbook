@@ -1825,6 +1825,51 @@ export const GetRisksSummaryResponse = zod.object({
 
 
 /**
+ * @summary Report a frontend crash from the error boundary
+ */
+export const reportClientErrorBodyMessageMax = 2000;
+
+export const reportClientErrorBodyStackMax = 10000;
+
+export const reportClientErrorBodyComponentStackMax = 10000;
+
+export const reportClientErrorBodyPathMax = 2000;
+
+
+
+export const ReportClientErrorBody = zod.object({
+  "message": zod.string().max(reportClientErrorBodyMessageMax),
+  "stack": zod.string().max(reportClientErrorBodyStackMax).nullish(),
+  "componentStack": zod.string().max(reportClientErrorBodyComponentStackMax).nullish(),
+  "path": zod.string().max(reportClientErrorBodyPathMax).nullish()
+})
+
+
+/**
+ * @summary List recent client-side crashes (admin)
+ */
+export const ListClientErrorsQueryParams = zod.object({
+  "limit": zod.coerce.number().optional(),
+  "offset": zod.coerce.number().optional()
+})
+
+export const ListClientErrorsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "userId": zod.number().nullish(),
+  "userRole": zod.string().nullish(),
+  "message": zod.string(),
+  "stack": zod.string().nullish(),
+  "componentStack": zod.string().nullish(),
+  "path": zod.string().nullish(),
+  "userAgent": zod.string().nullish(),
+  "createdAt": zod.string()
+})),
+  "total": zod.number()
+})
+
+
+/**
  * @summary Sign in with username and password
  */
 

@@ -32,6 +32,7 @@ import billingDocumentsRouter from "./billing-documents";
 import emailImportRouter from "./email-import";
 import eventsRouter from "./events";
 import risksRouter from "./risks";
+import clientErrorsRouter from "./client-errors";
 
 const router: IRouter = Router();
 
@@ -68,5 +69,6 @@ router.use(billingDocumentsRouter);
 router.use(emailImportRouter);
 router.use(eventsRouter);
 router.use(risksRouter);
+router.use(clientErrorsRouter);
 
 export default router;

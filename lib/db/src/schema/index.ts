@@ -33,3 +33,4 @@ export * from "./billing-settings";
 export * from "./material-markup-rules";
 export * from "./billing-documents";
 export * from "./email-import";
+export * from "./client-errors";
