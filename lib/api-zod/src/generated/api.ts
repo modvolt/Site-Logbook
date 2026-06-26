@@ -1639,6 +1639,24 @@ export const GetWarehouseJobMarginSummaryResponse = zod.object({
 
 
 /**
+ * @summary Get weekly cumulative margin trend for all OUT movements on a single job
+ */
+export const GetWarehouseJobMarginTrendQueryParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetWarehouseJobMarginTrendResponse = zod.object({
+  "jobId": zod.number(),
+  "points": zod.array(zod.object({
+  "period": zod.string().describe('ISO date of the start of the week bucket (YYYY-MM-DD)'),
+  "cumulativeSaleValue": zod.number().describe('Running total of sale value up to and including this period'),
+  "cumulativeCostValue": zod.number().describe('Running total of cost value up to and including this period'),
+  "cumulativeMarginPct": zod.number().nullish().describe('(cumulativeSaleValue − cumulativeCostValue) \/ cumulativeSaleValue × 100, null when cumulativeSaleValue = 0')
+}))
+})
+
+
+/**
  * @summary List all stock movements (kniha pohybů) with optional filters
  */
 export const ListWarehouseMovementsQueryParams = zod.object({

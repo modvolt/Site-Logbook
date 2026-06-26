@@ -11,6 +11,7 @@ import {
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
   useListWarehouseItems, getListWarehouseItemsQueryKey,
   useGetWarehouseJobMarginSummary, getGetWarehouseJobMarginSummaryQueryKey,
+  useGetWarehouseJobMarginTrend, getGetWarehouseJobMarginTrendQueryKey,
   useListCustomers, getListCustomersQueryKey,
   useListJobTimeEntries, getListJobTimeEntriesQueryKey,
   useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
@@ -60,6 +61,9 @@ import {
 } from "@/lib/timer-notification";
 import { invalidateData } from "@/lib/query-invalidation";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
+} from "recharts";
 
 // Po změně zakázky obnoví seznamy, kalendář, dashboard i statistiky – uživatel
 // nikdy nemusí obnovovat ručně. Vazby viz @/lib/query-invalidation.
@@ -1208,6 +1212,62 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
   manual: { label: "Ručně", cls: "bg-muted text-muted-foreground" },
 };
 
+type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
+
+function formatWeek(iso: string) {
+  try {
+    const d = new Date(iso);
+    return `${d.getDate()}.${d.getMonth() + 1}.`;
+  } catch {
+    return iso;
+  }
+}
+
+function MarginTrendChart({ points }: { points: TrendPoint[] }) {
+  const hasNegative = points.some((p) => (p.cumulativeMarginPct ?? 0) < 0);
+  const chartData = points.map((p) => ({
+    period: formatWeek(p.period),
+    marze: p.cumulativeMarginPct,
+  }));
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/60">
+      <p className="text-xs text-muted-foreground mb-2">Vývoj kumulativní marže po týdnech</p>
+      <ResponsiveContainer width="100%" height={120}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="marginGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"} stopOpacity={0.25} />
+              <stop offset="95%" stopColor={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"} stopOpacity={0.0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+          <XAxis dataKey="period" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+          <Tooltip
+            formatter={(v) => {
+              const n = v as number | null | undefined;
+              return n != null ? [`${n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`, "Marže"] : ["—", "Marže"];
+            }}
+            labelFormatter={(l) => `Týden od ${l}`}
+            contentStyle={{ fontSize: 11 }}
+          />
+          <ReferenceLine y={0} stroke="rgb(239 68 68)" strokeDasharray="4 2" strokeWidth={1} />
+          <Area
+            type="monotone"
+            dataKey="marze"
+            stroke={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"}
+            strokeWidth={2}
+            fill="url(#marginGrad)"
+            dot={{ r: 3, fill: hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)", strokeWidth: 0 }}
+            connectNulls
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any) {
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
@@ -1224,6 +1284,10 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
   const { data: warehouseMargin } = useGetWarehouseJobMarginSummary(
     { jobId },
     { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginSummaryQueryKey({ jobId }) } },
+  );
+  const { data: marginTrend } = useGetWarehouseJobMarginTrend(
+    { jobId },
+    { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginTrendQueryKey({ jobId }) } },
   );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const stockNames = new Set(
@@ -1419,6 +1483,9 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                 </span>
               )}
             </div>
+            {marginTrend && marginTrend.points.length >= 3 && (
+              <MarginTrendChart points={marginTrend.points} />
+            )}
           </div>
         )}
       </div>

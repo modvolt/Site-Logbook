@@ -1052,6 +1052,25 @@ export interface WarehouseJobMarginSummary {
   marginPercent?: number | null;
 }
 
+export interface WarehouseJobMarginTrendPoint {
+  /** ISO date of the start of the week bucket (YYYY-MM-DD) */
+  period: string;
+  /** Running total of sale value up to and including this period */
+  cumulativeSaleValue: number;
+  /** Running total of cost value up to and including this period */
+  cumulativeCostValue: number;
+  /**
+     * (cumulativeSaleValue − cumulativeCostValue) / cumulativeSaleValue × 100, null when cumulativeSaleValue = 0
+     * @nullable
+     */
+  cumulativeMarginPct?: number | null;
+}
+
+export interface WarehouseJobMarginTrend {
+  jobId: number;
+  points: WarehouseJobMarginTrendPoint[];
+}
+
 export interface DashboardSummary {
   todayCount: number;
   weekCount: number;
@@ -3395,6 +3414,10 @@ changedAfter?: string;
 };
 
 export type GetWarehouseJobMarginSummaryParams = {
+jobId: number;
+};
+
+export type GetWarehouseJobMarginTrendParams = {
 jobId: number;
 };
 

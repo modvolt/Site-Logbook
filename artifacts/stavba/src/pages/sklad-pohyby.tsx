@@ -9,6 +9,8 @@ import {
   getListJobsQueryKey,
   useGetWarehouseJobMarginSummary,
   getGetWarehouseJobMarginSummaryQueryKey,
+  useGetWarehouseJobMarginTrend,
+  getGetWarehouseJobMarginTrendQueryKey,
 } from "@workspace/api-client-react";
 import type { ListWarehouseMovementsParams } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,6 +29,9 @@ import {
 } from "@/components/ui/select";
 import { ScrollText, ArrowLeft, TrendingUp, TrendingDown, Minus, AlertTriangle } from "lucide-react";
 import { MovementRow } from "@/components/warehouse-movements";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
+} from "recharts";
 
 const ALL = "all";
 
@@ -34,6 +39,62 @@ function MarginIcon({ pct }: { pct: number | null }) {
   if (pct === null) return <Minus className="h-4 w-4 text-muted-foreground" />;
   if (pct >= 0) return <TrendingUp className="h-4 w-4 text-emerald-500" />;
   return <TrendingDown className="h-4 w-4 text-destructive" />;
+}
+
+type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
+
+function formatWeekLabel(iso: string) {
+  try {
+    const d = new Date(iso);
+    return `${d.getDate()}.${d.getMonth() + 1}.`;
+  } catch {
+    return iso;
+  }
+}
+
+function MarginTrendChart({ points }: { points: TrendPoint[] }) {
+  const hasNegative = points.some((p) => (p.cumulativeMarginPct ?? 0) < 0);
+  const chartData = points.map((p) => ({
+    period: formatWeekLabel(p.period),
+    marze: p.cumulativeMarginPct,
+  }));
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/60">
+      <p className="text-xs text-muted-foreground mb-2">Vývoj kumulativní marže po týdnech</p>
+      <ResponsiveContainer width="100%" height={120}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="marginGradPohyby" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"} stopOpacity={0.25} />
+              <stop offset="95%" stopColor={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"} stopOpacity={0.0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+          <XAxis dataKey="period" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+          <Tooltip
+            formatter={(v) => {
+              const n = v as number | null | undefined;
+              return n != null ? [`${n.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`, "Marže"] : ["—", "Marže"];
+            }}
+            labelFormatter={(l) => `Týden od ${l}`}
+            contentStyle={{ fontSize: 11 }}
+          />
+          <ReferenceLine y={0} stroke="rgb(239 68 68)" strokeDasharray="4 2" strokeWidth={1} />
+          <Area
+            type="monotone"
+            dataKey="marze"
+            stroke={hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)"}
+            strokeWidth={2}
+            fill="url(#marginGradPohyby)"
+            dot={{ r: 3, fill: hasNegative ? "rgb(239 68 68)" : "rgb(16 185 129)", strokeWidth: 0 }}
+            connectNulls
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 export default function SkladPohyby() {
@@ -79,6 +140,10 @@ export default function SkladPohyby() {
   const { data: margin } = useGetWarehouseJobMarginSummary(
     marginParams!,
     { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginSummaryQueryKey(marginParams) } },
+  );
+  const { data: marginTrend } = useGetWarehouseJobMarginTrend(
+    marginParams!,
+    { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginTrendQueryKey(marginParams) } },
   );
 
   const hasCostOrSale = margin && (margin.totalQtyOut > 0);
@@ -167,8 +232,8 @@ export default function SkladPohyby() {
       </div>
 
       {selectedJobId != null && hasCostOrSale && margin && (
-        <div className="mb-4 space-y-2">
-          <div className="rounded-xl border bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+        <div className="mb-4 rounded-xl border bg-card p-4 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
               <p className="text-xs text-muted-foreground mb-0.5">Vydáno (ks)</p>
               <p className="font-semibold tabular-nums">{margin.totalQtyOut.toLocaleString("cs-CZ")}</p>
@@ -210,7 +275,7 @@ export default function SkladPohyby() {
             </div>
           </div>
           {margin.coveredCostQtyOut < margin.totalQtyOut && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 mt-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               <span>
                 {(margin.totalQtyOut - margin.coveredCostQtyOut).toLocaleString("cs-CZ")} vydaných ks bez nákupní ceny — marže je podhodnocena.{" "}
@@ -219,6 +284,9 @@ export default function SkladPohyby() {
                 </Link>
               </span>
             </div>
+          )}
+          {marginTrend && marginTrend.points.length >= 3 && (
+            <MarginTrendChart points={marginTrend.points} />
           )}
         </div>
       )}

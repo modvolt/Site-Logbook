@@ -109,6 +109,7 @@ import type {
   GetRisksSummaryParams,
   GetStatsOverviewParams,
   GetWarehouseJobMarginSummaryParams,
+  GetWarehouseJobMarginTrendParams,
   HealthStatus,
   Invoice,
   InvoiceCreateInput,
@@ -182,6 +183,7 @@ import type {
   WarehouseItem,
   WarehouseItemInput,
   WarehouseJobMarginSummary,
+  WarehouseJobMarginTrend,
   WarehouseMovement,
   WarehouseMovementInput,
   WarehouseMovementPatch,
@@ -5355,6 +5357,90 @@ export function useGetWarehouseJobMarginSummary<TData = Awaited<ReturnType<typeo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetWarehouseJobMarginSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetWarehouseJobMarginTrendUrl = (params: GetWarehouseJobMarginTrendParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/warehouse-movements/job-margin-trend?${stringifiedParams}` : `/api/warehouse-movements/job-margin-trend`
+}
+
+/**
+ * @summary Get weekly cumulative margin trend for all OUT movements on a single job
+ */
+export const getWarehouseJobMarginTrend = async (params: GetWarehouseJobMarginTrendParams, options?: RequestInit): Promise<WarehouseJobMarginTrend> => {
+
+  return customFetch<WarehouseJobMarginTrend>(getGetWarehouseJobMarginTrendUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWarehouseJobMarginTrendQueryKey = (params?: GetWarehouseJobMarginTrendParams,) => {
+    return [
+    `/api/warehouse-movements/job-margin-trend`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetWarehouseJobMarginTrendQueryOptions = <TData = Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>, TError = ErrorType<unknown>>(params: GetWarehouseJobMarginTrendParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWarehouseJobMarginTrendQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>> = ({ signal }) => getWarehouseJobMarginTrend(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWarehouseJobMarginTrendQueryResult = NonNullable<Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>>
+export type GetWarehouseJobMarginTrendQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get weekly cumulative margin trend for all OUT movements on a single job
+ */
+
+export function useGetWarehouseJobMarginTrend<TData = Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>, TError = ErrorType<unknown>>(
+ params: GetWarehouseJobMarginTrendParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseJobMarginTrend>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWarehouseJobMarginTrendQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

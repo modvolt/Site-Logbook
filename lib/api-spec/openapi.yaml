@@ -1596,6 +1596,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/WarehouseJobMarginSummary"
 
+  /warehouse-movements/job-margin-trend:
+    get:
+      operationId: getWarehouseJobMarginTrend
+      tags: [warehouse]
+      summary: Get weekly cumulative margin trend for all OUT movements on a single job
+      parameters:
+        - name: jobId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Weekly cumulative margin trend for the job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseJobMarginTrend"
+
   /warehouse-movements:
     get:
       operationId: listWarehouseMovements
@@ -7212,6 +7231,34 @@ components:
         marginPercent:
           type: ["number", "null"]
           description: "(totalSaleValue − totalCostValue) / totalSaleValue × 100, null when totalSaleValue = 0"
+
+    WarehouseJobMarginTrendPoint:
+      type: object
+      required: [period, cumulativeSaleValue, cumulativeCostValue]
+      properties:
+        period:
+          type: string
+          description: ISO date of the start of the week bucket (YYYY-MM-DD)
+        cumulativeSaleValue:
+          type: number
+          description: Running total of sale value up to and including this period
+        cumulativeCostValue:
+          type: number
+          description: Running total of cost value up to and including this period
+        cumulativeMarginPct:
+          type: ["number", "null"]
+          description: "(cumulativeSaleValue − cumulativeCostValue) / cumulativeSaleValue × 100, null when cumulativeSaleValue = 0"
+
+    WarehouseJobMarginTrend:
+      type: object
+      required: [jobId, points]
+      properties:
+        jobId:
+          type: integer
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/WarehouseJobMarginTrendPoint"
 
     WarehousePriceHistory:
       type: object
