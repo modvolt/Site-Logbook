@@ -254,33 +254,33 @@ export default function Stroje() {
       {/* Filters */}
       {machines && machines.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
-          <Select value={filterKind} onValueChange={(v) => setFilterKind(v as FilterKind)}>
+          <Select value={filterKind || "_all"} onValueChange={(v) => setFilterKind(v === "_all" ? "" : v as FilterKind)}>
             <SelectTrigger className="h-9 w-auto min-w-[120px] text-sm">
               <SelectValue placeholder="Druh: Vše" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Druh: Vše</SelectItem>
+              <SelectItem value="_all">Druh: Vše</SelectItem>
               <SelectItem value="stroj">Stroje</SelectItem>
               <SelectItem value="naradi">Nářadí</SelectItem>
               <SelectItem value="auto">Auta</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterAssignment} onValueChange={(v) => setFilterAssignment(v as FilterAssignment)}>
+          <Select value={filterAssignment || "_all"} onValueChange={(v) => setFilterAssignment(v === "_all" ? "" : v as FilterAssignment)}>
             <SelectTrigger className="h-9 w-auto min-w-[140px] text-sm">
               <SelectValue placeholder="Přiřazení: Vše" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Přiřazení: Vše</SelectItem>
+              <SelectItem value="_all">Přiřazení: Vše</SelectItem>
               <SelectItem value="assigned">Přiřazeno</SelectItem>
               <SelectItem value="unassigned">Nepřiřazeno</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterInspection} onValueChange={(v) => setFilterInspection(v as FilterInspection)}>
+          <Select value={filterInspection || "_all"} onValueChange={(v) => setFilterInspection(v === "_all" ? "" : v as FilterInspection)}>
             <SelectTrigger className="h-9 w-auto min-w-[140px] text-sm">
               <SelectValue placeholder="Revize: Vše" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Revize: Vše</SelectItem>
+              <SelectItem value="_all">Revize: Vše</SelectItem>
               <SelectItem value="ok">OK</SelectItem>
               <SelectItem value="soon">Brzy končí</SelectItem>
               <SelectItem value="overdue">Propadlé</SelectItem>
