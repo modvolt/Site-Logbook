@@ -98,7 +98,7 @@ export function Autocomplete({
         className={className}
         value={value}
         onChange={e => { onValueChange(e.target.value); setOpen(true); setHighlight(-1); }}
-        onFocus={e => { setOpen(true); onFocus?.(e); }}
+        onFocus={e => { if (value.trim()) setOpen(true); onFocus?.(e); }}
         onKeyDown={handleKeyDown}
         autoComplete="off"
         role="combobox"
