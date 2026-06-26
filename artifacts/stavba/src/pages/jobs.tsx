@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/job-card";
 import { sortJobsDoneLast } from "@/lib/job-sort";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Download, Calendar, Save, Pencil, Trash2, X, CheckSquare, Square, AlertCircle } from "lucide-react";
+import { Search, Download, Calendar, Save, Pencil, Trash2, X, CheckSquare, Square, AlertCircle, TrendingDown } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES } from "@/components/badges";
 import { Button } from "@/components/ui/button";
@@ -124,6 +124,7 @@ export default function Jobs() {
   }, [search_]);
 
   const [search, setSearch] = useState(() => readTextFromSearch(search_));
+  const [lowMarginOnly, setLowMarginOnly] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
@@ -309,20 +310,34 @@ export default function Jobs() {
     { query: { queryKey: getListJobsQueryKey(queryParams) } }
   );
 
-  const filtered = jobs?.filter(j =>
-    j.title.toLowerCase().includes(search.toLowerCase()) ||
-    (j.clientSite || "").toLowerCase().includes(search.toLowerCase()) ||
-    (j.customerCompanyName || "").toLowerCase().includes(search.toLowerCase()) ||
-    ((j as any).shortName || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  const sortedFiltered = filtered ? sortJobsDoneLast(filtered, { newestFirst: true }) : undefined;
-
   const { data: jobMargins } = useGetWarehouseJobsMarginSummary();
   const marginByJobId = new Map<number, number | null>(
     (jobMargins?.items ?? []).map((m) => [m.jobId, m.marginPercent ?? null])
   );
   const marginThreshold = jobMargins?.alertThresholdPercent ?? 0;
+
+  const isLowMargin = useCallback(
+    (jobId: number) => {
+      const m = marginByJobId.get(jobId);
+      return m != null && m < marginThreshold;
+    },
+    [marginByJobId, marginThreshold]
+  );
+
+  const lowMarginCount = (jobs ?? []).filter(j => isLowMargin(j.id)).length;
+
+  const filtered = jobs?.filter(j => {
+    const matchesSearch =
+      j.title.toLowerCase().includes(search.toLowerCase()) ||
+      (j.clientSite || "").toLowerCase().includes(search.toLowerCase()) ||
+      (j.customerCompanyName || "").toLowerCase().includes(search.toLowerCase()) ||
+      ((j as any).shortName || "").toLowerCase().includes(search.toLowerCase());
+    if (!matchesSearch) return false;
+    if (lowMarginOnly && !isLowMargin(j.id)) return false;
+    return true;
+  });
+
+  const sortedFiltered = filtered ? sortJobsDoneLast(filtered, { newestFirst: true }) : undefined;
 
   const { data: exportJobs } = useListJobs(
     {
@@ -463,6 +478,23 @@ export default function Jobs() {
             )}
           </button>
         ))}
+        {(lowMarginCount > 0 || lowMarginOnly) && (
+          <button
+            type="button"
+            onClick={() => setLowMarginOnly(v => !v)}
+            className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+              lowMarginOnly
+                ? "border-amber-500 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 ring-2 ring-offset-1 ring-current"
+                : "border-border text-muted-foreground bg-background hover:bg-muted"
+            }`}
+          >
+            <TrendingDown className="w-3 h-3" />
+            Rizikové marže{lowMarginCount > 0 ? ` (${lowMarginCount})` : ""}
+            {lowMarginOnly && (
+              <X className="w-3 h-3 ml-0.5 opacity-70" />
+            )}
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 mb-6">
