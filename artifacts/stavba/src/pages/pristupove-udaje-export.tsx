@@ -28,6 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import { jobSheetPdfBase64 } from "@/lib/job-sheet-pdf";
 import { BRAND_LOGO_URL, BRAND_NAME } from "@/lib/brand";
 import { loadCompanySettings } from "@/lib/company-settings";
+import { NetworkTopologyDiagram } from "@/components/network-topology-diagram";
 
 const PRINT_CSS = `
 @media print {
@@ -623,6 +624,11 @@ function CredBlock({
           <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-1">
             Topologie sítě
           </p>
+          <div className="mb-3 rounded-md border border-neutral-200 bg-neutral-50/50 p-2">
+            <NetworkTopologyDiagram
+              topology={c.networkTopology as NetworkDevice[]}
+            />
+          </div>
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-neutral-300 text-left text-neutral-600">

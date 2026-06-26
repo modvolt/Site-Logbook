@@ -55,3 +55,4 @@
 - [Cost-doc save FK validation & error surfacing](cost-doc-fk-error-surfacing.md) — validate jobId/customerId exist before update (clean 400, no raw SQL 500) & surface error.data.error in save toasts; ApiError not exported.
 - [EmailImportMessage field names](email-import-fields.md) — schema uses `sentAt` (not receivedAt), `error` (not errorMessage), and `billingDocumentId` on attachments (not documentId).
 - [E2E test setup (Playwright)](e2e-playwright-setup.md) — global setup + storageState; rate limiter localhost skip; dev DB must be schema-synced before tests; toast strict-mode needs exact:true or data-component-name selector.
+- [Network topology diagram](network-topology-diagram.md) — free-text port.connectedDevice → tree (device→child); phantom leaves for unmatched; HTML cards over SVG (not foreignObject) so it prints; cycles→dashed cross-links.

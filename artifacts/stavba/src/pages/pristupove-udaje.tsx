@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BarcodeScanner } from "@/components/barcode-scanner";
+import { NetworkTopologyDiagram } from "@/components/network-topology-diagram";
 
 const DEVICE_TYPES = [
   "Lokální síť",
@@ -325,15 +326,49 @@ function toPayload(f: CredForm) {
 
 function NetworkTopologyView({ topology }: { topology: NetworkDevice[] }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [view, setView] = useState<"diagram" | "table">("diagram");
   const toggle = (id: string) =>
     setExpanded((p) => ({ ...p, [id]: !p[id] }));
 
   return (
     <div className="mt-1 space-y-2">
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground font-medium">
-        <Router className="h-3.5 w-3.5 text-blue-500" />
-        <span>Přehled sítě ({topology.length} zařízení)</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground font-medium">
+          <Router className="h-3.5 w-3.5 text-blue-500" />
+          <span>Přehled sítě ({topology.length} zařízení)</span>
+        </div>
+        <div className="flex items-center gap-1 rounded-md border border-blue-100 dark:border-blue-900 p-0.5">
+          <button
+            type="button"
+            onClick={() => setView("diagram")}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+              view === "diagram"
+                ? "bg-blue-500 text-white"
+                : "text-muted-foreground hover:bg-blue-50 dark:hover:bg-blue-950/40"
+            }`}
+          >
+            <GitBranch className="h-3 w-3" />
+            Diagram
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("table")}
+            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+              view === "table"
+                ? "bg-blue-500 text-white"
+                : "text-muted-foreground hover:bg-blue-50 dark:hover:bg-blue-950/40"
+            }`}
+          >
+            Tabulka
+          </button>
+        </div>
       </div>
+      {view === "diagram" && (
+        <div className="rounded-md border border-blue-100 dark:border-blue-900 bg-slate-50/50 dark:bg-slate-900/20 p-2">
+          <NetworkTopologyDiagram topology={topology} />
+        </div>
+      )}
+      {view === "table" && (
       <div className="rounded-md border border-blue-100 dark:border-blue-900 overflow-hidden">
         <table className="w-full text-xs">
           <thead>
@@ -409,6 +444,7 @@ function NetworkTopologyView({ topology }: { topology: NetworkDevice[] }) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
