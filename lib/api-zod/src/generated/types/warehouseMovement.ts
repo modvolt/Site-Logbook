@@ -17,6 +17,8 @@ export interface WarehouseMovement {
   signedQuantity: number;
   /** @nullable */
   unitPrice?: number | null;
+  /** @nullable */
+  costPriceAtTime?: number | null;
   sourceType: string;
   /** @nullable */
   sourceId?: number | null;

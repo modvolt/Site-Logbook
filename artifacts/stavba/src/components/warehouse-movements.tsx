@@ -123,13 +123,20 @@ export function MovementRow({
           </p>
         </div>
       </div>
-      <div
-        className={`font-semibold shrink-0 tabular-nums ${
-          isIn ? "text-emerald-600" : "text-amber-600"
-        }`}
-      >
-        {isIn ? "+" : "−"}
-        {fmtQty(m.quantity)}
+      <div className="flex flex-col items-end gap-0.5 shrink-0">
+        <div
+          className={`font-semibold tabular-nums ${
+            isIn ? "text-emerald-600" : "text-amber-600"
+          }`}
+        >
+          {isIn ? "+" : "−"}
+          {fmtQty(m.quantity)}
+        </div>
+        {!isIn && (
+          <div className="text-xs text-muted-foreground tabular-nums">
+            Nák.&nbsp;{fmtKc(m.costPriceAtTime)}
+          </div>
+        )}
       </div>
     </div>
   );

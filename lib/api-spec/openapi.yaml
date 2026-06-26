@@ -7156,6 +7156,8 @@ components:
           type: number
         unitPrice:
           type: ["number", "null"]
+        costPriceAtTime:
+          type: ["number", "null"]
         sourceType:
           type: string
         sourceId:

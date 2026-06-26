@@ -437,6 +437,7 @@ export interface SerializedMovement {
   quantity: number;
   signedQuantity: number;
   unitPrice: number | null;
+  costPriceAtTime: number | null;
   sourceType: string;
   sourceId: number | null;
   billingDocumentId: number | null;
@@ -466,6 +467,7 @@ function serializeMovement(row: MovementJoinRow): SerializedMovement {
     quantity: qty,
     signedQuantity: m.direction === "in" ? qty : -qty,
     unitPrice: m.unitPrice == null ? null : num(m.unitPrice),
+    costPriceAtTime: m.costPriceAtTime == null ? null : num(m.costPriceAtTime),
     sourceType: m.sourceType,
     sourceId: m.sourceId,
     billingDocumentId: m.billingDocumentId,
