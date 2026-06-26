@@ -618,6 +618,7 @@ export default function Sklad() {
             const noPrice = item.purchasePrice == null;
             const noPriceAtAll = noPrice && !item.hasPriceHistory;
             const stalePrice = !noPrice && isPriceStale(item);
+            const costGap = item.hasCostGap;
             const low = item.minQuantity != null && item.quantity <= item.minQuantity;
             const mar = margin(item);
             const missingCost = (item.missingCostPriceCount ?? 0) > 0;
@@ -627,6 +628,8 @@ export default function Sklad() {
               ? "border-red-400/70 bg-red-50/40 dark:bg-red-950/10"
               : noPrice
               ? "border-amber-400/60 bg-amber-50/40 dark:bg-amber-950/10"
+              : costGap
+              ? "border-orange-400/50 bg-orange-50/30 dark:bg-orange-950/10"
               : stalePrice
               ? "border-yellow-400/50 bg-yellow-50/30 dark:bg-yellow-950/10"
               : "hover:bg-muted/50";
@@ -650,6 +653,11 @@ export default function Sklad() {
                             <AlertTriangle className="h-3 w-3" /> Bez aktuální ceny
                           </span>
                         ) : null}
+                        {costGap && (
+                          <span className="inline-flex items-center gap-1 text-xs text-orange-700 dark:text-orange-400 font-medium" title="Výdeje bez nákupní ceny — zisk nebude přesný">
+                            <AlertTriangle className="h-3 w-3" /> Chybí cena ve výdejích
+                          </span>
+                        )}
                         {stalePrice && (
                           <span className="inline-flex items-center gap-1 text-xs text-yellow-700 dark:text-yellow-400 font-medium">
                             <Clock className="h-3 w-3" /> Zastaralá cena

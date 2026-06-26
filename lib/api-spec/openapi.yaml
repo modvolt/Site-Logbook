@@ -7344,7 +7344,7 @@ components:
 
     WarehouseItem:
       type: object
-      required: [id, name, quantity, createdAt]
+      required: [id, name, quantity, hasCostGap, createdAt]
       properties:
         id:
           type: integer
@@ -7381,6 +7381,9 @@ components:
         missingCostPriceCount:
           type: ["integer", "null"]
           description: Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements
+        hasCostGap:
+          type: boolean
+          description: True when the item has any OUT movements with no purchase price recorded (cost_price_at_time IS NULL)
         createdAt:
           type: string
 

@@ -184,6 +184,7 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     );
   }
 
+
   const items = await db
     .select()
     .from(warehouseItemsTable)
@@ -236,6 +237,7 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     items.map((item) => ({
       ...serializeWarehouseItem(item, priceDateMap.get(item.id) ?? null, priceDateMap.has(item.id)),
       missingCostPriceCount: missingCostMap.get(item.id) ?? null,
+      hasCostGap: (missingCostMap.get(item.id) ?? 0) > 0,
     })),
   );
 });

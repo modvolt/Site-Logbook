@@ -42,5 +42,7 @@ export interface WarehouseItem {
      * @nullable
      */
   missingCostPriceCount?: number | null;
+  /** True when the item has any OUT movements with no purchase price recorded (cost_price_at_time IS NULL) */
+  hasCostGap: boolean;
   createdAt: string;
 }

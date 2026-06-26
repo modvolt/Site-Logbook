@@ -1415,6 +1415,7 @@ export const ListWarehouseItemsResponseItem = zod.object({
   "latestPriceDate": zod.string().nullish().describe('ISO date of the most recent purchase-price record'),
   "hasPriceHistory": zod.boolean().optional().describe('True when at least one price-history record exists for this item'),
   "missingCostPriceCount": zod.number().nullish().describe('Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements'),
+  "hasCostGap": zod.boolean().describe('True when the item has any OUT movements with no purchase price recorded (cost_price_at_time IS NULL)'),
   "createdAt": zod.string()
 })
 export const ListWarehouseItemsResponse = zod.array(ListWarehouseItemsResponseItem)
@@ -1496,6 +1497,7 @@ export const UpdateWarehouseItemResponse = zod.object({
   "latestPriceDate": zod.string().nullish().describe('ISO date of the most recent purchase-price record'),
   "hasPriceHistory": zod.boolean().optional().describe('True when at least one price-history record exists for this item'),
   "missingCostPriceCount": zod.number().nullish().describe('Number of OUT movements for this item where costPriceAtTime is not recorded; null when there are no such movements'),
+  "hasCostGap": zod.boolean().describe('True when the item has any OUT movements with no purchase price recorded (cost_price_at_time IS NULL)'),
   "createdAt": zod.string()
 })
 
