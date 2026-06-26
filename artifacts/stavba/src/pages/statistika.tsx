@@ -3,9 +3,10 @@ import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, 
 import { cs } from "date-fns/locale";
 import { useGetStatsOverview, getGetStatsOverviewQueryKey, useGetRisksSummary, getGetRisksSummaryQueryKey } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp } from "lucide-react";
+import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JOB_TYPES } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
@@ -26,6 +27,9 @@ const PRINT_CSS = `
 `;
 
 type Period = "week" | "month" | "year";
+
+type ProfitCol = "name" | "quantityIssued" | "saleRevenue" | "purchaseCost" | "grossProfit" | "margin";
+type SortDir = "asc" | "desc";
 
 const PERIOD_LABELS: Record<Period, string> = {
   week: "Týden",
@@ -94,6 +98,9 @@ export default function Statistika() {
   const [company] = useState(() => loadCompanySettings());
   const { toast } = useToast();
 
+  const [profitSort, setProfitSort] = useState<{ col: ProfitCol; dir: SortDir }>({ col: "grossProfit", dir: "desc" });
+  const [profitFilter, setProfitFilter] = useState("");
+
   const { from, to } = getRange(period, anchor);
   const fromStr = format(from, "yyyy-MM-dd");
   const toStr = format(to, "yyyy-MM-dd");
@@ -117,29 +124,6 @@ export default function Statistika() {
       if (period === "month") return addMonths(prev, dir);
       return addYears(prev, dir);
     });
-  };
-
-  const handleDownloadCsv = () => {
-    if (!stats || stats.warehouse.topProfitItems.length === 0) return;
-    const rows = [
-      ["Položka", "Vydáno", "Tržby (Kč)", "Náklady (Kč)", "Zisk (Kč)"],
-      ...stats.warehouse.topProfitItems.map((item) => [
-        item.name,
-        item.quantityIssued.toLocaleString("cs-CZ", { maximumFractionDigits: 2 }),
-        Math.round(item.saleRevenue).toString(),
-        Math.round(item.purchaseCost).toString(),
-        Math.round(item.grossProfit).toString(),
-      ]),
-    ];
-    const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\r\n");
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `sklad-zisk-${fromStr}_${toStr}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const handleDownload = async () => {
@@ -371,54 +355,20 @@ export default function Statistika() {
                 )}
               </div>
               {stats.warehouse.topProfitItems.length > 0 && (
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Nejziskovější položky skladu</h4>
-                    <button
-                      onClick={handleDownloadCsv}
-                      className="no-print inline-flex items-center gap-1 text-xs font-medium text-neutral-600 border border-neutral-300 rounded px-2 py-1 hover:bg-neutral-100 transition-colors"
-                      title="Stáhnout jako CSV pro Excel"
-                    >
-                      <Download className="w-3 h-3" />
-                      CSV
-                    </button>
-                  </div>
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="border-b border-neutral-300 text-left text-neutral-600">
-                        <th className="py-1 pr-2 font-semibold">Položka</th>
-                        <th className="py-1 px-2 font-semibold text-right">Vydáno</th>
-                        <th className="py-1 px-2 font-semibold text-right">Tržby</th>
-                        <th className="py-1 px-2 font-semibold text-right">Náklady</th>
-                        <th className="py-1 px-2 font-semibold text-right">Zisk</th>
-                        <th className="py-1 pl-2 font-semibold text-right">Marže</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stats.warehouse.topProfitItems.map((item) => {
-                        const margin = item.saleRevenue > 0
-                          ? (item.grossProfit / item.saleRevenue) * 100
-                          : null;
-                        return (
-                        <tr key={item.name} className="border-b border-neutral-200">
-                          <td className="py-1 pr-2">{item.name}</td>
-                          <td className="py-1 px-2 text-right text-neutral-600">
-                            {item.quantityIssued.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-1 px-2 text-right">{fmtKc(item.saleRevenue)}</td>
-                          <td className="py-1 px-2 text-right text-neutral-600">{fmtKc(item.purchaseCost)}</td>
-                          <td className={`py-1 px-2 text-right font-medium ${item.grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>
-                            {fmtKc(item.grossProfit)}
-                          </td>
-                          <td className={`py-1 pl-2 text-right font-medium ${margin === null ? "text-neutral-400" : margin >= 0 ? "text-green-700" : "text-red-600"}`}>
-                            {margin === null ? "—" : `${margin.toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`}
-                          </td>
-                        </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </>
+                <ProfitItemsTable
+                  items={stats.warehouse.topProfitItems}
+                  sort={profitSort}
+                  onSort={(col) =>
+                    setProfitSort((prev) =>
+                      prev.col === col
+                        ? { col, dir: prev.dir === "desc" ? "asc" : "desc" }
+                        : { col, dir: col === "name" ? "asc" : "desc" }
+                    )
+                  }
+                  filter={profitFilter}
+                  onFilter={setProfitFilter}
+                  csvFilename={`sklad-zisk-${fromStr}_${toStr}.csv`}
+                />
               )}
             </Section>
 
@@ -575,5 +525,158 @@ function PriceRow({ label, value, muted = false }: { label: string; value: strin
       <span className={muted ? "" : "text-neutral-600"}>{label}</span>
       <span className={muted ? "" : "font-medium"}>{value}</span>
     </div>
+  );
+}
+
+type ProfitItem = {
+  name: string;
+  quantityIssued: number;
+  saleRevenue: number;
+  purchaseCost: number;
+  grossProfit: number;
+};
+
+function SortIcon({ col, sort }: { col: ProfitCol; sort: { col: ProfitCol; dir: SortDir } }) {
+  if (sort.col !== col) return <ChevronsUpDown className="inline h-3 w-3 ml-0.5 opacity-40" />;
+  return sort.dir === "asc"
+    ? <ChevronUp className="inline h-3 w-3 ml-0.5 text-neutral-800" />
+    : <ChevronDown className="inline h-3 w-3 ml-0.5 text-neutral-800" />;
+}
+
+function ProfitItemsTable({
+  items,
+  sort,
+  onSort,
+  filter,
+  onFilter,
+  csvFilename,
+}: {
+  items: ProfitItem[];
+  sort: { col: ProfitCol; dir: SortDir };
+  onSort: (col: ProfitCol) => void;
+  filter: string;
+  onFilter: (v: string) => void;
+  csvFilename?: string;
+}) {
+  const filterLower = filter.trim().toLowerCase();
+  const filtered = filterLower
+    ? items.filter((i) => i.name.toLowerCase().includes(filterLower))
+    : items;
+
+  const getMargin = (item: ProfitItem) =>
+    item.saleRevenue > 0 ? (item.grossProfit / item.saleRevenue) * 100 : null;
+
+  const sorted = [...filtered].sort((a, b) => {
+    const dir = sort.dir === "asc" ? 1 : -1;
+    if (sort.col === "name") return dir * a.name.localeCompare(b.name, "cs");
+    if (sort.col === "margin") {
+      const ma = getMargin(a) ?? -Infinity;
+      const mb = getMargin(b) ?? -Infinity;
+      return dir * (ma - mb);
+    }
+    return dir * (a[sort.col] - b[sort.col]);
+  });
+
+  const thClass = (col: ProfitCol, align: "left" | "right" = "right") =>
+    `py-1 font-semibold cursor-pointer select-none whitespace-nowrap hover:text-neutral-900 transition-colors ${align === "right" ? "px-2 text-right" : "pr-2 text-left"} ${sort.col === col ? "text-neutral-900" : "text-neutral-500"}`;
+
+  const handleDownloadCsv = () => {
+    if (sorted.length === 0) return;
+    const rows = [
+      ["Položka", "Vydáno", "Tržby (Kč)", "Náklady (Kč)", "Zisk (Kč)", "Marže (%)"],
+      ...sorted.map((item) => {
+        const m = getMargin(item);
+        return [
+          item.name,
+          item.quantityIssued.toLocaleString("cs-CZ", { maximumFractionDigits: 2 }),
+          Math.round(item.saleRevenue).toString(),
+          Math.round(item.purchaseCost).toString(),
+          Math.round(item.grossProfit).toString(),
+          m === null ? "" : m.toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        ];
+      }),
+    ];
+    const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = csvFilename ?? "sklad-zisk.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Položky skladu</h4>
+        <button
+          onClick={handleDownloadCsv}
+          className="no-print inline-flex items-center gap-1 text-xs font-medium text-neutral-600 border border-neutral-300 rounded px-2 py-1 hover:bg-neutral-100 transition-colors"
+          title="Stáhnout jako CSV pro Excel"
+        >
+          <Download className="w-3 h-3" />
+          CSV
+        </button>
+      </div>
+      <div className="no-print relative mb-2">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400 pointer-events-none" />
+        <Input
+          value={filter}
+          onChange={(e) => onFilter(e.target.value)}
+          placeholder="Filtrovat dle názvu…"
+          className="pl-8 h-8 text-sm bg-white border-neutral-300 text-neutral-900"
+        />
+      </div>
+      {sorted.length === 0 ? (
+        <p className="text-sm text-neutral-400 py-2">Žádné položky neodpovídají filtru.</p>
+      ) : (
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b border-neutral-300 text-left">
+              <th className={thClass("name", "left")} onClick={() => onSort("name")}>
+                Položka <SortIcon col="name" sort={sort} />
+              </th>
+              <th className={thClass("quantityIssued")} onClick={() => onSort("quantityIssued")}>
+                Vydáno <SortIcon col="quantityIssued" sort={sort} />
+              </th>
+              <th className={thClass("saleRevenue")} onClick={() => onSort("saleRevenue")}>
+                Tržby <SortIcon col="saleRevenue" sort={sort} />
+              </th>
+              <th className={thClass("purchaseCost")} onClick={() => onSort("purchaseCost")}>
+                Náklady <SortIcon col="purchaseCost" sort={sort} />
+              </th>
+              <th className={thClass("grossProfit")} onClick={() => onSort("grossProfit")}>
+                Zisk <SortIcon col="grossProfit" sort={sort} />
+              </th>
+              <th className={thClass("margin")} style={{ paddingLeft: "0.5rem" }} onClick={() => onSort("margin")}>
+                Marže <SortIcon col="margin" sort={sort} />
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((item) => {
+              const margin = getMargin(item);
+              return (
+                <tr key={item.name} className="border-b border-neutral-200">
+                  <td className="py-1 pr-2">{item.name}</td>
+                  <td className="py-1 px-2 text-right text-neutral-600">
+                    {item.quantityIssued.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="py-1 px-2 text-right">{fmtKc(item.saleRevenue)}</td>
+                  <td className="py-1 px-2 text-right text-neutral-600">{fmtKc(item.purchaseCost)}</td>
+                  <td className={`py-1 px-2 text-right font-medium ${item.grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>
+                    {fmtKc(item.grossProfit)}
+                  </td>
+                  <td className={`py-1 pl-2 text-right font-medium ${margin === null ? "text-neutral-400" : margin >= 0 ? "text-green-700" : "text-red-600"}`}>
+                    {margin === null ? "—" : `${margin.toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
