@@ -345,11 +345,16 @@ export default function Statistika() {
                         <th className="py-1 px-2 font-semibold text-right">Vydáno</th>
                         <th className="py-1 px-2 font-semibold text-right">Tržby</th>
                         <th className="py-1 px-2 font-semibold text-right">Náklady</th>
-                        <th className="py-1 pl-2 font-semibold text-right">Zisk</th>
+                        <th className="py-1 px-2 font-semibold text-right">Zisk</th>
+                        <th className="py-1 pl-2 font-semibold text-right">Marže</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.warehouse.topProfitItems.map((item) => (
+                      {stats.warehouse.topProfitItems.map((item) => {
+                        const margin = item.saleRevenue > 0
+                          ? (item.grossProfit / item.saleRevenue) * 100
+                          : null;
+                        return (
                         <tr key={item.name} className="border-b border-neutral-200">
                           <td className="py-1 pr-2">{item.name}</td>
                           <td className="py-1 px-2 text-right text-neutral-600">
@@ -357,11 +362,15 @@ export default function Statistika() {
                           </td>
                           <td className="py-1 px-2 text-right">{fmtKc(item.saleRevenue)}</td>
                           <td className="py-1 px-2 text-right text-neutral-600">{fmtKc(item.purchaseCost)}</td>
-                          <td className={`py-1 pl-2 text-right font-medium ${item.grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>
+                          <td className={`py-1 px-2 text-right font-medium ${item.grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>
                             {fmtKc(item.grossProfit)}
                           </td>
+                          <td className={`py-1 pl-2 text-right font-medium ${margin === null ? "text-neutral-400" : margin >= 0 ? "text-green-700" : "text-red-600"}`}>
+                            {margin === null ? "—" : `${margin.toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`}
+                          </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </>
