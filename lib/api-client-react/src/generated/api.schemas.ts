@@ -1061,6 +1061,10 @@ export interface WarehouseJobMarginSummary {
   marginPercent?: number | null;
 }
 
+export interface WarehouseJobsMarginSummary {
+  items: WarehouseJobMarginSummary[];
+}
+
 export interface WarehouseJobMarginTrendPoint {
   /** ISO date of the start of the week bucket (YYYY-MM-DD) */
   period: string;

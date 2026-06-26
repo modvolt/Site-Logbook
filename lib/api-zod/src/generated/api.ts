@@ -1645,6 +1645,22 @@ export const GetWarehouseJobMarginSummaryResponse = zod.object({
 
 
 /**
+ * @summary Get cost vs. sale margin summary per job for all jobs that have OUT movements
+ */
+export const GetWarehouseJobsMarginSummaryResponse = zod.object({
+  "items": zod.array(zod.object({
+  "jobId": zod.number(),
+  "totalQtyOut": zod.number().describe('Total quantity issued (OUT) for this job'),
+  "totalSaleValue": zod.number().describe('Sum of (unitPrice × quantity) for OUT movements that have a sale price'),
+  "totalCostValue": zod.number().describe('Sum of (costPriceAtTime × quantity) for OUT movements that have a cost price'),
+  "coveredQtyOut": zod.number().describe('Qty issued where unitPrice is known (used to compute sale coverage)'),
+  "coveredCostQtyOut": zod.number().describe('Qty issued where costPriceAtTime is known (used to compute cost coverage)'),
+  "marginPercent": zod.number().nullish().describe('(totalSaleValue − totalCostValue) \/ totalSaleValue × 100, null when totalSaleValue = 0')
+}))
+})
+
+
+/**
  * @summary Get cumulative margin trend (weekly or monthly) for all OUT movements on a single job
  */
 export const getWarehouseJobMarginTrendQueryGranularityDefault = `week`;

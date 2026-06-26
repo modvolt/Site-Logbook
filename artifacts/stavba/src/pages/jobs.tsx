@@ -9,6 +9,7 @@ import {
   useUpdateMyPreferences,
   getGetMyPreferencesQueryKey,
   useBulkUpdateJobStatus,
+  useGetWarehouseJobsMarginSummary,
 } from "@workspace/api-client-react";
 import type { ListJobsParams } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -317,6 +318,11 @@ export default function Jobs() {
 
   const sortedFiltered = filtered ? sortJobsDoneLast(filtered, { newestFirst: true }) : undefined;
 
+  const { data: jobMargins } = useGetWarehouseJobsMarginSummary();
+  const marginByJobId = new Map<number, number | null>(
+    (jobMargins?.items ?? []).map((m) => [m.jobId, m.marginPercent ?? null])
+  );
+
   const { data: exportJobs } = useListJobs(
     {
       ...(exportFrom ? { from: exportFrom } : {}),
@@ -525,6 +531,7 @@ export default function Jobs() {
               job={job}
               selected={selectMode ? selectedIds.has(job.id) : undefined}
               onSelect={selectMode ? handleSelect : undefined}
+              marginPercent={marginByJobId.get(job.id)}
             />
           ))
         ) : (

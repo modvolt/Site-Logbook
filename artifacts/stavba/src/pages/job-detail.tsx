@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, useSearch } from "wouter";
 import { format, differenceInDays } from "date-fns";
 import { 
   useGetJob, getGetJobQueryKey,
@@ -111,11 +111,16 @@ export default function JobDetail() {
   const { openConfirm: openConfirmJob, dialogProps: dialogPropsJob } = useConfirmDialog();
   const params = useParams();
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const id = parseInt(params.id || "0", 10);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
-  const [expandedSection, setExpandedSection] = useState<string | null>("info");
+
+  const initialSection = new URLSearchParams(search).get("section");
+  const VALID_SECTIONS = ["info", "doklady", "attachments", "tasks", "materials", "jobsheets", "summary", "costs"];
+  const [expandedSection, setExpandedSection] = useState<string | null>(
+    initialSection && VALID_SECTIONS.includes(initialSection) ? initialSection : "info"
+  );
   const [matHasUnsaved, setMatHasUnsaved] = useState(false);
   
   const { data: job, isLoading: loadingJob, isRefetching: isRefetchingJob, isError: jobError, refetch: refetchJob } = useGetJob(id, {
@@ -133,6 +138,12 @@ export default function JobDetail() {
   useEffect(() => {
     if (job?.timerStartedAt) void showTimerNotification(job?.title ?? "");
   }, [job?.id, job?.timerStartedAt, job?.title]);
+
+  useEffect(() => {
+    if (!job || initialSection !== "materials") return;
+    const el = document.getElementById("section-materials");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [job?.id, initialSection]);
   
   const toggleSection = (section: string) => {
     setExpandedSection(prev => prev === section ? null : section);
@@ -593,9 +604,9 @@ function JobReadinessPanel({ job, onEditInfo, onOpenBilling }: { job: any; onEdi
   );
 }
 
-function SectionCard({ title, icon: Icon, isExpanded, onToggle, children, summary }: any) {
+function SectionCard({ title, icon: Icon, isExpanded, onToggle, children, summary, id }: any) {
   return (
-    <Card className="overflow-hidden shadow-sm">
+    <Card id={id} className="overflow-hidden shadow-sm">
       <div 
         className="px-4 py-4 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors bg-card"
         onClick={onToggle}
@@ -1378,7 +1389,7 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
   };
 
   return (
-    <SectionCard title="Materiál" icon={ShoppingCart} isExpanded={isExpanded} onToggle={onToggle} summary={summary}>
+    <SectionCard id="section-materials" title="Materiál" icon={ShoppingCart} isExpanded={isExpanded} onToggle={onToggle} summary={summary}>
       <div className="p-4 space-y-4">
         {/* Add form */}
         <form onSubmit={handleAdd} className="space-y-2">

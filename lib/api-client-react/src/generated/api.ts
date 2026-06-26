@@ -188,6 +188,7 @@ import type {
   WarehouseItemInput,
   WarehouseJobMarginSummary,
   WarehouseJobMarginTrend,
+  WarehouseJobsMarginSummary,
   WarehouseMovement,
   WarehouseMovementInput,
   WarehouseMovementPatch,
@@ -5361,6 +5362,83 @@ export function useGetWarehouseJobMarginSummary<TData = Awaited<ReturnType<typeo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetWarehouseJobMarginSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetWarehouseJobsMarginSummaryUrl = () => {
+
+
+
+
+  return `/api/warehouse-movements/jobs-margin-summary`
+}
+
+/**
+ * @summary Get cost vs. sale margin summary per job for all jobs that have OUT movements
+ */
+export const getWarehouseJobsMarginSummary = async ( options?: RequestInit): Promise<WarehouseJobsMarginSummary> => {
+
+  return customFetch<WarehouseJobsMarginSummary>(getGetWarehouseJobsMarginSummaryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWarehouseJobsMarginSummaryQueryKey = () => {
+    return [
+    `/api/warehouse-movements/jobs-margin-summary`
+    ] as const;
+    }
+
+
+export const getGetWarehouseJobsMarginSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWarehouseJobsMarginSummaryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>> = ({ signal }) => getWarehouseJobsMarginSummary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWarehouseJobsMarginSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>>
+export type GetWarehouseJobsMarginSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get cost vs. sale margin summary per job for all jobs that have OUT movements
+ */
+
+export function useGetWarehouseJobsMarginSummary<TData = Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseJobsMarginSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWarehouseJobsMarginSummaryQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

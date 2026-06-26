@@ -1,10 +1,10 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format, differenceInDays } from "date-fns";
 import { cs } from "date-fns/locale";
 import { Job } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge, TypeBadge } from "@/components/badges";
-import { Clock, MapPin, User, ChevronRight, Navigation, Timer, AlertCircle, FileText, Package, CircleDollarSign, CheckCircle2, Tag } from "lucide-react";
+import { Clock, MapPin, User, ChevronRight, Navigation, Timer, AlertCircle, FileText, Package, CircleDollarSign, CheckCircle2, Tag, TrendingDown } from "lucide-react";
 import { isJobFinished } from "@/lib/job-sort";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -13,11 +13,15 @@ function formatCzk(amount: number): string {
   return `${Math.round(amount)} Kč`;
 }
 
-function JobSignalBadges({ job }: { job: Job }) {
+function JobSignalBadges({ job, marginPercent }: { job: Job; marginPercent?: number | null }) {
+  const [, navigate] = useLocation();
   const isActive = job.status === "planned" || job.status === "in_progress";
   const isDone = job.status === "done";
 
   const badges: { label: string; icon: React.ReactNode; className: string; key: string }[] = [];
+
+  const showMargin = marginPercent != null && marginPercent < 0;
+  const marginIsDeep = marginPercent != null && marginPercent < -10;
 
   if (isDone && !(job as any).billingLinked) {
     badges.push({
@@ -95,10 +99,27 @@ function JobSignalBadges({ job }: { job: Job }) {
     });
   }
 
-  if (badges.length === 0) return null;
+  if (badges.length === 0 && !showMargin) return null;
 
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
+      {showMargin && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`/jobs/${job.id}?section=materials`); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); navigate(`/jobs/${job.id}?section=materials`); } }}
+          title={`Záporná marže skladu: ${marginPercent!.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} % — zobrazit materiál`}
+          className={`inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full cursor-pointer transition-opacity hover:opacity-80 ${
+            marginIsDeep
+              ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+              : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+          }`}
+        >
+          <TrendingDown className="w-3 h-3" />
+          Marže {marginPercent!.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %
+        </span>
+      )}
       {badges.map(b => (
         <span
           key={b.key}
@@ -116,9 +137,10 @@ interface JobCardProps {
   job: Job;
   selected?: boolean;
   onSelect?: (id: number, checked: boolean) => void;
+  marginPercent?: number | null;
 }
 
-export function JobCard({ job, selected, onSelect }: JobCardProps) {
+export function JobCard({ job, selected, onSelect, marginPercent }: JobCardProps) {
   const finished = isJobFinished(job.status);
   const shortName = (job as any).shortName as string | null;
   const isSelectable = onSelect != null;
@@ -170,7 +192,7 @@ export function JobCard({ job, selected, onSelect }: JobCardProps) {
           )}
         </div>
 
-        <JobSignalBadges job={job} />
+        <JobSignalBadges job={job} marginPercent={marginPercent} />
 
         <div className="space-y-1.5 text-sm text-muted-foreground mt-2">
           <div className="flex items-center gap-2">

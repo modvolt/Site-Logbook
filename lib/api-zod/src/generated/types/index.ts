@@ -264,6 +264,7 @@ export * from './warehouseItemInput';
 export * from './warehouseJobMarginSummary';
 export * from './warehouseJobMarginTrend';
 export * from './warehouseJobMarginTrendPoint';
+export * from './warehouseJobsMarginSummary';
 export * from './warehouseMovement';
 export * from './warehouseMovementDirection';
 export * from './warehouseMovementInput';
