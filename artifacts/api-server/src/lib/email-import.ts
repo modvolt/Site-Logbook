@@ -352,10 +352,14 @@ function deduplicateAttachments(
 
   const result: AttachmentPart[] = [];
   for (const att of attachments) {
-    if (extOf(att.fileName) === "isdoc" && pdfStems.has(stemOf(att.fileName))) {
+    const ext = extOf(att.fileName);
+    if (
+      (ext === "isdoc" || ext === "isdocx") &&
+      pdfStems.has(stemOf(att.fileName))
+    ) {
       logger.info(
         { filename: att.fileName, messageId },
-        "isdoc skipped – pdf present",
+        "isdoc/isdocx skipped – pdf present",
       );
       continue;
     }

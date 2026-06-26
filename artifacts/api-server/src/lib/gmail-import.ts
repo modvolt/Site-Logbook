@@ -432,18 +432,18 @@ function deduplicateAttachments(
 
   return attachments.map((att) => {
     if (
-      /\.isdoc$/i.test(att.fileName) &&
+      /\.isdocx?$/i.test(att.fileName) &&
       pdfStems.has(stemOf(att.fileName)) &&
       !att.skipReason
     ) {
       logger.info(
         { filename: att.fileName, messageId },
-        "isdoc skipped – pdf present",
+        "isdoc/isdocx skipped – pdf present",
       );
       return {
         ...att,
         supported: false,
-        skipReason: "ISDOC přeskočen – PDF z téhož dokumentu je přítomno",
+        skipReason: "ISDOC/ISDOCX přeskočen – PDF z téhož dokumentu je přítomno",
       };
     }
     return att;
