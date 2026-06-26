@@ -5,6 +5,10 @@ import {
   getListWarehouseMovementsQueryKey,
   useListWarehouseItems,
   getListWarehouseItemsQueryKey,
+  useListJobs,
+  getListJobsQueryKey,
+  useGetWarehouseJobMarginSummary,
+  getGetWarehouseJobMarginSummaryQueryKey,
 } from "@workspace/api-client-react";
 import type { ListWarehouseMovementsParams } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,13 +22,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollText, ArrowLeft } from "lucide-react";
+import { ScrollText, ArrowLeft, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { MovementRow } from "@/components/warehouse-movements";
 
 const ALL = "all";
 
+function MarginIcon({ pct }: { pct: number | null }) {
+  if (pct === null) return <Minus className="h-4 w-4 text-muted-foreground" />;
+  if (pct >= 0) return <TrendingUp className="h-4 w-4 text-emerald-500" />;
+  return <TrendingDown className="h-4 w-4 text-destructive" />;
+}
+
 export default function SkladPohyby() {
   const [itemId, setItemId] = useState<string>(ALL);
+  const [jobId, setJobId] = useState<string>(ALL);
   const [direction, setDirection] = useState<string>(ALL);
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
@@ -33,8 +44,15 @@ export default function SkladPohyby() {
     query: { queryKey: getListWarehouseItemsQueryKey() },
   });
 
+  const { data: jobs } = useListJobs(undefined, {
+    query: { queryKey: getListJobsQueryKey() },
+  });
+
+  const selectedJobId = jobId !== ALL ? Number(jobId) : undefined;
+
   const params: ListWarehouseMovementsParams = {
     ...(itemId !== ALL ? { warehouseItemId: Number(itemId) } : {}),
+    ...(selectedJobId != null ? { jobId: selectedJobId } : {}),
     ...(direction !== ALL ? { direction: direction as "in" | "out" } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
@@ -44,6 +62,14 @@ export default function SkladPohyby() {
   const { data: movements, isLoading } = useListWarehouseMovements(params, {
     query: { queryKey: getListWarehouseMovementsQueryKey(params) },
   });
+
+  const marginParams = selectedJobId != null ? { jobId: selectedJobId } : undefined;
+  const { data: margin } = useGetWarehouseJobMarginSummary(
+    marginParams!,
+    { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginSummaryQueryKey(marginParams) } },
+  );
+
+  const hasCostOrSale = margin && (margin.totalQtyOut > 0);
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -58,7 +84,20 @@ export default function SkladPohyby() {
         </h1>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-6">
+        <Select value={jobId} onValueChange={setJobId}>
+          <SelectTrigger className="h-11 sm:max-w-xs">
+            <SelectValue placeholder="Zakázka" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>Všechny zakázky</SelectItem>
+            {jobs?.map((j) => (
+              <SelectItem key={j.id} value={String(j.id)}>
+                {j.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={itemId} onValueChange={setItemId}>
           <SelectTrigger className="h-11 sm:max-w-xs">
             <SelectValue placeholder="Položka" />
@@ -114,6 +153,50 @@ export default function SkladPohyby() {
           </Button>
         )}
       </div>
+
+      {selectedJobId != null && hasCostOrSale && margin && (
+        <div className="mb-4 rounded-xl border bg-card p-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Vydáno (ks)</p>
+            <p className="font-semibold tabular-nums">{margin.totalQtyOut.toLocaleString("cs-CZ")}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Prodejní hodnota</p>
+            <p className="font-semibold tabular-nums text-emerald-600">
+              {margin.coveredQtyOut > 0
+                ? `${margin.totalSaleValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`
+                : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Nákupní náklady</p>
+            <p className="font-semibold tabular-nums text-orange-600">
+              {margin.coveredCostQtyOut > 0
+                ? `${margin.totalCostValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč`
+                : "—"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">Marže</p>
+            <div className="flex items-center gap-1">
+              <MarginIcon pct={margin.marginPercent ?? null} />
+              <p
+                className={`font-semibold tabular-nums ${
+                  margin.marginPercent == null
+                    ? "text-muted-foreground"
+                    : margin.marginPercent >= 0
+                    ? "text-emerald-600"
+                    : "text-destructive"
+                }`}
+              >
+                {margin.marginPercent != null
+                  ? `${margin.marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %`
+                  : "—"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-4">

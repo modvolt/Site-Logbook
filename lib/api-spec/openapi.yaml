@@ -1539,6 +1539,25 @@ paths:
         "409":
           description: Last movement already reversed
 
+  /warehouse-movements/job-margin-summary:
+    get:
+      operationId: getWarehouseJobMarginSummary
+      tags: [warehouse]
+      summary: Get cost vs. sale margin summary for all OUT movements on a single job
+      parameters:
+        - name: jobId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Margin summary for the job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseJobMarginSummary"
+
   /warehouse-movements:
     get:
       operationId: listWarehouseMovements
@@ -7031,6 +7050,31 @@ components:
         waitingForInvoice:
           type: integer
           description: Pending billing documents with stock-allocated lines
+
+    WarehouseJobMarginSummary:
+      type: object
+      required: [jobId, totalQtyOut, totalSaleValue, totalCostValue, coveredQtyOut, coveredCostQtyOut]
+      properties:
+        jobId:
+          type: integer
+        totalQtyOut:
+          type: number
+          description: Total quantity issued (OUT) for this job
+        totalSaleValue:
+          type: number
+          description: Sum of (unitPrice × quantity) for OUT movements that have a sale price
+        totalCostValue:
+          type: number
+          description: Sum of (costPriceAtTime × quantity) for OUT movements that have a cost price
+        coveredQtyOut:
+          type: number
+          description: Qty issued where unitPrice is known (used to compute sale coverage)
+        coveredCostQtyOut:
+          type: number
+          description: Qty issued where costPriceAtTime is known (used to compute cost coverage)
+        marginPercent:
+          type: ["number", "null"]
+          description: "(totalSaleValue − totalCostValue) / totalSaleValue × 100, null when totalSaleValue = 0"
 
     WarehousePriceHistory:
       type: object

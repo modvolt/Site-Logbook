@@ -520,6 +520,43 @@ router.post("/warehouse-items/:id/movements", async (req, res): Promise<void> =>
   }
 });
 
+router.get("/warehouse-movements/job-margin-summary", async (req, res): Promise<void> => {
+  const jobId = parseInt(req.query.jobId as string, 10);
+  if (!Number.isInteger(jobId) || jobId <= 0) {
+    res.status(400).json({ error: "jobId (integer) je povinný parametr." });
+    return;
+  }
+
+  const agg = (await db.execute(sql`
+    select
+      coalesce(sum(${warehouseMovementsTable.quantity}), 0)                                                          as total_qty_out,
+      coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.unitPrice} * ${warehouseMovementsTable.quantity} else 0 end), 0)          as total_sale_value,
+      coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.costPriceAtTime} * ${warehouseMovementsTable.quantity} else 0 end), 0) as total_cost_value,
+      coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.quantity} else 0 end), 0)          as covered_qty_out,
+      coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.quantity} else 0 end), 0)    as covered_cost_qty_out
+    from ${warehouseMovementsTable}
+    where ${warehouseMovementsTable.jobId} = ${jobId}
+      and ${warehouseMovementsTable.direction} = 'out'
+  `)) as unknown as { rows: Array<{ total_qty_out: string; total_sale_value: string; total_cost_value: string; covered_qty_out: string; covered_cost_qty_out: string }> };
+
+  const row = agg.rows[0]!;
+  const totalSaleValue = round2(num(row.total_sale_value));
+  const totalCostValue = round2(num(row.total_cost_value));
+  const marginPercent = totalSaleValue > 0
+    ? round2(((totalSaleValue - totalCostValue) / totalSaleValue) * 100)
+    : null;
+
+  res.json({
+    jobId,
+    totalQtyOut: round2(num(row.total_qty_out)),
+    totalSaleValue,
+    totalCostValue,
+    coveredQtyOut: round2(num(row.covered_qty_out)),
+    coveredCostQtyOut: round2(num(row.covered_cost_qty_out)),
+    marginPercent,
+  });
+});
+
 router.get("/warehouse-movements", async (req, res): Promise<void> => {
   const query = ListWarehouseMovementsQueryParams.safeParse(req.query);
   if (!query.success) {

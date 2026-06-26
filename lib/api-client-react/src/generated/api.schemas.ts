@@ -1021,6 +1021,25 @@ export interface WarehouseMovementInput {
   idempotencyKey?: string | null;
 }
 
+export interface WarehouseJobMarginSummary {
+  jobId: number;
+  /** Total quantity issued (OUT) for this job */
+  totalQtyOut: number;
+  /** Sum of (unitPrice × quantity) for OUT movements that have a sale price */
+  totalSaleValue: number;
+  /** Sum of (costPriceAtTime × quantity) for OUT movements that have a cost price */
+  totalCostValue: number;
+  /** Qty issued where unitPrice is known (used to compute sale coverage) */
+  coveredQtyOut: number;
+  /** Qty issued where costPriceAtTime is known (used to compute cost coverage) */
+  coveredCostQtyOut: number;
+  /**
+     * (totalSaleValue − totalCostValue) / totalSaleValue × 100, null when totalSaleValue = 0
+     * @nullable
+     */
+  marginPercent?: number | null;
+}
+
 export interface DashboardSummary {
   todayCount: number;
   weekCount: number;
@@ -3314,6 +3333,10 @@ noPrice?: boolean;
  * Filter items that had any movement on or after this date (YYYY-MM-DD)
  */
 changedAfter?: string;
+};
+
+export type GetWarehouseJobMarginSummaryParams = {
+jobId: number;
 };
 
 export type ListWarehouseMovementsParams = {

@@ -1585,6 +1585,24 @@ export const CancelLastWarehouseMovementParams = zod.object({
 
 
 /**
+ * @summary Get cost vs. sale margin summary for all OUT movements on a single job
+ */
+export const GetWarehouseJobMarginSummaryQueryParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetWarehouseJobMarginSummaryResponse = zod.object({
+  "jobId": zod.number(),
+  "totalQtyOut": zod.number().describe('Total quantity issued (OUT) for this job'),
+  "totalSaleValue": zod.number().describe('Sum of (unitPrice × quantity) for OUT movements that have a sale price'),
+  "totalCostValue": zod.number().describe('Sum of (costPriceAtTime × quantity) for OUT movements that have a cost price'),
+  "coveredQtyOut": zod.number().describe('Qty issued where unitPrice is known (used to compute sale coverage)'),
+  "coveredCostQtyOut": zod.number().describe('Qty issued where costPriceAtTime is known (used to compute cost coverage)'),
+  "marginPercent": zod.number().nullish().describe('(totalSaleValue − totalCostValue) \/ totalSaleValue × 100, null when totalSaleValue = 0')
+})
+
+
+/**
  * @summary List all stock movements (kniha pohybů) with optional filters
  */
 export const ListWarehouseMovementsQueryParams = zod.object({

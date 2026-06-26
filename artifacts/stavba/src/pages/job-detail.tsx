@@ -10,6 +10,7 @@ import {
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
   useListWarehouseItems, getListWarehouseItemsQueryKey,
+  useGetWarehouseJobMarginSummary, getGetWarehouseJobMarginSummaryQueryKey,
   useListCustomers, getListCustomersQueryKey,
   useListJobTimeEntries, getListJobTimeEntriesQueryKey,
   useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
@@ -1217,6 +1218,10 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
   const { data: warehouseItems } = useListWarehouseItems(undefined, {
     query: { enabled: isExpanded, queryKey: getListWarehouseItemsQueryKey() }
   });
+  const { data: warehouseMargin } = useGetWarehouseJobMarginSummary(
+    { jobId },
+    { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginSummaryQueryKey({ jobId }) } },
+  );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
   const stockNames = new Set(
     (warehouseItems ?? []).map((w: any) => String(w.name).trim().toLowerCase()),
@@ -1376,6 +1381,36 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
           </div>
         ) : (
           <div className="text-center py-6 text-muted-foreground text-sm">Zatím žádný materiál.</div>
+        )}
+
+        {warehouseMargin && warehouseMargin.totalQtyOut > 0 && (
+          <div className="mt-4 rounded-lg border bg-muted/40 p-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Výdej ze skladu</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <span className="text-muted-foreground">Vydáno celkem</span>
+              <span className="font-medium tabular-nums text-right">{warehouseMargin.totalQtyOut.toLocaleString("cs-CZ")} ks</span>
+              {warehouseMargin.coveredQtyOut > 0 && (
+                <>
+                  <span className="text-muted-foreground">Prodejní hodnota</span>
+                  <span className="font-medium tabular-nums text-right text-emerald-600">{warehouseMargin.totalSaleValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč</span>
+                </>
+              )}
+              {warehouseMargin.coveredCostQtyOut > 0 && (
+                <>
+                  <span className="text-muted-foreground">Nákupní náklady</span>
+                  <span className="font-medium tabular-nums text-right text-orange-600">{warehouseMargin.totalCostValue.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} Kč</span>
+                </>
+              )}
+              {warehouseMargin.marginPercent != null && (
+                <>
+                  <span className="text-muted-foreground">Marže</span>
+                  <span className={`font-bold tabular-nums text-right ${warehouseMargin.marginPercent >= 0 ? "text-emerald-600" : "text-destructive"}`}>
+                    {warehouseMargin.marginPercent.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
         )}
       </div>
       <ConfirmDialog {...dialogPropsMat} />
