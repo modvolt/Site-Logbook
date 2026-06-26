@@ -44,6 +44,7 @@ const NUMERIC_FIELDS = ["quantity", "purchasePrice", "salePrice", "minQuantity"]
 function serializeWarehouseItem(
   w: typeof warehouseItemsTable.$inferSelect,
   latestPriceDate?: string | null,
+  hasPriceHistory?: boolean,
 ) {
   return {
     ...w,
@@ -53,6 +54,7 @@ function serializeWarehouseItem(
     minQuantity: w.minQuantity != null ? Number(w.minQuantity) : null,
     createdAt: w.createdAt.toISOString(),
     latestPriceDate: latestPriceDate ?? null,
+    hasPriceHistory: hasPriceHistory ?? false,
   };
 }
 
@@ -74,6 +76,7 @@ router.get("/warehouse-summary", async (_req, res): Promise<void> => {
       itemCount: count(),
       itemsBelowMin: sql<number>`sum(case when ${warehouseItemsTable.minQuantity} is not null and ${warehouseItemsTable.quantity} <= ${warehouseItemsTable.minQuantity} then 1 else 0 end)`.mapWith(Number),
       itemsWithoutPrice: sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null then 1 else 0 end)`.mapWith(Number),
+      itemsWithNoPriceAtAll: sql<number>`sum(case when ${warehouseItemsTable.purchasePrice} is null and not exists (select 1 from ${warehousePriceHistoryTable} where ${warehousePriceHistoryTable.warehouseItemId} = ${warehouseItemsTable.id}) then 1 else 0 end)`.mapWith(Number),
       stockValue: sql<number>`coalesce(sum(${warehouseItemsTable.quantity} * ${warehouseItemsTable.purchasePrice}), 0)`.mapWith(Number),
     })
     .from(warehouseItemsTable);
@@ -106,6 +109,7 @@ router.get("/warehouse-summary", async (_req, res): Promise<void> => {
     itemCount: Number(agg?.itemCount ?? 0),
     itemsBelowMin: Number(agg?.itemsBelowMin ?? 0),
     itemsWithoutPrice: Number(agg?.itemsWithoutPrice ?? 0),
+    itemsWithNoPriceAtAll: Number(agg?.itemsWithNoPriceAtAll ?? 0),
     movementsToday: Number(movRow?.c ?? 0),
     waitingForInvoice: Number(waitRow?.c ?? 0),
   });
@@ -121,7 +125,7 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const { category, supplierName, belowMin, noPrice, changedAfter } = query.data;
+  const { category, supplierName, belowMin, noPrice, noPriceAtAll, changedAfter } = query.data;
 
   const conds = [];
   if (category) conds.push(ilike(warehouseItemsTable.category, `%${category}%`));
@@ -134,7 +138,15 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
       )!,
     );
   }
-  if (noPrice === true) {
+  if (noPriceAtAll === true) {
+    conds.push(isNull(warehouseItemsTable.purchasePrice));
+    conds.push(
+      sql`not exists (
+        select 1 from ${warehousePriceHistoryTable}
+        where ${warehousePriceHistoryTable.warehouseItemId} = ${warehouseItemsTable.id}
+      )`,
+    );
+  } else if (noPrice === true) {
     conds.push(isNull(warehouseItemsTable.purchasePrice));
   }
   if (changedAfter) {
@@ -148,7 +160,7 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     );
   }
 
-  // Fetch latest price dates for all items in one query
+  // Fetch latest price dates for all items in one query (also used to determine hasPriceHistory)
   const priceRows = await db
     .select({
       warehouseItemId: warehousePriceHistoryTable.warehouseItemId,
@@ -168,7 +180,11 @@ router.get("/warehouse-items", async (req, res): Promise<void> => {
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(warehouseItemsTable.name);
 
-  res.json(items.map((item) => serializeWarehouseItem(item, priceDateMap.get(item.id) ?? null)));
+  res.json(items.map((item) => serializeWarehouseItem(
+    item,
+    priceDateMap.get(item.id) ?? null,
+    priceDateMap.has(item.id),
+  )));
 });
 
 router.post("/warehouse-items", async (req, res): Promise<void> => {

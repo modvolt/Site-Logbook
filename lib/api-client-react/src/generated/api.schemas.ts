@@ -849,8 +849,10 @@ export interface WarehouseSummary {
   itemCount: number;
   /** Items where quantity <= minQuantity */
   itemsBelowMin: number;
-  /** Items without a purchase price */
+  /** Items without a current purchase price (may still have price history) */
   itemsWithoutPrice: number;
+  /** Items with no current purchase price AND no price history at all */
+  itemsWithNoPriceAtAll: number;
   /** Number of stock movements recorded today */
   movementsToday: number;
   /** Pending billing documents with stock-allocated lines */
@@ -886,6 +888,8 @@ export interface WarehouseItem {
      * @nullable
      */
   latestPriceDate?: string | null;
+  /** True when at least one price-history record exists for this item */
+  hasPriceHistory?: boolean;
   createdAt: string;
 }
 
@@ -3337,6 +3341,10 @@ category?: string;
 supplierName?: string;
 belowMin?: boolean;
 noPrice?: boolean;
+/**
+ * Filter items that have no current purchase price AND no price history at all
+ */
+noPriceAtAll?: boolean;
 /**
  * Filter items that had any movement on or after this date (YYYY-MM-DD)
  */

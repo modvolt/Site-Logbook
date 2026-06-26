@@ -9,7 +9,7 @@ import {
   getListWarehouseItemsQueryKey,
   getGetWarehouseSummaryQueryKey,
 } from "@workspace/api-client-react";
-import type { WarehouseItem, ListWarehouseItemsParams } from "@workspace/api-client-react";
+import type { WarehouseItem, ListWarehouseItemsParams, WarehouseSummary } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
@@ -129,6 +129,7 @@ type SkladFilters = {
   supplier: string;
   belowMin: boolean;
   noPrice: boolean;
+  noPriceAtAll: boolean;
   changedAfter: string;
 };
 
@@ -139,6 +140,7 @@ function readFiltersFromUrl(search: string): SkladFilters {
     supplier: p.get("supplier") ?? "",
     belowMin: p.get("belowMin") === "1",
     noPrice: p.get("noPrice") === "1",
+    noPriceAtAll: p.get("noPriceAtAll") === "1",
     changedAfter: p.get("changedAfter") ?? "",
   };
 }
@@ -149,13 +151,14 @@ function buildSkladSearch(f: SkladFilters): string {
   if (f.supplier) p.set("supplier", f.supplier);
   if (f.belowMin) p.set("belowMin", "1");
   if (f.noPrice) p.set("noPrice", "1");
+  if (f.noPriceAtAll) p.set("noPriceAtAll", "1");
   if (f.changedAfter) p.set("changedAfter", f.changedAfter);
   const qs = p.toString();
   return qs ? `?${qs}` : "";
 }
 
 function hasActiveFilters(f: SkladFilters): boolean {
-  return !!(f.category || f.supplier || f.belowMin || f.noPrice || f.changedAfter);
+  return !!(f.category || f.supplier || f.belowMin || f.noPrice || f.noPriceAtAll || f.changedAfter);
 }
 
 export default function Sklad() {
@@ -178,6 +181,7 @@ export default function Sklad() {
   const [filterSupplier, setFilterSupplier] = useState(() => readFiltersFromUrl(search_).supplier);
   const [filterBelowMin, setFilterBelowMin] = useState(() => readFiltersFromUrl(search_).belowMin);
   const [filterNoPrice, setFilterNoPrice] = useState(() => readFiltersFromUrl(search_).noPrice);
+  const [filterNoPriceAtAll, setFilterNoPriceAtAll] = useState(() => readFiltersFromUrl(search_).noPriceAtAll);
   const [filterChangedAfter, setFilterChangedAfter] = useState(() => readFiltersFromUrl(search_).changedAfter);
   // Auto-open filter panel if URL contains active filters
   const [showFilters, setShowFilters] = useState(() => hasActiveFilters(readFiltersFromUrl(search_)));
@@ -189,6 +193,7 @@ export default function Sklad() {
     setFilterSupplier(f.supplier);
     setFilterBelowMin(f.belowMin);
     setFilterNoPrice(f.noPrice);
+    setFilterNoPriceAtAll(f.noPriceAtAll);
     setFilterChangedAfter(f.changedAfter);
     if (hasActiveFilters(f)) setShowFilters(true);
   }, [search_]);
@@ -200,6 +205,7 @@ export default function Sklad() {
       supplier: filterSupplier,
       belowMin: filterBelowMin,
       noPrice: filterNoPrice,
+      noPriceAtAll: filterNoPriceAtAll,
       changedAfter: filterChangedAfter,
       ...patch,
     };
@@ -207,17 +213,19 @@ export default function Sklad() {
     setFilterSupplier(next.supplier);
     setFilterBelowMin(next.belowMin);
     setFilterNoPrice(next.noPrice);
+    setFilterNoPriceAtAll(next.noPriceAtAll);
     setFilterChangedAfter(next.changedAfter);
     setLocation(buildSkladSearch(next), { replace: true });
   };
 
-  const clearFilters = () => applyFilter({ category: "", supplier: "", belowMin: false, noPrice: false, changedAfter: "" });
+  const clearFilters = () => applyFilter({ category: "", supplier: "", belowMin: false, noPrice: false, noPriceAtAll: false, changedAfter: "" });
 
   const activeFilterCount =
     (filterCategory ? 1 : 0) +
     (filterSupplier ? 1 : 0) +
     (filterBelowMin ? 1 : 0) +
     (filterNoPrice ? 1 : 0) +
+    (filterNoPriceAtAll ? 1 : 0) +
     (filterChangedAfter ? 1 : 0);
 
   const listParams: ListWarehouseItemsParams | undefined = useMemo(() => {
@@ -225,10 +233,11 @@ export default function Sklad() {
     if (filterCategory) p.category = filterCategory;
     if (filterSupplier) p.supplierName = filterSupplier;
     if (filterBelowMin) p.belowMin = true;
-    if (filterNoPrice) p.noPrice = true;
+    if (filterNoPriceAtAll) p.noPriceAtAll = true;
+    else if (filterNoPrice) p.noPrice = true;
     if (filterChangedAfter) p.changedAfter = filterChangedAfter;
     return Object.keys(p).length ? p : undefined;
-  }, [filterCategory, filterSupplier, filterBelowMin, filterNoPrice, filterChangedAfter]);
+  }, [filterCategory, filterSupplier, filterBelowMin, filterNoPrice, filterNoPriceAtAll, filterChangedAfter]);
 
   const { data: items, isLoading } = useListWarehouseItems(listParams, {
     query: { queryKey: getListWarehouseItemsQueryKey(listParams) },
@@ -379,12 +388,21 @@ export default function Sklad() {
             value={summary.itemsBelowMin}
             alert={summary.itemsBelowMin > 0}
           />
-          <SummaryCard
-            icon={<PackageX className="h-4 w-4" />}
-            label="Bez nákupní ceny"
-            value={summary.itemsWithoutPrice}
-            alert={summary.itemsWithoutPrice > 0}
-          />
+          {summary.itemsWithNoPriceAtAll > 0 ? (
+            <SummaryCard
+              icon={<PackageX className="h-4 w-4" />}
+              label="Zcela bez ceny"
+              value={`${summary.itemsWithNoPriceAtAll} z ${summary.itemsWithoutPrice}`}
+              alert
+            />
+          ) : (
+            <SummaryCard
+              icon={<PackageX className="h-4 w-4" />}
+              label="Bez nákupní ceny"
+              value={summary.itemsWithoutPrice}
+              alert={summary.itemsWithoutPrice > 0}
+            />
+          )}
           <SummaryCard
             icon={<FileQuestion className="h-4 w-4" />}
             label="Čeká na fakturu"
@@ -396,6 +414,27 @@ export default function Sklad() {
             label="Celkem položek"
             value={summary.itemCount}
           />
+        </div>
+      )}
+      {/* Warning banner for truly unpriced items */}
+      {summary && summary.itemsWithNoPriceAtAll > 0 && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold">
+              {summary.itemsWithNoPriceAtAll === 1
+                ? "1 položka nemá žádnou cenu ani historii"
+                : `${summary.itemsWithNoPriceAtAll} položky nemají žádnou cenu ani historii`}
+            </span>
+            {" — "}výdejky pro tyto položky budou mít nulové pořizovací náklady.{" "}
+            <button
+              type="button"
+              className="underline font-medium"
+              onClick={() => { setShowFilters(true); applyFilter({ noPriceAtAll: true }); }}
+            >
+              Zobrazit položky
+            </button>
+          </div>
         </div>
       )}
 
@@ -451,9 +490,19 @@ export default function Sklad() {
                   <Switch
                     id="noPrice"
                     checked={filterNoPrice}
-                    onCheckedChange={(v) => applyFilter({ noPrice: v })}
+                    onCheckedChange={(v) => applyFilter({ noPrice: v, noPriceAtAll: false })}
                   />
                   <Label htmlFor="noPrice" className="cursor-pointer">Bez nákupní ceny</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="noPriceAtAll"
+                    checked={filterNoPriceAtAll}
+                    onCheckedChange={(v) => applyFilter({ noPriceAtAll: v, noPrice: false })}
+                  />
+                  <Label htmlFor="noPriceAtAll" className="cursor-pointer text-red-700 dark:text-red-400 font-medium">
+                    Zcela bez ceny (ani bez historie)
+                  </Label>
                 </div>
                 <div>
                   <Label className="text-xs mb-1 block text-muted-foreground">Pohyb od (poslední změna)</Label>
@@ -524,12 +573,15 @@ export default function Sklad() {
             }
 
             const noPrice = item.purchasePrice == null;
+            const noPriceAtAll = noPrice && !item.hasPriceHistory;
             const stalePrice = !noPrice && isPriceStale(item);
             const low = item.minQuantity != null && item.quantity <= item.minQuantity;
             const mar = margin(item);
 
-            // Card border style
-            const cardClass = noPrice
+            // Card border style — red for truly unpriced, amber for no current price but has history, yellow for stale
+            const cardClass = noPriceAtAll
+              ? "border-red-400/70 bg-red-50/40 dark:bg-red-950/10"
+              : noPrice
               ? "border-amber-400/60 bg-amber-50/40 dark:bg-amber-950/10"
               : stalePrice
               ? "border-yellow-400/50 bg-yellow-50/30 dark:bg-yellow-950/10"
@@ -539,17 +591,21 @@ export default function Sklad() {
               <Card key={item.id} className={`transition-colors ${cardClass}`}>
                 <CardContent className="p-4 flex justify-between items-start gap-3">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className={`p-2 rounded-full shrink-0 mt-0.5 ${noPrice ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40" : "bg-primary/10 text-primary"}`}>
+                    <div className={`p-2 rounded-full shrink-0 mt-0.5 ${noPriceAtAll ? "bg-red-100 text-red-600 dark:bg-red-900/40" : noPrice ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40" : "bg-primary/10 text-primary"}`}>
                       <Package className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-medium text-base truncate">{item.name}</p>
-                        {noPrice && (
-                          <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 font-medium">
-                            <AlertTriangle className="h-3 w-3" /> Bez ceny
+                        {noPriceAtAll ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-red-700 dark:text-red-400 font-semibold bg-red-100 dark:bg-red-900/40 px-1.5 py-0.5 rounded">
+                            <AlertTriangle className="h-3 w-3" /> Žádná cena ani historie
                           </span>
-                        )}
+                        ) : noPrice ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 font-medium">
+                            <AlertTriangle className="h-3 w-3" /> Bez aktuální ceny
+                          </span>
+                        ) : null}
                         {stalePrice && (
                           <span className="inline-flex items-center gap-1 text-xs text-yellow-700 dark:text-yellow-400 font-medium">
                             <Clock className="h-3 w-3" /> Zastaralá cena
@@ -564,7 +620,7 @@ export default function Sklad() {
                       {/* Price info row */}
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
                         <span className="text-xs text-muted-foreground">
-                          Nákup: <span className={`font-medium ${noPrice ? "text-amber-600" : "text-foreground"}`}>{fmtKc(item.purchasePrice)}</span>
+                          Nákup: <span className={`font-medium ${noPriceAtAll ? "text-red-600" : noPrice ? "text-amber-600" : "text-foreground"}`}>{fmtKc(item.purchasePrice)}</span>
                         </span>
                         <span className="text-xs text-muted-foreground">
                           Prodej: <span className="font-medium text-foreground">{fmtKc(item.salePrice)}</span>

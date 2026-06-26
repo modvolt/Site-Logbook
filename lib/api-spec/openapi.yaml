@@ -1342,6 +1342,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: noPriceAtAll
+          in: query
+          required: false
+          description: Filter items that have no current purchase price AND no price history at all
+          schema:
+            type: boolean
         - name: changedAfter
           in: query
           required: false
@@ -7061,7 +7067,7 @@ components:
 
     WarehouseSummary:
       type: object
-      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, movementsToday, waitingForInvoice]
+      required: [stockValue, itemCount, itemsBelowMin, itemsWithoutPrice, itemsWithNoPriceAtAll, movementsToday, waitingForInvoice]
       properties:
         stockValue:
           type: number
@@ -7074,7 +7080,10 @@ components:
           description: Items where quantity <= minQuantity
         itemsWithoutPrice:
           type: integer
-          description: Items without a purchase price
+          description: Items without a current purchase price (may still have price history)
+        itemsWithNoPriceAtAll:
+          type: integer
+          description: Items with no current purchase price AND no price history at all
         movementsToday:
           type: integer
           description: Number of stock movements recorded today
@@ -7175,6 +7184,9 @@ components:
         latestPriceDate:
           type: ["string", "null"]
           description: ISO date of the most recent purchase-price record
+        hasPriceHistory:
+          type: boolean
+          description: True when at least one price-history record exists for this item
         createdAt:
           type: string
 

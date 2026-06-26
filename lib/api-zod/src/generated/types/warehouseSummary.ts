@@ -13,8 +13,10 @@ export interface WarehouseSummary {
   itemCount: number;
   /** Items where quantity <= minQuantity */
   itemsBelowMin: number;
-  /** Items without a purchase price */
+  /** Items without a current purchase price (may still have price history) */
   itemsWithoutPrice: number;
+  /** Items with no current purchase price AND no price history at all */
+  itemsWithNoPriceAtAll: number;
   /** Number of stock movements recorded today */
   movementsToday: number;
   /** Pending billing documents with stock-allocated lines */

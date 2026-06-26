@@ -35,5 +35,7 @@ export interface WarehouseItem {
      * @nullable
      */
   latestPriceDate?: string | null;
+  /** True when at least one price-history record exists for this item */
+  hasPriceHistory?: boolean;
   createdAt: string;
 }

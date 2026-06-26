@@ -12,6 +12,10 @@ supplierName?: string;
 belowMin?: boolean;
 noPrice?: boolean;
 /**
+ * Filter items that have no current purchase price AND no price history at all
+ */
+noPriceAtAll?: boolean;
+/**
  * Filter items that had any movement on or after this date (YYYY-MM-DD)
  */
 changedAfter?: Date;
