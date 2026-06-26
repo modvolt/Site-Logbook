@@ -119,6 +119,29 @@ export default function Statistika() {
     });
   };
 
+  const handleDownloadCsv = () => {
+    if (!stats || stats.warehouse.topProfitItems.length === 0) return;
+    const rows = [
+      ["Položka", "Vydáno", "Tržby (Kč)", "Náklady (Kč)", "Zisk (Kč)"],
+      ...stats.warehouse.topProfitItems.map((item) => [
+        item.name,
+        item.quantityIssued.toLocaleString("cs-CZ", { maximumFractionDigits: 2 }),
+        Math.round(item.saleRevenue).toString(),
+        Math.round(item.purchaseCost).toString(),
+        Math.round(item.grossProfit).toString(),
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sklad-zisk-${fromStr}_${toStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleDownload = async () => {
     const element = document.getElementById("statistika-list");
     if (!element) return;
@@ -337,7 +360,17 @@ export default function Statistika() {
               </div>
               {stats.warehouse.topProfitItems.length > 0 && (
                 <>
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-2">Nejziskovější položky skladu</h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Nejziskovější položky skladu</h4>
+                    <button
+                      onClick={handleDownloadCsv}
+                      className="no-print inline-flex items-center gap-1 text-xs font-medium text-neutral-600 border border-neutral-300 rounded px-2 py-1 hover:bg-neutral-100 transition-colors"
+                      title="Stáhnout jako CSV pro Excel"
+                    >
+                      <Download className="w-3 h-3" />
+                      CSV
+                    </button>
+                  </div>
                   <table className="w-full text-sm border-collapse">
                     <thead>
                       <tr className="border-b border-neutral-300 text-left text-neutral-600">
