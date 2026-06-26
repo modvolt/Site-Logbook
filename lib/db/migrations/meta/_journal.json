@@ -183,6 +183,13 @@
       "when": 1782426833516,
       "tag": "0025_tan_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782496877565,
+      "tag": "0026_tidy_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "device_credentials" ADD COLUMN "network_topology" jsonb DEFAULT '[]'::jsonb NOT NULL;
