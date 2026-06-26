@@ -5301,6 +5301,21 @@ components:
         quantity:
           type: number
 
+    StatsWarehouseProfitItem:
+      type: object
+      required: [name, quantityIssued, saleRevenue, purchaseCost, grossProfit]
+      properties:
+        name:
+          type: string
+        quantityIssued:
+          type: number
+        saleRevenue:
+          type: number
+        purchaseCost:
+          type: number
+        grossProfit:
+          type: number
+
     StatsOverview:
       type: object
       required: [from, to, jobs, revenue, employees, materials, warehouse]
@@ -5361,7 +5376,7 @@ components:
                 $ref: "#/components/schemas/StatsMaterialRow"
         warehouse:
           type: object
-          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts]
+          required: [itemCount, stockValue, lowStockCount, materialSaleRevenue, materialPurchaseCost, materialGrossProfit, hasPartialCosts, topProfitItems]
           properties:
             itemCount:
               type: integer
@@ -5377,6 +5392,10 @@ components:
               type: number
             hasPartialCosts:
               type: boolean
+            topProfitItems:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatsWarehouseProfitItem"
 
     CustomerInput:
       type: object

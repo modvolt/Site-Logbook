@@ -147,6 +147,30 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     .from(warehouseMovementsTable)
     .where(periodOutFilter);
 
+  const topProfitItemsRaw = await db
+    .select({
+      name: warehouseItemsTable.name,
+      quantityIssued: sql<number>`coalesce(sum(${warehouseMovementsTable.quantity}), 0)`.mapWith(Number),
+      saleRevenue: sql<number>`coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.quantity} * ${warehouseMovementsTable.unitPrice} else 0 end), 0)`.mapWith(Number),
+      purchaseCost: sql<number>`coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.quantity} * ${warehouseMovementsTable.costPriceAtTime} else 0 end), 0)`.mapWith(Number),
+    })
+    .from(warehouseMovementsTable)
+    .innerJoin(warehouseItemsTable, eq(warehouseMovementsTable.warehouseItemId, warehouseItemsTable.id))
+    .where(periodOutFilter)
+    .groupBy(warehouseItemsTable.id, warehouseItemsTable.name)
+    .orderBy(
+      sql`coalesce(sum(case when ${warehouseMovementsTable.unitPrice} is not null then ${warehouseMovementsTable.quantity} * ${warehouseMovementsTable.unitPrice} else 0 end), 0) - coalesce(sum(case when ${warehouseMovementsTable.costPriceAtTime} is not null then ${warehouseMovementsTable.quantity} * ${warehouseMovementsTable.costPriceAtTime} else 0 end), 0) desc nulls last`,
+    )
+    .limit(20);
+
+  const topProfitItems = topProfitItemsRaw.map((r) => ({
+    name: r.name,
+    quantityIssued: num(r.quantityIssued),
+    saleRevenue: num(r.saleRevenue),
+    purchaseCost: num(r.purchaseCost),
+    grossProfit: num(r.saleRevenue) - num(r.purchaseCost),
+  }));
+
   const materialSaleRevenue = num(warehouseProfitAgg?.saleRevenue);
   const materialPurchaseCost = num(warehouseProfitAgg?.purchaseCost);
   const materialGrossProfit = materialSaleRevenue - materialPurchaseCost;
@@ -192,6 +216,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       materialPurchaseCost,
       materialGrossProfit,
       hasPartialCosts,
+      topProfitItems,
     },
   });
 });

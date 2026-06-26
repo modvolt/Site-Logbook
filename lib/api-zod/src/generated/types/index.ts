@@ -224,6 +224,7 @@ export * from './statsOverviewJobs';
 export * from './statsOverviewMaterials';
 export * from './statsOverviewRevenue';
 export * from './statsOverviewWarehouse';
+export * from './statsWarehouseProfitItem';
 export * from './task';
 export * from './taskInput';
 export * from './taskUpdate';

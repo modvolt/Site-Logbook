@@ -814,7 +814,14 @@ export const GetStatsOverviewResponse = zod.object({
   "materialSaleRevenue": zod.number(),
   "materialPurchaseCost": zod.number(),
   "materialGrossProfit": zod.number(),
-  "hasPartialCosts": zod.boolean()
+  "hasPartialCosts": zod.boolean(),
+  "topProfitItems": zod.array(zod.object({
+  "name": zod.string(),
+  "quantityIssued": zod.number(),
+  "saleRevenue": zod.number(),
+  "purchaseCost": zod.number(),
+  "grossProfit": zod.number()
+}))
 })
 })
 

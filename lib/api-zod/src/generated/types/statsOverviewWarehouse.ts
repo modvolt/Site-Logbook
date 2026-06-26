@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { StatsWarehouseProfitItem } from './statsWarehouseProfitItem';
 
 export type StatsOverviewWarehouse = {
   itemCount: number;
@@ -14,4 +15,5 @@ export type StatsOverviewWarehouse = {
   materialPurchaseCost: number;
   materialGrossProfit: number;
   hasPartialCosts: boolean;
+  topProfitItems: StatsWarehouseProfitItem[];
 };

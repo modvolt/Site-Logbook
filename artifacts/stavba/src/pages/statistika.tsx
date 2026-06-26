@@ -320,7 +320,7 @@ export default function Statistika() {
             {/* Material profit */}
             <Section title="Zisk z materiálu" icon={<TrendingUp className="w-4 h-4" />}>
               <p className="text-xs text-neutral-500 mb-3">Výdeje ze skladu za zvolené období.</p>
-              <div className="text-sm space-y-1 max-w-sm">
+              <div className="text-sm space-y-1 max-w-sm mb-4">
                 <PriceRow label="Tržby z materiálu" value={fmtKc(stats.warehouse.materialSaleRevenue)} />
                 <PriceRow label="Náklady na materiál" value={fmtKc(stats.warehouse.materialPurchaseCost)} />
                 <div className="flex justify-between border-t-2 border-neutral-900 pt-2 mt-2 text-base font-bold">
@@ -335,6 +335,37 @@ export default function Statistika() {
                   </p>
                 )}
               </div>
+              {stats.warehouse.topProfitItems.length > 0 && (
+                <>
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-2">Nejziskovější položky skladu</h4>
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b border-neutral-300 text-left text-neutral-600">
+                        <th className="py-1 pr-2 font-semibold">Položka</th>
+                        <th className="py-1 px-2 font-semibold text-right">Vydáno</th>
+                        <th className="py-1 px-2 font-semibold text-right">Tržby</th>
+                        <th className="py-1 px-2 font-semibold text-right">Náklady</th>
+                        <th className="py-1 pl-2 font-semibold text-right">Zisk</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.warehouse.topProfitItems.map((item) => (
+                        <tr key={item.name} className="border-b border-neutral-200">
+                          <td className="py-1 pr-2">{item.name}</td>
+                          <td className="py-1 px-2 text-right text-neutral-600">
+                            {item.quantityIssued.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-1 px-2 text-right">{fmtKc(item.saleRevenue)}</td>
+                          <td className="py-1 px-2 text-right text-neutral-600">{fmtKc(item.purchaseCost)}</td>
+                          <td className={`py-1 pl-2 text-right font-medium ${item.grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>
+                            {fmtKc(item.grossProfit)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
             </Section>
 
             {/* Risks */}

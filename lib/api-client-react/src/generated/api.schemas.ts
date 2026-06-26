@@ -510,6 +510,14 @@ export type StatsOverviewMaterials = {
   top: StatsMaterialRow[];
 };
 
+export interface StatsWarehouseProfitItem {
+  name: string;
+  quantityIssued: number;
+  saleRevenue: number;
+  purchaseCost: number;
+  grossProfit: number;
+}
+
 export type StatsOverviewWarehouse = {
   itemCount: number;
   stockValue: number;
@@ -518,6 +526,7 @@ export type StatsOverviewWarehouse = {
   materialPurchaseCost: number;
   materialGrossProfit: number;
   hasPartialCosts: boolean;
+  topProfitItems: StatsWarehouseProfitItem[];
 };
 
 export interface StatsEmployee {
