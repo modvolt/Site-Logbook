@@ -28,6 +28,7 @@ on a rename/conflict prompt), so instead apply the gap with **direct psql**:
 
 **Known missing columns (as of June 2026):**
 - `jobs.short_name` TEXT — `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS short_name TEXT;`
+- `billing_settings.margin_alert_threshold_percent` numeric(6,2) NOT NULL DEFAULT '0' — `ALTER TABLE billing_settings ADD COLUMN IF NOT EXISTS margin_alert_threshold_percent numeric(6,2) NOT NULL DEFAULT '0';`
 - `warehouse_movements.idempotency_key` TEXT + unique partial index — `ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS idempotency_key TEXT; CREATE UNIQUE INDEX IF NOT EXISTS warehouse_movements_idempotency_key_idx ON warehouse_movements(warehouse_item_id, idempotency_key) WHERE idempotency_key IS NOT NULL;`
 
 **Why:** push is interactive-only here and the journal is empty, so migrate-based
