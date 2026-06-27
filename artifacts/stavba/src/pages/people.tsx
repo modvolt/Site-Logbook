@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import {
   useListPeople, useCreatePerson, useDeletePerson, getListPeopleQueryKey,
   useGetPeopleStats, getGetPeopleStatsQueryKey,
@@ -70,30 +70,36 @@ function ActiveTimersPanel({ timers }: { timers: ActiveTimer[] }) {
           <ul className="divide-y divide-amber-200/60 dark:divide-amber-900/40">
             {timers.map((t) => {
               const startedMs = new Date(t.timerStartedAt).getTime();
+              const href = t.kind === "job" ? `/jobs/${t.parentId}` : `/activities/${t.parentId}`;
               return (
-                <li key={t.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                  <div className="bg-amber-500/15 p-1.5 rounded-full text-amber-600 shrink-0">
-                    <User className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{t.personName}</p>
-                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
-                      {t.kind === "job" ? (
-                        <Briefcase className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <Clock className="h-3 w-3 shrink-0" />
-                      )}
-                      <span className="truncate">{t.parentName}</span>
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end shrink-0">
-                    <span className="font-mono text-sm tabular-nums text-amber-700 dark:text-amber-400">
-                      {formatElapsed(startedMs, now)}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                      {formatStartedAt(new Date(startedMs))}
-                    </span>
-                  </div>
+                <li key={t.id} className="first:pt-0 last:pb-0">
+                  <Link
+                    href={href}
+                    className="flex items-center gap-3 py-2 rounded-md -mx-2 px-2 hover:bg-amber-100/60 dark:hover:bg-amber-900/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition-colors"
+                  >
+                    <div className="bg-amber-500/15 p-1.5 rounded-full text-amber-600 shrink-0">
+                      <User className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{t.personName}</p>
+                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                        {t.kind === "job" ? (
+                          <Briefcase className="h-3 w-3 shrink-0" />
+                        ) : (
+                          <Clock className="h-3 w-3 shrink-0" />
+                        )}
+                        <span className="truncate">{t.parentName}</span>
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="font-mono text-sm tabular-nums text-amber-700 dark:text-amber-400">
+                        {formatElapsed(startedMs, now)}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        {formatStartedAt(new Date(startedMs))}
+                      </span>
+                    </div>
+                  </Link>
                 </li>
               );
             })}
