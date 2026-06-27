@@ -14,7 +14,7 @@
 -- historical price, so re-running this migration is a safe no-op.
 
 UPDATE "warehouse_movements" wm
-SET "cost_price_at_time" = ph."purchase_price"
+SET "cost_price_at_time" = best."purchase_price"
 FROM (
   SELECT DISTINCT ON (m."id")
     m."id"            AS movement_id,

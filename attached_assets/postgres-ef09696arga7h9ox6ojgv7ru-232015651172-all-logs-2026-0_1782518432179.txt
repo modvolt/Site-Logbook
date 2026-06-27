@@ -1,0 +1,1527 @@
+
+PostgreSQL Database directory appears to contain a database; Skipping initialization
+
+2026-06-26 23:20:53.167 UTC [1] LOG:  starting PostgreSQL 16.14 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-06-26 23:20:53.167 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-06-26 23:20:53.167 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-06-26 23:20:53.169 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-06-26 23:20:53.176 UTC [28] LOG:  database system was shut down at 2026-06-26 23:20:51 UTC
+2026-06-26 23:20:53.184 UTC [1] LOG:  database system is ready to accept connections
+2026-06-26 23:21:03.648 UTC [39] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:03.648 UTC [39] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:04.036 UTC [40] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:04.036 UTC [40] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:04.475 UTC [41] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:04.475 UTC [41] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:05.241 UTC [42] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:05.241 UTC [42] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:06.369 UTC [43] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:06.369 UTC [43] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:08.232 UTC [44] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:08.232 UTC [44] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:11.741 UTC [45] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:11.741 UTC [45] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:18.422 UTC [52] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:18.422 UTC [52] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:31.512 UTC [61] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:31.512 UTC [61] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:21:57.350 UTC [85] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:21:57.350 UTC [85] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:22:48.809 UTC [121] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:22:48.809 UTC [121] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:23:49.108 UTC [165] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:23:49.108 UTC [165] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:24:49.397 UTC [211] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:24:49.397 UTC [211] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:25:49.641 UTC [255] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:25:49.641 UTC [255] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:25:53.274 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:25:55.488 UTC [26] LOG:  checkpoint complete: wrote 25 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.207 s, sync=0.004 s, total=2.214 s; sync files=19, longest=0.002 s, average=0.001 s; distance=139 kB, estimate=139 kB; lsn=0/2CAAE40, redo lsn=0/2CA90A8
+2026-06-26 23:26:49.905 UTC [298] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:26:49.905 UTC [298] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:27:50.157 UTC [341] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:27:50.157 UTC [341] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:28:50.419 UTC [387] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:28:50.419 UTC [387] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:29:50.697 UTC [429] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:29:50.697 UTC [429] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:30:50.977 UTC [475] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:30:50.977 UTC [475] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:30:53.581 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:30:55.595 UTC [26] LOG:  checkpoint complete: wrote 21 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.007 s, sync=0.004 s, total=2.014 s; sync files=17, longest=0.002 s, average=0.001 s; distance=122 kB, estimate=137 kB; lsn=0/2CC9808, redo lsn=0/2CC7A70
+2026-06-26 23:31:51.265 UTC [519] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:31:51.265 UTC [519] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:32:51.525 UTC [565] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:32:51.525 UTC [565] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:33:51.806 UTC [607] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:33:51.806 UTC [607] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:34:52.074 UTC [650] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:34:52.074 UTC [650] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:35:52.350 UTC [696] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:35:52.350 UTC [696] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:35:53.693 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:35:55.711 UTC [26] LOG:  checkpoint complete: wrote 21 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.010 s, sync=0.004 s, total=2.018 s; sync files=17, longest=0.002 s, average=0.001 s; distance=129 kB, estimate=136 kB; lsn=0/2CE9F38, redo lsn=0/2CE8180
+2026-06-26 23:36:52.639 UTC [740] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:36:52.639 UTC [740] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:37:52.945 UTC [785] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:37:52.945 UTC [785] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:38:53.232 UTC [829] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:38:53.232 UTC [829] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:39:53.532 UTC [872] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:39:53.532 UTC [872] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:40:53.810 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:40:53.818 UTC [916] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:40:53.818 UTC [916] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:40:56.539 UTC [26] LOG:  checkpoint complete: wrote 28 buffers (0.2%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.709 s, sync=0.003 s, total=2.729 s; sync files=20, longest=0.001 s, average=0.001 s; distance=143 kB, estimate=143 kB; lsn=0/2D29A08, redo lsn=0/2D0BFE0
+2026-06-26 23:41:54.111 UTC [961] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:41:54.111 UTC [961] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:42:54.376 UTC [1005] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:42:54.376 UTC [1005] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:43:54.651 UTC [1048] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:43:54.651 UTC [1048] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:44:54.918 UTC [1091] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:44:54.918 UTC [1091] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:45:53.639 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:45:55.192 UTC [1134] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:45:55.192 UTC [1134] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:45:55.977 UTC [26] LOG:  checkpoint complete: wrote 24 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.330 s, sync=0.003 s, total=2.338 s; sync files=18, longest=0.001 s, average=0.001 s; distance=137 kB, estimate=142 kB; lsn=0/2D4A600, redo lsn=0/2D2E3F8
+2026-06-26 23:46:55.453 UTC [1179] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:46:55.453 UTC [1179] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:47:55.742 UTC [1224] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:47:55.742 UTC [1224] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:48:56.016 UTC [1266] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:48:56.016 UTC [1266] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:49:56.312 UTC [1309] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:49:56.312 UTC [1309] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:50:54.076 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:50:56.088 UTC [26] LOG:  checkpoint complete: wrote 21 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.006 s, sync=0.002 s, total=2.012 s; sync files=17, longest=0.001 s, average=0.001 s; distance=123 kB, estimate=140 kB; lsn=0/2D4EEC0, redo lsn=0/2D4D128
+2026-06-26 23:50:56.612 UTC [1353] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:50:56.612 UTC [1353] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:51:56.890 UTC [1396] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:51:56.890 UTC [1396] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:52:57.191 UTC [1439] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:52:57.191 UTC [1439] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:53:57.441 UTC [1483] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:53:57.441 UTC [1483] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:54:57.701 UTC [1524] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:54:57.701 UTC [1524] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:55:54.187 UTC [26] LOG:  checkpoint starting: time
+2026-06-26 23:55:56.202 UTC [26] LOG:  checkpoint complete: wrote 21 buffers (0.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=2.006 s, sync=0.003 s, total=2.015 s; sync files=17, longest=0.002 s, average=0.001 s; distance=124 kB, estimate=139 kB; lsn=0/2D6E1D0, redo lsn=0/2D6C438
+2026-06-26 23:55:57.963 UTC [1567] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:55:57.963 UTC [1567] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:56:58.252 UTC [1612] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:56:58.252 UTC [1612] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:57:58.538 UTC [1654] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:57:58.538 UTC [1654] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
+2026-06-26 23:58:58.808 UTC [1698] ERROR:  missing FROM-clause entry for table "ph" at character 911
+2026-06-26 23:58:58.808 UTC [1698] STATEMENT:  -- Backfill cost_price_at_time for historical OUT movements using price-history.
+	--
+	-- The earlier opening-balance migration set cost_price_at_time on OUT movements
+	-- from the item's *current* purchase_price — a best-effort approximation. Now
+	-- that warehouse_price_history records every purchase-price observation with a
+	-- timestamp, we can do better: for each OUT movement we find the most recent
+	-- price-history row for the same item whose created_at <= the movement's
+	-- created_at and update cost_price_at_time to that historical price.
+	--
+	-- Movements where no preceding price-history entry exists keep their existing
+	-- value (current purchase_price fallback or NULL — both already acceptable).
+	--
+	-- Idempotent: the WHERE filter skips rows that already carry the correct
+	-- historical price, so re-running this migration is a safe no-op.
+	
+	UPDATE "warehouse_movements" wm
+	SET "cost_price_at_time" = ph."purchase_price"
+	FROM (
+	  SELECT DISTINCT ON (m."id")
+	    m."id"            AS movement_id,
+	    ph."purchase_price"
+	  FROM "warehouse_movements" m
+	  JOIN "warehouse_price_history" ph
+	    ON  ph."warehouse_item_id" = m."warehouse_item_id"
+	    AND ph."created_at"        <= m."created_at"
+	  WHERE m."direction" = 'out'
+	  ORDER BY m."id", ph."created_at" DESC
+	) best
+	WHERE wm."id" = best.movement_id
+	  AND wm."cost_price_at_time" IS DISTINCT FROM best."purchase_price";
+	
