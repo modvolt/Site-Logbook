@@ -157,6 +157,58 @@ Production uses **non-interactive, file-based migrations** instead of
 - `pnpm --filter @workspace/db run push` remains available for **local dev
   only** — never use it against production.
 
+### Startup parity guard (fail loudly when the DB is behind)
+
+The container start command is
+`node dist/migrate.mjs && exec node dist/index.mjs`, so the API only starts if
+`migrate.mjs` exits `0`. After applying migrations, `migrate.mjs` now performs a
+**parity check**: it compares the migrations recorded in drizzle's tracking table
+(`drizzle.__drizzle_migrations`) against the migration set bundled in the image
+(`_journal.json` under `MIGRATIONS_DIR`). If the live DB is still missing any
+bundled migration, it logs a clear error and **exits non-zero**, so the container
+refuses to start rather than serving 500s against an out-of-date schema.
+
+The migrate step logs one of three outcomes so an operator can tell at a glance
+what happened:
+
+- `Database migrations applied: N new (now X/Y, latest <tag>)` — migrations ran.
+- `Database already up to date (X/Y migrations, latest <tag>)` — nothing to apply.
+- `DB is behind expected schema — aborting … not recorded as applied: <tags>` —
+  the parity guard tripped; the process exits non-zero.
+
+Every log line names the **migrations folder used** and **how many migrations the
+build expects (Y) vs how many the DB has applied (X)**, which makes a stale-image
+or wrong-`MIGRATIONS_DIR` situation obvious.
+
+### If the deployed DB falls behind the code
+
+Symptom: plain reads like `GET /api/jobs` or `GET /api/dashboard/today` return
+500, or writes (creating a job, recording a warehouse movement) fail, because the
+DB is missing columns/tables newer migrations add. Most likely causes:
+
+1. **Stale Docker image / cached build.** The image bundled an older migration set
+   than the running code, so `migrate.mjs` applied only the migrations it shipped
+   with and exited `0` — the DB never received the newer ones. Coolify caching is a
+   common trigger (a deploy log where every step is `CACHED` and finishes in ~1s
+   means the new code/migrations were never actually built). Recovery: force a
+   **no-cache rebuild**, confirm the image's `migrations/` folder contains the
+   latest tag (compare against `lib/db/migrations/meta/_journal.json`), redeploy,
+   and confirm the startup log reports the expected migration count.
+2. **Wrong `MIGRATIONS_DIR`.** The env var points at a folder that doesn't contain
+   the current migrations (or is empty/missing `meta/_journal.json`). The startup
+   log names the folder and the expected count — a count lower than the latest
+   `idx` in `_journal.json` confirms this. Recovery: fix `MIGRATIONS_DIR` (the
+   image sets it to `/app/migrations`) and redeploy.
+
+To apply the missing migrations manually against the live DB (after stopping the
+API to avoid concurrent writes):
+
+```bash
+DATABASE_URL=postgres://… pnpm --filter @workspace/db run migrate
+```
+
+This runs the same parity-checked migrator and prints the applied/expected counts.
+
 ---
 
 ## 5. Database backups & restore
