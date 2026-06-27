@@ -32,12 +32,8 @@ COPY scripts ./scripts
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
-# Bundle the API (produces dist/index.mjs and dist/migrate.mjs). Cap the Node
-# heap: esbuild needs very little, but Node auto-sizes its heap to the host's
-# total RAM, so when `docker compose build` builds the api + web images in
-# parallel on a small box (e.g. 4 GB) both builds would otherwise size to the
-# whole machine at once and trip the OOM killer.
-RUN NODE_OPTIONS=--max-old-space-size=1024 pnpm --filter @workspace/api-server run build
+# Bundle the API (produces dist/index.mjs and dist/migrate.mjs).
+RUN pnpm --filter @workspace/api-server run build
 
 # Produce a pruned, production-only node_modules at /app. Reuse the same warm
 # pnpm store so this step doesn't re-fetch from the registry either.

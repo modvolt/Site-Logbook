@@ -216,39 +216,3 @@ Both Dockerfiles expect the **repository root** as the build context:
 docker build -f artifacts/api-server/Dockerfile -t stavba-api .
 docker build -f artifacts/stavba/Dockerfile     -t stavba-web .
 ```
-
-## 7. Build runs out of memory on a small host (4 GB)
-
-`docker compose up --build` builds the **api** and **web** images **in
-parallel**. Each one runs a full `pnpm install` plus a build (the web image's
-vite/rollup build is the heavier of the two). On a small box (e.g. 2 vCPU /
-4 GB) the two parallel builds can exhaust RAM and the kernel OOM-killer kills a
-build — the deploy then appears to "hang" or fail mid-build.
-
-The repo already caps the Node heap of each build (`NODE_OPTIONS=--max-old-space-size`
-in both Dockerfiles) so a single build can't size its heap to the whole
-machine. On a 4 GB host also apply **one** of these so the two builds don't
-peak at the same time:
-
-- **Add swap** (simplest, recommended — the build spike is brief):
-
-  ```bash
-  sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
-  sudo mkswap /swapfile && sudo swapon /swapfile
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # persist across reboots
-  ```
-
-- **Build the images sequentially** instead of in parallel. In the Coolify
-  resource's environment (or the shell that runs compose) set:
-
-  ```bash
-  COMPOSE_BAKE=false
-  COMPOSE_PARALLEL_LIMIT=1
-  ```
-
-  `COMPOSE_BAKE=false` uses the classic builder (which honours
-  `COMPOSE_PARALLEL_LIMIT`), so the web image builds only after the api image
-  finishes — roughly halving peak build memory.
-
-Runtime memory is not the issue here; both containers are small at rest. This
-only concerns the **build** phase.

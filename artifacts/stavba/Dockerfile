@@ -37,12 +37,7 @@ ENV PORT=3000
 ARG BASE_PATH=/
 ENV BASE_PATH=$BASE_PATH
 
-# Cap the Node heap during the vite/rollup build. Node auto-sizes its heap to
-# the host's total RAM, so on a small box (e.g. 4 GB) a `docker compose build`
-# that builds the api + web images in parallel has BOTH builds size their heaps
-# to the whole machine at once and trips the OOM killer. The web build only
-# needs ~1 GB, so 2048 is comfortable headroom while bounding the worst case.
-RUN NODE_OPTIONS=--max-old-space-size=2048 pnpm --filter @workspace/stavba run build
+RUN pnpm --filter @workspace/stavba run build
 
 # ---------- Runtime ----------
 FROM nginx:1.27-alpine AS runtime
