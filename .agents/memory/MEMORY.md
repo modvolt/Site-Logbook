@@ -58,3 +58,4 @@
 - [E2E test setup (Playwright)](e2e-playwright-setup.md) — global setup + storageState; rate limiter localhost skip; dev DB must be schema-synced before tests; toast strict-mode needs exact:true or data-component-name selector.
 - [Network topology diagram](network-topology-diagram.md) — free-text port.connectedDevice → tree (device→child); phantom leaves for unmatched; HTML cards over SVG (not foreignObject) so it prints; cycles→dashed cross-links.
 - [UPDATE...FROM alias scope in migrations](migration-update-from-alias-scope.md) — outer UPDATE SET/WHERE can only see the outer FROM alias (best), not an inner subquery join alias (ph); the bug crash-loops the API on deploy while the build looks CACHED/green.
+- [Parallel docker build OOM](docker-parallel-build-oom.md) — compose builds api+web in parallel & Node auto-sizes heap to whole box → 4 GB host OOM-kills a build mid-deploy; cap heap per build + swap/serialize (COMPOSE_BAKE=false+PARALLEL_LIMIT=1).
