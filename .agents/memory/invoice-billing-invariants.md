@@ -19,6 +19,14 @@ future status-transition flow that flips shared rows.
 **How to apply:** any new billing/issue/cancel path that mutates `jobs.status` based
 on a prior read must lock those rows in the same tx.
 
+**Testing the race:** a concurrent-issue test must measure "billed once" by counting
+links on an **issued** invoice, NOT all non-cancelled links. The loser of the race
+409s but its draft (and its `invoice_source_links` row) survives — a non-cancelled
+*draft* link is expected and is not a double-bill. Activities have no status flip, so
+their guard is the activity-row `FOR UPDATE` + the issue-time "already on another
+non-cancelled invoice" check; two drafts for one activity therefore deadlock-safe to
+"at most one issues" rather than "exactly one" (each issue sees the other draft).
+
 ## 2. `invoice_source_links` decides which jobs get billed — recomputed on every edit
 `invoice_source_links` (one row per job + amount) is what `issueInvoice` flips to
 `vyfakturovano`. It is written at draft creation AND **recomputed on every draft edit**
