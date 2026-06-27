@@ -1904,6 +1904,8 @@ export interface RestoreResult {
 export interface BillingSummary {
   /** Count of jobs in state "done" not yet on a non-cancelled invoice */
   unbilledDoneJobs: number;
+  /** Count of completed actions (dlouhodobé akce) not yet on a non-cancelled invoice */
+  unbilledActivities: number;
   draftInvoices: number;
   issuedInvoices: number;
   /** Orientational sum (price+transportCost+parking) of unbilled done jobs */
@@ -2149,6 +2151,8 @@ export interface UnbilledCustomer {
   customerId: number;
   companyName: string;
   jobCount: number;
+  /** Count of completed actions (dlouhodobé akce) awaiting invoicing for this customer */
+  activityCount: number;
   totalPrice: number;
   totalTransportCost: number;
   totalParking: number;
@@ -2193,6 +2197,21 @@ export interface UnbilledJob {
   materials: UnbilledJobMaterial[];
 }
 
+export interface UnbilledActivityExtraWork {
+  id: number;
+  description: string;
+  amount: number;
+}
+
+export interface UnbilledActivity {
+  id: number;
+  name: string;
+  /** @nullable */
+  completedAt?: string | null;
+  materials: UnbilledJobMaterial[];
+  extraWorks: UnbilledActivityExtraWork[];
+}
+
 export interface UnbilledCustomerDetail {
   customerId: number;
   companyName: string;
@@ -2205,6 +2224,7 @@ export interface UnbilledCustomerDetail {
   /** @nullable */
   email?: string | null;
   jobs: UnbilledJob[];
+  activities: UnbilledActivity[];
 }
 
 export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
@@ -2302,6 +2322,17 @@ export const InvoiceCreateInputVatModeDefault = {
   non_vat: 'non_vat',
 } as const;
 
+/**
+ * Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).
+ */
+export type MaterialMarkupOverrideSourceType = typeof MaterialMarkupOverrideSourceType[keyof typeof MaterialMarkupOverrideSourceType];
+
+
+export const MaterialMarkupOverrideSourceType = {
+  material: 'material',
+  activity_material: 'activity_material',
+} as const;
+
 export interface MaterialMarkupOverride {
   materialId: number;
   /**
@@ -2309,6 +2340,8 @@ export interface MaterialMarkupOverride {
      * @minimum 0
      */
   markupPercent: number;
+  /** Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible). */
+  sourceType?: MaterialMarkupOverrideSourceType;
 }
 
 export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof typeof InvoiceLineInputSourceType];
@@ -2317,6 +2350,8 @@ export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof
 export const InvoiceLineInputSourceType = {
   job: 'job',
   activity: 'activity',
+  activity_material: 'activity_material',
+  activity_work: 'activity_work',
   material: 'material',
   billing_document_line: 'billing_document_line',
   transport: 'transport',
@@ -2364,6 +2399,8 @@ export interface InvoiceCreateInput {
   customerId: number;
   /** Done jobs to auto-propose lines from (práce/doprava/parkování/materiál) */
   jobIds?: number[];
+  /** Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál) */
+  activityIds?: number[];
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
   /**
@@ -2421,6 +2458,8 @@ export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof In
 export const InvoiceLineSourceType = {
   job: 'job',
   activity: 'activity',
+  activity_material: 'activity_material',
+  activity_work: 'activity_work',
   material: 'material',
   billing_document_line: 'billing_document_line',
   transport: 'transport',
@@ -2529,6 +2568,7 @@ export interface InvoiceDetail {
   updatedAt: string;
   lines: InvoiceLine[];
   sourceJobIds: number[];
+  sourceActivityIds?: number[];
 }
 
 export type InvoiceUpdateInputVatModeDefault = typeof InvoiceUpdateInputVatModeDefault[keyof typeof InvoiceUpdateInputVatModeDefault];

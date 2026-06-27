@@ -7898,6 +7898,7 @@ components:
       type: object
       required:
         - unbilledDoneJobs
+        - unbilledActivities
         - draftInvoices
         - issuedInvoices
         - totalToInvoiceWithoutVat
@@ -7912,6 +7913,9 @@ components:
         unbilledDoneJobs:
           type: integer
           description: Count of jobs in state "done" not yet on a non-cancelled invoice
+        unbilledActivities:
+          type: integer
+          description: Count of completed actions (dlouhodobé akce) not yet on a non-cancelled invoice
         draftInvoices:
           type: integer
         issuedInvoices:
@@ -8159,7 +8163,7 @@ components:
           type: integer
         sourceType:
           type: string
-          enum: [job, activity, material, billing_document_line, transport, parking, fine, manual]
+          enum: [job, activity, activity_material, activity_work, material, billing_document_line, transport, parking, fine, manual]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -8281,6 +8285,10 @@ components:
           type: array
           items:
             type: integer
+        sourceActivityIds:
+          type: array
+          items:
+            type: integer
 
     InvoiceLineInput:
       type: object
@@ -8288,7 +8296,7 @@ components:
       properties:
         sourceType:
           type: string
-          enum: [job, activity, material, billing_document_line, transport, parking, fine, manual]
+          enum: [job, activity, activity_material, activity_work, material, billing_document_line, transport, parking, fine, manual]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -8325,6 +8333,11 @@ components:
           items:
             type: integer
           description: Done jobs to auto-propose lines from (práce/doprava/parkování/materiál)
+        activityIds:
+          type: array
+          items:
+            type: integer
+          description: Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál)
         billFineJobIds:
           type: array
           items:
@@ -8543,6 +8556,7 @@ components:
         - customerId
         - companyName
         - jobCount
+        - activityCount
         - totalPrice
         - totalTransportCost
         - totalParking
@@ -8555,6 +8569,9 @@ components:
           type: string
         jobCount:
           type: integer
+        activityCount:
+          type: integer
+          description: Count of completed actions (dlouhodobé akce) awaiting invoicing for this customer
         totalPrice:
           type: number
         totalTransportCost:
@@ -8594,6 +8611,14 @@ components:
           type: number
           minimum: 0
           description: Effective markup percent for this material line (0 = no markup)
+        sourceType:
+          type: string
+          enum: [material, activity_material]
+          description: >-
+            Which material table the id belongs to — a job material ("material")
+            or an activity material ("activity_material"). Job and activity
+            material ids come from separate sequences and collide, so this
+            disambiguates them. Omitted = job material (backwards compatible).
 
     MaterialMarkupRule:
       type: object
@@ -8659,9 +8684,39 @@ components:
           items:
             $ref: "#/components/schemas/UnbilledJobMaterial"
 
+    UnbilledActivityExtraWork:
+      type: object
+      required: [id, description, amount]
+      properties:
+        id:
+          type: integer
+        description:
+          type: string
+        amount:
+          type: number
+
+    UnbilledActivity:
+      type: object
+      required: [id, name, materials, extraWorks]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        completedAt:
+          type: ["string", "null"]
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnbilledJobMaterial"
+        extraWorks:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnbilledActivityExtraWork"
+
     UnbilledCustomerDetail:
       type: object
-      required: [customerId, companyName, jobs]
+      required: [customerId, companyName, jobs, activities]
       properties:
         customerId:
           type: integer
@@ -8679,6 +8734,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UnbilledJob"
+        activities:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnbilledActivity"
 
     SendInvoiceEmailInput:
       type: object

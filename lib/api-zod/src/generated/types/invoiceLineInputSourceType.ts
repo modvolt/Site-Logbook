@@ -12,6 +12,8 @@ export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof
 export const InvoiceLineInputSourceType = {
   job: 'job',
   activity: 'activity',
+  activity_material: 'activity_material',
+  activity_work: 'activity_work',
   material: 'material',
   billing_document_line: 'billing_document_line',
   transport: 'transport',

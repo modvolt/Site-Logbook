@@ -204,6 +204,47 @@ export function deriveJobSourceLinks(
   }));
 }
 
+/**
+ * Derive invoice source links from the current set of lines, supporting BOTH
+ * job-billed and activity-billed (dlouhodobá akce) lines. A job or activity is
+ * billed only while it still has at least one line carrying its id, so deleting
+ * every line of a job/activity in the edit UI drops its source link and returns
+ * it to the unbilled pool. A line that carries a `jobId` is grouped as a job
+ * link; otherwise an `activityId` groups it as an activity link.
+ *
+ * `lines[i]` and `computed[i]` must be index-aligned (same order as persisted).
+ */
+export function deriveSourceLinks(
+  lines: ReadonlyArray<{ jobId?: number | null; activityId?: number | null }>,
+  computed: ReadonlyArray<Pick<ComputedLine, "totalWithoutVat">>,
+): Array<{ jobId: number | null; activityId: number | null; amountWithoutVat: number }> {
+  const jobAmounts = new Map<number, number>();
+  const activityAmounts = new Map<number, number>();
+  lines.forEach((line, i) => {
+    const amount = num(computed[i]?.totalWithoutVat);
+    if (line.jobId != null) {
+      jobAmounts.set(line.jobId, (jobAmounts.get(line.jobId) ?? 0) + amount);
+    } else if (line.activityId != null) {
+      activityAmounts.set(
+        line.activityId,
+        (activityAmounts.get(line.activityId) ?? 0) + amount,
+      );
+    }
+  });
+  return [
+    ...Array.from(jobAmounts.entries()).map(([jobId, amount]) => ({
+      jobId,
+      activityId: null,
+      amountWithoutVat: round2(amount),
+    })),
+    ...Array.from(activityAmounts.entries()).map(([activityId, amount]) => ({
+      jobId: null,
+      activityId,
+      amountWithoutVat: round2(amount),
+    })),
+  ];
+}
+
 /** Czech money formatting: "12 500,00 Kč" (NBSP thousands, comma decimal). */
 export function formatCzk(value: number, currency = "CZK"): string {
   const n = round2(num(value));

@@ -13,6 +13,8 @@ export interface InvoiceCreateInput {
   customerId: number;
   /** Done jobs to auto-propose lines from (práce/doprava/parkování/materiál) */
   jobIds?: number[];
+  /** Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál) */
+  activityIds?: number[];
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
   /**

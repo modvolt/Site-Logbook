@@ -3220,6 +3220,7 @@ export const RestoreBackupResponse = zod.object({
  */
 export const GetBillingSummaryResponse = zod.object({
   "unbilledDoneJobs": zod.number().describe('Count of jobs in state \"done\" not yet on a non-cancelled invoice'),
+  "unbilledActivities": zod.number().describe('Count of completed actions (dlouhodobé akce) not yet on a non-cancelled invoice'),
   "draftInvoices": zod.number(),
   "issuedInvoices": zod.number(),
   "totalToInvoiceWithoutVat": zod.number().describe('Orientational sum (price+transportCost+parking) of unbilled done jobs'),
@@ -3429,6 +3430,7 @@ export const ListUnbilledCustomersResponseItem = zod.object({
   "customerId": zod.number(),
   "companyName": zod.string(),
   "jobCount": zod.number(),
+  "activityCount": zod.number().describe('Count of completed actions (dlouhodobé akce) awaiting invoicing for this customer'),
   "totalPrice": zod.number(),
   "totalTransportCost": zod.number(),
   "totalParking": zod.number(),
@@ -3470,6 +3472,24 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
   "categoryMarkupPercent": zod.number().nullish().describe('Category-default markup (%) resolved from the matching warehouse item\'s category, or null when no category rule applies (falls back to the invoice\/settings default)')
+}))
+})),
+  "activities": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "completedAt": zod.string().nullish(),
+  "materials": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "categoryMarkupPercent": zod.number().nullish().describe('Category-default markup (%) resolved from the matching warehouse item\'s category, or null when no category rule applies (falls back to the invoice\/settings default)')
+})),
+  "extraWorks": zod.array(zod.object({
+  "id": zod.number(),
+  "description": zod.string(),
+  "amount": zod.number()
 }))
 }))
 })
@@ -3531,14 +3551,16 @@ export const createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
 export const CreateInvoiceBody = zod.object({
   "customerId": zod.number(),
   "jobIds": zod.array(zod.number()).optional().describe('Done jobs to auto-propose lines from (práce\/doprava\/parkování\/materiál)'),
+  "activityIds": zod.array(zod.number()).optional().describe('Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál)'),
   "billFineJobIds": zod.array(zod.number()).optional().describe('Subset of jobIds whose fines should also be billed (explicit opt-in)'),
   "materialMarkupPercent": zod.number().nullish().describe('Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted'),
   "materialMarkupOverrides": zod.array(zod.object({
   "materialId": zod.number(),
-  "markupPercent": zod.number().min(createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin).describe('Effective markup percent for this material line (0 = no markup)')
+  "markupPercent": zod.number().min(createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin).describe('Effective markup percent for this material line (0 = no markup)'),
+  "sourceType": zod.enum(['material', 'activity_material']).optional().describe('Which material table the id belongs to — a job material (\"material\") or an activity material (\"activity_material\"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).')
 })).optional().describe('Per-material markup overrides (highest priority); each entry overrides the category default and the invoice\/settings default for that material line'),
   "lines": zod.array(zod.object({
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3606,7 +3628,7 @@ export const GetInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3622,7 +3644,8 @@ export const GetInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
-  "sourceJobIds": zod.array(zod.number())
+  "sourceJobIds": zod.array(zod.number()),
+  "sourceActivityIds": zod.array(zod.number()).optional()
 })
 
 
@@ -3648,7 +3671,7 @@ export const UpdateInvoiceBody = zod.object({
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
   "notes": zod.string().nullish(),
   "lines": zod.array(zod.object({
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3699,7 +3722,7 @@ export const UpdateInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3715,7 +3738,8 @@ export const UpdateInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
-  "sourceJobIds": zod.array(zod.number())
+  "sourceJobIds": zod.array(zod.number()),
+  "sourceActivityIds": zod.array(zod.number()).optional()
 })
 
 
@@ -3770,7 +3794,7 @@ export const RecalculateInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3786,7 +3810,8 @@ export const RecalculateInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
-  "sourceJobIds": zod.array(zod.number())
+  "sourceJobIds": zod.array(zod.number()),
+  "sourceActivityIds": zod.array(zod.number()).optional()
 })
 
 
@@ -3833,7 +3858,7 @@ export const IssueInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3849,7 +3874,8 @@ export const IssueInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
-  "sourceJobIds": zod.array(zod.number())
+  "sourceJobIds": zod.array(zod.number()),
+  "sourceActivityIds": zod.array(zod.number()).optional()
 })
 
 
@@ -3900,7 +3926,7 @@ export const CancelInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -3916,7 +3942,8 @@ export const CancelInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
-  "sourceJobIds": zod.array(zod.number())
+  "sourceJobIds": zod.array(zod.number()),
+  "sourceActivityIds": zod.array(zod.number()).optional()
 })
 
 

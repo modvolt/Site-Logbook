@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { MaterialMarkupOverrideSourceType } from './materialMarkupOverrideSourceType';
 
 export interface MaterialMarkupOverride {
   materialId: number;
@@ -13,4 +14,6 @@ export interface MaterialMarkupOverride {
      * @minimum 0
      */
   markupPercent: number;
+  /** Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible). */
+  sourceType?: MaterialMarkupOverrideSourceType;
 }

@@ -9,6 +9,8 @@
 export interface BillingSummary {
   /** Count of jobs in state "done" not yet on a non-cancelled invoice */
   unbilledDoneJobs: number;
+  /** Count of completed actions (dlouhodobé akce) not yet on a non-cancelled invoice */
+  unbilledActivities: number;
   draftInvoices: number;
   issuedInvoices: number;
   /** Orientational sum (price+transportCost+parking) of unbilled done jobs */

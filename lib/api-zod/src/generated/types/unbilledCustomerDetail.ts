@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { UnbilledActivity } from './unbilledActivity';
 import type { UnbilledJob } from './unbilledJob';
 
 export interface UnbilledCustomerDetail {
@@ -19,4 +20,5 @@ export interface UnbilledCustomerDetail {
   /** @nullable */
   email?: string | null;
   jobs: UnbilledJob[];
+  activities: UnbilledActivity[];
 }

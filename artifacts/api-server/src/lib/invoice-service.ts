@@ -9,6 +9,9 @@ import {
   invoiceSourceLinksTable,
   jobsTable,
   materialsTable,
+  activitiesTable,
+  activityMaterialsTable,
+  activityExtraWorksTable,
   customersTable,
   auditLogTable,
   type BillingSettings,
@@ -18,7 +21,7 @@ import {
 } from "@workspace/db";
 import {
   computeLine,
-  deriveJobSourceLinks,
+  deriveSourceLinks,
   applyMaterialMarkup,
   resolveMaterialMarkup,
   resolveLineMaterialMarkup,
@@ -395,11 +398,121 @@ function jobOrientationalTotal(job: typeof jobsTable.$inferSelect): number {
   return round2(num(job.price) + num(job.transportCost) + num(job.parking));
 }
 
+// ---------------------------------------------------------------------------
+// Unbilled activities (dlouhodobé akce: completed, not linked to a non-cancelled
+// invoice). Mirrors the unbilled-jobs flow — billing provenance lives in
+// invoice_source_links.activityId, so a completed action drops from the pool
+// once it is linked to any non-cancelled invoice (draft included).
+// ---------------------------------------------------------------------------
+
+async function getBilledActivityIds(): Promise<number[]> {
+  const rows = await db
+    .select({ activityId: invoiceSourceLinksTable.activityId })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .where(
+      and(
+        ne(invoicesTable.status, "cancelled"),
+        isNotNull(invoiceSourceLinksTable.activityId),
+      ),
+    );
+  return rows.map((r) => r.activityId).filter((x): x is number => x != null);
+}
+
+interface UnbilledActivityRow {
+  activity: typeof activitiesTable.$inferSelect;
+  customer: typeof customersTable.$inferSelect | null;
+}
+
+async function getUnbilledDoneActivities(
+  customerId?: number,
+): Promise<UnbilledActivityRow[]> {
+  const billedIds = await getBilledActivityIds();
+  const conditions = [
+    isNotNull(activitiesTable.completedAt),
+    eq(activitiesTable.isArchived, false),
+  ];
+  if (customerId != null) conditions.push(eq(activitiesTable.customerId, customerId));
+  if (billedIds.length) conditions.push(notInArray(activitiesTable.id, billedIds));
+  const rows = await db
+    .select({ activity: activitiesTable, customer: customersTable })
+    .from(activitiesTable)
+    .leftJoin(customersTable, eq(activitiesTable.customerId, customersTable.id))
+    .where(and(...conditions))
+    .orderBy(desc(activitiesTable.completedAt));
+  return rows;
+}
+
+interface ActivityBillingAggregate {
+  materialsTotal: number;
+  extraWorksTotal: number;
+}
+
+/** Per-activity billable totals: material purchase price + extra-work amounts. */
+async function getActivityBillingAggregates(
+  activityIds: number[],
+): Promise<Map<number, ActivityBillingAggregate>> {
+  const out = new Map<number, ActivityBillingAggregate>();
+  for (const id of activityIds) out.set(id, { materialsTotal: 0, extraWorksTotal: 0 });
+  if (!activityIds.length) return out;
+
+  const mats = await db
+    .select({
+      activityId: activityMaterialsTable.activityId,
+      total: sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(
+        Number,
+      ),
+    })
+    .from(activityMaterialsTable)
+    .where(inArray(activityMaterialsTable.activityId, activityIds))
+    .groupBy(activityMaterialsTable.activityId);
+  for (const m of mats) {
+    const entry = out.get(m.activityId);
+    if (entry) entry.materialsTotal = round2(num(m.total));
+  }
+
+  const works = await db
+    .select({
+      activityId: activityExtraWorksTable.activityId,
+      total: sql<number>`coalesce(sum(${activityExtraWorksTable.amount}), 0)`.mapWith(
+        Number,
+      ),
+    })
+    .from(activityExtraWorksTable)
+    .where(inArray(activityExtraWorksTable.activityId, activityIds))
+    .groupBy(activityExtraWorksTable.activityId);
+  for (const w of works) {
+    const entry = out.get(w.activityId);
+    if (entry) entry.extraWorksTotal = round2(num(w.total));
+  }
+
+  return out;
+}
+
+function activityOrientationalTotal(agg: ActivityBillingAggregate): number {
+  return round2(agg.materialsTotal + agg.extraWorksTotal);
+}
+
 export async function getBillingSummary() {
   const unbilled = await getUnbilledDoneJobs();
-  const unbilledTotal = round2(
-    unbilled.reduce((acc, r) => acc + jobOrientationalTotal(r.job), 0),
+  const unbilledJobsTotal = unbilled.reduce(
+    (acc, r) => acc + jobOrientationalTotal(r.job),
+    0,
   );
+
+  // Completed actions (dlouhodobé akce) with a customer awaiting invoicing.
+  const unbilledActivities = (await getUnbilledDoneActivities()).filter(
+    (r) => r.activity.customerId != null && r.customer,
+  );
+  const activityAggregates = await getActivityBillingAggregates(
+    unbilledActivities.map((r) => r.activity.id),
+  );
+  const unbilledActivitiesTotal = unbilledActivities.reduce((acc, r) => {
+    const agg = activityAggregates.get(r.activity.id);
+    return acc + (agg ? activityOrientationalTotal(agg) : 0);
+  }, 0);
+
+  const unbilledTotal = round2(unbilledJobsTotal + unbilledActivitiesTotal);
 
   const allInvoices = await db
     .select({
@@ -463,6 +576,7 @@ export async function getBillingSummary() {
 
   return {
     unbilledDoneJobs: unbilled.length,
+    unbilledActivities: unbilledActivities.length,
     draftInvoices: draftCount,
     issuedInvoices: issuedCount,
     totalToInvoiceWithoutVat: unbilledTotal,
@@ -484,6 +598,7 @@ export async function listUnbilledCustomers() {
       customerId: number;
       companyName: string;
       jobCount: number;
+      activityCount: number;
       totalPrice: number;
       totalTransportCost: number;
       totalParking: number;
@@ -491,20 +606,21 @@ export async function listUnbilledCustomers() {
       orientationalTotal: number;
     }
   >();
+  const emptyEntry = (customerId: number, companyName: string) => ({
+    customerId,
+    companyName,
+    jobCount: 0,
+    activityCount: 0,
+    totalPrice: 0,
+    totalTransportCost: 0,
+    totalParking: 0,
+    totalFines: 0,
+    orientationalTotal: 0,
+  });
   for (const { job, customer } of rows) {
     if (job.customerId == null || !customer) continue;
     const entry =
-      byCustomer.get(job.customerId) ??
-      {
-        customerId: job.customerId,
-        companyName: customer.companyName,
-        jobCount: 0,
-        totalPrice: 0,
-        totalTransportCost: 0,
-        totalParking: 0,
-        totalFines: 0,
-        orientationalTotal: 0,
-      };
+      byCustomer.get(job.customerId) ?? emptyEntry(job.customerId, customer.companyName);
     entry.jobCount += 1;
     entry.totalPrice += num(job.price);
     entry.totalTransportCost += num(job.transportCost);
@@ -513,11 +629,30 @@ export async function listUnbilledCustomers() {
     entry.orientationalTotal += jobOrientationalTotal(job);
     byCustomer.set(job.customerId, entry);
   }
+
+  // Fold completed actions into the same per-customer rollup; customers with
+  // only activities (no unbilled jobs) appear too.
+  const activityRows = await getUnbilledDoneActivities();
+  const activityAggregates = await getActivityBillingAggregates(
+    activityRows.map((r) => r.activity.id),
+  );
+  for (const { activity, customer } of activityRows) {
+    if (activity.customerId == null || !customer) continue;
+    const entry =
+      byCustomer.get(activity.customerId) ??
+      emptyEntry(activity.customerId, customer.companyName);
+    const agg = activityAggregates.get(activity.id);
+    entry.activityCount += 1;
+    entry.orientationalTotal += agg ? activityOrientationalTotal(agg) : 0;
+    byCustomer.set(activity.customerId, entry);
+  }
+
   return Array.from(byCustomer.values())
     .map((e) => ({
       customerId: e.customerId,
       companyName: e.companyName,
       jobCount: e.jobCount,
+      activityCount: e.activityCount,
       totalPrice: round2(e.totalPrice),
       totalTransportCost: round2(e.totalTransportCost),
       totalParking: round2(e.totalParking),
@@ -578,6 +713,63 @@ export async function getUnbilledCustomerDetail(customerId: number) {
       })),
   }));
 
+  // Completed actions (dlouhodobé akce) for this customer, with their billable
+  // materials and extra works so the create UI can render and select them.
+  const activityRows = await getUnbilledDoneActivities(customerId);
+  const activityIds = activityRows.map((r) => r.activity.id);
+  const activityMaterials = activityIds.length
+    ? await db
+        .select()
+        .from(activityMaterialsTable)
+        .where(inArray(activityMaterialsTable.activityId, activityIds))
+    : [];
+  const activityExtraWorks = activityIds.length
+    ? await db
+        .select()
+        .from(activityExtraWorksTable)
+        .where(inArray(activityExtraWorksTable.activityId, activityIds))
+    : [];
+  const matsByActivity = new Map<number, typeof activityMaterialsTable.$inferSelect[]>();
+  for (const m of activityMaterials) {
+    const list = matsByActivity.get(m.activityId) ?? [];
+    list.push(m);
+    matsByActivity.set(m.activityId, list);
+  }
+  const worksByActivity = new Map<
+    number,
+    typeof activityExtraWorksTable.$inferSelect[]
+  >();
+  for (const w of activityExtraWorks) {
+    const list = worksByActivity.get(w.activityId) ?? [];
+    list.push(w);
+    worksByActivity.set(w.activityId, list);
+  }
+  const activityMaterialNames = activityMaterials
+    .filter((m) => m.pricePerUnit != null)
+    .map((m) => m.name);
+  const activityCategoryMarkup = await getCategoryMarkupByName(activityMaterialNames);
+
+  const activities = activityRows.map(({ activity }) => ({
+    id: activity.id,
+    name: activity.name,
+    completedAt: activity.completedAt ? activity.completedAt.toISOString() : null,
+    materials: (matsByActivity.get(activity.id) ?? [])
+      .filter((m) => m.pricePerUnit != null)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        quantity: round2(num(m.quantity ?? 1)),
+        unit: m.unit,
+        pricePerUnit: round2(num(m.pricePerUnit)),
+        categoryMarkupPercent: activityCategoryMarkup.get(m.name) ?? null,
+      })),
+    extraWorks: (worksByActivity.get(activity.id) ?? []).map((w) => ({
+      id: w.id,
+      description: w.description,
+      amount: round2(num(w.amount)),
+    })),
+  }));
+
   return {
     customerId: customer.id,
     companyName: customer.companyName,
@@ -586,6 +778,7 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     address: customer.address,
     email: customer.email,
     jobs,
+    activities,
   };
 }
 
@@ -661,13 +854,19 @@ export async function getInvoiceDetail(id: number) {
     .where(eq(invoiceLinesTable.invoiceId, id))
     .orderBy(invoiceLinesTable.sortOrder, invoiceLinesTable.id);
   const links = await db
-    .select({ jobId: invoiceSourceLinksTable.jobId })
+    .select({
+      jobId: invoiceSourceLinksTable.jobId,
+      activityId: invoiceSourceLinksTable.activityId,
+    })
     .from(invoiceSourceLinksTable)
     .where(eq(invoiceSourceLinksTable.invoiceId, id));
   return {
     ...serializeInvoice(invoice),
     lines: lines.map(serializeLine),
     sourceJobIds: links.map((l) => l.jobId).filter((x): x is number => x != null),
+    sourceActivityIds: links
+      .map((l) => l.activityId)
+      .filter((x): x is number => x != null),
   };
 }
 
@@ -840,6 +1039,138 @@ async function buildProposedLines(
   return { lines, jobAmounts };
 }
 
+/**
+ * Build proposed lines + per-activity billed amounts from a set of completed
+ * actions (dlouhodobé akce). An activity contributes one line per extra-work
+ * row (description + amount) and one line per priced material. Activities have
+ * no price/transport/parking/fines and no per-material invoice reservation —
+ * the activity-level source link prevents re-billing.
+ */
+async function buildProposedActivityLines(
+  exec: DbOrTx,
+  activityIds: number[],
+  customerId: number,
+  invoiceVatMode: VatMode,
+  materialMarkupPercent = 0,
+  opts: BuildProposedLinesOpts = {},
+): Promise<{ lines: RawLine[]; activityAmounts: Map<number, number> }> {
+  const lines: RawLine[] = [];
+  const activityAmounts = new Map<number, number>();
+  if (!activityIds.length) return { lines, activityAmounts };
+
+  const activities = await exec
+    .select()
+    .from(activitiesTable)
+    .where(inArray(activitiesTable.id, activityIds));
+  const activityById = new Map(activities.map((a) => [a.id, a]));
+
+  // Reject activities already linked to a non-cancelled invoice up front, so a
+  // draft can never be built (and later issued) for an already-billed activity.
+  const alreadyBilled = await exec
+    .select({ activityId: invoiceSourceLinksTable.activityId })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(
+      invoicesTable,
+      eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
+    )
+    .where(
+      and(
+        inArray(invoiceSourceLinksTable.activityId, activityIds),
+        ne(invoicesTable.status, "cancelled"),
+      ),
+    );
+  if (alreadyBilled.length) {
+    const conflictId = alreadyBilled[0].activityId;
+    const name = conflictId != null ? activityById.get(conflictId)?.name : undefined;
+    throw appError(
+      400,
+      `Akce „${name ?? `#${conflictId}`}" už je na jiné faktuře.`,
+    );
+  }
+
+  const materials = await exec
+    .select()
+    .from(activityMaterialsTable)
+    .where(inArray(activityMaterialsTable.activityId, activityIds));
+  const materialsByActivity = new Map<
+    number,
+    typeof activityMaterialsTable.$inferSelect[]
+  >();
+  for (const m of materials) {
+    const list = materialsByActivity.get(m.activityId) ?? [];
+    list.push(m);
+    materialsByActivity.set(m.activityId, list);
+  }
+
+  const works = await exec
+    .select()
+    .from(activityExtraWorksTable)
+    .where(inArray(activityExtraWorksTable.activityId, activityIds));
+  const worksByActivity = new Map<
+    number,
+    typeof activityExtraWorksTable.$inferSelect[]
+  >();
+  for (const w of works) {
+    const list = worksByActivity.get(w.activityId) ?? [];
+    list.push(w);
+    worksByActivity.set(w.activityId, list);
+  }
+
+  for (const activityId of activityIds) {
+    const activity = activityById.get(activityId);
+    if (!activity) throw appError(400, `Akce #${activityId} nenalezena.`);
+    if (activity.customerId !== customerId) {
+      throw appError(400, `Akce #${activityId} nepatří zvolenému zákazníkovi.`);
+    }
+    if (activity.completedAt == null) {
+      throw appError(400, `Akce „${activity.name}" není dokončená.`);
+    }
+
+    const activityLines: RawLine[] = [];
+    for (const w of worksByActivity.get(activityId) ?? []) {
+      if (num(w.amount) <= 0) continue;
+      activityLines.push({
+        sourceType: "activity_work",
+        activityId,
+        sourceId: w.id,
+        description: w.description,
+        quantity: 1,
+        unit: "ks",
+        unitPriceWithoutVat: round2(num(w.amount)),
+        vatMode: invoiceVatMode,
+      });
+    }
+    for (const m of materialsByActivity.get(activityId) ?? []) {
+      if (m.pricePerUnit == null) continue;
+      const effectiveMarkup = resolveLineMaterialMarkup(
+        opts.lineMarkupOverrides?.get(m.id),
+        opts.categoryMarkupForName?.(m.name),
+        materialMarkupPercent,
+      );
+      activityLines.push({
+        sourceType: "activity_material",
+        activityId,
+        sourceId: m.id,
+        description: m.name,
+        quantity: round2(num(m.quantity ?? 1)),
+        unit: m.unit ?? "ks",
+        unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), effectiveMarkup),
+        vatMode: invoiceVatMode,
+      });
+    }
+
+    let activityAmount = 0;
+    for (const rl of activityLines) {
+      const c = computeLine(rl, invoiceVatMode);
+      activityAmount += c.totalWithoutVat;
+    }
+    activityAmounts.set(activityId, round2(activityAmount));
+    lines.push(...activityLines);
+  }
+
+  return { lines, activityAmounts };
+}
+
 async function persistLines(
   exec: DbOrTx,
   invoiceId: number,
@@ -926,10 +1257,19 @@ function materialIds(lines: RawLine[]): number[] {
 export interface InvoiceCreateInput {
   customerId: number;
   jobIds?: number[];
+  activityIds?: number[];
   billFineJobIds?: number[];
   materialMarkupPercent?: number;
-  /** Per-material markup overrides keyed by material id (highest priority). */
-  materialMarkupOverrides?: Array<{ materialId: number; markupPercent: number }>;
+  /**
+   * Per-material markup overrides keyed by material id (highest priority).
+   * `sourceType` disambiguates job materials ("material") from activity
+   * materials ("activity_material"); omitted = job material (back-compat).
+   */
+  materialMarkupOverrides?: Array<{
+    materialId: number;
+    markupPercent: number;
+    sourceType?: "material" | "activity_material";
+  }>;
   vatModeDefault?: VatMode;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
@@ -953,6 +1293,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
   const vatModeDefault: VatMode =
     input.vatModeDefault ?? (settings.vatModeDefault as VatMode);
   const jobIds = input.jobIds ?? [];
+  const activityIds = input.activityIds ?? [];
   const billFineJobIds = input.billFineJobIds ?? [];
   // Material markup: explicit per-invoice value wins, otherwise the saved
   // default from billing settings. Negative/invalid values fall back to 0.
@@ -961,14 +1302,24 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
     settings.materialMarkupPercent,
   );
   // Per-line overrides keyed by material id (last write wins on duplicates).
-  const lineMarkupOverrides = new Map<number, number>();
+  // Job materials (`materials`) and activity materials (`activity_materials`)
+  // are separate tables with independent id sequences, so their ids collide;
+  // overrides are namespaced by `sourceType` into two maps so a job override can
+  // never bleed onto an activity line (or vice versa). Missing sourceType is
+  // treated as a job material for backwards compatibility.
+  const jobLineMarkupOverrides = new Map<number, number>();
+  const activityLineMarkupOverrides = new Map<number, number>();
   for (const o of input.materialMarkupOverrides ?? []) {
     if (
       Number.isInteger(o.materialId) &&
       Number.isFinite(o.markupPercent) &&
       o.markupPercent >= 0
     ) {
-      lineMarkupOverrides.set(o.materialId, round2(o.markupPercent));
+      const target =
+        o.sourceType === "activity_material"
+          ? activityLineMarkupOverrides
+          : jobLineMarkupOverrides;
+      target.set(o.materialId, round2(o.markupPercent));
     }
   }
 
@@ -981,8 +1332,17 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
       input.customerId,
       vatModeDefault,
       materialMarkupPercent,
-      { lineMarkupOverrides, categoryMarkupForName },
+      { lineMarkupOverrides: jobLineMarkupOverrides, categoryMarkupForName },
     );
+    const { lines: proposedActivity, activityAmounts } =
+      await buildProposedActivityLines(
+        tx,
+        activityIds,
+        input.customerId,
+        vatModeDefault,
+        materialMarkupPercent,
+        { lineMarkupOverrides: activityLineMarkupOverrides, categoryMarkupForName },
+      );
 
     const manual: RawLine[] = (input.lines ?? []).map((l) => ({
       sourceType: l.sourceType ?? "manual",
@@ -996,7 +1356,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
       vatMode: l.vatMode ?? vatModeDefault,
     }));
 
-    const allLines = [...proposed, ...manual];
+    const allLines = [...proposed, ...proposedActivity, ...manual];
 
     const [invoice] = await tx
       .insert(invoicesTable)
@@ -1029,15 +1389,23 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
     // Reserve billed job materials (provenance only — never touches stock).
     await markMaterialsInvoiced(tx, invoice.id, materialIds(allLines));
 
-    // Source links — one per job, with the billed amount (without VAT).
-    if (jobAmounts.size) {
-      await tx.insert(invoiceSourceLinksTable).values(
-        Array.from(jobAmounts.entries()).map(([jobId, amount]) => ({
-          invoiceId: invoice.id,
-          jobId,
-          amountWithoutVat: String(amount),
-        })),
-      );
+    // Source links — one per job/activity, with the billed amount (no VAT).
+    const sourceLinkValues = [
+      ...Array.from(jobAmounts.entries()).map(([jobId, amount]) => ({
+        invoiceId: invoice.id,
+        jobId,
+        activityId: null as number | null,
+        amountWithoutVat: String(amount),
+      })),
+      ...Array.from(activityAmounts.entries()).map(([activityId, amount]) => ({
+        invoiceId: invoice.id,
+        jobId: null as number | null,
+        activityId,
+        amountWithoutVat: String(amount),
+      })),
+    ];
+    if (sourceLinkValues.length) {
+      await tx.insert(invoiceSourceLinksTable).values(sourceLinkValues);
     }
 
     return invoice.id;
@@ -1111,17 +1479,18 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
       const computed = await persistLines(tx, id, lines, vatModeDefault);
       await writeTotals(tx, id, computed);
 
-      // Recompute source links from the surviving lines' jobIds so that billing
-      // provenance stays in sync with the edited line set.
+      // Recompute source links from the surviving lines' job/activity ids so
+      // billing provenance stays in sync with the edited line set.
       await tx
         .delete(invoiceSourceLinksTable)
         .where(eq(invoiceSourceLinksTable.invoiceId, id));
-      const sourceLinks = deriveJobSourceLinks(lines, computed);
+      const sourceLinks = deriveSourceLinks(lines, computed);
       if (sourceLinks.length) {
         await tx.insert(invoiceSourceLinksTable).values(
           sourceLinks.map((l) => ({
             invoiceId: id,
             jobId: l.jobId,
+            activityId: l.activityId,
             amountWithoutVat: String(l.amountWithoutVat),
           })),
         );
@@ -1327,10 +1696,16 @@ export async function issueInvoice(id: number, actor: Actor) {
     // Verify every linked job is still "done" (could have been reopened / billed
     // by a competing draft since this draft was built).
     const links = await tx
-      .select({ jobId: invoiceSourceLinksTable.jobId })
+      .select({
+        jobId: invoiceSourceLinksTable.jobId,
+        activityId: invoiceSourceLinksTable.activityId,
+      })
       .from(invoiceSourceLinksTable)
       .where(eq(invoiceSourceLinksTable.invoiceId, id));
     const jobIds = links.map((l) => l.jobId).filter((x): x is number => x != null);
+    const activityIds = links
+      .map((l) => l.activityId)
+      .filter((x): x is number => x != null);
     if (jobIds.length) {
       const jobs = await tx
         .select()
@@ -1344,6 +1719,48 @@ export async function issueInvoice(id: number, actor: Actor) {
             `Zakázku „${job.title}" už nelze fakturovat (stav: ${job.status}).`,
           );
         }
+      }
+    }
+    // Verify linked activities are still completed (could have been reopened)
+    // AND are not already billed by another non-cancelled invoice. Unlike jobs,
+    // activities have no status transition to block re-billing, so the source
+    // link is the only guard against a competing draft double-billing them.
+    if (activityIds.length) {
+      const acts = await tx
+        .select()
+        .from(activitiesTable)
+        .where(inArray(activitiesTable.id, activityIds))
+        .for("update");
+      const actById = new Map(acts.map((a) => [a.id, a]));
+      for (const act of acts) {
+        if (act.completedAt == null) {
+          throw appError(
+            409,
+            `Akci „${act.name}" už nelze fakturovat (není dokončená).`,
+          );
+        }
+      }
+      const alreadyBilled = await tx
+        .select({ activityId: invoiceSourceLinksTable.activityId })
+        .from(invoiceSourceLinksTable)
+        .innerJoin(
+          invoicesTable,
+          eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
+        )
+        .where(
+          and(
+            inArray(invoiceSourceLinksTable.activityId, activityIds),
+            ne(invoiceSourceLinksTable.invoiceId, id),
+            ne(invoicesTable.status, "cancelled"),
+          ),
+        );
+      if (alreadyBilled.length) {
+        const conflictId = alreadyBilled[0].activityId;
+        const name = conflictId != null ? actById.get(conflictId)?.name : undefined;
+        throw appError(
+          409,
+          `Akci „${name ?? `#${conflictId}`}" už nelze fakturovat (je na jiné faktuře).`,
+        );
       }
     }
 
@@ -1430,6 +1847,14 @@ export async function issueInvoice(id: number, actor: Actor) {
         .set({ status: "vyfakturovano" })
         .where(inArray(jobsTable.id, jobIds));
     }
+    // Mark billed activities (cosmetic flag; the source link is the source of
+    // truth for unbilled selection — see getBilledActivityIds).
+    if (activityIds.length) {
+      await tx
+        .update(activitiesTable)
+        .set({ billingStatus: "billed", updatedAt: new Date() })
+        .where(inArray(activitiesTable.id, activityIds));
+    }
 
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -1439,7 +1864,7 @@ export async function issueInvoice(id: number, actor: Actor) {
       entityId: id,
       summary: `Faktura ${invoiceNumber} vystavena${
         jobIds.length ? ` (zakázky: ${jobIds.join(", ")})` : ""
-      }`,
+      }${activityIds.length ? ` (akce: ${activityIds.join(", ")})` : ""}`,
       method: "POST",
       path: `/billing/invoices/${id}/issue`,
     });
@@ -1481,10 +1906,16 @@ export async function cancelInvoice(
     await releaseInvoicedMaterials(tx, id);
 
     const links = await tx
-      .select({ jobId: invoiceSourceLinksTable.jobId })
+      .select({
+        jobId: invoiceSourceLinksTable.jobId,
+        activityId: invoiceSourceLinksTable.activityId,
+      })
       .from(invoiceSourceLinksTable)
       .where(eq(invoiceSourceLinksTable.invoiceId, id));
     const jobIds = links.map((l) => l.jobId).filter((x): x is number => x != null);
+    const activityIds = links
+      .map((l) => l.activityId)
+      .filter((x): x is number => x != null);
 
     if (returnJobsToDone && jobIds.length) {
       // Only revert jobs we actually flipped (still "vyfakturováno").
@@ -1493,6 +1924,20 @@ export async function cancelInvoice(
         .set({ status: "done" })
         .where(
           and(inArray(jobsTable.id, jobIds), eq(jobsTable.status, "vyfakturovano")),
+        );
+    }
+    // Clear the cosmetic billed flag on the activities this invoice marked. The
+    // storno already removes them from the billed set (cancelled invoices are
+    // excluded), so they return to the unbilled pool regardless.
+    if (activityIds.length) {
+      await tx
+        .update(activitiesTable)
+        .set({ billingStatus: null, updatedAt: new Date() })
+        .where(
+          and(
+            inArray(activitiesTable.id, activityIds),
+            eq(activitiesTable.billingStatus, "billed"),
+          ),
         );
     }
 
@@ -1504,7 +1949,7 @@ export async function cancelInvoice(
       entityId: id,
       summary: `Faktura ${invoice.invoiceNumber ?? `#${id}`} stornována${
         returnJobsToDone && jobIds.length ? ` (zakázky vráceny: ${jobIds.join(", ")})` : ""
-      }`,
+      }${activityIds.length ? ` (akce uvolněny: ${activityIds.join(", ")})` : ""}`,
       method: "POST",
       path: `/billing/invoices/${id}/cancel`,
     });

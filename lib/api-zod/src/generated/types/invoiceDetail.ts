@@ -73,4 +73,5 @@ export interface InvoiceDetail {
   updatedAt: string;
   lines: InvoiceLine[];
   sourceJobIds: number[];
+  sourceActivityIds?: number[];
 }

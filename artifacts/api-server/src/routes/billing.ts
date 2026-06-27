@@ -248,6 +248,7 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
   const input: InvoiceCreateInput = {
     customerId: d.customerId,
     jobIds: d.jobIds ?? undefined,
+    activityIds: d.activityIds ?? undefined,
     billFineJobIds: d.billFineJobIds ?? undefined,
     materialMarkupPercent: d.materialMarkupPercent ?? undefined,
     materialMarkupOverrides: d.materialMarkupOverrides ?? undefined,

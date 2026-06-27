@@ -45,7 +45,7 @@ export default function Billing() {
 
   const reviewCount = reviewDocs?.length ?? 0;
   const aiReviewCount = aiReviewDocs?.length ?? 0;
-  const unbilledCount = data?.unbilledDoneJobs ?? 0;
+  const unbilledCount = (data?.unbilledDoneJobs ?? 0) + (data?.unbilledActivities ?? 0);
   const overdueCount = data?.overdueCount ?? 0;
 
   const hasUrgentItems =

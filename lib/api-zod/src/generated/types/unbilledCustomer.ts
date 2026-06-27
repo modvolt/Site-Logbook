@@ -10,6 +10,8 @@ export interface UnbilledCustomer {
   customerId: number;
   companyName: string;
   jobCount: number;
+  /** Count of completed actions (dlouhodobé akce) awaiting invoicing for this customer */
+  activityCount: number;
   totalPrice: number;
   totalTransportCost: number;
   totalParking: number;

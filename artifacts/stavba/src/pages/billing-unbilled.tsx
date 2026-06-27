@@ -49,7 +49,7 @@ export default function BillingUnbilled() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-base truncate">{c.companyName}</p>
                     <p className="text-sm text-muted-foreground">
-                      {c.jobCount} {jobCountLabel(c.jobCount)}
+                      {unbilledCountLabel(c.jobCount, c.activityCount)}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
@@ -76,4 +76,18 @@ function jobCountLabel(n: number): string {
   if (n === 1) return "zakázka";
   if (n >= 2 && n <= 4) return "zakázky";
   return "zakázek";
+}
+
+function activityCountLabel(n: number): string {
+  if (n === 1) return "akce";
+  if (n >= 2 && n <= 4) return "akce";
+  return "akcí";
+}
+
+function unbilledCountLabel(jobCount: number, activityCount: number): string {
+  const parts: string[] = [];
+  if (jobCount > 0) parts.push(`${jobCount} ${jobCountLabel(jobCount)}`);
+  if (activityCount > 0) parts.push(`${activityCount} ${activityCountLabel(activityCount)}`);
+  if (parts.length === 0) return "0 zakázek";
+  return parts.join(" · ");
 }

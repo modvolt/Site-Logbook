@@ -12,6 +12,7 @@ import {
   useListApprovedCostLines,
   getListApprovedCostLinesQueryKey,
   type UnbilledJob,
+  type UnbilledActivity,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
@@ -62,6 +63,44 @@ function jobOrientationalTotal(
   return total;
 }
 
+/** Material subtotal (purchase price, no markup) for a single activity. */
+function activityMaterialTotal(activity: UnbilledActivity): number {
+  let total = 0;
+  for (const m of activity.materials) {
+    if (m.quantity != null && m.pricePerUnit != null) total += m.quantity * m.pricePerUnit;
+  }
+  return total;
+}
+
+/** Material subtotal with each line's effective markup applied, for one activity. */
+function activityMaterialTotalWithMarkup(
+  activity: UnbilledActivity,
+  effectiveMarkupFor: (m: UnbilledMaterial) => number,
+): number {
+  let total = 0;
+  for (const m of activity.materials) {
+    if (m.quantity == null || m.pricePerUnit == null) continue;
+    const base = m.quantity * m.pricePerUnit;
+    const mk = effectiveMarkupFor(m);
+    total += base * (mk > 0 ? 1 + mk / 100 : 1);
+  }
+  return total;
+}
+
+function activityExtraWorksTotal(activity: UnbilledActivity): number {
+  return activity.extraWorks.reduce((sum, w) => sum + (w.amount ?? 0), 0);
+}
+
+function activityOrientationalTotal(
+  activity: UnbilledActivity,
+  effectiveMarkupFor: (m: UnbilledMaterial) => number,
+): number {
+  return (
+    activityExtraWorksTotal(activity) +
+    activityMaterialTotalWithMarkup(activity, effectiveMarkupFor)
+  );
+}
+
 export default function BillingUnbilledDetail() {
   const [, params] = useRoute("/billing/unbilled/:customerId");
   const customerId = Number(params?.customerId);
@@ -88,14 +127,20 @@ export default function BillingUnbilledDetail() {
   );
 
   const [selected, setSelected] = useState<Record<number, boolean>>({});
+  const [selectedActivities, setSelectedActivities] = useState<Record<number, boolean>>({});
   const [fines, setFines] = useState<Record<number, boolean>>({});
   // Material markup (%) — prefilled with the saved default once settings load,
   // editable per invoice. Empty string is treated as 0 (no markup).
   const [markup, setMarkup] = useState<string>("");
   const [markupTouched, setMarkupTouched] = useState(false);
-  // Per-material markup overrides (highest priority), keyed by material id.
+  // Per-material markup overrides (highest priority), keyed by a namespaced
+  // `${sourceType}:${id}` key. Job materials and activity materials are separate
+  // tables with colliding ids, so the namespace keeps their overrides distinct.
   // Stored as raw strings; an absent/blank entry means "use category → default".
-  const [materialMarkup, setMaterialMarkup] = useState<Record<number, string>>({});
+  const [materialMarkup, setMaterialMarkup] = useState<Record<string, string>>({});
+
+  type MaterialSource = "material" | "activity_material";
+  const omKey = (sourceType: MaterialSource, id: number) => `${sourceType}:${id}`;
 
   useEffect(() => {
     if (!markupTouched && settings) {
@@ -111,8 +156,8 @@ export default function BillingUnbilledDetail() {
   // Resolve the effective markup for a single material line:
   // per-line override → category default → invoice default. A blank/invalid
   // override falls through; an explicit 0 (override or category) wins.
-  const effectiveMarkupFor = (m: UnbilledMaterial): number => {
-    const ov = materialMarkup[m.id];
+  const effectiveMarkupFor = (sourceType: MaterialSource, m: UnbilledMaterial): number => {
+    const ov = materialMarkup[omKey(sourceType, m.id)];
     if (ov !== undefined && ov.trim() !== "") {
       const n = Number(ov);
       if (Number.isFinite(n) && n >= 0) return n;
@@ -124,8 +169,11 @@ export default function BillingUnbilledDetail() {
   };
 
   // The label/source shown next to each material's markup input.
-  const markupSourceFor = (m: UnbilledMaterial): "override" | "category" | "default" => {
-    const ov = materialMarkup[m.id];
+  const markupSourceFor = (
+    sourceType: MaterialSource,
+    m: UnbilledMaterial,
+  ): "override" | "category" | "default" => {
+    const ov = materialMarkup[omKey(sourceType, m.id)];
     if (ov !== undefined && ov.trim() !== "") {
       const n = Number(ov);
       if (Number.isFinite(n) && n >= 0) return "override";
@@ -134,21 +182,35 @@ export default function BillingUnbilledDetail() {
     return "default";
   };
 
+  // Namespaced resolvers passed to the per-job / per-activity total helpers,
+  // which call them as `(m) => number`.
+  const jobMarkupFor = (m: UnbilledMaterial) => effectiveMarkupFor("material", m);
+  const activityMarkupFor = (m: UnbilledMaterial) =>
+    effectiveMarkupFor("activity_material", m);
+
   const jobs = data?.jobs ?? [];
+  const activities = data?.activities ?? [];
   const costLines = approvedLines ?? [];
   const costLinesTotal = useMemo(
     () => costLines.reduce((sum, l) => sum + (l.totalWithoutVat ?? 0), 0),
     [costLines],
   );
 
-  // Default: all jobs selected once data loads.
-  const allSelected = jobs.length > 0 && jobs.every((j) => selected[j.id] ?? true);
+  // Default: all jobs + activities selected once data loads.
+  const allSelected =
+    jobs.length + activities.length > 0 &&
+    jobs.every((j) => selected[j.id] ?? true) &&
+    activities.every((a) => selectedActivities[a.id] ?? true);
   const isChecked = (id: number) => selected[id] ?? true;
+  const isActivityChecked = (id: number) => selectedActivities[id] ?? true;
 
   const toggleAll = (value: boolean) => {
-    const next: Record<number, boolean> = {};
-    for (const j of jobs) next[j.id] = value;
-    setSelected(next);
+    const nextJobs: Record<number, boolean> = {};
+    for (const j of jobs) nextJobs[j.id] = value;
+    setSelected(nextJobs);
+    const nextActivities: Record<number, boolean> = {};
+    for (const a of activities) nextActivities[a.id] = value;
+    setSelectedActivities(nextActivities);
   };
 
   const chosenJobIds = useMemo(
@@ -156,21 +218,32 @@ export default function BillingUnbilledDetail() {
     [jobs, selected],
   );
 
+  const chosenActivityIds = useMemo(
+    () => activities.filter((a) => isActivityChecked(a.id)).map((a) => a.id),
+    [activities, selectedActivities],
+  );
+
   const estimatedTotal = useMemo(
     () =>
       jobs
         .filter((j) => isChecked(j.id))
-        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], effectiveMarkupFor), 0),
-    [jobs, selected, fines, markupPercent, materialMarkup],
+        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], jobMarkupFor), 0) +
+      activities
+        .filter((a) => isActivityChecked(a.id))
+        .reduce((sum, a) => sum + activityOrientationalTotal(a, activityMarkupFor), 0),
+    [jobs, activities, selected, selectedActivities, fines, markupPercent, materialMarkup],
   );
 
-  // Material purchase-price base across selected jobs + the markup amount it adds.
+  // Material purchase-price base across selected jobs + activities, plus markup.
   const selectedMaterialBase = useMemo(
     () =>
       jobs
         .filter((j) => isChecked(j.id))
-        .reduce((sum, j) => sum + jobMaterialTotal(j), 0),
-    [jobs, selected],
+        .reduce((sum, j) => sum + jobMaterialTotal(j), 0) +
+      activities
+        .filter((a) => isActivityChecked(a.id))
+        .reduce((sum, a) => sum + activityMaterialTotal(a), 0),
+    [jobs, activities, selected, selectedActivities],
   );
   // Total markup added across all selected materials (each at its effective %).
   const markupAmount = useMemo(
@@ -179,14 +252,27 @@ export default function BillingUnbilledDetail() {
         .filter((j) => isChecked(j.id))
         .reduce(
           (sum, j) =>
-            sum + (jobMaterialTotalWithMarkup(j, effectiveMarkupFor) - jobMaterialTotal(j)),
+            sum + (jobMaterialTotalWithMarkup(j, jobMarkupFor) - jobMaterialTotal(j)),
+          0,
+        ) +
+      activities
+        .filter((a) => isActivityChecked(a.id))
+        .reduce(
+          (sum, a) =>
+            sum +
+            (activityMaterialTotalWithMarkup(a, activityMarkupFor) - activityMaterialTotal(a)),
           0,
         ),
-    [jobs, selected, markupPercent, materialMarkup],
+    [jobs, activities, selected, selectedActivities, markupPercent, materialMarkup],
   );
 
   const handleCreate = () => {
-    if (chosenJobIds.length === 0 && costLines.length === 0) return;
+    if (
+      chosenJobIds.length === 0 &&
+      chosenActivityIds.length === 0 &&
+      costLines.length === 0
+    )
+      return;
     const billFineJobIds = jobs
       .filter((j) => isChecked(j.id) && fines[j.id] && (j.fines ?? 0) > 0)
       .map((j) => j.id);
@@ -201,25 +287,36 @@ export default function BillingUnbilledDetail() {
     }));
     // Send only explicit per-line overrides; the category default and the
     // invoice default are resolved server-side. (Materials on unselected jobs
-    // are ignored.)
+    // or activities are ignored.)
     const selectedJobIds = new Set(chosenJobIds);
-    const materialMarkupOverrides: { materialId: number; markupPercent: number }[] = [];
+    const selectedActivityIds = new Set(chosenActivityIds);
+    const materialMarkupOverrides: {
+      materialId: number;
+      markupPercent: number;
+      sourceType: MaterialSource;
+    }[] = [];
+    const collectOverride = (sourceType: MaterialSource, id: number) => {
+      const ov = materialMarkup[omKey(sourceType, id)];
+      if (ov === undefined || ov.trim() === "") return;
+      const n = Number(ov);
+      if (Number.isFinite(n) && n >= 0) {
+        materialMarkupOverrides.push({ materialId: id, markupPercent: n, sourceType });
+      }
+    };
     for (const job of jobs) {
       if (!selectedJobIds.has(job.id)) continue;
-      for (const m of job.materials) {
-        const ov = materialMarkup[m.id];
-        if (ov === undefined || ov.trim() === "") continue;
-        const n = Number(ov);
-        if (Number.isFinite(n) && n >= 0) {
-          materialMarkupOverrides.push({ materialId: m.id, markupPercent: n });
-        }
-      }
+      for (const m of job.materials) collectOverride("material", m.id);
+    }
+    for (const activity of activities) {
+      if (!selectedActivityIds.has(activity.id)) continue;
+      for (const m of activity.materials) collectOverride("activity_material", m.id);
     }
     createInvoice.mutate(
       {
         data: {
           customerId,
           jobIds: chosenJobIds,
+          ...(chosenActivityIds.length > 0 ? { activityIds: chosenActivityIds } : {}),
           billFineJobIds,
           materialMarkupPercent: markupPercent,
           ...(materialMarkupOverrides.length > 0 ? { materialMarkupOverrides } : {}),
@@ -292,7 +389,8 @@ export default function BillingUnbilledDetail() {
           Vybrat vše
         </label>
         <span className="text-sm text-muted-foreground">
-          Vybráno: {chosenJobIds.length} z {jobs.length}
+          Vybráno: {chosenJobIds.length + chosenActivityIds.length} z{" "}
+          {jobs.length + activities.length}
         </span>
       </div>
 
@@ -336,8 +434,9 @@ export default function BillingUnbilledDetail() {
                           Materiál – přirážka
                         </p>
                         {job.materials.map((m) => {
-                          const source = markupSourceFor(m);
-                          const eff = effectiveMarkupFor(m);
+                          const source = markupSourceFor("material", m);
+                          const eff = effectiveMarkupFor("material", m);
+                          const mkKey = omKey("material", m.id);
                           return (
                             <div
                               key={m.id}
@@ -369,27 +468,27 @@ export default function BillingUnbilledDetail() {
                                 min="0"
                                 step="0.01"
                                 value={
-                                  materialMarkup[m.id] !== undefined
-                                    ? materialMarkup[m.id]
+                                  materialMarkup[mkKey] !== undefined
+                                    ? materialMarkup[mkKey]
                                     : String(eff)
                                 }
                                 onChange={(e) =>
                                   setMaterialMarkup((p) => ({
                                     ...p,
-                                    [m.id]: e.target.value,
+                                    [mkKey]: e.target.value,
                                   }))
                                 }
                                 className="h-7 w-[72px] text-xs"
                               />
                               <span className="text-muted-foreground">%</span>
-                              {materialMarkup[m.id] !== undefined && (
+                              {materialMarkup[mkKey] !== undefined && (
                                 <button
                                   type="button"
                                   className="text-muted-foreground hover:text-foreground underline"
                                   onClick={() =>
                                     setMaterialMarkup((p) => {
                                       const next = { ...p };
-                                      delete next[m.id];
+                                      delete next[mkKey];
                                       return next;
                                     })
                                   }
@@ -420,9 +519,135 @@ export default function BillingUnbilledDetail() {
                   <div className="text-right shrink-0">
                     <div className="font-bold">
                       {fmtKc(
-                        jobOrientationalTotal(job, !!fines[job.id], effectiveMarkupFor),
+                        jobOrientationalTotal(job, !!fines[job.id], jobMarkupFor),
                         0,
                       )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+
+        {activities.map((activity) => {
+          const checked = isActivityChecked(activity.id);
+          return (
+            <Card
+              key={`activity-${activity.id}`}
+              className={checked ? "border-primary/40" : "opacity-70"}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    className="mt-1"
+                    checked={checked}
+                    onCheckedChange={(v) =>
+                      setSelectedActivities((p) => ({ ...p, [activity.id]: v === true }))
+                    }
+                  />
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer"
+                    onClick={() =>
+                      setSelectedActivities((p) => ({ ...p, [activity.id]: !checked }))
+                    }
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold truncate">{activity.name}</p>
+                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                        akce
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {fmtDate(activity.completedAt)}
+                    </p>
+                    {activity.extraWorks.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 mt-2 text-sm">
+                        {activity.extraWorks.map((w) => (
+                          <div key={w.id}>
+                            <span className="text-muted-foreground">{w.description}: </span>
+                            <span className="font-medium">{fmtKc(w.amount, 0)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {activity.materials.length > 0 && (
+                      <div
+                        className="mt-2 space-y-1.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Materiál – přirážka
+                        </p>
+                        {activity.materials.map((m) => {
+                          const source = markupSourceFor("activity_material", m);
+                          const eff = effectiveMarkupFor("activity_material", m);
+                          const mkKey = omKey("activity_material", m.id);
+                          return (
+                            <div key={m.id} className="flex items-center gap-2 text-xs">
+                              <span className="flex-1 min-w-0 truncate">
+                                {m.name}
+                                {m.quantity != null
+                                  ? ` (${m.quantity}${m.unit ? " " + m.unit : ""})`
+                                  : ""}
+                              </span>
+                              <span
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                  source === "override"
+                                    ? "bg-primary/15 text-primary"
+                                    : source === "category"
+                                      ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                                      : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {source === "override"
+                                  ? "vlastní"
+                                  : source === "category"
+                                    ? "kategorie"
+                                    : "výchozí"}
+                              </span>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={
+                                  materialMarkup[mkKey] !== undefined
+                                    ? materialMarkup[mkKey]
+                                    : String(eff)
+                                }
+                                onChange={(e) =>
+                                  setMaterialMarkup((p) => ({
+                                    ...p,
+                                    [mkKey]: e.target.value,
+                                  }))
+                                }
+                                className="h-7 w-[72px] text-xs"
+                              />
+                              <span className="text-muted-foreground">%</span>
+                              {materialMarkup[mkKey] !== undefined && (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground hover:text-foreground underline"
+                                  onClick={() =>
+                                    setMaterialMarkup((p) => {
+                                      const next = { ...p };
+                                      delete next[mkKey];
+                                      return next;
+                                    })
+                                  }
+                                >
+                                  zpět
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold">
+                      {fmtKc(activityOrientationalTotal(activity, activityMarkupFor), 0)}
                     </div>
                   </div>
                 </div>
@@ -538,7 +763,9 @@ export default function BillingUnbilledDetail() {
           <Button
             onClick={handleCreate}
             disabled={
-              (chosenJobIds.length === 0 && costLines.length === 0) ||
+              (chosenJobIds.length === 0 &&
+                chosenActivityIds.length === 0 &&
+                costLines.length === 0) ||
               createInvoice.isPending
             }
             className="h-11"
