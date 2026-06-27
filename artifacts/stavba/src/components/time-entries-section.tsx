@@ -3,7 +3,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DecimalInput, decimalError, parseDecimal } from "@/components/decimal-input";
 import { Users, Clock, Play, Square, Plus, Trash2, Check, X, Pencil } from "lucide-react";
 
 export type TimeEntryItem = {
@@ -82,8 +82,8 @@ export function TimeEntriesSection({
   };
 
   const saveEdit = (personId: number) => {
-    const v = Number(editValue.replace(",", "."));
-    if (!Number.isFinite(v) || v < 0) { setEditId(null); return; }
+    const v = parseDecimal(editValue);
+    if (v === null || v < 0) { setEditId(null); return; }
     onSetHours(personId, Math.round(v * 100) / 100);
     setEditId(null);
   };
@@ -144,14 +144,12 @@ export function TimeEntriesSection({
                     <div className="font-medium text-sm truncate">{e.personName}</div>
                     {isEditing ? (
                       <div className="flex items-center gap-1 mt-1">
-                        <Input
-                          type="number"
-                          step="0.25"
-                          min="0"
+                        <DecimalInput
                           value={editValue}
-                          onChange={(ev) => setEditValue(ev.target.value)}
+                          onChange={(v) => setEditValue(v)}
                           className="h-8 w-24"
                           autoFocus
+                          error={decimalError(editValue)}
                         />
                         <span className="text-xs text-muted-foreground">h</span>
                         <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600" onClick={() => saveEdit(e.personId)}>

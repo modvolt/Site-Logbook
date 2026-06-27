@@ -24,7 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DecimalInput, decimalError } from "@/components/decimal-input";
+import { DecimalInput, decimalError, parseDecimal } from "@/components/decimal-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -115,9 +115,9 @@ export function MovementRow({
 
   const saveEdit = async () => {
     if (saving || updateMovement.isPending) return;
-    const raw = editValue.trim().replace(",", ".");
-    const parsed = raw === "" ? null : Number(raw);
-    if (raw !== "" && (Number.isNaN(parsed) || (parsed as number) < 0)) {
+    const trimmed = editValue.trim();
+    const parsed = parseDecimal(editValue);
+    if (trimmed !== "" && (parsed === null || parsed < 0)) {
       toast({ title: "Neplatná hodnota", description: "Zadejte kladné číslo nebo nechte prázdné pro vymazání.", variant: "destructive" });
       return;
     }
@@ -199,13 +199,14 @@ export function MovementRow({
           <div className="flex items-center gap-1">
             {editing ? (
               <div className="flex items-center gap-1">
-                <Input
+                <DecimalInput
                   autoFocus
                   value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
+                  onChange={(v) => setEditValue(v)}
                   onKeyDown={handleKeyDown}
                   placeholder="Nák. cena"
                   className="h-6 w-24 text-xs px-1.5 tabular-nums"
+                  error={decimalError(editValue)}
                 />
                 <Button
                   type="button"
@@ -321,8 +322,9 @@ export function ItemMovementHistoryDialog({
   // Idempotency key: generated once per form-fill; reset after successful submit.
   const [idemKey, setIdemKey] = useState<string>(() => newIdempotencyKey());
 
-  const qty = Number(quantity.replace(",", "."));
-  const qtyValid = Number.isFinite(qty) && qty > 0;
+  const qtyParsed = parseDecimal(quantity);
+  const qty = qtyParsed ?? 0;
+  const qtyValid = qtyParsed != null && qtyParsed > 0;
   const quantityErr = decimalError(quantity, { positiveOnly: true });
 
   const refresh = useCallback(() => {

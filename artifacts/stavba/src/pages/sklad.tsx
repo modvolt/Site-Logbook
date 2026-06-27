@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DecimalInput, decimalError } from "@/components/decimal-input";
+import { DecimalInput, decimalError, parseDecimal } from "@/components/decimal-input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,13 +63,6 @@ const getFormErrors = (f: FormState) => ({
   minQuantity: decimalError(f.minQuantity),
 });
 const formHasErrors = (f: FormState) => Object.values(getFormErrors(f)).some(Boolean);
-
-const num = (s: string): number | null => {
-  const t = s.trim();
-  if (t === "") return null;
-  const n = Number(t.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-};
 
 const fmtKc = (v: number | null | undefined) =>
   v != null ? `${v.toLocaleString("cs-CZ")} Kč` : "—";
@@ -281,8 +274,8 @@ export default function Sklad() {
     name: f.name.trim(),
     code: f.code.trim() || null,
     unit: f.unit.trim() || null,
-    salePrice: num(f.salePrice),
-    minQuantity: num(f.minQuantity),
+    salePrice: parseDecimal(f.salePrice),
+    minQuantity: parseDecimal(f.minQuantity),
   });
 
   const handleAdd = (e: React.FormEvent) => {
