@@ -11,7 +11,11 @@ import {
   activityMaterialsTable,
   activityExtraWorksTable,
 } from "@workspace/db";
-import { createDraft, issueInvoice } from "../src/lib/invoice-service";
+import {
+  createDraft,
+  issueInvoice,
+  cancelInvoice,
+} from "../src/lib/invoice-service";
 
 /**
  * Concurrency double-bill guard for the issue flow, DB-backed.
@@ -324,6 +328,149 @@ describe("concurrent invoice issue — double-bill guard", () => {
     expect(await countIssuedActivityLinks(actId)).toBeLessThanOrEqual(1);
 
     // And it is never linked to two non-cancelled invoices at once.
+    const liveLinks = await db
+      .select({ status: invoicesTable.status })
+      .from(invoiceSourceLinksTable)
+      .innerJoin(
+        invoicesTable,
+        eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
+      )
+      .where(
+        and(
+          eq(invoiceSourceLinksTable.activityId, actId),
+          ne(invoicesTable.status, "cancelled"),
+          isNotNull(invoiceSourceLinksTable.activityId),
+        ),
+      );
+    const issuedLive = liveLinks.filter((l) => l.status === "issued");
+    expect(issuedLive.length).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * Insert a "stale" draft directly linking a source, bypassing createDraft's
+ * already-billed guard. Models a draft that was prepared in parallel and is then
+ * issued at the same instant another transaction cancels the live invoice.
+ */
+async function insertStaleDraft(link: {
+  jobId?: number;
+  activityId?: number;
+  amountWithoutVat: string;
+}): Promise<number> {
+  const [draft] = await db
+    .insert(invoicesTable)
+    .values({
+      status: "draft",
+      customerId,
+      customerName: `Zákazník ${TAG}`,
+      vatModeDefault: "standard",
+    })
+    .returning();
+  invoiceIds.push(draft.id);
+  await db.insert(invoiceSourceLinksTable).values({
+    invoiceId: draft.id,
+    jobId: link.jobId,
+    activityId: link.activityId,
+    amountWithoutVat: link.amountWithoutVat,
+  });
+  return draft.id;
+}
+
+/**
+ * storno-then-rebill race, DB-backed.
+ *
+ * The complementary race to two simultaneous issues: one transaction cancels
+ * (storno) the live invoice while another issues a fresh draft for the SAME
+ * source at the same instant. cancelInvoice flips a job back to "done";
+ * issueInvoice flips it to "vyfakturováno". The shared FOR UPDATE locks (job row
+ * for jobs; the activity row + already-billed check for activities) must
+ * serialise the two so the source can never end up on two live (non-cancelled)
+ * issued invoices, nor be left in a status that contradicts its links.
+ */
+describe("concurrent storno + rebill — double-bill guard", () => {
+  it("cancel(A) + issue(B) for the SAME job: never two live issued links, status stays consistent", async () => {
+    const jobId = await makeDoneJob();
+
+    // A is issued first → job is "vyfakturováno", linked to one issued invoice.
+    const draftA = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(draftA.id);
+    await issueInvoice(draftA.id, actor);
+
+    // B is a stale draft for the same job, prepared in parallel.
+    const draftB = await insertStaleDraft({ jobId, amountWithoutVat: "5000" });
+
+    // Storno A (returning the job to "done") races issuing B.
+    const results = await Promise.allSettled([
+      cancelInvoice(draftA.id, true, actor),
+      issueInvoice(draftB.id, actor),
+    ]);
+    const { issued } = classify(
+      // cancelInvoice resolves to an invoice detail too; only issueInvoice's
+      // result can be "issued", so reuse the same classifier.
+      results as PromiseSettledResult<{ status: string }>[],
+    );
+
+    // Whatever the interleaving: the job is billed at most once, and never sits
+    // on two non-cancelled issued invoices.
+    expect(issued.length).toBeLessThanOrEqual(1);
+    expect(await countIssuedJobLinks(jobId)).toBeLessThanOrEqual(1);
+
+    // A is always cancelled (its own row lock guarantees the storno commits).
+    const [invA] = await db
+      .select({ status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, draftA.id));
+    expect(invA.status).toBe("cancelled");
+
+    // The job status must agree with its live billing: billed ⇒ "vyfakturováno",
+    // unbilled ⇒ "done". It can never be "vyfakturováno" with zero issued links.
+    const issuedLinks = await countIssuedJobLinks(jobId);
+    const [job] = await db
+      .select({ status: jobsTable.status })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, jobId));
+    if (issuedLinks === 1) {
+      expect(job.status).toBe("vyfakturovano");
+    } else {
+      expect(job.status).toBe("done");
+    }
+  });
+
+  it("cancel(A) + issue(B) for the SAME activity: never two live issued links", async () => {
+    const actId = await makeCompletedActivity();
+
+    const draftA = await createDraft(
+      { customerId, activityIds: [actId] },
+      actor,
+    );
+    invoiceIds.push(draftA.id);
+    await issueInvoice(draftA.id, actor);
+
+    const draftB = await insertStaleDraft({
+      activityId: actId,
+      amountWithoutVat: "2000",
+    });
+
+    const results = await Promise.allSettled([
+      cancelInvoice(draftA.id, true, actor),
+      issueInvoice(draftB.id, actor),
+    ]);
+    const { issued } = classify(
+      results as PromiseSettledResult<{ status: string }>[],
+    );
+
+    // The activity FOR UPDATE lock + already-billed check keep the activity off
+    // two live invoices regardless of who wins the race.
+    expect(issued.length).toBeLessThanOrEqual(1);
+    expect(await countIssuedActivityLinks(actId)).toBeLessThanOrEqual(1);
+
+    const [invA] = await db
+      .select({ status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, draftA.id));
+    expect(invA.status).toBe("cancelled");
+
+    // Never linked to two non-cancelled issued invoices at once.
     const liveLinks = await db
       .select({ status: invoicesTable.status })
       .from(invoiceSourceLinksTable)
