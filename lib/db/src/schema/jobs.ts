@@ -1,4 +1,5 @@
-import { pgTable, serial, text, timestamp, numeric, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, numeric, integer, boolean, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { peopleTable } from "./people";
@@ -32,7 +33,17 @@ export const jobsTable = pgTable("jobs", {
   timerStartedAt: timestamp("timer_started_at"),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  // Defense-in-depth: jobs.status is free-text, but only this known set is valid.
+  // The client-facing lifecycle is planned/in_progress/done/cancelled; the
+  // server-only "vyfakturovano" (invoiced) is set directly by the invoice issue
+  // flow (and reverted to "done" on storno). A DB CHECK guarantees no raw SQL,
+  // future endpoint, or migration mistake can write a phantom status.
+  check(
+    "jobs_status_check",
+    sql`${table.status} IN ('planned', 'in_progress', 'done', 'cancelled', 'vyfakturovano')`,
+  ),
+]);
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, createdAt: true });
 export type InsertJob = z.infer<typeof insertJobSchema>;

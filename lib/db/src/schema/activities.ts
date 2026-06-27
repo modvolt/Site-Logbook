@@ -1,4 +1,5 @@
-import { pgTable, serial, text, timestamp, numeric, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, numeric, integer, boolean, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { customersTable } from "./customers";
@@ -20,7 +21,15 @@ export const activitiesTable = pgTable("activities", {
   billingStatus: text("billing_status"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  // Defense-in-depth, mirroring jobs.status: billing_status is free-text but
+  // only NULL (not tracked) or the known intents are valid. "billed" is retained
+  // for rows with a live invoice link; editable intents are billable/not_billable.
+  check(
+    "activities_billing_status_check",
+    sql`${table.billingStatus} IS NULL OR ${table.billingStatus} IN ('billable', 'not_billable', 'billed')`,
+  ),
+]);
 
 export const insertActivitySchema = createInsertSchema(activitiesTable).omit({
   id: true,
