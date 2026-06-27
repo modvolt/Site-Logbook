@@ -27,6 +27,17 @@ their guard is the activity-row `FOR UPDATE` + the issue-time "already on anothe
 non-cancelled invoice" check; two drafts for one activity therefore deadlock-safe to
 "at most one issues" rather than "exactly one" (each issue sees the other draft).
 
+**Up-front draft guard (defense in depth, NOT the real safety net):** `buildProposedLines`
+(jobs) and `buildProposedActivityLines` both reject a source already linked to a
+non-cancelled (draft OR issued) invoice with a 400 BEFORE inserting the draft, so a
+second operator can't even build the orphan draft. The `FOR UPDATE` issue-time lock
+above is still the authoritative double-bill guard (the up-front check is a non-locking
+read and races). Because the check fires inside line-building, a concurrent-issue test
+that needs two drafts for one job/activity must insert the 2nd draft + its source link
+**directly** (bypassing `createDraft`) to exercise the issue-time race. `updateDraft`
+does NOT call the builders (works straight off `input.lines`), so editing a draft that
+already links its own jobs never trips the guard.
+
 ## 2. `invoice_source_links` decides which jobs get billed — recomputed on every edit
 `invoice_source_links` (one row per job + amount) is what `issueInvoice` flips to
 `vyfakturovano`. It is written at draft creation AND **recomputed on every draft edit**

@@ -187,15 +187,45 @@ afterAll(async () => {
 });
 
 describe("concurrent invoice issue — double-bill guard", () => {
+  it("building a second draft for an already-linked done job is rejected up front", async () => {
+    const jobId = await makeDoneJob();
+
+    // First draft links the job (still "done", not yet issued).
+    const draftA = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(draftA.id);
+
+    // A second operator trying to build a draft for the same job is rejected
+    // immediately (no orphan draft that can never be issued).
+    await expect(
+      createDraft({ customerId, jobIds: [jobId] }, actor),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it("two competing drafts for the SAME done job: exactly one issues, the other 409s, job billed once", async () => {
     const jobId = await makeDoneJob();
 
-    // Both drafts are built while the job is still "done" — neither createDraft
-    // reserves the job (the job-status transition only happens at issue time), so
-    // this models two operators preparing invoices for the same job in parallel.
+    // Draft A is built normally. Draft B is inserted directly to bypass the
+    // createDraft already-billed guard (which now rejects a second draft up
+    // front), so we can still exercise the issue-time FOR UPDATE race where two
+    // drafts link one job and both are issued at once.
     const draftA = await createDraft({ customerId, jobIds: [jobId] }, actor);
-    const draftB = await createDraft({ customerId, jobIds: [jobId] }, actor);
-    invoiceIds.push(draftA.id, draftB.id);
+    invoiceIds.push(draftA.id);
+
+    const [draftB] = await db
+      .insert(invoicesTable)
+      .values({
+        status: "draft",
+        customerId,
+        customerName: `Zákazník ${TAG}`,
+        vatModeDefault: "standard",
+      })
+      .returning();
+    invoiceIds.push(draftB.id);
+    await db.insert(invoiceSourceLinksTable).values({
+      invoiceId: draftB.id,
+      jobId,
+      amountWithoutVat: "5000",
+    });
 
     const results = await Promise.allSettled([
       issueInvoice(draftA.id, actor),

@@ -932,6 +932,41 @@ async function buildProposedLines(
     .where(inArray(jobsTable.id, jobIds));
   const jobById = new Map(jobs.map((j) => [j.id, j]));
 
+  // Reject jobs already linked to a non-cancelled invoice up front, so a draft
+  // can never be built (and later issued) for a job another operator is already
+  // billing. Mirrors the activity guard in buildProposedActivityLines.
+  const alreadyBilled = await exec
+    .select({
+      jobId: invoiceSourceLinksTable.jobId,
+      invoiceNumber: invoicesTable.invoiceNumber,
+      invoiceStatus: invoicesTable.status,
+    })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(
+      invoicesTable,
+      eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
+    )
+    .where(
+      and(
+        inArray(invoiceSourceLinksTable.jobId, jobIds),
+        ne(invoicesTable.status, "cancelled"),
+      ),
+    );
+  if (alreadyBilled.length) {
+    const conflict = alreadyBilled[0];
+    const job = conflict.jobId != null ? jobById.get(conflict.jobId) : undefined;
+    const jobLabel = job ? `„${job.title}"` : `#${conflict.jobId}`;
+    const invoiceLabel = conflict.invoiceNumber
+      ? `faktuře ${conflict.invoiceNumber}`
+      : conflict.invoiceStatus === "draft"
+        ? "rozpracované faktuře"
+        : "jiné faktuře";
+    throw appError(
+      400,
+      `Zakázka ${jobLabel} už je na ${invoiceLabel}.`,
+    );
+  }
+
   const materials = await exec
     .select()
     .from(materialsTable)
