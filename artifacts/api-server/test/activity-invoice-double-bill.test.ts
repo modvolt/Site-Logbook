@@ -10,7 +10,12 @@ import {
   activityMaterialsTable,
   activityExtraWorksTable,
 } from "@workspace/db";
-import { createDraft, issueInvoice } from "../src/lib/invoice-service";
+import {
+  createDraft,
+  issueInvoice,
+  cancelInvoice,
+  getUnbilledCustomerDetail,
+} from "../src/lib/invoice-service";
 
 /**
  * Double-bill guard for completed long-term actions (dlouhodobé akce), DB-backed.
@@ -189,5 +194,69 @@ describe("activity double-bill guard", () => {
       .from(invoiceSourceLinksTable)
       .where(eq(invoiceSourceLinksTable.activityId, actId));
     expect(links.map((l) => l.invoiceId)).toContain(draft.id);
+  });
+});
+
+describe("activity invoice lifecycle (issue / storno) end-to-end", () => {
+  it("drops the activity from the unbilled pool once its invoice is issued, and restores it on storno", async () => {
+    const actId = await makeCompletedActivity();
+
+    // The completed activity is offered for invoicing up front.
+    const before = await getUnbilledCustomerDetail(customerId);
+    expect(before.activities.map((a) => a.id)).toContain(actId);
+
+    // Draft + issue an invoice from the activity.
+    const draft = await createDraft({ customerId, activityIds: [actId] }, actor);
+    invoiceIds.push(draft.id);
+    const issued = await issueInvoice(draft.id, actor);
+    expect(issued.status).toBe("issued");
+
+    // The issued invoice flips the cosmetic billing flag on the activity…
+    const [afterIssueAct] = await db
+      .select()
+      .from(activitiesTable)
+      .where(eq(activitiesTable.id, actId));
+    expect(afterIssueAct.billingStatus).toBe("billed");
+
+    // …and the activity no longer appears in the unbilled list (the source link
+    // on a non-cancelled invoice is the source of truth, not billingStatus).
+    const afterIssue = await getUnbilledCustomerDetail(customerId);
+    expect(afterIssue.activities.map((a) => a.id)).not.toContain(actId);
+
+    // Storno the invoice — the activity must return to the unbilled pool and its
+    // cosmetic billing flag must be cleared.
+    const cancelled = await cancelInvoice(draft.id, true, actor);
+    expect(cancelled.status).toBe("cancelled");
+
+    const [afterCancelAct] = await db
+      .select()
+      .from(activitiesTable)
+      .where(eq(activitiesTable.id, actId));
+    expect(afterCancelAct.billingStatus).toBeNull();
+
+    const afterCancel = await getUnbilledCustomerDetail(customerId);
+    expect(afterCancel.activities.map((a) => a.id)).toContain(actId);
+  });
+
+  it("can re-bill an activity after its first invoice is stornoed (no permanent loss)", async () => {
+    const actId = await makeCompletedActivity();
+
+    const draft1 = await createDraft({ customerId, activityIds: [actId] }, actor);
+    invoiceIds.push(draft1.id);
+    await issueInvoice(draft1.id, actor);
+    await cancelInvoice(draft1.id, true, actor);
+
+    // After storno the activity is free again, so a brand-new invoice can bill it.
+    const draft2 = await createDraft({ customerId, activityIds: [actId] }, actor);
+    invoiceIds.push(draft2.id);
+    const reissued = await issueInvoice(draft2.id, actor);
+    expect(reissued.status).toBe("issued");
+
+    const links = await db
+      .select()
+      .from(invoiceSourceLinksTable)
+      .where(eq(invoiceSourceLinksTable.activityId, actId));
+    const liveInvoiceIds = links.map((l) => l.invoiceId);
+    expect(liveInvoiceIds).toContain(draft2.id);
   });
 });
