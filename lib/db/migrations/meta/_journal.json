@@ -232,6 +232,13 @@
       "when": 1783000000000,
       "tag": "0032_job_visits",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783100000000,
+      "tag": "0033_block_legacy_billed_activities",
+      "breakpoints": true
     }
   ]
 }

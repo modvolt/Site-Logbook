@@ -1657,6 +1657,18 @@ export interface ActivityInput {
   customerId?: number | null;
 }
 
+/**
+ * Editable billing intent only. "billed" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links / billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable
+ * @nullable
+ */
+export type ActivityUpdateBillingStatus = typeof ActivityUpdateBillingStatus[keyof typeof ActivityUpdateBillingStatus] | null;
+
+
+export const ActivityUpdateBillingStatus = {
+  billable: 'billable',
+  not_billable: 'not_billable',
+} as const;
+
 export interface ActivityUpdate {
   /** @minLength 1 */
   name?: string;
@@ -1670,10 +1682,10 @@ export interface ActivityUpdate {
   completedAt?: string | null;
   isArchived?: boolean;
   /**
-     * null | billable | billed | not_billable
+     * Editable billing intent only. "billed" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links / billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable
      * @nullable
      */
-  billingStatus?: string | null;
+  billingStatus?: ActivityUpdateBillingStatus;
 }
 
 export interface ActivityMaterial {

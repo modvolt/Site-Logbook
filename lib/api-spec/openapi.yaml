@@ -7096,7 +7096,12 @@ components:
           type: boolean
         billingStatus:
           type: ["string", "null"]
-          description: "null | billable | billed | not_billable"
+          enum: [billable, not_billable, null]
+          description: >-
+            Editable billing intent only. "billed" is intentionally NOT
+            accepted here — the authoritative billed state is derived from the
+            invoice link (invoice_source_links / billedInvoiceId) and is set
+            server-side when an invoice is issued. null | billable | not_billable
 
     ActivityMaterial:
       type: object

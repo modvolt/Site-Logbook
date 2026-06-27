@@ -19,6 +19,7 @@ export * from './activityMaterial';
 export * from './activityMaterialInput';
 export * from './activityMaterialUpdate';
 export * from './activityUpdate';
+export * from './activityUpdateBillingStatus';
 export * from './analyzeJobDocumentsResult';
 export * from './approvedCostLine';
 export * from './attachment';

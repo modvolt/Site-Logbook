@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { ActivityUpdateBillingStatus } from './activityUpdateBillingStatus';
 
 export interface ActivityUpdate {
   /** @minLength 1 */
@@ -19,8 +20,8 @@ export interface ActivityUpdate {
   completedAt?: string | null;
   isArchived?: boolean;
   /**
-     * null | billable | billed | not_billable
+     * Editable billing intent only. "billed" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links / billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable
      * @nullable
      */
-  billingStatus?: string | null;
+  billingStatus?: ActivityUpdateBillingStatus;
 }

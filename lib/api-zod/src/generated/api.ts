@@ -2557,7 +2557,7 @@ export const UpdateActivityBody = zod.object({
   "hoursSpent": zod.number().nullish(),
   "completedAt": zod.string().nullish(),
   "isArchived": zod.boolean().optional(),
-  "billingStatus": zod.string().nullish().describe('null | billable | billed | not_billable')
+  "billingStatus": zod.union([zod.literal('billable'),zod.literal('not_billable'),zod.literal(null)]).nullish().describe('Editable billing intent only. \"billed\" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links \/ billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable')
 })
 
 export const UpdateActivityResponse = zod.object({

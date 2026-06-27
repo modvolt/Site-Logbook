@@ -341,7 +341,7 @@ export default function ActivityDetail() {
     }
   };
 
-  const handleBillingStatus = (value: string) => {
+  const handleBillingStatus = (value: "" | "billable" | "not_billable") => {
     updateActivity.mutate(
       { id, data: { billingStatus: value || null } },
       {
@@ -474,7 +474,7 @@ export default function ActivityDetail() {
                 <select
                   className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
                   value={intentStatus}
-                  onChange={(e) => handleBillingStatus(e.target.value)}
+                  onChange={(e) => handleBillingStatus(e.target.value as "" | "billable" | "not_billable")}
                   disabled={updateActivity.isPending}
                 >
                   <option value="">— Nenastaveno —</option>
