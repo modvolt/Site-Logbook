@@ -1,6 +1,13 @@
 import { Router, type IRouter } from "express";
-import { and, gte, lte, eq, sql, desc } from "drizzle-orm";
-import { db, activitiesTable, jobsTable, customersTable } from "@workspace/db";
+import { and, gte, lte, eq, sql, desc, asc, inArray } from "drizzle-orm";
+import {
+  db,
+  activitiesTable,
+  jobsTable,
+  customersTable,
+  jobVisitsTable,
+  peopleTable,
+} from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -133,6 +140,58 @@ router.get("/me/jobs", requireAuth, async (req, res): Promise<void> => {
       date: r.date,
       clientSite: r.clientSite ?? r.customerName ?? null,
       hoursSpent: r.hoursSpent != null ? Number(r.hoursSpent) : null,
+      status: r.status,
+    })),
+  );
+});
+
+// Planned site visits for the logged-in technician. There is no FK linking a
+// user account to a person row, so the technician is resolved by name match
+// (people.name === users.name) — the only available link in the schema.
+router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
+  const name = req.auth!.name;
+
+  const matchingPeople = await db
+    .select({ id: peopleTable.id })
+    .from(peopleTable)
+    .where(eq(peopleTable.name, name));
+  const personIds = matchingPeople.map((p) => p.id);
+
+  if (personIds.length === 0) {
+    res.json([]);
+    return;
+  }
+
+  const rows = await db
+    .select({
+      id: jobVisitsTable.id,
+      jobId: jobVisitsTable.jobId,
+      date: jobVisitsTable.date,
+      note: jobVisitsTable.note,
+      status: jobVisitsTable.status,
+      jobTitle: jobsTable.title,
+      jobClientSite: jobsTable.clientSite,
+      customerName: customersTable.companyName,
+    })
+    .from(jobVisitsTable)
+    .innerJoin(jobsTable, eq(jobVisitsTable.jobId, jobsTable.id))
+    .leftJoin(customersTable, eq(jobsTable.customerId, customersTable.id))
+    .where(
+      and(
+        inArray(jobVisitsTable.personId, personIds),
+        eq(jobVisitsTable.status, "planned"),
+      ),
+    )
+    .orderBy(asc(jobVisitsTable.date), asc(jobVisitsTable.id));
+
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      jobId: r.jobId,
+      jobTitle: r.jobTitle,
+      clientSite: r.jobClientSite ?? r.customerName ?? null,
+      date: r.date,
+      note: r.note,
       status: r.status,
     })),
   );

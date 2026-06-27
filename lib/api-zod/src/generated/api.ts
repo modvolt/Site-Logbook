@@ -3085,6 +3085,98 @@ export const GetMyDoneJobsResponse = zod.array(GetMyDoneJobsResponseItem)
 
 
 /**
+ * @summary Current user's planned site visits
+ */
+export const GetMyVisitsResponseItem = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "jobTitle": zod.string().nullish(),
+  "clientSite": zod.string().nullish(),
+  "date": zod.string(),
+  "note": zod.string().nullish(),
+  "status": zod.string()
+})
+export const GetMyVisitsResponse = zod.array(GetMyVisitsResponseItem)
+
+
+/**
+ * @summary List visits for a job
+ */
+export const ListJobVisitsParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const ListJobVisitsResponseItem = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "personId": zod.number().nullish(),
+  "personName": zod.string().nullish(),
+  "date": zod.string(),
+  "note": zod.string().nullish(),
+  "status": zod.string().describe('planned | done'),
+  "createdAt": zod.string()
+})
+export const ListJobVisitsResponse = zod.array(ListJobVisitsResponseItem)
+
+
+/**
+ * @summary Add a visit to a job
+ */
+export const CreateJobVisitParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+
+
+
+export const CreateJobVisitBody = zod.object({
+  "date": zod.string().min(1),
+  "personId": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.enum(['planned', 'done']).optional()
+})
+
+
+/**
+ * @summary Update a job visit
+ */
+export const UpdateJobVisitParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "visitId": zod.coerce.number()
+})
+
+
+
+
+export const UpdateJobVisitBody = zod.object({
+  "date": zod.string().min(1).optional(),
+  "personId": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.enum(['planned', 'done']).optional()
+})
+
+export const UpdateJobVisitResponse = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "personId": zod.number().nullish(),
+  "personName": zod.string().nullish(),
+  "date": zod.string(),
+  "note": zod.string().nullish(),
+  "status": zod.string().describe('planned | done'),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a job visit
+ */
+export const DeleteJobVisitParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "visitId": zod.coerce.number()
+})
+
+
+/**
  * @summary List database backups (admin only)
  */
 export const ListBackupsResponse = zod.object({

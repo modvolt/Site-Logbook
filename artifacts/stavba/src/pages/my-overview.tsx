@@ -3,12 +3,13 @@ import { format } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
   useGetMyStats, useGetMyDoneJobs, useListActivities, getListActivitiesQueryKey,
+  useGetMyVisits,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   User as UserIcon, Clock, Hammer, Briefcase, CheckCircle2, ChevronRight,
-  Settings, ShieldAlert, UserCog, LogOut, Building2, Users,
+  Settings, ShieldAlert, UserCog, LogOut, Building2, Users, CalendarPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -54,6 +55,7 @@ export default function MyOverview() {
 
   const { data: stats, isLoading: statsLoading } = useGetMyStats();
   const { data: myJobs } = useGetMyDoneJobs({ limit: 20 });
+  const { data: myVisits } = useGetMyVisits();
   const mineParams = { mine: true, archived: false };
   const { data: myActivities } = useListActivities(mineParams, {
     query: { queryKey: getListActivitiesQueryKey(mineParams) },
@@ -121,6 +123,39 @@ export default function MyOverview() {
           </div>
         </>
       ) : null}
+
+      {/* My planned site visits */}
+      {myVisits && myVisits.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <h2 className="font-semibold mb-2 flex items-center gap-2">
+              <CalendarPlus className="h-4 w-4 text-violet-500" /> Moje plánované výjezdy
+            </h2>
+            <ul className="divide-y">
+              {myVisits.map((v) => (
+                <li key={v.id}>
+                  <Link
+                    href={`/jobs/${v.jobId}`}
+                    className="flex items-center justify-between gap-2 py-2 hover:bg-muted/40 -mx-2 px-2 rounded"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm truncate">{v.jobTitle}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {format(new Date(v.date), "EEEE d. M. yyyy", { locale: cs })}
+                        {v.clientSite && ` · ${v.clientSite}`}
+                      </div>
+                      {v.note && (
+                        <div className="text-xs text-muted-foreground truncate mt-0.5">{v.note}</div>
+                      )}
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* My recent activities */}
       {myActivities && myActivities.length > 0 && (

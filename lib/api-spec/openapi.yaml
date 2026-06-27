@@ -40,6 +40,8 @@ tags:
     description: Long-term activities with timers and materials
   - name: me
     description: Current user's overview and statistics
+  - name: visits
+    description: Technician site visits attached to a job
   - name: machines
     description: Machine/equipment registry with QR identification
   - name: warehouse
@@ -3295,6 +3297,119 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MyJobSummary"
+
+  /me/visits:
+    get:
+      operationId: getMyVisits
+      tags: [me]
+      summary: Current user's planned site visits
+      responses:
+        "200":
+          description: Planned visits for the logged-in technician
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MyVisit"
+
+  /jobs/{jobId}/visits:
+    get:
+      operationId: listJobVisits
+      tags: [visits]
+      summary: List visits for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Visits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobVisit"
+    post:
+      operationId: createJobVisit
+      tags: [visits]
+      summary: Add a visit to a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobVisitInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobVisit"
+
+  /jobs/{jobId}/visits/{visitId}:
+    patch:
+      operationId: updateJobVisit
+      tags: [visits]
+      summary: Update a job visit
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: visitId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobVisitUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobVisit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteJobVisit
+      tags: [visits]
+      summary: Delete a job visit
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: visitId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
 
   /backups:
     get:
@@ -7160,6 +7275,76 @@ components:
           type: ["string", "null"]
         hoursSpent:
           type: ["number", "null"]
+        status:
+          type: string
+
+    JobVisit:
+      type: object
+      required: [id, jobId, date, status, createdAt]
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        personId:
+          type: ["integer", "null"]
+        personName:
+          type: ["string", "null"]
+        date:
+          type: string
+        note:
+          type: ["string", "null"]
+        status:
+          type: string
+          description: "planned | done"
+        createdAt:
+          type: string
+
+    JobVisitInput:
+      type: object
+      required: [date]
+      properties:
+        date:
+          type: string
+          minLength: 1
+        personId:
+          type: ["integer", "null"]
+        note:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [planned, done]
+
+    JobVisitUpdate:
+      type: object
+      properties:
+        date:
+          type: string
+          minLength: 1
+        personId:
+          type: ["integer", "null"]
+        note:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [planned, done]
+
+    MyVisit:
+      type: object
+      required: [id, jobId, date, status]
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: integer
+        jobTitle:
+          type: ["string", "null"]
+        clientSite:
+          type: ["string", "null"]
+        date:
+          type: string
+        note:
+          type: ["string", "null"]
         status:
           type: string
 

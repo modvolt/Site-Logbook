@@ -225,6 +225,13 @@
       "when": 1782800000000,
       "tag": "0031_margin_alert_threshold",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783000000000,
+      "tag": "0032_job_visits",
+      "breakpoints": true
     }
   ]
 }

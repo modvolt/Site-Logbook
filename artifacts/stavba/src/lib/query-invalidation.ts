@@ -50,6 +50,7 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
     "/api/dashboard",
     "/api/me/stats",
     "/api/me/jobs",
+    "/api/me/visits",
     "/api/stats/overview",
   ],
   // Činnosti se promítají do statistik.

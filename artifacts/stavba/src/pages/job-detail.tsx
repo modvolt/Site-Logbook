@@ -3,6 +3,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation, useSearch } from "wouter";
 import { format, differenceInDays } from "date-fns";
+import { cs } from "date-fns/locale";
 import { 
   useGetJob, getGetJobQueryKey,
   useUpdateJobStatus, useUpdateJob, useDeleteJob,
@@ -17,6 +18,8 @@ import {
   useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
   useUpdateJobTimeEntry, useDeleteJobTimeEntry,
   useListPeople, getListPeopleQueryKey,
+  useListJobVisits, getListJobVisitsQueryKey,
+  useCreateJobVisit, useUpdateJobVisit, useDeleteJobVisit,
   useAnalyzeJobDocuments,
 } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
@@ -289,11 +292,10 @@ export default function JobDetail() {
   };
 
   const handleAddVisit = () => {
-    const params = new URLSearchParams();
-    params.set("date", format(new Date(), "yyyy-MM-dd"));
-    if (job.customerId) params.set("customerId", job.customerId.toString());
-    if (job.clientSite) params.set("clientSite", job.clientSite);
-    setLocation(`/jobs/new?${params.toString()}`);
+    setExpandedSection("visits");
+    setTimeout(() => {
+      document.getElementById("section-visits")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   };
 
   return (
@@ -434,6 +436,7 @@ export default function JobDetail() {
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
+        <VisitsSection jobId={id} job={job} isExpanded={expandedSection === "visits"} onToggle={() => toggleSection("visits")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
         <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} onUnsavedChange={setMatHasUnsaved} />
         <JobTimeEntries jobId={id} />
@@ -1029,6 +1032,247 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
           )}
         </div>
       </div>
+    </SectionCard>
+  );
+}
+
+function VisitStatusBadge({ status }: { status: string }) {
+  if (status === "done") {
+    return (
+      <span className="text-xs font-medium text-green-700 bg-green-50 dark:bg-green-950/30 px-2 py-0.5 rounded-full">
+        Hotový
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs font-medium text-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-full">
+      Plánovaný
+    </span>
+  );
+}
+
+function VisitForm({
+  people,
+  initial,
+  pending,
+  onSubmit,
+  onCancel,
+  submitLabel,
+}: {
+  people: { id: number; name: string }[];
+  initial: { date: string; personId: number | null; note: string; status: string };
+  pending: boolean;
+  onSubmit: (data: { date: string; personId: number | null; note: string | null; status: string }) => void;
+  onCancel?: () => void;
+  submitLabel: string;
+}) {
+  const [date, setDate] = useState(initial.date);
+  const [personId, setPersonId] = useState<string>(initial.personId != null ? String(initial.personId) : "none");
+  const [note, setNote] = useState(initial.note);
+  const [status, setStatus] = useState(initial.status);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!date) return;
+    onSubmit({
+      date,
+      personId: personId === "none" ? null : Number(personId),
+      note: note.trim() ? note.trim() : null,
+      status,
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3 bg-muted/30 p-3 rounded-xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">Datum</Label>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-11 bg-background" />
+        </div>
+        <div>
+          <Label className="text-xs">Technik</Label>
+          <Select value={personId} onValueChange={setPersonId}>
+            <SelectTrigger className="h-11 bg-background">
+              <SelectValue placeholder="Vyberte technika" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Bez technika</SelectItem>
+              {people.map((p) => (
+                <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs">Stav</Label>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-11 bg-background">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="planned">Plánovaný</SelectItem>
+            <SelectItem value="done">Hotový</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label className="text-xs">Poznámka</Label>
+        <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Co se na výjezdu dělalo…" className="bg-background" rows={2} />
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={!date || pending} className="h-11 flex-1">
+          <Save className="w-4 h-4 mr-1.5" /> {submitLabel}
+        </Button>
+        {onCancel && (
+          <Button type="button" variant="outline" onClick={onCancel} className="h-11">
+            <X className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
+  const { can } = useAuth();
+  const canWrite = can("write");
+  const queryClient = useQueryClient();
+  const { openConfirm, dialogProps } = useConfirmDialog();
+  const { toast } = useToast();
+
+  const { data: visits, isLoading, isError } = useListJobVisits(jobId, {
+    query: { enabled: isExpanded, queryKey: getListJobVisitsQueryKey(jobId) },
+  });
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+
+  const createVisit = useCreateJobVisit();
+  const updateVisit = useUpdateJobVisit();
+  const deleteVisit = useDeleteJobVisit();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+
+  const refresh = () => invalidateData(queryClient, "jobs");
+
+  const handleCreate = (data: { date: string; personId: number | null; note: string | null; status: string }) => {
+    createVisit.mutate({ jobId, data: data as any }, {
+      onSuccess: () => { setShowAdd(false); refresh(); toast({ title: "Výjezd přidán" }); },
+      onError: (err: any) => toast({ title: "Nepodařilo se přidat výjezd", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+    });
+  };
+
+  const handleUpdate = (visitId: number, data: { date: string; personId: number | null; note: string | null; status: string }) => {
+    updateVisit.mutate({ jobId, visitId, data: data as any }, {
+      onSuccess: () => { setEditId(null); refresh(); toast({ title: "Výjezd upraven" }); },
+      onError: (err: any) => toast({ title: "Úprava selhala", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+    });
+  };
+
+  const handleDelete = (visitId: number) => {
+    openConfirm("Smazat tento výjezd?", () => {
+      deleteVisit.mutate({ jobId, visitId }, {
+        onSuccess: () => { refresh(); toast({ title: "Výjezd smazán" }); },
+        onError: (err: any) => toast({ title: "Smazání selhalo", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+      });
+    });
+  };
+
+  const count = visits?.length ?? 0;
+  const plannedCount = visits?.filter((v) => v.status === "planned").length ?? 0;
+  const summary = count > 0 ? `${count} výjezdů (${plannedCount} plánovaných)` : "Žádné výjezdy";
+
+  const peopleList = (people ?? []).map((p) => ({ id: p.id, name: p.name }));
+
+  return (
+    <SectionCard
+      id="section-visits"
+      title="Výjezdy"
+      icon={CalendarPlus}
+      isExpanded={isExpanded}
+      onToggle={onToggle}
+      summary={summary}
+    >
+      <div className="p-4 space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Jednotlivé výjezdy techniků na tuto zakázku – kdo, kdy a co dělal.
+        </p>
+
+        {canWrite && !showAdd && (
+          <Button onClick={() => { setShowAdd(true); setEditId(null); }} variant="outline" className="w-full h-11 border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20">
+            <Plus className="w-4 h-4 mr-1.5" /> Přidat výjezd
+          </Button>
+        )}
+
+        {canWrite && showAdd && (
+          <VisitForm
+            people={peopleList}
+            initial={{ date: format(new Date(), "yyyy-MM-dd"), personId: job?.assignedPersonId ?? null, note: "", status: "planned" }}
+            pending={createVisit.isPending}
+            onSubmit={handleCreate}
+            onCancel={() => setShowAdd(false)}
+            submitLabel="Uložit výjezd"
+          />
+        )}
+
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : isError ? (
+          <div className="flex items-center gap-2 text-destructive text-sm py-4">
+            <AlertCircle className="w-4 h-4" /> Nepodařilo se načíst výjezdy.
+          </div>
+        ) : count === 0 ? (
+          <div className="text-center py-6 text-muted-foreground">Zatím žádné výjezdy.</div>
+        ) : (
+          <div className="space-y-2">
+            {visits!.map((v) =>
+              editId === v.id && canWrite ? (
+                <VisitForm
+                  key={v.id}
+                  people={peopleList}
+                  initial={{ date: v.date, personId: v.personId ?? null, note: v.note ?? "", status: v.status }}
+                  pending={updateVisit.isPending}
+                  onSubmit={(data) => handleUpdate(v.id, data)}
+                  onCancel={() => setEditId(null)}
+                  submitLabel="Uložit změny"
+                />
+              ) : (
+                <div key={v.id} className="border rounded-xl p-3 bg-background">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">
+                          {format(new Date(v.date), "EEEE d. M. yyyy", { locale: cs })}
+                        </span>
+                        <VisitStatusBadge status={v.status} />
+                      </div>
+                      <div className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5" />
+                        {v.personName ?? "Bez technika"}
+                      </div>
+                      {v.note && <div className="text-sm mt-1 whitespace-pre-wrap">{v.note}</div>}
+                    </div>
+                    {canWrite && (
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setEditId(v.id); setShowAdd(false); }}>
+                          <Edit3 className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleDelete(v.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+      </div>
+      <ConfirmDialog {...dialogProps} />
     </SectionCard>
   );
 }

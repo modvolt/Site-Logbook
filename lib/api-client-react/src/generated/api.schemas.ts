@@ -1795,6 +1795,70 @@ export interface MyJobSummary {
   status?: string;
 }
 
+export interface MyVisit {
+  id: number;
+  jobId: number;
+  /** @nullable */
+  jobTitle?: string | null;
+  /** @nullable */
+  clientSite?: string | null;
+  date: string;
+  /** @nullable */
+  note?: string | null;
+  status: string;
+}
+
+export interface JobVisit {
+  id: number;
+  jobId: number;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  personName?: string | null;
+  date: string;
+  /** @nullable */
+  note?: string | null;
+  /** planned | done */
+  status: string;
+  createdAt: string;
+}
+
+export type JobVisitInputStatus = typeof JobVisitInputStatus[keyof typeof JobVisitInputStatus];
+
+
+export const JobVisitInputStatus = {
+  planned: 'planned',
+  done: 'done',
+} as const;
+
+export interface JobVisitInput {
+  /** @minLength 1 */
+  date: string;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  note?: string | null;
+  status?: JobVisitInputStatus;
+}
+
+export type JobVisitUpdateStatus = typeof JobVisitUpdateStatus[keyof typeof JobVisitUpdateStatus];
+
+
+export const JobVisitUpdateStatus = {
+  planned: 'planned',
+  done: 'done',
+} as const;
+
+export interface JobVisitUpdate {
+  /** @minLength 1 */
+  date?: string;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  note?: string | null;
+  status?: JobVisitUpdateStatus;
+}
+
 export type BackupStatus = typeof BackupStatus[keyof typeof BackupStatus];
 
 
