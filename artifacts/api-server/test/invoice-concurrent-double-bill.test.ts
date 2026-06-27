@@ -489,3 +489,140 @@ describe("concurrent storno + rebill — double-bill guard", () => {
     expect(issuedLive.length).toBeLessThanOrEqual(1);
   });
 });
+
+/**
+ * Guard-rejection race, DB-backed.
+ *
+ * The complement to the double-bill races above: here the linked source is made
+ * UN-billable *after* the draft was built but *before* the issue can take its
+ * own row lock. issueInvoice re-checks each linked job/activity under a
+ * `FOR UPDATE` lock (not just the state captured when the draft was built), so
+ * the issue must 409 and the invoice must stay a draft.
+ *
+ * To prove it is the re-check under the lock — and not the build-time state —
+ * that blocks, these tests:
+ *  1. build the draft while the source is fully billable (createDraft would
+ *     itself reject otherwise), then
+ *  2. flip the source to an un-billable state inside a parallel transaction that
+ *     HOLDS the row lock, then
+ *  3. start issueInvoice, which blocks on the SAME row lock, then
+ *  4. commit the flip and release the lock.
+ *
+ * issueInvoice can only read the row once the holder commits, so the un-billable
+ * value it sees is necessarily the re-checked, post-build value.
+ */
+describe("concurrent guard rejection — re-check under FOR UPDATE", () => {
+  it("a linked job reopened mid-flight (away from done) is rejected by the re-check; invoice stays draft", async () => {
+    const jobId = await makeDoneJob();
+
+    // Draft built while the job is still "done" — proves the rejection below is
+    // NOT a build-time check (createDraft itself rejects a non-done job).
+    const draft = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(draft.id);
+
+    // Hold the job row locked + reopened in a parallel transaction. We only
+    // release it once issueInvoice is already waiting on the SAME lock.
+    let releaseHold!: () => void;
+    const held = new Promise<void>((r) => {
+      releaseHold = r;
+    });
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((r) => {
+      signalLocked = r;
+    });
+
+    const reopenAndHold = db.transaction(async (tx) => {
+      // UPDATE takes (and keeps) the row lock for the rest of this tx.
+      await tx
+        .update(jobsTable)
+        .set({ status: "in_progress" })
+        .where(eq(jobsTable.id, jobId));
+      signalLocked();
+      await held;
+    });
+
+    // The reopen tx now holds the job row lock with status = "in_progress".
+    await locked;
+
+    // issueInvoice locks the invoice, recalcs, then blocks trying to lock the
+    // job row FOR UPDATE — it cannot read the (uncommitted) reopened status yet.
+    const issuePromise = issueInvoice(draft.id, actor).catch((e) => e);
+
+    // Give the issue a moment to reach and block on the job lock, then commit
+    // the reopen so the issue reads the post-build "in_progress" status.
+    await new Promise((r) => setTimeout(r, 150));
+    releaseHold();
+    await reopenAndHold;
+
+    const result = await issuePromise;
+    expect(result?.statusCode).toBe(409);
+
+    // The invoice never left draft and the job was never billed.
+    const [inv] = await db
+      .select({ status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, draft.id));
+    expect(inv.status).toBe("draft");
+    expect(await countIssuedJobLinks(jobId)).toBe(0);
+
+    const [job] = await db
+      .select({ status: jobsTable.status })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, jobId));
+    expect(job.status).toBe("in_progress");
+  });
+
+  it("a linked activity un-completed mid-flight is rejected by the re-check; invoice stays draft", async () => {
+    const actId = await makeCompletedActivity();
+
+    // Draft built while the activity is completed — createDraft rejects an
+    // un-completed activity, so this rejection can only come from the re-check.
+    const draft = await createDraft(
+      { customerId, activityIds: [actId] },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+
+    let releaseHold!: () => void;
+    const held = new Promise<void>((r) => {
+      releaseHold = r;
+    });
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((r) => {
+      signalLocked = r;
+    });
+
+    const uncompleteAndHold = db.transaction(async (tx) => {
+      await tx
+        .update(activitiesTable)
+        .set({ completedAt: null })
+        .where(eq(activitiesTable.id, actId));
+      signalLocked();
+      await held;
+    });
+
+    await locked;
+
+    const issuePromise = issueInvoice(draft.id, actor).catch((e) => e);
+
+    await new Promise((r) => setTimeout(r, 150));
+    releaseHold();
+    await uncompleteAndHold;
+
+    const result = await issuePromise;
+    expect(result?.statusCode).toBe(409);
+
+    const [inv] = await db
+      .select({ status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, draft.id));
+    expect(inv.status).toBe("draft");
+    expect(await countIssuedActivityLinks(actId)).toBe(0);
+
+    const [act] = await db
+      .select({ completedAt: activitiesTable.completedAt })
+      .from(activitiesTable)
+      .where(eq(activitiesTable.id, actId));
+    expect(act.completedAt).toBeNull();
+  });
+});
