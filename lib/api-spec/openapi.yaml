@@ -6173,7 +6173,11 @@ components:
           description: IDs of jobs to update
         status:
           type: string
-          description: New status for all selected jobs
+          enum: [planned, in_progress, done, cancelled]
+          description: >-
+            New status for all selected jobs. "vyfakturovano" (invoiced) is
+            intentionally NOT accepted — the invoiced state is set server-side
+            only when an invoice is issued, never by a direct client write.
 
     BulkUpdateResult:
       type: object
@@ -6206,6 +6210,12 @@ components:
           type: ["string", "null"]
         status:
           type: string
+          enum: [planned, in_progress, done, cancelled]
+          description: >-
+            Client-editable lifecycle status only. "vyfakturovano" (invoiced) is
+            intentionally NOT accepted here — the authoritative invoiced state is
+            set server-side by invoice-service when an invoice is issued (and
+            reverted to "done" on storno), never by a direct client status write.
         assignedPersonId:
           type: ["integer", "null"]
         customerId:
@@ -6257,6 +6267,12 @@ components:
           type: ["string", "null"]
         status:
           type: string
+          enum: [planned, in_progress, done, cancelled]
+          description: >-
+            Client-editable lifecycle status only. "vyfakturovano" (invoiced) is
+            intentionally NOT accepted here — the authoritative invoiced state is
+            set server-side by invoice-service when an invoice is issued (and
+            reverted to "done" on storno), never by a direct client status write.
         assignedPersonId:
           type: ["integer", "null"]
         customerId:
@@ -6368,6 +6384,12 @@ components:
       properties:
         status:
           type: string
+          enum: [planned, in_progress, done, cancelled]
+          description: >-
+            Client-editable lifecycle status only. "vyfakturovano" (invoiced) is
+            intentionally NOT accepted here — the authoritative invoiced state is
+            set server-side by invoice-service when an invoice is issued (and
+            reverted to "done" on storno), never by a direct client status write.
 
     Task:
       type: object

@@ -6,6 +6,7 @@ import {
   useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites,
   getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey 
 } from "@workspace/api-client-react";
+import type { JobInputStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
@@ -197,7 +198,7 @@ export default function JobForm() {
       date: formData.date,
       startTime: formData.startTime || null,
       endTime: formData.endTime || null,
-      status: formData.status,
+      status: formData.status as JobInputStatus,
       assignedPersonId: formData.assignedPersonId !== "none" ? parseInt(formData.assignedPersonId) : null,
       customerId: formData.customerId,
       notes: formData.notes || null,

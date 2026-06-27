@@ -22,6 +22,7 @@ import {
   useCreateJobVisit, useUpdateJobVisit, useDeleteJobVisit,
   useAnalyzeJobDocuments,
 } from "@workspace/api-client-react";
+import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
 import { useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@workspace/object-storage-web";
@@ -200,7 +201,7 @@ export default function JobDetail() {
       return;
     }
     setStatusSaveState("saving");
-    updateStatus.mutate({ id, data: { status: newStatus } }, {
+    updateStatus.mutate({ id, data: { status: newStatus as JobStatusUpdateStatus } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
         invalidateJobLists(queryClient);

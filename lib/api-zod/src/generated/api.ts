@@ -85,7 +85,7 @@ export const CreateJobBody = zod.object({
   "date": zod.string(),
   "startTime": zod.string().nullish(),
   "endTime": zod.string().nullish(),
-  "status": zod.string(),
+  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('Client-editable lifecycle status only. \"vyfakturovano\" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to \"done\" on storno), never by a direct client status write.'),
   "assignedPersonId": zod.number().nullish(),
   "customerId": zod.number().nullish(),
   "notes": zod.string().nullish(),
@@ -119,7 +119,7 @@ export const ReorderJobsBody = zod.object({
 
 export const BulkUpdateJobStatusBody = zod.object({
   "ids": zod.array(zod.number()).min(1).describe('IDs of jobs to update'),
-  "status": zod.string().describe('New status for all selected jobs')
+  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('New status for all selected jobs. \"vyfakturovano\" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write.')
 })
 
 export const BulkUpdateJobStatusResponse = zod.object({
@@ -194,7 +194,7 @@ export const UpdateJobBody = zod.object({
   "date": zod.string().optional(),
   "startTime": zod.string().nullish(),
   "endTime": zod.string().nullish(),
-  "status": zod.string().optional(),
+  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).optional().describe('Client-editable lifecycle status only. \"vyfakturovano\" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to \"done\" on storno), never by a direct client status write.'),
   "assignedPersonId": zod.number().nullish(),
   "customerId": zod.number().nullish(),
   "notes": zod.string().nullish(),
@@ -269,7 +269,7 @@ export const UpdateJobStatusParams = zod.object({
 })
 
 export const UpdateJobStatusBody = zod.object({
-  "status": zod.string()
+  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('Client-editable lifecycle status only. \"vyfakturovano\" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to \"done\" on storno), never by a direct client status write.')
 })
 
 export const UpdateJobStatusResponse = zod.object({

@@ -11,7 +11,7 @@ import {
   useBulkUpdateJobStatus,
   useGetWarehouseJobsMarginSummary,
 } from "@workspace/api-client-react";
-import type { ListJobsParams } from "@workspace/api-client-react";
+import type { ListJobsParams, JobBulkStatusUpdateStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
@@ -174,7 +174,7 @@ export default function Jobs() {
   function handleBulkApply() {
     if (selectedIds.size === 0 || !bulkStatus) return;
     bulkUpdateStatus(
-      { data: { ids: Array.from(selectedIds), status: bulkStatus } },
+      { data: { ids: Array.from(selectedIds), status: bulkStatus as JobBulkStatusUpdateStatus } },
       {
         onSuccess: (result) => {
           toast.success(`Stav zakázek aktualizován (${result.updated} zakázek).`);

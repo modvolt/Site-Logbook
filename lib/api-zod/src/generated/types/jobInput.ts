@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { JobInputStatus } from './jobInputStatus';
 
 export interface JobInput {
   /** @minLength 1 */
@@ -21,7 +22,8 @@ export interface JobInput {
   startTime?: string | null;
   /** @nullable */
   endTime?: string | null;
-  status: string;
+  /** Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write. */
+  status: JobInputStatus;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */

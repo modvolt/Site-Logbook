@@ -9,6 +9,7 @@ import {
   useListCustomers, getListCustomersQueryKey,
   useListPeople, getListPeopleQueryKey,
 } from "@workspace/api-client-react";
+import type { JobUpdateStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
@@ -111,7 +112,7 @@ export default function Admin() {
         date: draft.date,
         startTime: draft.startTime || null,
         endTime: draft.endTime || null,
-        status: draft.status,
+        status: draft.status as JobUpdateStatus,
         type: draft.type,
         customerId: draft.customerId,
         assignedPersonId: draft.assignedPersonId,

@@ -58,6 +58,22 @@ interface → `assign()` together, or the UI will appear to save while the serve
 `numberNextSeq`/`numberYear` are now wired through (guarded `numberNextSeq >= 1`);
 the unique invoice-number index is the backstop against bad manual sequence values.
 
+## 3c. Client status-write paths must exclude the server-set `vyfakturovano`
+`jobs.status` is free-text in the DB (no enum constraint), so the ONLY guard against
+a client forcing a job invoiced is the OpenAPI status enum. Job-status request
+schemas (`JobInput`, `JobUpdate`, `JobStatusUpdate`, `JobBulkStatusUpdate`) pin
+`enum: [planned, in_progress, done, cancelled]` — `vyfakturovano` is intentionally
+omitted. The legitimate invoiced flip is a direct DB write inside `invoice-service`
+(issue → `vyfakturovano`, storno → `done`), never an HTTP PATCH, so narrowing the
+enum can't break the real path. Mirrors the activity `billingStatus` enum (which
+excludes `billed`).
+**Why:** without the enum, `PATCH /jobs/:id` / `:id/status` accepted any string →
+phantom-billed jobs. (`PATCH /jobs/status` had a redundant hardcoded list guard.)
+**How to apply:** any new job (or activity) write path must keep the server-only
+billed state out of the client-editable enum; narrowing the OpenAPI enum also
+narrows the generated TS types, so frontend call sites passing a bare `string` need
+a cast to the generated `Job*Status` type (api-client-react).
+
 ## 4. Cost-document line reservation needs full `sourceType`+`sourceId` round-trip
 Approved cost-document lines are re-billed by including them as invoice lines with
 `sourceType:"billing_document_line"` + `sourceId:<lineId>`. `markLinesInvoiced` /

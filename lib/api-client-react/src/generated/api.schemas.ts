@@ -103,6 +103,19 @@ export interface Job {
   createdAt: string;
 }
 
+/**
+ * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
+ */
+export type JobInputStatus = typeof JobInputStatus[keyof typeof JobInputStatus];
+
+
+export const JobInputStatus = {
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
+} as const;
+
 export interface JobInput {
   /** @minLength 1 */
   title: string;
@@ -118,7 +131,8 @@ export interface JobInput {
   startTime?: string | null;
   /** @nullable */
   endTime?: string | null;
-  status: string;
+  /** Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write. */
+  status: JobInputStatus;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
@@ -153,20 +167,46 @@ export interface JobReorderInput {
   ids: number[];
 }
 
+/**
+ * New status for all selected jobs. "vyfakturovano" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write.
+ */
+export type JobBulkStatusUpdateStatus = typeof JobBulkStatusUpdateStatus[keyof typeof JobBulkStatusUpdateStatus];
+
+
+export const JobBulkStatusUpdateStatus = {
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
+} as const;
+
 export interface JobBulkStatusUpdate {
   /**
      * IDs of jobs to update
      * @minItems 1
      */
   ids: number[];
-  /** New status for all selected jobs */
-  status: string;
+  /** New status for all selected jobs. "vyfakturovano" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write. */
+  status: JobBulkStatusUpdateStatus;
 }
 
 export interface BulkUpdateResult {
   /** Number of jobs whose status was changed */
   updated: number;
 }
+
+/**
+ * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
+ */
+export type JobUpdateStatus = typeof JobUpdateStatus[keyof typeof JobUpdateStatus];
+
+
+export const JobUpdateStatus = {
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
+} as const;
 
 export interface JobUpdate {
   /** @minLength 1 */
@@ -183,7 +223,8 @@ export interface JobUpdate {
   startTime?: string | null;
   /** @nullable */
   endTime?: string | null;
-  status?: string;
+  /** Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write. */
+  status?: JobUpdateStatus;
   /** @nullable */
   assignedPersonId?: number | null;
   /** @nullable */
@@ -215,8 +256,22 @@ export interface JobUpdate {
   timerStartedAt?: string | null;
 }
 
+/**
+ * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
+ */
+export type JobStatusUpdateStatus = typeof JobStatusUpdateStatus[keyof typeof JobStatusUpdateStatus];
+
+
+export const JobStatusUpdateStatus = {
+  planned: 'planned',
+  in_progress: 'in_progress',
+  done: 'done',
+  cancelled: 'cancelled',
+} as const;
+
 export interface JobStatusUpdate {
-  status: string;
+  /** Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write. */
+  status: JobStatusUpdateStatus;
 }
 
 export interface SendJobEmailInput {
