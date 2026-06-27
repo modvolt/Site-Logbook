@@ -626,3 +626,96 @@ describe("concurrent guard rejection — re-check under FOR UPDATE", () => {
     expect(act.completedAt).toBeNull();
   });
 });
+
+/**
+ * Recovery path, DB-backed.
+ *
+ * The complement to the guard-rejection block above: once an issue has been
+ * REJECTED (409) because a linked source went un-billable, returning the source
+ * to a billable state must let the SAME draft issue successfully. This guards
+ * against a regression where the FOR UPDATE re-check leaves the draft
+ * permanently un-issuable — a stuck lock, a poisoned link, or a status the guard
+ * never accepts again.
+ *
+ * No concurrency is needed here: the re-check reads the committed row, so a
+ * plain committed status flip is enough to drive the source un-billable and then
+ * billable again.
+ */
+describe("guard recovery — blocked draft issues once the source is fixed", () => {
+  it("a job reopened then set back to done: issue 409s, then the SAME draft issues", async () => {
+    const jobId = await makeDoneJob();
+    const draft = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(draft.id);
+
+    // Reopen the job (away from "done") — the re-check must reject the issue.
+    await db
+      .update(jobsTable)
+      .set({ status: "in_progress" })
+      .where(eq(jobsTable.id, jobId));
+
+    const rejected = await issueInvoice(draft.id, actor).catch((e) => e);
+    expect(rejected?.statusCode).toBe(409);
+
+    // The invoice stayed a draft and the job was never billed.
+    const [stillDraft] = await db
+      .select({ status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, draft.id));
+    expect(stillDraft.status).toBe("draft");
+    expect(await countIssuedJobLinks(jobId)).toBe(0);
+
+    // Fix the job (back to "done") and re-issue the SAME draft — it must succeed.
+    await db
+      .update(jobsTable)
+      .set({ status: "done" })
+      .where(eq(jobsTable.id, jobId));
+
+    const issued = await issueInvoice(draft.id, actor);
+    expect(issued.status).toBe("issued");
+
+    // The job is now billed exactly once and flipped to "vyfakturováno".
+    const [job] = await db
+      .select({ status: jobsTable.status })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, jobId));
+    expect(job.status).toBe("vyfakturovano");
+    expect(await countIssuedJobLinks(jobId)).toBe(1);
+  });
+
+  it("an activity un-completed then re-completed: issue 409s, then the SAME draft issues", async () => {
+    const actId = await makeCompletedActivity();
+    const draft = await createDraft(
+      { customerId, activityIds: [actId] },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+
+    // Un-complete the activity — the re-check must reject the issue.
+    await db
+      .update(activitiesTable)
+      .set({ completedAt: null })
+      .where(eq(activitiesTable.id, actId));
+
+    const rejected = await issueInvoice(draft.id, actor).catch((e) => e);
+    expect(rejected?.statusCode).toBe(409);
+
+    const [stillDraft] = await db
+      .select({ status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, draft.id));
+    expect(stillDraft.status).toBe("draft");
+    expect(await countIssuedActivityLinks(actId)).toBe(0);
+
+    // Re-complete the activity and re-issue the SAME draft — it must succeed.
+    await db
+      .update(activitiesTable)
+      .set({ completedAt: new Date() })
+      .where(eq(activitiesTable.id, actId));
+
+    const issued = await issueInvoice(draft.id, actor);
+    expect(issued.status).toBe("issued");
+
+    // The activity is billed by exactly one issued invoice.
+    expect(await countIssuedActivityLinks(actId)).toBe(1);
+  });
+});
