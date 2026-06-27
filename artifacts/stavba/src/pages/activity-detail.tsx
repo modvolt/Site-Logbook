@@ -360,6 +360,12 @@ export default function ActivityDetail() {
     not_billable: "Nefakturovat",
   };
 
+  // The real billed state comes from the invoice link, not the cosmetic
+  // billingStatus. A legacy/cosmetic "billed" value is treated as unset for the
+  // editable intent control so the dropdown can't contradict the invoice link.
+  const trulyBilled = activity.billedInvoiceId != null;
+  const intentStatus = activity.billingStatus === "billed" ? "" : (activity.billingStatus ?? "");
+
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto w-full space-y-4">
       <div className="flex items-center gap-2">
@@ -450,36 +456,40 @@ export default function ActivityDetail() {
             )}
           </div>
 
-          {/* Billing status */}
+          {/* Billing status. The real billed state is driven by the invoice
+              link (billedInvoiceId); the manual dropdown only carries the
+              editable intent flags (billable / not_billable). "Vyfakturováno"
+              is no longer a manual choice, so the cosmetic status can never
+              contradict the authoritative invoice link. */}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
               <Banknote className="h-4 w-4" /> Fakturace:
             </div>
-            {can("write") ? (
-              <select
-                className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
-                value={activity.billingStatus ?? ""}
-                onChange={(e) => handleBillingStatus(e.target.value)}
-                disabled={updateActivity.isPending}
-              >
-                <option value="">— Nenastaveno —</option>
-                <option value="billable">K fakturaci</option>
-                <option value="billed">Vyfakturováno</option>
-                <option value="not_billable">Nefakturovat</option>
-              </select>
+            {trulyBilled ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium shrink-0">
+                <Receipt className="h-3.5 w-3.5" /> Vyfakturováno
+              </span>
+            ) : can("write") ? (
+              <>
+                <select
+                  className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
+                  value={intentStatus}
+                  onChange={(e) => handleBillingStatus(e.target.value)}
+                  disabled={updateActivity.isPending}
+                >
+                  <option value="">— Nenastaveno —</option>
+                  <option value="billable">K fakturaci</option>
+                  <option value="not_billable">Nefakturovat</option>
+                </select>
+                {intentStatus === "billable" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 text-xs font-medium shrink-0">
+                    K fakturaci
+                  </span>
+                )}
+              </>
             ) : (
               <span className="text-sm font-medium">
-                {activity.billingStatus ? billingStatusLabel[activity.billingStatus] ?? activity.billingStatus : "Nenastaveno"}
-              </span>
-            )}
-            {activity.billingStatus === "billable" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 text-xs font-medium shrink-0">
-                K fakturaci
-              </span>
-            )}
-            {activity.billingStatus === "billed" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium shrink-0">
-                Vyfakturováno
+                {intentStatus ? billingStatusLabel[intentStatus] ?? intentStatus : "Nenastaveno"}
               </span>
             )}
           </div>
