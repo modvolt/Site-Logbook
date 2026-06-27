@@ -52,7 +52,7 @@ function actorOf(req: { auth?: { userId: number; name: string } }): Actor {
   return { userId: req.auth?.userId ?? null, name: req.auth?.name ?? "Systém" };
 }
 
-async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
+export async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
   let customerName: string | null = null;
   if (a.customerId) {
     const [c] = await db
