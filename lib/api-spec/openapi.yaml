@@ -616,6 +616,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/PersonStats"
 
+  /people/active-timers:
+    get:
+      operationId: getActiveTimers
+      tags: [people]
+      summary: List all currently running timers across the team
+      responses:
+        "200":
+          description: Active timers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActiveTimer"
+
   /people/{id}:
     patch:
       operationId: updatePerson
@@ -6473,6 +6488,26 @@ components:
           type: integer
         hasActiveTimer:
           type: boolean
+
+    ActiveTimer:
+      type: object
+      required: [id, personId, personName, kind, parentId, parentName, timerStartedAt]
+      properties:
+        id:
+          type: integer
+        personId:
+          type: integer
+        personName:
+          type: string
+        kind:
+          type: string
+          enum: [job, activity]
+        parentId:
+          type: integer
+        parentName:
+          type: string
+        timerStartedAt:
+          type: string
 
     CredentialAccessAuditInput:
       type: object

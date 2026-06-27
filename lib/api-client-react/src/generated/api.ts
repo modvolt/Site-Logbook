@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ActiveTimer,
   Activity,
   ActivityAttachment,
   ActivityAttachmentInput,
@@ -2046,6 +2047,83 @@ export function useGetPeopleStats<TData = Awaited<ReturnType<typeof getPeopleSta
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetPeopleStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetActiveTimersUrl = () => {
+
+
+
+
+  return `/api/people/active-timers`
+}
+
+/**
+ * @summary List all currently running timers across the team
+ */
+export const getActiveTimers = async ( options?: RequestInit): Promise<ActiveTimer[]> => {
+
+  return customFetch<ActiveTimer[]>(getGetActiveTimersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetActiveTimersQueryKey = () => {
+    return [
+    `/api/people/active-timers`
+    ] as const;
+    }
+
+
+export const getGetActiveTimersQueryOptions = <TData = Awaited<ReturnType<typeof getActiveTimers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveTimers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetActiveTimersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getActiveTimers>>> = ({ signal }) => getActiveTimers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getActiveTimers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetActiveTimersQueryResult = NonNullable<Awaited<ReturnType<typeof getActiveTimers>>>
+export type GetActiveTimersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all currently running timers across the team
+ */
+
+export function useGetActiveTimers<TData = Awaited<ReturnType<typeof getActiveTimers>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveTimers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetActiveTimersQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

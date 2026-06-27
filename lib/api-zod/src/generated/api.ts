@@ -604,6 +604,21 @@ export const GetPeopleStatsResponse = zod.array(GetPeopleStatsResponseItem)
 
 
 /**
+ * @summary List all currently running timers across the team
+ */
+export const GetActiveTimersResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "kind": zod.enum(['job', 'activity']),
+  "parentId": zod.number(),
+  "parentName": zod.string(),
+  "timerStartedAt": zod.string()
+})
+export const GetActiveTimersResponse = zod.array(GetActiveTimersResponseItem)
+
+
+/**
  * @summary Update a person
  */
 export const UpdatePersonParams = zod.object({

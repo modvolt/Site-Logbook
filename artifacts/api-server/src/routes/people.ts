@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, eq, gte, isNotNull, sql } from "drizzle-orm";
-import { db, peopleTable, jobsTable, timeEntriesTable, machinesTable } from "@workspace/db";
+import { db, peopleTable, jobsTable, activitiesTable, timeEntriesTable, machinesTable } from "@workspace/db";
 import {
   CreatePersonBody,
   UpdatePersonParams,
@@ -83,6 +83,41 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
       assignedMachinesCount: machinesMap.get(p.id) ?? 0,
       hasActiveTimer: activeTimerSet.has(p.id),
     })),
+  );
+});
+
+router.get("/people/active-timers", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select({
+      id: timeEntriesTable.id,
+      personId: timeEntriesTable.personId,
+      personName: peopleTable.name,
+      jobId: timeEntriesTable.jobId,
+      activityId: timeEntriesTable.activityId,
+      jobTitle: jobsTable.title,
+      activityName: activitiesTable.name,
+      timerStartedAt: timeEntriesTable.timerStartedAt,
+    })
+    .from(timeEntriesTable)
+    .innerJoin(peopleTable, eq(timeEntriesTable.personId, peopleTable.id))
+    .leftJoin(jobsTable, eq(timeEntriesTable.jobId, jobsTable.id))
+    .leftJoin(activitiesTable, eq(timeEntriesTable.activityId, activitiesTable.id))
+    .where(isNotNull(timeEntriesTable.timerStartedAt))
+    .orderBy(timeEntriesTable.timerStartedAt);
+
+  res.json(
+    rows.map((r) => {
+      const isJob = r.jobId != null;
+      return {
+        id: r.id,
+        personId: r.personId,
+        personName: r.personName,
+        kind: isJob ? "job" : "activity",
+        parentId: isJob ? r.jobId : r.activityId,
+        parentName: (isJob ? r.jobTitle : r.activityName) ?? "—",
+        timerStartedAt: r.timerStartedAt!.toISOString(),
+      };
+    }),
   );
 });
 

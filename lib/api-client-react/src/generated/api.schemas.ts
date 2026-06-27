@@ -392,6 +392,24 @@ export interface PersonStats {
   hasActiveTimer: boolean;
 }
 
+export type ActiveTimerKind = typeof ActiveTimerKind[keyof typeof ActiveTimerKind];
+
+
+export const ActiveTimerKind = {
+  job: 'job',
+  activity: 'activity',
+} as const;
+
+export interface ActiveTimer {
+  id: number;
+  personId: number;
+  personName: string;
+  kind: ActiveTimerKind;
+  parentId: number;
+  parentName: string;
+  timerStartedAt: string;
+}
+
 export interface Customer {
   id: number;
   companyName: string;

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   useListPeople, useCreatePerson, useDeletePerson, getListPeopleQueryKey,
   useGetPeopleStats, getGetPeopleStatsQueryKey,
+  useGetActiveTimers, getGetActiveTimersQueryKey,
   type PersonStats,
+  type ActiveTimer,
 } from "@workspace/api-client-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
@@ -23,6 +25,83 @@ function extractServerError(err: unknown): string | null {
     (err as any)?.data?.error ??
     (err as any)?.message;
   return typeof msg === "string" ? msg : null;
+}
+
+function formatElapsed(startedAtMs: number, nowMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${h}:${pad(m)}:${pad(s)}`;
+}
+
+function formatStartedAt(date: Date): string {
+  const isToday = date.toDateString() === new Date().toDateString();
+  const time = date.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return `Spuštěno ${time}`;
+  const day = date.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" });
+  return `Spuštěno ${day} ${time}`;
+}
+
+function ActiveTimersPanel({ timers }: { timers: ActiveTimer[] }) {
+  // Single ticking clock drives every row's elapsed time, computed locally from
+  // each timer's timerStartedAt — independent of refetches.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (timers.length === 0) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [timers.length]);
+
+  return (
+    <Card className="mb-8 border-amber-300/60 bg-amber-50/50 dark:bg-amber-950/20">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Timer className="h-4 w-4 text-amber-600" />
+          <h2 className="font-semibold text-sm">Aktivní časovače</h2>
+          {timers.length > 0 && (
+            <span className="text-xs text-muted-foreground">({timers.length})</span>
+          )}
+        </div>
+        {timers.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Žádné aktivní časovače.</p>
+        ) : (
+          <ul className="divide-y divide-amber-200/60 dark:divide-amber-900/40">
+            {timers.map((t) => {
+              const startedMs = new Date(t.timerStartedAt).getTime();
+              return (
+                <li key={t.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                  <div className="bg-amber-500/15 p-1.5 rounded-full text-amber-600 shrink-0">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{t.personName}</p>
+                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                      {t.kind === "job" ? (
+                        <Briefcase className="h-3 w-3 shrink-0" />
+                      ) : (
+                        <Clock className="h-3 w-3 shrink-0" />
+                      )}
+                      <span className="truncate">{t.parentName}</span>
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="font-mono text-sm tabular-nums text-amber-700 dark:text-amber-400">
+                      {formatElapsed(startedMs, now)}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                      {formatStartedAt(new Date(startedMs))}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function PersonCard({
@@ -120,6 +199,10 @@ export default function People() {
     query: { queryKey: getGetPeopleStatsQueryKey() },
   });
 
+  const { data: activeTimers } = useGetActiveTimers({
+    query: { queryKey: getGetActiveTimersQueryKey() },
+  });
+
   const statsMap = new Map((statsData ?? []).map((s) => [s.personId, s]));
 
   const createPerson = useCreatePerson();
@@ -178,6 +261,8 @@ export default function People() {
           </Badge>
         )}
       </div>
+
+      <ActiveTimersPanel timers={activeTimers ?? []} />
 
       <Card className="mb-8 border-primary/20 bg-primary/5">
         <CardContent className="p-4">
