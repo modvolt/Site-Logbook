@@ -342,6 +342,11 @@ export default function Activities() {
                             <CheckCircle2 className="h-3 w-3" /> Dokončeno
                           </span>
                         )}
+                        {can("manageUsers") && a.billedInvoiceId != null && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 shrink-0">
+                            <Receipt className="h-3 w-3" /> Vyfakturováno
+                          </span>
+                        )}
                       </div>
                       {a.customerName && (
                         <div className="text-xs text-muted-foreground mt-0.5">{a.customerName}</div>

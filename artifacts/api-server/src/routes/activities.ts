@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, ne, isNotNull } from "drizzle-orm";
 import {
   db,
   activitiesTable,
@@ -8,6 +8,8 @@ import {
   activityExtraWorksTable,
   customersTable,
   usersTable,
+  invoicesTable,
+  invoiceSourceLinksTable,
 } from "@workspace/db";
 import {
   reconcileActivityMaterialStockMovement,
@@ -68,6 +70,23 @@ async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
     createdByUserName = u?.name ?? null;
   }
 
+  const [billingLink] = await db
+    .select({
+      invoiceId: invoicesTable.id,
+      invoiceNumber: invoicesTable.invoiceNumber,
+      invoiceStatus: invoicesTable.status,
+    })
+    .from(invoiceSourceLinksTable)
+    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .where(
+      and(
+        eq(invoiceSourceLinksTable.activityId, a.id),
+        isNotNull(invoiceSourceLinksTable.activityId),
+        ne(invoicesTable.status, "cancelled"),
+      ),
+    )
+    .limit(1);
+
   const [mat, attRow, extraRow] = await Promise.all([
     db
       .select({
@@ -110,6 +129,9 @@ async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
     extraWorksTotalAmount: extraRow?.totalAmount ?? 0,
     extraWorksTotalHours: extraRow?.totalHours ?? 0,
     billingStatus: a.billingStatus,
+    billedInvoiceId: billingLink?.invoiceId ?? null,
+    billedInvoiceNumber: billingLink?.invoiceNumber ?? null,
+    billedInvoiceStatus: billingLink?.invoiceStatus ?? null,
     completedAt: a.completedAt ? a.completedAt.toISOString() : null,
     isArchived: a.isArchived,
     createdAt: a.createdAt.toISOString(),

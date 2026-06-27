@@ -1624,6 +1624,21 @@ export interface Activity {
      */
   billingStatus?: string | null;
   /**
+     * Id of the non-cancelled invoice this activity is linked to (via invoice_source_links.activityId), or null if not billed
+     * @nullable
+     */
+  billedInvoiceId?: number | null;
+  /**
+     * Number of the linked invoice (null for draft invoices)
+     * @nullable
+     */
+  billedInvoiceNumber?: string | null;
+  /**
+     * Status of the linked invoice (draft | issued | sent | paid)
+     * @nullable
+     */
+  billedInvoiceStatus?: string | null;
+  /**
      * ISO timestamp when the activity was marked done
      * @nullable
      */

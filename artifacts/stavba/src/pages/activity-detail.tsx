@@ -483,6 +483,28 @@ export default function ActivityDetail() {
               </span>
             )}
           </div>
+
+          {/* Actual invoice link (admin-only): billed = linked to a non-cancelled
+              invoice via invoice_source_links, independent of the cosmetic billingStatus. */}
+          {can("manageUsers") && activity.billedInvoiceId != null && (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
+                <Receipt className="h-4 w-4" /> Faktura:
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocation(`/billing/invoices/${activity.billedInvoiceId}`)}
+                className="inline-flex items-center gap-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 px-2 py-0.5 text-xs font-medium hover:underline shrink-0"
+              >
+                Vyfakturováno
+                {activity.billedInvoiceNumber
+                  ? ` · ${activity.billedInvoiceNumber}`
+                  : activity.billedInvoiceStatus === "draft"
+                    ? " · koncept"
+                    : ""}
+              </button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
