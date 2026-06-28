@@ -21,6 +21,19 @@ interface SyncEvent extends ExtendableEvent {
 
 clientsClaim();
 
+// Prompt-update flow (registerType: "prompt"): when the user clicks
+// "Aktualizovat", the page calls updateServiceWorker(true), which posts a
+// SKIP_WAITING message to THIS waiting worker. In injectManifest mode that
+// message is NOT handled automatically — without this listener the waiting
+// worker never activates, "controllerchange" never fires, and the page never
+// reloads, so the update button appears to do nothing. We must skipWaiting()
+// ourselves to activate immediately and let the client reload onto the new SW.
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 // Inject precache manifest (replaced by vite-plugin-pwa at build time)
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
