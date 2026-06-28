@@ -6602,6 +6602,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "confirm_token": {
+          "name": "confirm_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -6723,7 +6730,15 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "ppe_assignments_confirm_token_unique": {
+          "name": "ppe_assignments_confirm_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "confirm_token"
+          ]
+        }
+      },
       "checkConstraints": {}
     }
   },
