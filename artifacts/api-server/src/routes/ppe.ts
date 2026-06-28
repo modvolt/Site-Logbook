@@ -544,14 +544,16 @@ router.delete("/ppe/assignments/:id", requireRole("admin", "master"), async (req
     res.status(400).json({ error: "Neplatné ID" });
     return;
   }
-  const [deleted] = await db
-    .delete(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.id, params.data.id))
-    .returning();
-  if (!deleted) {
+  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!existing) {
     res.status(404).json({ error: "Výdej nenalezen" });
     return;
   }
+  if (existing.employeeConfirmedAt) {
+    res.status(409).json({ error: "Podepsaný výdej nelze smazat" });
+    return;
+  }
+  await db.delete(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
   res.status(204).end();
 });
 

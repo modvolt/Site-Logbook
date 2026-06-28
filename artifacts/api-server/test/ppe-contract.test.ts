@@ -482,6 +482,12 @@ describe("employee confirmation signature flow", () => {
     expect(res.status).toBe(200);
     expect(res.body.employeeConfirmedAt).not.toBeNull();
   });
+
+  it("DELETE /api/ppe/assignments/:id on confirmed assignment → 409", async () => {
+    const res = await adminAgent.delete(`/api/ppe/assignments/${confirmAssignmentId}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Podepsaný výdej nelze smazat/);
+  });
 });
 
 // ── request-confirm guards ────────────────────────────────────────────────────
