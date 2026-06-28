@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Trash2, Pencil, Download, Save, X, User, ScanLine } from "lucide-react";
+import { ArrowLeft, Trash2, Pencil, Download, Save, X, User, ScanLine, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { BarcodeScanner } from "@/components/barcode-scanner";
@@ -362,6 +362,22 @@ export default function StrojDetail() {
             ) : (
               <div className="flex items-center gap-2 text-base font-medium">
                 <User className="h-4 w-4 text-primary" /> {machine.assignedPersonName || "Nepřiřazeno"}
+              </div>
+            )}
+            {machine.assignedPersonId && (
+              <div className="flex gap-2 flex-wrap pt-1">
+                <Link
+                  href={`/people/${machine.assignedPersonId}`}
+                  className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <User className="h-3.5 w-3.5" /> Detail zaměstnance
+                </Link>
+                <Link
+                  href={`/stroje/oopp?personId=${machine.assignedPersonId}`}
+                  className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <Shield className="h-3.5 w-3.5" /> OOPP zaměstnance
+                </Link>
               </div>
             )}
           </CardContent>

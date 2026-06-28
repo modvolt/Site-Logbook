@@ -29,7 +29,8 @@ export type ServerInvalidationDomain =
   | "billingDocuments"
   | "bankImport"
   | "emailImport"
-  | "reviewQueue";
+  | "reviewQueue"
+  | "ppe";
 
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
@@ -91,6 +92,8 @@ export function domainsForPath(relPath: string): ServerInvalidationDomain[] {
     add("people");
   } else if (p.startsWith("/machines")) {
     add("machines");
+  } else if (p.startsWith("/ppe")) {
+    add("ppe", "people");
   }
 
   return [...domains];

@@ -552,6 +552,10 @@ export interface PersonStats {
   weekHours: number;
   assignedMachinesCount: number;
   hasActiveTimer: boolean;
+  /** Number of currently issued (non-returned) PPE assignments */
+  assignedPpeCount: number;
+  /** Number of issued PPE assignments past their replace_by or next_inspection_at date */
+  ppeAttentionCount: number;
 }
 
 export type ActiveTimerKind = typeof ActiveTimerKind[keyof typeof ActiveTimerKind];
@@ -1422,6 +1426,149 @@ export interface RiskSummary {
   staleDays: number;
   /** ISO timestamp when this summary was computed. */
   computedAt: string;
+}
+
+export type PpeItemCategory = typeof PpeItemCategory[keyof typeof PpeItemCategory];
+
+
+export const PpeItemCategory = {
+  hlava: 'hlava',
+  ruky: 'ruky',
+  telo: 'telo',
+  nohy: 'nohy',
+  oci: 'oci',
+  sluch: 'sluch',
+  dychaci: 'dychaci',
+  ostatni: 'ostatni',
+} as const;
+
+export interface PpeItem {
+  id: number;
+  name: string;
+  category: PpeItemCategory;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  defaultReplacementMonths?: number | null;
+  /** @nullable */
+  defaultInspectionMonths?: number | null;
+  active: boolean;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+}
+
+export type PpeItemInputCategory = typeof PpeItemInputCategory[keyof typeof PpeItemInputCategory];
+
+
+export const PpeItemInputCategory = {
+  hlava: 'hlava',
+  ruky: 'ruky',
+  telo: 'telo',
+  nohy: 'nohy',
+  oci: 'oci',
+  sluch: 'sluch',
+  dychaci: 'dychaci',
+  ostatni: 'ostatni',
+} as const;
+
+export interface PpeItemInput {
+  /** @minLength 1 */
+  name: string;
+  category: PpeItemInputCategory;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  defaultReplacementMonths?: number | null;
+  /** @nullable */
+  defaultInspectionMonths?: number | null;
+  active?: boolean;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type PpeAssignmentStatus = typeof PpeAssignmentStatus[keyof typeof PpeAssignmentStatus];
+
+
+export const PpeAssignmentStatus = {
+  issued: 'issued',
+  returned: 'returned',
+  damaged: 'damaged',
+  lost: 'lost',
+  disposed: 'disposed',
+} as const;
+
+export interface PpeAssignment {
+  id: number;
+  ppeItemId: number;
+  personId: number;
+  ppeNameSnapshot: string;
+  personNameSnapshot: string;
+  quantity: number;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  issuedAt: string;
+  /** @nullable */
+  replaceBy?: string | null;
+  /** @nullable */
+  nextInspectionAt?: string | null;
+  /** @nullable */
+  returnedAt?: string | null;
+  status: PpeAssignmentStatus;
+  /** @nullable */
+  employeeConfirmedAt?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface PpeAssignmentInput {
+  ppeItemId: number;
+  personId: number;
+  /** @minimum 1 */
+  quantity: number;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  issuedAt: string;
+  /** @nullable */
+  replaceBy?: string | null;
+  /** @nullable */
+  nextInspectionAt?: string | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type PpeAssignmentUpdateStatus = typeof PpeAssignmentUpdateStatus[keyof typeof PpeAssignmentUpdateStatus];
+
+
+export const PpeAssignmentUpdateStatus = {
+  issued: 'issued',
+  returned: 'returned',
+  damaged: 'damaged',
+  lost: 'lost',
+  disposed: 'disposed',
+} as const;
+
+export interface PpeAssignmentUpdate {
+  status?: PpeAssignmentUpdateStatus;
+  /** @nullable */
+  returnedAt?: string | null;
+  /** @nullable */
+  replaceBy?: string | null;
+  /** @nullable */
+  nextInspectionAt?: string | null;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @minimum 1 */
+  quantity?: number;
 }
 
 export interface ClientErrorInput {
@@ -4161,6 +4308,19 @@ export type GetRisksSummaryParams = {
  * Days a job must be in_progress before it is counted as stale (default 14).
  */
 staleDays?: number;
+};
+
+export type ListPpeItemsParams = {
+includeArchived?: boolean;
+};
+
+export type ListPpeAssignmentsParams = {
+personId?: number;
+status?: string;
+/**
+ * If true, return only assignments past their replace_by or next_inspection_at date
+ */
+overdue?: boolean;
 };
 
 export type ListClientErrorsParams = {

@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck, ScanLine, AlertTriangle, Clock, AlertCircle } from "lucide-react";
+import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck, ScanLine, AlertTriangle, Clock, AlertCircle, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { BarcodeScanner } from "@/components/barcode-scanner";
@@ -192,6 +192,12 @@ export default function Stroje() {
       <div className="flex items-center justify-between mb-6 gap-2">
         <h1 className="text-2xl font-bold">Stroje</h1>
         <div className="flex gap-2">
+          <Button variant="outline" asChild className="h-10">
+            <a href="/stroje/oopp">
+              <Shield className="h-5 w-5 md:mr-2" />
+              <span className="hidden md:inline">OOPP</span>
+            </a>
+          </Button>
           <Button variant="outline" onClick={() => setScanOpen(true)} className="h-10">
             <QrCode className="h-5 w-5 md:mr-2" />
             <span className="hidden md:inline">Skenovat</span>

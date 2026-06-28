@@ -13,4 +13,8 @@ export interface PersonStats {
   weekHours: number;
   assignedMachinesCount: number;
   hasActiveTimer: boolean;
+  /** Number of currently issued (non-returned) PPE assignments */
+  assignedPpeCount: number;
+  /** Number of issued PPE assignments past their replace_by or next_inspection_at date */
+  ppeAttentionCount: number;
 }

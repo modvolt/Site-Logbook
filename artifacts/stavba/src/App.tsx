@@ -35,6 +35,8 @@ import Sklad from "@/pages/sklad";
 import SkladPohyby from "@/pages/sklad-pohyby";
 import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
+import Oopp from "@/pages/oopp";
+import PersonDetail from "@/pages/person-detail";
 import AuditLog from "@/pages/audit-log";
 import ClientErrors from "@/pages/client-errors";
 import Gdpr from "@/pages/gdpr";
@@ -184,9 +186,11 @@ function AuthenticatedApp() {
         <Route path="/pristupove-udaje/export/:id">{() => <WriteOnly component={PristupoveUdajeExport} />}</Route>
         <Route path="/pristupove-udaje">{() => <WriteOnly component={PristupoveUdaje} />}</Route>
         <Route path="/people" component={People} />
+        <Route path="/people/:id" component={PersonDetail} />
         <Route path="/sklad/pohyby" component={SkladPohyby} />
         <Route path="/sklad" component={Sklad} />
         <Route path="/stroje" component={Stroje} />
+        <Route path="/stroje/oopp" component={Oopp} />
         <Route path="/stroje/:id" component={StrojDetail} />
         <Route path="/activities" component={Activities} />
         <Route path="/activities/:id/export" component={ActivityExport} />

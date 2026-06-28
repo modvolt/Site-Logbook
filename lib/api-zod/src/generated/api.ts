@@ -643,7 +643,9 @@ export const GetPeopleStatsResponseItem = zod.object({
   "todayJobsCount": zod.number(),
   "weekHours": zod.number(),
   "assignedMachinesCount": zod.number(),
-  "hasActiveTimer": zod.boolean()
+  "hasActiveTimer": zod.boolean(),
+  "assignedPpeCount": zod.number().describe('Number of currently issued (non-returned) PPE assignments'),
+  "ppeAttentionCount": zod.number().describe('Number of issued PPE assignments past their replace_by or next_inspection_at date')
 })
 export const GetPeopleStatsResponse = zod.array(GetPeopleStatsResponseItem)
 
@@ -661,6 +663,20 @@ export const GetActiveTimersResponseItem = zod.object({
   "timerStartedAt": zod.string()
 })
 export const GetActiveTimersResponse = zod.array(GetActiveTimersResponseItem)
+
+
+/**
+ * @summary Get a person by ID
+ */
+export const GetPersonParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetPersonResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "createdAt": zod.string()
+})
 
 
 /**
@@ -2069,6 +2085,187 @@ export const GetRisksSummaryResponse = zod.object({
   "staleDays": zod.number().describe('The staleness threshold (days) used for this response.'),
   "computedAt": zod.string().describe('ISO timestamp when this summary was computed.')
 }).describe('All cross-domain risk metrics computed in one request.')
+
+
+/**
+ * @summary List PPE catalogue items
+ */
+export const ListPpeItemsQueryParams = zod.object({
+  "includeArchived": zod.coerce.boolean().optional()
+})
+
+export const ListPpeItemsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "category": zod.enum(['hlava', 'ruky', 'telo', 'nohy', 'oci', 'sluch', 'dychaci', 'ostatni']),
+  "description": zod.string().nullish(),
+  "defaultReplacementMonths": zod.number().nullish(),
+  "defaultInspectionMonths": zod.number().nullish(),
+  "active": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListPpeItemsResponse = zod.array(ListPpeItemsResponseItem)
+
+
+/**
+ * @summary Create a new PPE catalogue item (admin/master)
+ */
+
+
+
+export const CreatePpeItemBody = zod.object({
+  "name": zod.string().min(1),
+  "category": zod.enum(['hlava', 'ruky', 'telo', 'nohy', 'oci', 'sluch', 'dychaci', 'ostatni']),
+  "description": zod.string().nullish(),
+  "defaultReplacementMonths": zod.number().nullish(),
+  "defaultInspectionMonths": zod.number().nullish(),
+  "active": zod.boolean().optional(),
+  "notes": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a PPE catalogue item (admin/master)
+ */
+export const UpdatePpeItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdatePpeItemBody = zod.object({
+  "name": zod.string().min(1),
+  "category": zod.enum(['hlava', 'ruky', 'telo', 'nohy', 'oci', 'sluch', 'dychaci', 'ostatni']),
+  "description": zod.string().nullish(),
+  "defaultReplacementMonths": zod.number().nullish(),
+  "defaultInspectionMonths": zod.number().nullish(),
+  "active": zod.boolean().optional(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdatePpeItemResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "category": zod.enum(['hlava', 'ruky', 'telo', 'nohy', 'oci', 'sluch', 'dychaci', 'ostatni']),
+  "description": zod.string().nullish(),
+  "defaultReplacementMonths": zod.number().nullish(),
+  "defaultInspectionMonths": zod.number().nullish(),
+  "active": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Archive a PPE catalogue item — sets active=false, never deletes (admin/master)
+ */
+export const ArchivePpeItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ArchivePpeItemResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "category": zod.enum(['hlava', 'ruky', 'telo', 'nohy', 'oci', 'sluch', 'dychaci', 'ostatni']),
+  "description": zod.string().nullish(),
+  "defaultReplacementMonths": zod.number().nullish(),
+  "defaultInspectionMonths": zod.number().nullish(),
+  "active": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary List PPE assignments with optional filters
+ */
+export const ListPpeAssignmentsQueryParams = zod.object({
+  "personId": zod.coerce.number().optional(),
+  "status": zod.coerce.string().optional(),
+  "overdue": zod.coerce.boolean().optional().describe('If true, return only assignments past their replace_by or next_inspection_at date')
+})
+
+export const ListPpeAssignmentsResponseItem = zod.object({
+  "id": zod.number(),
+  "ppeItemId": zod.number(),
+  "personId": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "quantity": zod.number(),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "returnedAt": zod.string().nullish(),
+  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
+  "employeeConfirmedAt": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListPpeAssignmentsResponse = zod.array(ListPpeAssignmentsResponseItem)
+
+
+/**
+ * @summary Issue PPE to an employee (admin/master)
+ */
+
+
+
+export const CreatePpeAssignmentBody = zod.object({
+  "ppeItemId": zod.number(),
+  "personId": zod.number(),
+  "quantity": zod.number().min(1),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "notes": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update a PPE assignment — return, status change, date edit (admin/master)
+ */
+export const UpdatePpeAssignmentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdatePpeAssignmentBody = zod.object({
+  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']).optional(),
+  "returnedAt": zod.string().nullish(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "quantity": zod.number().min(1).optional()
+})
+
+export const UpdatePpeAssignmentResponse = zod.object({
+  "id": zod.number(),
+  "ppeItemId": zod.number(),
+  "personId": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "quantity": zod.number(),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "returnedAt": zod.string().nullish(),
+  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
+  "employeeConfirmedAt": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
 
 
 /**

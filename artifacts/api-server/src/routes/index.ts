@@ -37,6 +37,7 @@ import risksRouter from "./risks";
 import clientErrorsRouter from "./client-errors";
 import leavesRouter from "./leaves";
 import publicHolidaysRouter from "./public-holidays";
+import ppeRouter from "./ppe";
 
 const router: IRouter = Router();
 
@@ -78,5 +79,6 @@ router.use(risksRouter);
 router.use(clientErrorsRouter);
 router.use(leavesRouter);
 router.use(publicHolidaysRouter);
+router.use(ppeRouter);
 
 export default router;

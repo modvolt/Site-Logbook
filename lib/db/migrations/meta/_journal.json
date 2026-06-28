@@ -267,6 +267,13 @@
       "when": 1783400000000,
       "tag": "0037_employee_leaves",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783400001000,
+      "tag": "0038_ppe_assignments",
+      "breakpoints": true
     }
   ]
 }

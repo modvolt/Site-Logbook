@@ -28,8 +28,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon } from "lucide-react";
+import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon, Shield, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 function extractServerError(err: unknown): string | null {
   const msg =
@@ -444,7 +445,7 @@ function PersonCard({
   onNavigate: (path: string) => void;
 }) {
   const [leavesOpen, setLeavesOpen] = useState(false);
-
+  const { can } = useAuth();
   return (
     <>
       <Card className="hover:bg-muted/30 transition-colors">
@@ -460,6 +461,24 @@ function PersonCard({
                   <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50 dark:bg-amber-950/30 text-xs gap-1 px-1.5">
                     <Timer className="h-3 w-3" /> Časovač běží
                   </Badge>
+                )}
+                {(stats?.assignedPpeCount ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    className={`flex items-center gap-1.5 text-sm transition-colors ${(stats?.ppeAttentionCount ?? 0) > 0 ? "text-destructive hover:text-destructive/80" : "text-muted-foreground hover:text-primary"}`}
+                    title={(stats?.ppeAttentionCount ?? 0) > 0 ? `${stats!.ppeAttentionCount} OOPP po termínu` : "OOPP vydáno"}
+                    onClick={() => onNavigate(`/stroje/oopp?personId=${person.id}`)}
+                  >
+                    {(stats?.ppeAttentionCount ?? 0) > 0 ? (
+                      <AlertCircle className="h-3.5 w-3.5" />
+                    ) : (
+                      <Shield className="h-3.5 w-3.5" />
+                    )}
+                    <span>
+                      OOPP: <strong>{stats?.assignedPpeCount}</strong>
+                      {(stats?.ppeAttentionCount ?? 0) > 0 && <span className="ml-1 text-destructive">({stats!.ppeAttentionCount} po term.)</span>}
+                    </span>
+                  </button>
                 )}
               </div>
               {stats ? (
@@ -507,6 +526,18 @@ function PersonCard({
               >
                 <Palmtree className="h-5 w-5" />
               </Button>
+              {can("write") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1 whitespace-nowrap"
+                  onClick={() => onNavigate(`/stroje/oopp?personId=${person.id}`)}
+                  title="Vydat nebo zobrazit OOPP pro tohoto zaměstnance"
+                >
+                  <Shield className="h-3.5 w-3.5" />
+                  Vydat OOPP
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"

@@ -37,7 +37,8 @@ export type InvalidationDomain =
   | "billingDocuments"
   | "bankImport"
   | "emailImport"
-  | "reviewQueue";
+  | "reviewQueue"
+  | "ppe";
 
 /**
  * URL prefixy, které daná doména „vlastní". Invaliduje se každý dotaz, jehož
@@ -60,7 +61,8 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
   warehouse: ["/api/warehouse-items", "/api/warehouse-movements"],
   // Zákazníci, jejich místa, kontakty, přístupové údaje + detail místa.
   customers: ["/api/customers", "/api/customer-sites"],
-  people: ["/api/people"],
+  people: ["/api/people", "/api/ppe/assignments"],
+  ppe: ["/api/ppe"],
   machines: ["/api/machines"],
   leaves: ["/api/leaves"],
   // Faktury: seznam, detail, souhrn fakturace i nevyfakturovaní zákazníci.

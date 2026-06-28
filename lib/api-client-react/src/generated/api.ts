@@ -152,6 +152,8 @@ import type {
   ListInvoicesParams,
   ListJobsParams,
   ListLeavesParams,
+  ListPpeAssignmentsParams,
+  ListPpeItemsParams,
   ListPublicHolidaysParams,
   ListWarehouseItemsParams,
   ListWarehouseMovementsParams,
@@ -172,6 +174,11 @@ import type {
   Person,
   PersonInput,
   PersonStats,
+  PpeAssignment,
+  PpeAssignmentInput,
+  PpeAssignmentUpdate,
+  PpeItem,
+  PpeItemInput,
   PublicHoliday,
   PurgeClientErrorsParams,
   ResetPasswordWithAnswersInput,
@@ -2223,6 +2230,83 @@ export function useGetActiveTimers<TData = Awaited<ReturnType<typeof getActiveTi
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetActiveTimersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetPersonUrl = (id: number,) => {
+
+
+
+
+  return `/api/people/${id}`
+}
+
+/**
+ * @summary Get a person by ID
+ */
+export const getPerson = async (id: number, options?: RequestInit): Promise<Person> => {
+
+  return customFetch<Person>(getGetPersonUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPersonQueryKey = (id: number,) => {
+    return [
+    `/api/people/${id}`
+    ] as const;
+    }
+
+
+export const getGetPersonQueryOptions = <TData = Awaited<ReturnType<typeof getPerson>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPerson>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPersonQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPerson>>> = ({ signal }) => getPerson(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPerson>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPersonQueryResult = NonNullable<Awaited<ReturnType<typeof getPerson>>>
+export type GetPersonQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a person by ID
+ */
+
+export function useGetPerson<TData = Awaited<ReturnType<typeof getPerson>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPerson>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPersonQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -6590,6 +6674,530 @@ export function useGetRisksSummary<TData = Awaited<ReturnType<typeof getRisksSum
 
 
 
+
+export const getListPpeItemsUrl = (params?: ListPpeItemsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ppe/items?${stringifiedParams}` : `/api/ppe/items`
+}
+
+/**
+ * @summary List PPE catalogue items
+ */
+export const listPpeItems = async (params?: ListPpeItemsParams, options?: RequestInit): Promise<PpeItem[]> => {
+
+  return customFetch<PpeItem[]>(getListPpeItemsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPpeItemsQueryKey = (params?: ListPpeItemsParams,) => {
+    return [
+    `/api/ppe/items`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPpeItemsQueryOptions = <TData = Awaited<ReturnType<typeof listPpeItems>>, TError = ErrorType<unknown>>(params?: ListPpeItemsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPpeItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPpeItemsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPpeItems>>> = ({ signal }) => listPpeItems(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPpeItems>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPpeItemsQueryResult = NonNullable<Awaited<ReturnType<typeof listPpeItems>>>
+export type ListPpeItemsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List PPE catalogue items
+ */
+
+export function useListPpeItems<TData = Awaited<ReturnType<typeof listPpeItems>>, TError = ErrorType<unknown>>(
+ params?: ListPpeItemsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPpeItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPpeItemsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreatePpeItemUrl = () => {
+
+
+
+
+  return `/api/ppe/items`
+}
+
+/**
+ * @summary Create a new PPE catalogue item (admin/master)
+ */
+export const createPpeItem = async (ppeItemInput: PpeItemInput, options?: RequestInit): Promise<PpeItem> => {
+
+  return customFetch<PpeItem>(getCreatePpeItemUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      ppeItemInput,)
+  }
+);}
+
+
+
+
+export const getCreatePpeItemMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPpeItem>>, TError,{data: BodyType<PpeItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPpeItem>>, TError,{data: BodyType<PpeItemInput>}, TContext> => {
+
+const mutationKey = ['createPpeItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPpeItem>>, {data: BodyType<PpeItemInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPpeItem(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePpeItemMutationResult = NonNullable<Awaited<ReturnType<typeof createPpeItem>>>
+    export type CreatePpeItemMutationBody = BodyType<PpeItemInput>
+    export type CreatePpeItemMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a new PPE catalogue item (admin/master)
+ */
+export const useCreatePpeItem = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPpeItem>>, TError,{data: BodyType<PpeItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPpeItem>>,
+        TError,
+        {data: BodyType<PpeItemInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePpeItemMutationOptions(options));
+    }
+
+export const getUpdatePpeItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/items/${id}`
+}
+
+/**
+ * @summary Update a PPE catalogue item (admin/master)
+ */
+export const updatePpeItem = async (id: number,
+    ppeItemInput: PpeItemInput, options?: RequestInit): Promise<PpeItem> => {
+
+  return customFetch<PpeItem>(getUpdatePpeItemUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      ppeItemInput,)
+  }
+);}
+
+
+
+
+export const getUpdatePpeItemMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePpeItem>>, TError,{id: number;data: BodyType<PpeItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePpeItem>>, TError,{id: number;data: BodyType<PpeItemInput>}, TContext> => {
+
+const mutationKey = ['updatePpeItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePpeItem>>, {id: number;data: BodyType<PpeItemInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updatePpeItem(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePpeItemMutationResult = NonNullable<Awaited<ReturnType<typeof updatePpeItem>>>
+    export type UpdatePpeItemMutationBody = BodyType<PpeItemInput>
+    export type UpdatePpeItemMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a PPE catalogue item (admin/master)
+ */
+export const useUpdatePpeItem = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePpeItem>>, TError,{id: number;data: BodyType<PpeItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePpeItem>>,
+        TError,
+        {id: number;data: BodyType<PpeItemInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePpeItemMutationOptions(options));
+    }
+
+export const getArchivePpeItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/items/${id}`
+}
+
+/**
+ * @summary Archive a PPE catalogue item — sets active=false, never deletes (admin/master)
+ */
+export const archivePpeItem = async (id: number, options?: RequestInit): Promise<PpeItem> => {
+
+  return customFetch<PpeItem>(getArchivePpeItemUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getArchivePpeItemMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof archivePpeItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof archivePpeItem>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['archivePpeItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof archivePpeItem>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  archivePpeItem(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ArchivePpeItemMutationResult = NonNullable<Awaited<ReturnType<typeof archivePpeItem>>>
+
+    export type ArchivePpeItemMutationError = ErrorType<void>
+
+    /**
+ * @summary Archive a PPE catalogue item — sets active=false, never deletes (admin/master)
+ */
+export const useArchivePpeItem = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof archivePpeItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof archivePpeItem>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getArchivePpeItemMutationOptions(options));
+    }
+
+export const getListPpeAssignmentsUrl = (params?: ListPpeAssignmentsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ppe/assignments?${stringifiedParams}` : `/api/ppe/assignments`
+}
+
+/**
+ * @summary List PPE assignments with optional filters
+ */
+export const listPpeAssignments = async (params?: ListPpeAssignmentsParams, options?: RequestInit): Promise<PpeAssignment[]> => {
+
+  return customFetch<PpeAssignment[]>(getListPpeAssignmentsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPpeAssignmentsQueryKey = (params?: ListPpeAssignmentsParams,) => {
+    return [
+    `/api/ppe/assignments`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPpeAssignmentsQueryOptions = <TData = Awaited<ReturnType<typeof listPpeAssignments>>, TError = ErrorType<unknown>>(params?: ListPpeAssignmentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPpeAssignments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPpeAssignmentsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPpeAssignments>>> = ({ signal }) => listPpeAssignments(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPpeAssignments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPpeAssignmentsQueryResult = NonNullable<Awaited<ReturnType<typeof listPpeAssignments>>>
+export type ListPpeAssignmentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List PPE assignments with optional filters
+ */
+
+export function useListPpeAssignments<TData = Awaited<ReturnType<typeof listPpeAssignments>>, TError = ErrorType<unknown>>(
+ params?: ListPpeAssignmentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPpeAssignments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPpeAssignmentsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreatePpeAssignmentUrl = () => {
+
+
+
+
+  return `/api/ppe/assignments`
+}
+
+/**
+ * @summary Issue PPE to an employee (admin/master)
+ */
+export const createPpeAssignment = async (ppeAssignmentInput: PpeAssignmentInput, options?: RequestInit): Promise<PpeAssignment> => {
+
+  return customFetch<PpeAssignment>(getCreatePpeAssignmentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      ppeAssignmentInput,)
+  }
+);}
+
+
+
+
+export const getCreatePpeAssignmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPpeAssignment>>, TError,{data: BodyType<PpeAssignmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPpeAssignment>>, TError,{data: BodyType<PpeAssignmentInput>}, TContext> => {
+
+const mutationKey = ['createPpeAssignment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPpeAssignment>>, {data: BodyType<PpeAssignmentInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPpeAssignment(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePpeAssignmentMutationResult = NonNullable<Awaited<ReturnType<typeof createPpeAssignment>>>
+    export type CreatePpeAssignmentMutationBody = BodyType<PpeAssignmentInput>
+    export type CreatePpeAssignmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Issue PPE to an employee (admin/master)
+ */
+export const useCreatePpeAssignment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPpeAssignment>>, TError,{data: BodyType<PpeAssignmentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPpeAssignment>>,
+        TError,
+        {data: BodyType<PpeAssignmentInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePpeAssignmentMutationOptions(options));
+    }
+
+export const getUpdatePpeAssignmentUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}`
+}
+
+/**
+ * @summary Update a PPE assignment — return, status change, date edit (admin/master)
+ */
+export const updatePpeAssignment = async (id: number,
+    ppeAssignmentUpdate: PpeAssignmentUpdate, options?: RequestInit): Promise<PpeAssignment> => {
+
+  return customFetch<PpeAssignment>(getUpdatePpeAssignmentUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      ppeAssignmentUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdatePpeAssignmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePpeAssignment>>, TError,{id: number;data: BodyType<PpeAssignmentUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePpeAssignment>>, TError,{id: number;data: BodyType<PpeAssignmentUpdate>}, TContext> => {
+
+const mutationKey = ['updatePpeAssignment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePpeAssignment>>, {id: number;data: BodyType<PpeAssignmentUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updatePpeAssignment(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePpeAssignmentMutationResult = NonNullable<Awaited<ReturnType<typeof updatePpeAssignment>>>
+    export type UpdatePpeAssignmentMutationBody = BodyType<PpeAssignmentUpdate>
+    export type UpdatePpeAssignmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a PPE assignment — return, status change, date edit (admin/master)
+ */
+export const useUpdatePpeAssignment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePpeAssignment>>, TError,{id: number;data: BodyType<PpeAssignmentUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePpeAssignment>>,
+        TError,
+        {id: number;data: BodyType<PpeAssignmentUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdatePpeAssignmentMutationOptions(options));
+    }
 
 export const getReportClientErrorUrl = () => {
 

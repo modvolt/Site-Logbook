@@ -55,6 +55,8 @@ tags:
   - name: client-errors
   - name: risks
     description: Cross-domain risk metrics and work-queue summaries
+  - name: ppe
+    description: Personal protective equipment (OOPP) catalogue and issue tracking
 
 paths:
   /healthz:
@@ -651,6 +653,25 @@ paths:
                   $ref: "#/components/schemas/ActiveTimer"
 
   /people/{id}:
+    get:
+      operationId: getPerson
+      tags: [people]
+      summary: Get a person by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Person
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "404":
+          description: Not found
     patch:
       operationId: updatePerson
       tags: [people]
@@ -1945,6 +1966,180 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RiskSummary"
+        "403":
+          description: Forbidden
+
+  /ppe/items:
+    get:
+      operationId: listPpeItems
+      tags: [ppe]
+      summary: List PPE catalogue items
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: PPE items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PpeItem"
+    post:
+      operationId: createPpeItem
+      tags: [ppe]
+      summary: Create a new PPE catalogue item (admin/master)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PpeItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeItem"
+        "403":
+          description: Forbidden
+
+  /ppe/items/{id}:
+    patch:
+      operationId: updatePpeItem
+      tags: [ppe]
+      summary: Update a PPE catalogue item (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PpeItemInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeItem"
+        "404":
+          description: Not found
+        "403":
+          description: Forbidden
+    delete:
+      operationId: archivePpeItem
+      tags: [ppe]
+      summary: Archive a PPE catalogue item — sets active=false, never deletes (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Archived item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeItem"
+        "404":
+          description: Not found
+        "403":
+          description: Forbidden
+
+  /ppe/assignments:
+    get:
+      operationId: listPpeAssignments
+      tags: [ppe]
+      summary: List PPE assignments with optional filters
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: overdue
+          in: query
+          required: false
+          description: If true, return only assignments past their replace_by or next_inspection_at date
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: PPE assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PpeAssignment"
+    post:
+      operationId: createPpeAssignment
+      tags: [ppe]
+      summary: Issue PPE to an employee (admin/master)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PpeAssignmentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeAssignment"
+        "400":
+          description: Validation error
+        "403":
+          description: Forbidden
+
+  /ppe/assignments/{id}:
+    patch:
+      operationId: updatePpeAssignment
+      tags: [ppe]
+      summary: Update a PPE assignment — return, status change, date edit (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PpeAssignmentUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeAssignment"
+        "404":
+          description: Not found
+        "409":
+          description: Conflict — assignment is confirmed by employee and only status/returned_at can change
         "403":
           description: Forbidden
 
@@ -7057,7 +7252,7 @@ components:
 
     PersonStats:
       type: object
-      required: [personId, personName, todayJobsCount, weekHours, assignedMachinesCount, hasActiveTimer]
+      required: [personId, personName, todayJobsCount, weekHours, assignedMachinesCount, hasActiveTimer, assignedPpeCount, ppeAttentionCount]
       properties:
         personId:
           type: integer
@@ -7071,6 +7266,12 @@ components:
           type: integer
         hasActiveTimer:
           type: boolean
+        assignedPpeCount:
+          type: integer
+          description: Number of currently issued (non-returned) PPE assignments
+        ppeAttentionCount:
+          type: integer
+          description: Number of issued PPE assignments past their replace_by or next_inspection_at date
 
     ActiveTimer:
       type: object
@@ -10857,3 +11058,132 @@ components:
           description: YYYY-MM-DD
         name:
           type: string
+
+    PpeItem:
+      type: object
+      required: [id, name, category, active, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        category:
+          type: string
+          enum: [hlava, ruky, telo, nohy, oci, sluch, dychaci, ostatni]
+        description:
+          type: ["string", "null"]
+        defaultReplacementMonths:
+          type: ["integer", "null"]
+        defaultInspectionMonths:
+          type: ["integer", "null"]
+        active:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    PpeItemInput:
+      type: object
+      required: [name, category]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        category:
+          type: string
+          enum: [hlava, ruky, telo, nohy, oci, sluch, dychaci, ostatni]
+        description:
+          type: ["string", "null"]
+        defaultReplacementMonths:
+          type: ["integer", "null"]
+        defaultInspectionMonths:
+          type: ["integer", "null"]
+        active:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+
+    PpeAssignment:
+      type: object
+      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt]
+      properties:
+        id:
+          type: integer
+        ppeItemId:
+          type: integer
+        personId:
+          type: integer
+        ppeNameSnapshot:
+          type: string
+        personNameSnapshot:
+          type: string
+        quantity:
+          type: integer
+        size:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        issuedAt:
+          type: string
+        replaceBy:
+          type: ["string", "null"]
+        nextInspectionAt:
+          type: ["string", "null"]
+        returnedAt:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [issued, returned, damaged, lost, disposed]
+        employeeConfirmedAt:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    PpeAssignmentInput:
+      type: object
+      required: [ppeItemId, personId, quantity, issuedAt]
+      properties:
+        ppeItemId:
+          type: integer
+        personId:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 1
+        size:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        issuedAt:
+          type: string
+        replaceBy:
+          type: ["string", "null"]
+        nextInspectionAt:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+
+    PpeAssignmentUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [issued, returned, damaged, lost, disposed]
+        returnedAt:
+          type: ["string", "null"]
+        replaceBy:
+          type: ["string", "null"]
+        nextInspectionAt:
+          type: ["string", "null"]
+        size:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        quantity:
+          type: integer
+          minimum: 1

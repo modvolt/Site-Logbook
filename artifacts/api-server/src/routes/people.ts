@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
-import { and, eq, gte, isNotNull, sql } from "drizzle-orm";
-import { db, peopleTable, jobsTable, activitiesTable, timeEntriesTable, machinesTable } from "@workspace/db";
+import { and, count, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { db, peopleTable, jobsTable, activitiesTable, timeEntriesTable, machinesTable, ppeAssignmentsTable } from "@workspace/db";
 import {
   CreatePersonBody,
   UpdatePersonParams,
   UpdatePersonBody,
   DeletePersonParams,
 } from "@workspace/api-zod";
+import { z } from "zod/v4";
 
 const router: IRouter = Router();
 
@@ -16,6 +17,8 @@ function serializePerson(p: typeof peopleTable.$inferSelect) {
     createdAt: p.createdAt.toISOString(),
   };
 }
+
+const IdParamSchema = z.object({ id: z.coerce.number().int().positive() });
 
 router.get("/people", async (_req, res): Promise<void> => {
   const people = await db.select().from(peopleTable).orderBy(peopleTable.name);
@@ -34,7 +37,7 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
   weekStart.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
   weekStart.setHours(0, 0, 0, 0);
 
-  const [todayJobs, weekHoursRows, machineRows, activeTimerRows] = await Promise.all([
+  const [todayJobs, weekHoursRows, machineRows, activeTimerRows, ppeRows, ppeOverdueRows] = await Promise.all([
     db
       .select({ personId: jobsTable.assignedPersonId })
       .from(jobsTable)
@@ -55,6 +58,26 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
       .select({ personId: timeEntriesTable.personId })
       .from(timeEntriesTable)
       .where(isNotNull(timeEntriesTable.timerStartedAt)),
+    // Issued (non-returned) PPE per person
+    db
+      .select({ personId: ppeAssignmentsTable.personId, cnt: count() })
+      .from(ppeAssignmentsTable)
+      .where(eq(ppeAssignmentsTable.status, "issued"))
+      .groupBy(ppeAssignmentsTable.personId),
+    // Overdue: issued + (replaceBy or nextInspectionAt is past today)
+    db
+      .select({ personId: ppeAssignmentsTable.personId, cnt: count() })
+      .from(ppeAssignmentsTable)
+      .where(
+        and(
+          eq(ppeAssignmentsTable.status, "issued"),
+          or(
+            and(isNotNull(ppeAssignmentsTable.replaceBy), lte(ppeAssignmentsTable.replaceBy, todayStr)),
+            and(isNotNull(ppeAssignmentsTable.nextInspectionAt), lte(ppeAssignmentsTable.nextInspectionAt, todayStr)),
+          ),
+        ),
+      )
+      .groupBy(ppeAssignmentsTable.personId),
   ]);
 
   const todayJobsMap = new Map<number, number>();
@@ -74,6 +97,16 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
 
   const activeTimerSet = new Set(activeTimerRows.map((r) => r.personId));
 
+  const ppeCountMap = new Map<number, number>();
+  for (const r of ppeRows) {
+    ppeCountMap.set(r.personId, Number(r.cnt));
+  }
+
+  const ppeOverdueMap = new Map<number, number>();
+  for (const r of ppeOverdueRows) {
+    ppeOverdueMap.set(r.personId, Number(r.cnt));
+  }
+
   res.json(
     allPeople.map((p) => ({
       personId: p.id,
@@ -82,6 +115,8 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
       weekHours: weekHoursMap.get(p.id) ?? 0,
       assignedMachinesCount: machinesMap.get(p.id) ?? 0,
       hasActiveTimer: activeTimerSet.has(p.id),
+      assignedPpeCount: ppeCountMap.get(p.id) ?? 0,
+      ppeAttentionCount: ppeOverdueMap.get(p.id) ?? 0,
     })),
   );
 });
@@ -119,6 +154,20 @@ router.get("/people/active-timers", async (_req, res): Promise<void> => {
       };
     }),
   );
+});
+
+router.get("/people/:id", async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+  const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, params.data.id));
+  if (!person) {
+    res.status(404).json({ error: "Pracovník nenalezen" });
+    return;
+  }
+  res.json(serializePerson(person));
 });
 
 router.post("/people", async (req, res): Promise<void> => {
