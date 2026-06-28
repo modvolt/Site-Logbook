@@ -4350,6 +4350,54 @@ paths:
                 items:
                   $ref: "#/components/schemas/MyVisit"
 
+  /me/ppe/assignments:
+    get:
+      operationId: listMyPpeAssignments
+      tags: [me]
+      summary: List the logged-in user's pending unsigned PPE assignments (resolved by name)
+      responses:
+        "200":
+          description: Pending unsigned assignments for the current user's person record
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MyPpeAssignment"
+
+  /me/ppe/assignments/{id}/sign:
+    post:
+      operationId: signMyPpeHandover
+      tags: [me]
+      summary: Self-service sign a PPE handover — creates handover document with same side-effects as the admin flow
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MyPpeSignInput"
+      responses:
+        "201":
+          description: Handover signed and document created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyPpeSignResult"
+        "400":
+          description: Validation error
+        "403":
+          description: No matching person record for this user
+        "404":
+          description: Assignment not found or does not belong to the user
+        "409":
+          description: Already signed or assignment closed
+
   /jobs/{jobId}/visits:
     get:
       operationId: listJobVisits
@@ -12394,4 +12442,59 @@ components:
         actorName:
           type: ["string", "null"]
         createdAt:
+          type: string
+
+    MyPpeAssignment:
+      type: object
+      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt]
+      properties:
+        id:
+          type: integer
+        ppeItemId:
+          type: integer
+        personId:
+          type: integer
+        ppeNameSnapshot:
+          type: string
+        personNameSnapshot:
+          type: string
+        ppeCategorySnapshot:
+          type: ["string", "null"]
+        quantity:
+          type: integer
+        size:
+          type: ["string", "null"]
+        serialNumber:
+          type: ["string", "null"]
+        issuedAt:
+          type: string
+        replaceBy:
+          type: ["string", "null"]
+        nextInspectionAt:
+          type: ["string", "null"]
+        status:
+          type: string
+        createdAt:
+          type: string
+
+    MyPpeSignInput:
+      type: object
+      required: [signatureDataUrl]
+      properties:
+        signatureDataUrl:
+          type: string
+          description: PNG signature as data URL (data:image/png;base64,...)
+        confirmationText:
+          type: string
+          description: Optional custom confirmation text; defaults to standard OOPP text
+
+    MyPpeSignResult:
+      type: object
+      required: [ok, employeeConfirmedAt, documentNumber]
+      properties:
+        ok:
+          type: boolean
+        employeeConfirmedAt:
+          type: string
+        documentNumber:
           type: string

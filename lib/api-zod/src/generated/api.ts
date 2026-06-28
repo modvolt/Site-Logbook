@@ -4208,6 +4208,41 @@ export const GetMyVisitsResponse = zod.array(GetMyVisitsResponseItem)
 
 
 /**
+ * @summary List the logged-in user's pending unsigned PPE assignments (resolved by name)
+ */
+export const ListMyPpeAssignmentsResponseItem = zod.object({
+  "id": zod.number(),
+  "ppeItemId": zod.number(),
+  "personId": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullish(),
+  "quantity": zod.number(),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string()
+})
+export const ListMyPpeAssignmentsResponse = zod.array(ListMyPpeAssignmentsResponseItem)
+
+
+/**
+ * @summary Self-service sign a PPE handover — creates handover document with same side-effects as the admin flow
+ */
+export const SignMyPpeHandoverParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SignMyPpeHandoverBody = zod.object({
+  "signatureDataUrl": zod.string().describe('PNG signature as data URL (data:image\/png;base64,...)'),
+  "confirmationText": zod.string().optional().describe('Optional custom confirmation text; defaults to standard OOPP text')
+})
+
+
+/**
  * @summary List visits for a job
  */
 export const ListJobVisitsParams = zod.object({

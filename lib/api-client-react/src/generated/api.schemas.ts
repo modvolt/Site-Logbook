@@ -2772,6 +2772,41 @@ export interface MyVisit {
   status: string;
 }
 
+export interface MyPpeAssignment {
+  id: number;
+  ppeItemId: number;
+  personId: number;
+  ppeNameSnapshot: string;
+  personNameSnapshot: string;
+  /** @nullable */
+  ppeCategorySnapshot?: string | null;
+  quantity: number;
+  /** @nullable */
+  size?: string | null;
+  /** @nullable */
+  serialNumber?: string | null;
+  issuedAt: string;
+  /** @nullable */
+  replaceBy?: string | null;
+  /** @nullable */
+  nextInspectionAt?: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface MyPpeSignInput {
+  /** PNG signature as data URL (data:image/png;base64,...) */
+  signatureDataUrl: string;
+  /** Optional custom confirmation text; defaults to standard OOPP text */
+  confirmationText?: string;
+}
+
+export interface MyPpeSignResult {
+  ok: boolean;
+  employeeConfirmedAt: string;
+  documentNumber: string;
+}
+
 export interface JobVisit {
   id: number;
   jobId: number;

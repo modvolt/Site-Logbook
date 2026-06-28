@@ -181,6 +181,9 @@ import type {
   MaterialUpdate,
   MeResponse,
   MyJobSummary,
+  MyPpeAssignment,
+  MyPpeSignInput,
+  MyPpeSignResult,
   MyStats,
   MyVisit,
   OkResult,
@@ -13623,6 +13626,155 @@ export function useGetMyVisits<TData = Awaited<ReturnType<typeof getMyVisits>>, 
 
 
 
+
+export const getListMyPpeAssignmentsUrl = () => {
+
+
+
+
+  return `/api/me/ppe/assignments`
+}
+
+/**
+ * @summary List the logged-in user's pending unsigned PPE assignments (resolved by name)
+ */
+export const listMyPpeAssignments = async ( options?: RequestInit): Promise<MyPpeAssignment[]> => {
+
+  return customFetch<MyPpeAssignment[]>(getListMyPpeAssignmentsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMyPpeAssignmentsQueryKey = () => {
+    return [
+    `/api/me/ppe/assignments`
+    ] as const;
+    }
+
+
+export const getListMyPpeAssignmentsQueryOptions = <TData = Awaited<ReturnType<typeof listMyPpeAssignments>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMyPpeAssignments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMyPpeAssignmentsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMyPpeAssignments>>> = ({ signal }) => listMyPpeAssignments({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMyPpeAssignments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMyPpeAssignmentsQueryResult = NonNullable<Awaited<ReturnType<typeof listMyPpeAssignments>>>
+export type ListMyPpeAssignmentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the logged-in user's pending unsigned PPE assignments (resolved by name)
+ */
+
+export function useListMyPpeAssignments<TData = Awaited<ReturnType<typeof listMyPpeAssignments>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMyPpeAssignments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMyPpeAssignmentsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getSignMyPpeHandoverUrl = (id: number,) => {
+
+
+
+
+  return `/api/me/ppe/assignments/${id}/sign`
+}
+
+/**
+ * @summary Self-service sign a PPE handover — creates handover document with same side-effects as the admin flow
+ */
+export const signMyPpeHandover = async (id: number,
+    myPpeSignInput: MyPpeSignInput, options?: RequestInit): Promise<MyPpeSignResult> => {
+
+  return customFetch<MyPpeSignResult>(getSignMyPpeHandoverUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      myPpeSignInput,)
+  }
+);}
+
+
+
+
+export const getSignMyPpeHandoverMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signMyPpeHandover>>, TError,{id: number;data: BodyType<MyPpeSignInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof signMyPpeHandover>>, TError,{id: number;data: BodyType<MyPpeSignInput>}, TContext> => {
+
+const mutationKey = ['signMyPpeHandover'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof signMyPpeHandover>>, {id: number;data: BodyType<MyPpeSignInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  signMyPpeHandover(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SignMyPpeHandoverMutationResult = NonNullable<Awaited<ReturnType<typeof signMyPpeHandover>>>
+    export type SignMyPpeHandoverMutationBody = BodyType<MyPpeSignInput>
+    export type SignMyPpeHandoverMutationError = ErrorType<void>
+
+    /**
+ * @summary Self-service sign a PPE handover — creates handover document with same side-effects as the admin flow
+ */
+export const useSignMyPpeHandover = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signMyPpeHandover>>, TError,{id: number;data: BodyType<MyPpeSignInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof signMyPpeHandover>>,
+        TError,
+        {id: number;data: BodyType<MyPpeSignInput>},
+        TContext
+      > => {
+      return useMutation(getSignMyPpeHandoverMutationOptions(options));
+    }
 
 export const getListJobVisitsUrl = (jobId: number,) => {
 

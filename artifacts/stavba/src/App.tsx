@@ -37,6 +37,7 @@ import SkladPohyby from "@/pages/sklad-pohyby";
 import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
 import Oopp from "@/pages/oopp";
+import OoppMoje from "@/pages/oopp-moje";
 import PpeConfirm from "@/pages/ppe-confirm";
 import PersonDetail from "@/pages/person-detail";
 import AuditLog from "@/pages/audit-log";
@@ -193,6 +194,7 @@ function AuthenticatedApp() {
         <Route path="/sklad" component={Sklad} />
         <Route path="/stroje" component={Stroje} />
         <Route path="/stroje/oopp" component={Oopp} />
+        <Route path="/oopp/moje" component={OoppMoje} />
         <Route path="/stroje/:id" component={StrojDetail} />
         <Route path="/activities" component={Activities} />
         <Route path="/activities/:id/export" component={ActivityExport} />

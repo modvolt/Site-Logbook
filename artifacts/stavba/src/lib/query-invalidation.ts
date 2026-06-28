@@ -62,7 +62,7 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
   // Zákazníci, jejich místa, kontakty, přístupové údaje + detail místa.
   customers: ["/api/customers", "/api/customer-sites"],
   people: ["/api/people", "/api/ppe/assignments"],
-  ppe: ["/api/ppe"],
+  ppe: ["/api/ppe", "/api/me/ppe"],
   machines: ["/api/machines"],
   leaves: ["/api/leaves"],
   // Faktury: seznam, detail, souhrn fakturace i nevyfakturovaní zákazníci.

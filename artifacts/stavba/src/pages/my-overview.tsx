@@ -4,13 +4,14 @@ import { format } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
   useGetMyStats, useGetMyDoneJobs, useListActivities, getListActivitiesQueryKey,
-  useGetMyVisits,
+  useGetMyVisits, useListMyPpeAssignments,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   User as UserIcon, Clock, Hammer, Briefcase, CheckCircle2, ChevronRight,
   Settings, ShieldAlert, UserCog, LogOut, Building2, Users, CalendarPlus,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -65,6 +66,7 @@ export default function MyOverview() {
   const { data: stats, isLoading: statsLoading } = useGetMyStats();
   const { data: myJobs } = useGetMyDoneJobs({ limit: 20 });
   const { data: myVisits } = useGetMyVisits(visitsParams);
+  const { data: myPpe } = useListMyPpeAssignments();
   const mineParams = { mine: true, archived: false };
   const { data: myActivities } = useListActivities(mineParams, {
     query: { queryKey: getListActivitiesQueryKey(mineParams) },
@@ -254,6 +256,37 @@ export default function MyOverview() {
             </ul>
           </CardContent>
         </Card>
+      )}
+
+      {/* Pending PPE assignments to sign */}
+      {myPpe !== undefined && (
+        <Link href="/oopp/moje">
+          <Card className={`cursor-pointer transition-colors hover:bg-muted/40 ${myPpe.length > 0 ? "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20" : ""}`}>
+            <CardContent className="p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${myPpe.length > 0 ? "bg-blue-600" : "bg-muted"}`}>
+                  <ShieldCheck className={`h-5 w-5 ${myPpe.length > 0 ? "text-white" : "text-muted-foreground"}`} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm">Moje OOPP k podpisu</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {myPpe.length === 0
+                      ? "Vše podepsáno"
+                      : `${myPpe.length} ${myPpe.length === 1 ? "výdej čeká na podpis" : myPpe.length < 5 ? "výdeje čekají na podpis" : "výdejů čeká na podpis"}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {myPpe.length > 0 && (
+                  <span className="min-w-[1.5rem] h-6 px-1.5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+                    {myPpe.length > 99 ? "99+" : myPpe.length}
+                  </span>
+                )}
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       )}
 
       {/* Quick links (mobile-only utility menu) */}
