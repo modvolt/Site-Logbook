@@ -18,7 +18,7 @@ import {
   AuditCredentialAccessBody,
   AuditCredentialExportParams,
 } from "@workspace/api-zod";
-import { requireRole } from "../middlewares/auth";
+import { requireRole, requireBiometricVerified } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -57,6 +57,7 @@ async function siteBelongsToCustomer(
 router.get(
   "/customers/:customerId/device-credentials",
   requireVaultAccess,
+  requireBiometricVerified,
   async (req, res): Promise<void> => {
     const params = ListDeviceCredentialsParams.safeParse(req.params);
     if (!params.success) {

@@ -42,6 +42,7 @@ import ppeRouter from "./ppe";
 import sessionsRouter from "./sessions";
 import signRouter from "./sign";
 import quotesRouter from "./quotes";
+import webauthnRouter from "./webauthn";
 
 const router: IRouter = Router();
 
@@ -88,5 +89,6 @@ router.use(ppeRouter);
 router.use(sessionsRouter);
 router.use(signRouter);
 router.use(quotesRouter);
+router.use(webauthnRouter);
 
 export default router;

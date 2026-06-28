@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
+import { BiometricVaultGate } from "@/components/biometric-vault-gate";
 import { useLocation } from "wouter";
 import {
   useListCustomers,
@@ -504,15 +505,27 @@ export default function PristupoveUdaje() {
     },
   });
 
-  const { data: credentials, isLoading: loadingCreds } = useListDeviceCredentials(
-    customerId ?? 0,
-    {
-      query: {
-        queryKey: getListDeviceCredentialsQueryKey(customerId ?? 0),
-        enabled: !!customerId,
+  const {
+    data: credentials,
+    isLoading: loadingCreds,
+    error: credsError,
+    refetch: refetchCreds,
+  } = useListDeviceCredentials(customerId ?? 0, {
+    query: {
+      queryKey: getListDeviceCredentialsQueryKey(customerId ?? 0),
+      enabled: !!customerId,
+      retry: (failureCount, error: any) => {
+        if (error?.status === 403 && (error?.data as any)?.code === "biometric_required") return false;
+        return failureCount < 2;
       },
     },
-  );
+  });
+
+  const needsBiometric =
+    !!customerId &&
+    !!credsError &&
+    (credsError as any)?.status === 403 &&
+    ((credsError as any)?.data as any)?.code === "biometric_required";
 
   const createCred = useCreateDeviceCredential();
   const updateCred = useUpdateDeviceCredential();
@@ -1403,7 +1416,13 @@ export default function PristupoveUdaje() {
             </Card>
           )}
 
-          {loadingCreds ? (
+          {needsBiometric ? (
+            <BiometricVaultGate
+              onVerified={() => {
+                void refetchCreds();
+              }}
+            />
+          ) : loadingCreds ? (
             <Skeleton className="h-24 w-full" />
           ) : credentials && credentials.length > 0 ? (
             <div className="space-y-5">

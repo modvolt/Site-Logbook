@@ -3138,6 +3138,210 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /auth/webauthn/register/begin:
+    post:
+      operationId: webauthnRegisterBegin
+      tags: [auth]
+      summary: Begin WebAuthn device registration (requires active session)
+      responses:
+        "200":
+          description: PublicKeyCredentialCreationOptions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/register/complete:
+    post:
+      operationId: webauthnRegisterComplete
+      tags: [auth]
+      summary: Complete WebAuthn device registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnRegisterCompleteInput"
+      responses:
+        "201":
+          description: Credential registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnCredentialItem"
+        "400":
+          description: Invalid or failed verification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/login/begin:
+    post:
+      operationId: webauthnLoginBegin
+      tags: [auth]
+      summary: Begin WebAuthn login (public)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnLoginBeginInput"
+      responses:
+        "200":
+          description: PublicKeyCredentialRequestOptions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          description: Username required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/login/complete:
+    post:
+      operationId: webauthnLoginComplete
+      tags: [auth]
+      summary: Complete WebAuthn login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnAuthCompleteInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/verify/begin:
+    post:
+      operationId: webauthnVerifyBegin
+      tags: [auth]
+      summary: Begin biometric re-verification (vault session gate)
+      responses:
+        "200":
+          description: PublicKeyCredentialRequestOptions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnOptions"
+        "400":
+          description: No credentials registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/verify/complete:
+    post:
+      operationId: webauthnVerifyComplete
+      tags: [auth]
+      summary: Complete biometric re-verification; sets session biometricVerifiedAt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebAuthnAuthCompleteInput"
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnVerifyResult"
+        "401":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/credentials:
+    get:
+      operationId: listWebAuthnCredentials
+      tags: [auth]
+      summary: List WebAuthn credentials for current user (admin may pass ?userId=X)
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of registered devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebAuthnCredentialItem"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/webauthn/credentials/{id}:
+    delete:
+      operationId: deleteWebAuthnCredential
+      tags: [auth]
+      summary: Delete a WebAuthn credential (owner or admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /preferences:
     get:
       operationId: getMyPreferences
@@ -9308,6 +9512,59 @@ components:
         isCurrent:
           type: boolean
           description: True when this session belongs to the current request
+
+    WebAuthnOptions:
+      type: object
+      description: PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn/server
+      additionalProperties: true
+
+    WebAuthnRegisterCompleteInput:
+      type: object
+      required: [response]
+      properties:
+        response:
+          type: object
+          additionalProperties: true
+          description: RegistrationResponseJSON from @simplewebauthn/browser
+        deviceName:
+          type: ["string", "null"]
+
+    WebAuthnLoginBeginInput:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+          minLength: 1
+
+    WebAuthnAuthCompleteInput:
+      type: object
+      required: [response]
+      properties:
+        response:
+          type: object
+          additionalProperties: true
+          description: AuthenticationResponseJSON from @simplewebauthn/browser
+
+    WebAuthnVerifyResult:
+      type: object
+      required: [verified]
+      properties:
+        verified:
+          type: boolean
+
+    WebAuthnCredentialItem:
+      type: object
+      required: [id, userId, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        deviceName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
 
     AuthUser:
       type: object

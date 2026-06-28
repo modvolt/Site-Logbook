@@ -3244,6 +3244,94 @@ export const ResetPasswordWithAnswersBody = zod.object({
 
 
 /**
+ * @summary Begin WebAuthn device registration (requires active session)
+ */
+export const WebauthnRegisterBeginResponse = zod.record(zod.string(), zod.unknown()).describe('PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn\/server')
+
+
+/**
+ * @summary Complete WebAuthn device registration
+ */
+export const WebauthnRegisterCompleteBody = zod.object({
+  "response": zod.record(zod.string(), zod.unknown()).describe('RegistrationResponseJSON from @simplewebauthn\/browser'),
+  "deviceName": zod.string().nullish()
+})
+
+
+/**
+ * @summary Begin WebAuthn login (public)
+ */
+
+
+
+export const WebauthnLoginBeginBody = zod.object({
+  "username": zod.string().min(1)
+})
+
+export const WebauthnLoginBeginResponse = zod.record(zod.string(), zod.unknown()).describe('PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn\/server')
+
+
+/**
+ * @summary Complete WebAuthn login
+ */
+export const WebauthnLoginCompleteBody = zod.object({
+  "response": zod.record(zod.string(), zod.unknown()).describe('AuthenticationResponseJSON from @simplewebauthn\/browser')
+})
+
+export const WebauthnLoginCompleteResponse = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Begin biometric re-verification (vault session gate)
+ */
+export const WebauthnVerifyBeginResponse = zod.record(zod.string(), zod.unknown()).describe('PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn\/server')
+
+
+/**
+ * @summary Complete biometric re-verification; sets session biometricVerifiedAt
+ */
+export const WebauthnVerifyCompleteBody = zod.object({
+  "response": zod.record(zod.string(), zod.unknown()).describe('AuthenticationResponseJSON from @simplewebauthn\/browser')
+})
+
+export const WebauthnVerifyCompleteResponse = zod.object({
+  "verified": zod.boolean()
+})
+
+
+/**
+ * @summary List WebAuthn credentials for current user (admin may pass ?userId=X)
+ */
+export const ListWebAuthnCredentialsQueryParams = zod.object({
+  "userId": zod.coerce.number().optional()
+})
+
+export const ListWebAuthnCredentialsResponseItem = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "deviceName": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListWebAuthnCredentialsResponse = zod.array(ListWebAuthnCredentialsResponseItem)
+
+
+/**
+ * @summary Delete a WebAuthn credential (owner or admin/master)
+ */
+export const DeleteWebAuthnCredentialParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary Get the current user's preferences
  */
 export const GetMyPreferencesResponse = zod.object({

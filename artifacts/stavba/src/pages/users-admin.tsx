@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye, Monitor } from "lucide-react";
+import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye, Monitor, Fingerprint, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { WebAuthnDeviceManager } from "@/components/webauthn-device-manager";
 
 const ROLE_META: Record<string, { label: string; color: string; icon: any; desc: string }> = {
   admin: { label: "Admin", color: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300", icon: ShieldCheck, desc: "Plný přístup + správa uživatelů" },
@@ -304,6 +305,27 @@ export default function UsersAdmin() {
           </div>
         </div>
       </div>
+      {/* Biometric device management per user */}
+      <div className="mt-6">
+        <h2 className="font-semibold flex items-center gap-2 mb-3">
+          <Fingerprint className="h-4 w-4 text-violet-500" />
+          Biometrická zařízení uživatelů
+        </h2>
+        <div className="space-y-3">
+          {users?.map((u) => (
+            <details key={u.id} className="bg-card border rounded-xl overflow-hidden group">
+              <summary className="px-4 py-3 cursor-pointer list-none flex items-center justify-between hover:bg-muted/40">
+                <span className="font-medium text-sm">{u.name} <span className="text-muted-foreground font-normal">({u.username})</span></span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="px-4 pb-4 border-t pt-4">
+                <WebAuthnDeviceManager userId={u.id} title="Zařízení uživatele" />
+              </div>
+            </details>
+          ))}
+        </div>
+      </div>
+
       <ConfirmDialog {...dialogProps} />
     </div>
   );

@@ -2379,6 +2379,50 @@ export interface ResetPasswordWithAnswersInput {
   newPassword: string;
 }
 
+/**
+ * PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn/server
+ */
+export interface WebAuthnOptions { [key: string]: unknown }
+
+/**
+ * RegistrationResponseJSON from @simplewebauthn/browser
+ */
+export type WebAuthnRegisterCompleteInputResponse = { [key: string]: unknown };
+
+export interface WebAuthnRegisterCompleteInput {
+  /** RegistrationResponseJSON from @simplewebauthn/browser */
+  response: WebAuthnRegisterCompleteInputResponse;
+  /** @nullable */
+  deviceName?: string | null;
+}
+
+export interface WebAuthnCredentialItem {
+  id: number;
+  userId: number;
+  /** @nullable */
+  deviceName?: string | null;
+  createdAt: string;
+}
+
+export interface WebAuthnLoginBeginInput {
+  /** @minLength 1 */
+  username: string;
+}
+
+/**
+ * AuthenticationResponseJSON from @simplewebauthn/browser
+ */
+export type WebAuthnAuthCompleteInputResponse = { [key: string]: unknown };
+
+export interface WebAuthnAuthCompleteInput {
+  /** AuthenticationResponseJSON from @simplewebauthn/browser */
+  response: WebAuthnAuthCompleteInputResponse;
+}
+
+export interface WebAuthnVerifyResult {
+  verified: boolean;
+}
+
 export interface UserPreferences {
   /** @nullable */
   exportColumns: string[] | null;
@@ -5500,6 +5544,10 @@ export type PurgeClientErrorsParams = {
  * Delete entries older than this many days (default from CLIENT_ERRORS_RETENTION_DAYS env or 90)
  */
 olderThanDays?: number;
+};
+
+export type ListWebAuthnCredentialsParams = {
+userId?: number;
 };
 
 export type RetryEmailImportLog200 = {

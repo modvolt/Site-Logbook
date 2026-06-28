@@ -17,6 +17,9 @@ const SKIP_PREFIXES = [
   "/gdpr/",
   "/billing/bank-statements/",
   "/billing/email-import/",
+  // WebAuthn: challenges and credential management are session events, not domain mutations.
+  // Admin credential deletions write their own richer audit entries in webauthn.ts.
+  "/auth/webauthn/",
 ];
 
 // Path suffixes to skip — these routes write their own richer audit entries.

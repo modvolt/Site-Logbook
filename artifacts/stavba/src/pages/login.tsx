@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Briefcase, LogIn, ShieldAlert, RotateCw, KeyRound, ArrowLeft, Loader2 } from "lucide-react";
+import { Briefcase, LogIn, ShieldAlert, RotateCw, KeyRound, ArrowLeft, Loader2, Fingerprint } from "lucide-react";
 import {
   useLogin,
   useSetupFirstAdmin,
   useForgotPasswordQuestions,
   useResetPasswordWithAnswers,
+  useWebauthnLoginBegin,
+  useWebauthnLoginComplete,
   type SecurityQuestionItem,
 } from "@workspace/api-client-react";
+import { startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -161,6 +164,8 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const login = useLogin();
   const setup = useSetupFirstAdmin();
+  const webauthnBegin = useWebauthnLoginBegin();
+  const webauthnComplete = useWebauthnLoginComplete();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -169,11 +174,50 @@ export default function Login() {
   const [showForgot, setShowForgot] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({});
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [webauthnSupported, setWebauthnSupported] = useState(false);
+
+  useEffect(() => {
+    const hasRegistered = localStorage.getItem("webauthn_registered") === "1";
+    if (hasRegistered && browserSupportsWebAuthn()) {
+      setWebauthnSupported(true);
+    }
+  }, []);
 
   const goToApp = () => {
     debugLog("auth", "login success → redirect to dashboard (/)");
     refresh();
     setLocation("/");
+  };
+
+  const handleBiometricLogin = async () => {
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername) {
+      setFieldErrors({ username: "Zadejte uživatelské jméno pro přihlášení biometrikou." });
+      return;
+    }
+    setBiometricLoading(true);
+    try {
+      const options = await webauthnBegin.mutateAsync({ data: { username: trimmedUsername } });
+      let authResp;
+      try {
+        authResp = await startAuthentication({ optionsJSON: options as any });
+      } catch (err: any) {
+        if (err?.name === "NotAllowedError") {
+          toast({ title: "Biometrické přihlášení zrušeno" });
+        } else {
+          toast({ title: "Biometrické přihlášení selhalo", description: err?.message, variant: "destructive" });
+        }
+        return;
+      }
+      await webauthnComplete.mutateAsync({ data: { response: authResp as any } });
+      goToApp();
+      toast({ title: "Přihlášeno biometrikou" });
+    } catch (err: any) {
+      toast({ title: "Biometrické přihlášení selhalo", description: err?.message ?? "Zkuste se přihlásit heslem.", variant: "destructive" });
+    } finally {
+      setBiometricLoading(false);
+    }
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -283,10 +327,26 @@ export default function Login() {
                 <p className="text-destructive text-xs mt-1">{fieldErrors.password}</p>
               )}
             </div>
-            <Button type="submit" disabled={login.isPending} className="w-full h-11">
+            <Button type="submit" disabled={login.isPending || biometricLoading} className="w-full h-11">
               {login.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LogIn className="w-4 h-4 mr-2" />}
               Přihlásit se
             </Button>
+            {webauthnSupported && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-11"
+                disabled={biometricLoading || login.isPending}
+                onClick={() => void handleBiometricLogin()}
+              >
+                {biometricLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Fingerprint className="w-4 h-4 mr-2 text-violet-500" />
+                )}
+                Přihlásit biometrikou
+              </Button>
+            )}
             <button
               type="button"
               onClick={() => setShowForgot(true)}

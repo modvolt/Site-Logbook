@@ -96,6 +96,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
     "@workspace/object-storage-web": "workspace:*",
     "heic2any": "^0.0.4",
     "jspdf": "^4.2.1",

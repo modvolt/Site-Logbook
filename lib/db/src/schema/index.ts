@@ -44,3 +44,4 @@ export * from "./user-sessions";
 export * from "./quotes";
 export * from "./health-log";
 export * from "./recurring-invoice-templates";
+export * from "./webauthn-credentials";

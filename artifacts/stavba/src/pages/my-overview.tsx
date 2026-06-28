@@ -18,6 +18,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLogout } from "@workspace/api-client-react";
 import { clearApiCache } from "@/lib/pwa";
 import { useQueryClient } from "@tanstack/react-query";
+import { WebAuthnDeviceManager } from "@/components/webauthn-device-manager";
 
 function todayYmd() {
   const d = new Date();
@@ -288,6 +289,13 @@ export default function MyOverview() {
           </Card>
         </Link>
       )}
+
+      {/* Biometric device management */}
+      <Card>
+        <CardContent className="p-4">
+          <WebAuthnDeviceManager />
+        </CardContent>
+      </Card>
 
       {/* Quick links (mobile-only utility menu) */}
       <Card className="md:hidden">
