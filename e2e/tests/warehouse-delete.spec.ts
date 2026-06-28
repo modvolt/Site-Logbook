@@ -43,22 +43,34 @@ test.describe("Warehouse delete guard", () => {
     page,
   }) => {
     const uniqueName = `E2E_Fresh_${Date.now()}`;
-    const createRes = await page.request.post("/api/warehouse-items", {
-      data: { name: uniqueName },
-    });
-    expect(createRes.status()).toBe(201);
+    let itemId: number | undefined;
 
-    await page.goto("/sklad");
-    await expect(page.getByRole("heading", { name: "Sklad" })).toBeVisible();
-    const itemText = page.getByText(uniqueName, { exact: true }).first();
-    await expect(itemText).toBeVisible();
+    try {
+      const createRes = await page.request.post("/api/warehouse-items", {
+        data: { name: uniqueName },
+      });
+      expect(createRes.status()).toBe(201);
+      const item = (await createRes.json()) as { id: number };
+      itemId = item.id;
 
-    page.once("dialog", (dialog) => dialog.accept());
-    const card = page.locator(".transition-colors").filter({ has: page.getByText(uniqueName, { exact: true }) });
-    await card.locator("button.text-destructive").click();
+      await page.goto("/sklad");
+      await expect(page.getByRole("heading", { name: "Sklad" })).toBeVisible();
+      const itemText = page.getByText(uniqueName, { exact: true }).first();
+      await expect(itemText).toBeVisible();
 
-    await expect(page.getByText("Položka smazána", { exact: true })).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText(uniqueName, { exact: true })).not.toBeVisible();
+      const card = page.locator(".transition-colors").filter({ has: page.getByText(uniqueName, { exact: true }) });
+      await card.locator("button.text-destructive").click();
+
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Smazat" }).click();
+
+      await expect(page.getByText("Položka smazána", { exact: true })).toBeVisible({ timeout: 8_000 });
+      await expect(page.getByText(uniqueName, { exact: true })).not.toBeVisible();
+      itemId = undefined;
+    } finally {
+      if (itemId !== undefined) await cleanupWarehouseItem(page.request, itemId);
+    }
   });
 
   test("shows error toast and keeps item when deleting item with movements via UI", async ({
@@ -84,9 +96,12 @@ test.describe("Warehouse delete guard", () => {
       const itemText = page.getByText(uniqueName, { exact: true }).first();
       await expect(itemText).toBeVisible();
 
-      page.once("dialog", (dialog) => dialog.accept());
       const card = page.locator(".transition-colors").filter({ has: page.getByText(uniqueName, { exact: true }) });
       await card.locator("button.text-destructive").click();
+
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Smazat" }).click();
 
       await expect(page.getByText("Nelze smazat", { exact: true })).toBeVisible({ timeout: 8_000 });
       await expect(page.getByText(uniqueName, { exact: true }).first()).toBeVisible();
