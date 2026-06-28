@@ -226,19 +226,19 @@ function PersonLeavesDialog({
                 <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
                   {summary.vacationDays}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">Dovolená (dny {CURRENT_YEAR})</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Dovolená (prac. dny {CURRENT_YEAR})</div>
               </div>
               <div className="rounded-lg bg-rose-50 dark:bg-rose-950/20 p-3 text-center">
                 <div className="text-2xl font-bold text-rose-700 dark:text-rose-400">
                   {summary.sickDays}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">Nemoc (dny {CURRENT_YEAR})</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Nemoc (prac. dny {CURRENT_YEAR})</div>
               </div>
               <div className="rounded-lg bg-sky-50 dark:bg-sky-950/20 p-3 text-center">
                 <div className="text-2xl font-bold text-sky-700 dark:text-sky-400">
                   {summary.otherDays}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">Jiné (dny {CURRENT_YEAR})</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Jiné (prac. dny {CURRENT_YEAR})</div>
               </div>
             </div>
           )}
@@ -387,7 +387,7 @@ function PersonLeavesDialog({
                           ? leave.startDate
                           : `${leave.startDate} – ${leave.endDate}`}
                         {" "}
-                        <span className="font-semibold text-foreground">({leave.days} {leave.days === 1 ? "den" : leave.days < 5 ? "dny" : "dní"})</span>
+                        <span className="font-semibold text-foreground">({leave.days} {leave.days === 1 ? "prac. den" : "prac. dní"})</span>
                       </span>
                     </div>
                     {leave.note && (

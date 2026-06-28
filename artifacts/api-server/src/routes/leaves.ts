@@ -4,6 +4,7 @@ import { db, employeeLeavesTable, peopleTable } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { z } from "zod/v4";
 import { generateLeavesSummaryPdf, generateLeavesSummaryCsv, type LeaveSummaryRow } from "../lib/leaves-export";
+import { getCzechPublicHolidays } from "./public-holidays";
 
 const router: IRouter = Router();
 
@@ -32,11 +33,43 @@ const ExportQuerySchema = z.object({
   format: z.enum(["csv", "pdf"]).default("csv"),
 });
 
+/**
+ * Build a Set of YYYY-MM-DD holiday strings covering all years in [startDate, endDate].
+ */
+function buildHolidaySet(startDate: string, endDate: string): Set<string> {
+  const startYear = parseInt(startDate.slice(0, 4), 10);
+  const endYear = parseInt(endDate.slice(0, 4), 10);
+  const set = new Set<string>();
+  for (let y = startYear; y <= endYear; y++) {
+    for (const h of getCzechPublicHolidays(y)) {
+      set.add(h.date);
+    }
+  }
+  return set;
+}
+
+/**
+ * Count business days (Mon–Fri, excluding Czech public holidays) between two
+ * YYYY-MM-DD strings (inclusive). Returns at least 0 for same-day entries on
+ * weekends/holidays.
+ */
+function countBusinessDays(startDate: string, endDate: string, holidays: Set<string>): number {
+  let count = 0;
+  const cur = new Date(startDate + "T00:00:00Z");
+  const end = new Date(endDate + "T00:00:00Z");
+  while (cur <= end) {
+    const dow = cur.getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays.has(cur.toISOString().slice(0, 10))) {
+      count++;
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return count;
+}
+
 function serializeLeave(leave: typeof employeeLeavesTable.$inferSelect, personName?: string | null) {
-  const start = new Date(leave.startDate + "T00:00:00Z");
-  const end = new Date(leave.endDate + "T00:00:00Z");
-  const diffMs = end.getTime() - start.getTime();
-  const days = Math.max(1, Math.round(diffMs / 86400000) + 1);
+  const holidays = buildHolidaySet(leave.startDate, leave.endDate);
+  const days = countBusinessDays(leave.startDate, leave.endDate, holidays);
   return {
     ...leave,
     personName: personName ?? null,
@@ -47,17 +80,21 @@ function serializeLeave(leave: typeof employeeLeavesTable.$inferSelect, personNa
 }
 
 /**
- * Count calendar days of a leave that fall within [yearFrom, yearTo].
+ * Count business days of a leave that fall within [yearFrom, yearTo].
  * Clips the leave's start/end to the year window so cross-year entries
  * are counted only for the days that actually fall in the target year.
  */
-function countDaysInYear(startDate: string, endDate: string, yearFrom: string, yearTo: string): number {
+function countBusinessDaysInYear(
+  startDate: string,
+  endDate: string,
+  yearFrom: string,
+  yearTo: string,
+  holidays: Set<string>,
+): number {
   const clippedStart = startDate < yearFrom ? yearFrom : startDate;
   const clippedEnd = endDate > yearTo ? yearTo : endDate;
   if (clippedStart > clippedEnd) return 0;
-  const s = new Date(clippedStart + "T00:00:00Z");
-  const e = new Date(clippedEnd + "T00:00:00Z");
-  return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+  return countBusinessDays(clippedStart, clippedEnd, holidays);
 }
 
 router.get("/leaves", async (req, res): Promise<void> => {
@@ -216,6 +253,8 @@ router.get("/leaves/summary", async (req, res): Promise<void> => {
       ),
     );
 
+  const holidays = buildHolidaySet(from, to);
+
   const summary = people.map((person) => {
     const personLeaves = leaves.filter((l) => l.personId === person.id);
     let vacationDays = 0;
@@ -223,7 +262,7 @@ router.get("/leaves/summary", async (req, res): Promise<void> => {
     let otherDays = 0;
 
     for (const leave of personLeaves) {
-      const days = countDaysInYear(leave.startDate, leave.endDate, from, to);
+      const days = countBusinessDaysInYear(leave.startDate, leave.endDate, from, to, holidays);
       if (leave.type === "vacation") vacationDays += days;
       else if (leave.type === "sick") sickDays += days;
       else otherDays += days;
@@ -279,6 +318,8 @@ router.get(
       );
     const leaves = await leavesQuery;
 
+    const holidays = buildHolidaySet(from, to);
+
     const summaryRows: LeaveSummaryRow[] = people.map((person) => {
       const personLeaves = leaves.filter((l) => l.personId === person.id);
       let vacationDays = 0;
@@ -286,7 +327,7 @@ router.get(
       let otherDays = 0;
 
       for (const leave of personLeaves) {
-        const days = countDaysInYear(leave.startDate, leave.endDate, from, to);
+        const days = countBusinessDaysInYear(leave.startDate, leave.endDate, from, to, holidays);
         if (leave.type === "vacation") vacationDays += days;
         else if (leave.type === "sick") sickDays += days;
         else otherDays += days;
