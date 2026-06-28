@@ -1,0 +1,1 @@
+ALTER TABLE "quotes" ADD COLUMN "share_token" text;

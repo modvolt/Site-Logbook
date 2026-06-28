@@ -1,6 +1,6 @@
 {
   "id": "b8a374ec-efec-4333-8fd6-89bde4e1b00e",
-  "prevId": "3d080107-ef45-48ca-b636-28708826fa91",
+  "prevId": "dd827aeb-295a-4990-9144-18f71a1be5d9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6534,6 +6534,124 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.leave_settings": {
+      "name": "leave_settings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "vacation_yearly_cap": {
+          "name": "vacation_yearly_cap",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 25
+        },
+        "sick_yearly_cap": {
+          "name": "sick_yearly_cap",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 60
+        },
+        "other_yearly_cap": {
+          "name": "other_yearly_cap",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 30
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ppe_items": {
+      "name": "ppe_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ostatni'"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_replacement_months": {
+          "name": "default_replacement_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_inspection_months": {
+          "name": "default_inspection_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false,
+      "policies": {}
+    },
     "public.ppe_assignments": {
       "name": "ppe_assignments",
       "schema": "",
@@ -6690,6 +6808,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "signature_token": {
+          "name": "signature_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signature_object_path": {
+          "name": "signature_object_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirm_token": {
+          "name": "confirm_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6767,11 +6903,25 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ppe_assignments_signature_token_idx": {
+          "name": "ppe_assignments_signature_token_idx",
+          "columns": [
+            {
+              "expression": "signature_token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "\"signature_token\" IS NOT NULL"
         }
       },
       "foreignKeys": {
         "ppe_assignments_ppe_item_id_ppe_items_id_fk": {
-          "name": "ppe_assignments_ppe_item_id_ppe_items_id_fk",
           "tableFrom": "ppe_assignments",
           "tableTo": "ppe_items",
           "columnsFrom": [
@@ -6781,10 +6931,10 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "name": "ppe_assignments_ppe_item_id_ppe_items_id_fk"
         },
         "ppe_assignments_person_id_people_id_fk": {
-          "name": "ppe_assignments_person_id_people_id_fk",
           "tableFrom": "ppe_assignments",
           "tableTo": "people",
           "columnsFrom": [
@@ -6794,7 +6944,8 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "name": "ppe_assignments_person_id_people_id_fk"
         }
       },
       "compositePrimaryKeys": {},
@@ -6814,370 +6965,9 @@
           ]
         }
       },
-      "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.ppe_handover_documents": {
-      "name": "ppe_handover_documents",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "assignment_id": {
-          "name": "assignment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "document_number": {
-          "name": "document_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "signatory_name": {
-          "name": "signatory_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "signed_at": {
-          "name": "signed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "confirmation_text": {
-          "name": "confirmation_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "png_object_path": {
-          "name": "png_object_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "png_sha256": {
-          "name": "png_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "pdf_object_path": {
-          "name": "pdf_object_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "pdf_sha256": {
-          "name": "pdf_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issuer_snapshot": {
-          "name": "issuer_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "ppe_handover_documents_assignment_id_idx": {
-          "name": "ppe_handover_documents_assignment_id_idx",
-          "columns": [
-            {
-              "expression": "assignment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ppe_handover_documents_assignment_id_ppe_assignments_id_fk": {
-          "name": "ppe_handover_documents_assignment_id_ppe_assignments_id_fk",
-          "tableFrom": "ppe_handover_documents",
-          "tableTo": "ppe_assignments",
-          "columnsFrom": [
-            "assignment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ppe_handover_documents_assignment_id_uniq": {
-          "name": "ppe_handover_documents_assignment_id_uniq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "assignment_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.ppe_handover_events": {
-      "name": "ppe_handover_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "assignment_id": {
-          "name": "assignment_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "handover_document_id": {
-          "name": "handover_document_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "event_type": {
-          "name": "event_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_name": {
-          "name": "actor_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "ppe_handover_events_assignment_id_idx": {
-          "name": "ppe_handover_events_assignment_id_idx",
-          "columns": [
-            {
-              "expression": "assignment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ppe_handover_events_assignment_id_ppe_assignments_id_fk": {
-          "name": "ppe_handover_events_assignment_id_ppe_assignments_id_fk",
-          "tableFrom": "ppe_handover_events",
-          "tableTo": "ppe_assignments",
-          "columnsFrom": [
-            "assignment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "ppe_handover_events_handover_document_id_ppe_handover_documents_id_fk": {
-          "name": "ppe_handover_events_handover_document_id_ppe_handover_documents_id_fk",
-          "tableFrom": "ppe_handover_events",
-          "tableTo": "ppe_handover_documents",
-          "columnsFrom": [
-            "handover_document_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "ppe_handover_events_actor_user_id_users_id_fk": {
-          "name": "ppe_handover_events_actor_user_id_users_id_fk",
-          "tableFrom": "ppe_handover_events",
-          "tableTo": "users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.ppe_items": {
-      "name": "ppe_items",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ostatni'"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_replacement_months": {
-          "name": "default_replacement_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_inspection_months": {
-          "name": "default_inspection_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.leave_settings": {
-      "name": "leave_settings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "default": 1
-        },
-        "vacation_yearly_cap": {
-          "name": "vacation_yearly_cap",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 25
-        },
-        "sick_yearly_cap": {
-          "name": "sick_yearly_cap",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 60
-        },
-        "other_yearly_cap": {
-          "name": "other_yearly_cap",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 30
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "isRLSEnabled": false,
+      "policies": {}
     }
   },
   "enums": {},

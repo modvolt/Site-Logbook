@@ -1,6 +1,6 @@
 {
-  "id": "0052_backup_restore_test",
-  "prevId": "d4e5f6a7-b8c9-0123-defa-234567890123",
+  "id": "d6f512ed-8e2d-41de-9d9a-e3a60c5deff3",
+  "prevId": "a62cecb0-f114-496e-8ea9-0450756fa083",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6497,7 +6497,7 @@
     },
     "public.ppe_items": {
       "name": "ppe_items",
-      "schema": "public",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -6561,11 +6561,13 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {},
+      "isRLSEnabled": false,
+      "policies": {}
     },
     "public.ppe_assignments": {
       "name": "ppe_assignments",
-      "schema": "public",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -6670,22 +6672,19 @@
           "name": "signature_token",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "signature_object_path": {
           "name": "signature_object_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "confirm_token": {
           "name": "confirm_token",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         }
       },
       "indexes": {
@@ -6767,18 +6766,21 @@
         "ppe_assignments_signature_token_idx": {
           "name": "ppe_assignments_signature_token_idx",
           "columns": [
-            "signature_token"
+            {
+              "expression": "signature_token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
           ],
           "isUnique": true,
           "concurrently": false,
           "method": "btree",
-          "where": "\"signature_token\" IS NOT NULL",
-          "nullsNotDistinct": false
+          "where": "\"signature_token\" IS NOT NULL"
         }
       },
       "foreignKeys": {
         "ppe_assignments_ppe_item_id_ppe_items_id_fk": {
-          "constraintName": "ppe_assignments_ppe_item_id_ppe_items_id_fk",
           "tableFrom": "ppe_assignments",
           "columnsFrom": [
             "ppe_item_id"
@@ -6789,10 +6791,10 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "name": "ppe_assignments_ppe_item_id_ppe_items_id_fk"
         },
         "ppe_assignments_person_id_people_id_fk": {
-          "constraintName": "ppe_assignments_person_id_people_id_fk",
           "tableFrom": "ppe_assignments",
           "columnsFrom": [
             "person_id"
@@ -6803,7 +6805,8 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "name": "ppe_assignments_person_id_people_id_fk"
         }
       },
       "compositePrimaryKeys": {},
@@ -6816,7 +6819,9 @@
           ]
         }
       },
-      "checkConstraints": {}
+      "checkConstraints": {},
+      "isRLSEnabled": false,
+      "policies": {}
     },
     "public.user_sessions": {
       "name": "user_sessions",
@@ -6934,79 +6939,68 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "quote_number": {
           "name": "quote_number",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "customer_id": {
           "name": "customer_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "title": {
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "'draft'"
         },
         "valid_until": {
           "name": "valid_until",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "notes": {
           "name": "notes",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "pdf_object_path": {
           "name": "pdf_object_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "converted_to_job_id": {
           "name": "converted_to_job_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "converted_to_invoice_id": {
           "name": "converted_to_invoice_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "now()"
         },
         "updated_at": {
@@ -7014,7 +7008,6 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "now()"
         }
       },
@@ -7034,52 +7027,45 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "quote_id": {
           "name": "quote_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "position": {
           "name": "position",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "0"
         },
         "description": {
           "name": "description",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "quantity": {
           "name": "quantity",
           "type": "numeric(12,4)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "1"
         },
         "unit": {
           "name": "unit",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "unit_price": {
           "name": "unit_price",
           "type": "numeric(12,2)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "0"
         },
         "vat_rate": {
@@ -7087,7 +7073,6 @@
           "type": "numeric(5,2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": "21"
         }
       },
@@ -7107,51 +7092,44 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "checked_at": {
           "name": "checked_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "now()"
         },
         "db_ok": {
           "name": "db_ok",
           "type": "boolean",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "db_latency_ms": {
           "name": "db_latency_ms",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "s3_ok": {
           "name": "s3_ok",
           "type": "boolean",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "smtp_ok": {
           "name": "smtp_ok",
           "type": "boolean",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "overall_status": {
           "name": "overall_status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "'ok'"
         }
       },

@@ -1,6 +1,6 @@
 {
-  "id": "dd827aeb-295a-4990-9144-18f71a1be5d9",
-  "prevId": "b8a374ec-efec-4333-8fd6-89bde4e1b00e",
+  "id": "154247fb-3115-4ea8-a34f-16f711c61d0c",
+  "prevId": "437cb37c-6714-43d2-82d0-71d369427efc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6590,24 +6590,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "signature_token": {
-          "name": "signature_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "signature_object_path": {
-          "name": "signature_object_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "confirm_token_expires_at": {
-          "name": "confirm_token_expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6684,22 +6666,6 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
-          "with": {}
-        },
-        "ppe_assignments_signature_token_idx": {
-          "name": "ppe_assignments_signature_token_idx",
-          "columns": [
-            {
-              "expression": "signature_token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "where": "\"ppe_assignments\".\"signature_token\" is not null",
           "with": {}
         }
       },
