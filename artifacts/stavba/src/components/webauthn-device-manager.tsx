@@ -115,7 +115,7 @@ export function WebAuthnDeviceManager({ userId, readOnly = false, title = "Biome
           <Fingerprint className="h-4 w-4 text-violet-500" />
           {title}
         </h3>
-        {!readOnly && !adding && (
+        {!readOnly && !adding && !userId && (
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setAdding(true)}>
             <Plus className="h-3 w-3 mr-1" /> Přidat toto zařízení
           </Button>
