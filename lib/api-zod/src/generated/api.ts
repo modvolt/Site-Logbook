@@ -8079,6 +8079,19 @@ export const DeleteRecurringTemplateParams = zod.object({
 
 
 /**
+ * @summary Manually generate a draft invoice from a specific template now, bypassing the schedule (admin only)
+ */
+export const GenerateNowRecurringTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GenerateNowRecurringTemplateResponse = zod.object({
+  "invoiceId": zod.number(),
+  "period": zod.string()
+})
+
+
+/**
  * @summary Import a job's doklady attachments as cost documents (admin only)
  */
 export const AnalyzeJobDocumentsParams = zod.object({

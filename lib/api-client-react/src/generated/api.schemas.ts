@@ -5066,6 +5066,11 @@ export interface UpdateRecurringTemplateInput {
   vatModeDefault?: string;
 }
 
+export interface GenerateNowResult {
+  invoiceId: number;
+  period: string;
+}
+
 export interface AnalyzeJobDocumentsResult {
   created: CostDocument[];
   createdCount: number;

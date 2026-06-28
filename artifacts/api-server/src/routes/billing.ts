@@ -61,6 +61,7 @@ import {
   updateRecurringTemplate,
   deleteRecurringTemplate,
   runRecurringGeneration,
+  generateTemplateNow,
 } from "../lib/recurring-templates";
 
 const router: IRouter = Router();
@@ -693,6 +694,20 @@ router.post("/billing/recurring-templates/generate", async (req, res): Promise<v
     res.json(result);
   } catch (err) {
     handleError(err, "Ruční generování paušálních faktur selhalo.", res);
+  }
+});
+
+router.post("/billing/recurring-templates/:id/generate", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID šablony." });
+    return;
+  }
+  try {
+    const result = await generateTemplateNow(id);
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Generování konceptu faktury selhalo.", res);
   }
 });
 

@@ -288,11 +288,33 @@ export async function runRecurringGeneration(today: string): Promise<{
   return { processed, created, skipped, failed };
 }
 
+/**
+ * Manually generate a draft invoice for a single template right now,
+ * bypassing the nextGenerationDate check. Still deduplicates by period.
+ * Throws with statusCode 404 if not found, 409 if already generated for this period.
+ */
+export async function generateTemplateNow(id: number): Promise<{ invoiceId: number; period: string }> {
+  const [template] = await db
+    .select()
+    .from(recurringInvoiceTemplatesTable)
+    .where(eq(recurringInvoiceTemplatesTable.id, id));
+
+  if (!template) throw appError(404, "Šablona nenalezena.");
+
+  const period = periodLabel(
+    template.nextGenerationDate,
+    template.interval as "monthly" | "quarterly" | "yearly",
+  );
+  const today = new Date().toISOString().split("T")[0]!;
+  return generateFromTemplate(template, period, today, true);
+}
+
 async function generateFromTemplate(
   template: RecurringInvoiceTemplate,
   period: string,
   today: string,
-): Promise<void> {
+  manualTrigger?: boolean,
+): Promise<{ invoiceId: number; period: string }> {
   // Use an advisory lock keyed on the template id to serialize concurrent
   // generation attempts for the same template. The lock is held for the
   // duration of the outer transaction, so a second concurrent caller will
@@ -300,7 +322,7 @@ async function generateFromTemplate(
   // — at which point the dedup check will find the generation record and throw
   // DEDUPE. This ensures only one draft invoice is created per template+period
   // even if the scheduler and a manual trigger fire simultaneously.
-  await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(${template.id})`,
     );
@@ -316,7 +338,13 @@ async function generateFromTemplate(
         ),
       );
     if (existing) {
-      // Advance nextGenerationDate even when dedupe fires so we don't get stuck
+      if (manualTrigger) {
+        // For manual triggers, surface a 409 so the UI can show a clear message.
+        // Do NOT advance nextGenerationDate — the admin triggered this manually,
+        // so the scheduled date should remain intact.
+        throw appError(409, `Koncept faktury pro období ${period} již existuje.`);
+      }
+      // Scheduler path: advance nextGenerationDate so we don't get stuck
       await tx
         .update(recurringInvoiceTemplatesTable)
         .set({
@@ -392,7 +420,10 @@ async function generateFromTemplate(
         updatedAt: new Date(),
       })
       .where(eq(recurringInvoiceTemplatesTable.id, template.id));
+
+    return { invoiceId: draft.id, period };
   });
+  return result;
 }
 
 let schedulerStarted = false;

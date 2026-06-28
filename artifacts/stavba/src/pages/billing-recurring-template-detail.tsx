@@ -5,6 +5,7 @@ import {
   useUpdateRecurringTemplate,
   useDeleteRecurringTemplate,
   useListCustomers,
+  useGenerateNowRecurringTemplate,
   getGetRecurringTemplateQueryKey,
   getListRecurringTemplatesQueryKey,
 } from "@workspace/api-client-react";
@@ -45,6 +46,7 @@ import {
   AlertCircle,
   CalendarClock,
   FileText,
+  Zap,
 } from "lucide-react";
 import { fmtDate, fmtKc } from "@/lib/billing-format";
 import { InvoiceStatusBadge } from "@/components/badges";
@@ -78,6 +80,7 @@ export default function BillingRecurringTemplateDetail() {
 
   const updateTemplate = useUpdateRecurringTemplate();
   const deleteTemplate = useDeleteRecurringTemplate();
+  const generateNow = useGenerateNowRecurringTemplate();
 
   const [name, setName] = useState("");
   const [interval, setIntervalVal] = useState<"monthly" | "quarterly" | "yearly">("monthly");
@@ -172,6 +175,21 @@ export default function BillingRecurringTemplateDetail() {
     }
   };
 
+  const handleGenerateNow = async () => {
+    try {
+      await generateNow.mutateAsync({ id });
+      await queryClient.invalidateQueries({ queryKey: getGetRecurringTemplateQueryKey(id) });
+      invalidateData(queryClient, "billingRecurringTemplates", "billingInvoices");
+      toast({ title: "Koncept faktury vytvořen" });
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error && "data" in err && typeof (err as { data?: { error?: string } }).data?.error === "string"
+          ? (err as { data: { error: string } }).data.error
+          : "Generování se nezdařilo";
+      toast({ title: msg, variant: "destructive" });
+    }
+  };
+
   const addLine = () => {
     setLines((prev) => [
       ...prev,
@@ -235,6 +253,14 @@ export default function BillingRecurringTemplateDetail() {
         <div className="flex items-center gap-2 shrink-0">
           {!editing && (
             <>
+              <Button
+                variant="outline"
+                onClick={handleGenerateNow}
+                disabled={generateNow.isPending}
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {generateNow.isPending ? "Generuji…" : "Generovat nyní"}
+              </Button>
               <Button variant="outline" onClick={startEditing}>
                 Upravit
               </Button>

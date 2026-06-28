@@ -129,6 +129,7 @@ import type {
   GdprEraseInput,
   GdprEraseResult,
   GdprExport,
+  GenerateNowResult,
   GetJobsCalendarParams,
   GetLeavesSummaryParams,
   GetMyDoneJobsParams,
@@ -20288,6 +20289,76 @@ export const useDeleteRecurringTemplate = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteRecurringTemplateMutationOptions(options));
+    }
+
+export const getGenerateNowRecurringTemplateUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/recurring-templates/${id}/generate`
+}
+
+/**
+ * @summary Manually generate a draft invoice from a specific template now, bypassing the schedule (admin only)
+ */
+export const generateNowRecurringTemplate = async (id: number, options?: RequestInit): Promise<GenerateNowResult> => {
+
+  return customFetch<GenerateNowResult>(getGenerateNowRecurringTemplateUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getGenerateNowRecurringTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateNowRecurringTemplate>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateNowRecurringTemplate>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['generateNowRecurringTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateNowRecurringTemplate>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  generateNowRecurringTemplate(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateNowRecurringTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof generateNowRecurringTemplate>>>
+
+    export type GenerateNowRecurringTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Manually generate a draft invoice from a specific template now, bypassing the schedule (admin only)
+ */
+export const useGenerateNowRecurringTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateNowRecurringTemplate>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateNowRecurringTemplate>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getGenerateNowRecurringTemplateMutationOptions(options));
     }
 
 export const getAnalyzeJobDocumentsUrl = (id: number,) => {
