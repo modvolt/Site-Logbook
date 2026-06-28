@@ -177,6 +177,28 @@ export const BulkUpdateJobStatusResponse = zod.object({
 
 
 /**
+ * @summary Lightweight calendar-optimised job list (no N+1 enrichment)
+ */
+export const GetJobsCalendarQueryParams = zod.object({
+  "from": zod.coerce.string(),
+  "to": zod.coerce.string()
+})
+
+export const GetJobsCalendarResponseItem = zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
+  "status": zod.string().describe('planned | in_progress | done | cancelled | vyfakturovano'),
+  "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
+  "startTime": zod.string().nullish().describe('HH:MM'),
+  "endTime": zod.string().nullish().describe('HH:MM'),
+  "assignedPersonId": zod.number().nullish(),
+  "assignedPersonName": zod.string().nullish()
+})
+export const GetJobsCalendarResponse = zod.array(GetJobsCalendarResponseItem)
+
+
+/**
  * @summary Get a job by ID
  */
 export const GetJobParams = zod.object({

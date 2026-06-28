@@ -206,6 +206,36 @@ paths:
         "400":
           description: Validation error
 
+  /jobs/calendar:
+    get:
+      operationId: getJobsCalendar
+      tags: [jobs]
+      summary: Lightweight calendar-optimised job list (no N+1 enrichment)
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            description: ISO date (YYYY-MM-DD)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            description: ISO date (YYYY-MM-DD)
+      responses:
+        "200":
+          description: Jobs in the requested date range
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarJob"
+        "400":
+          description: Validation error
+
   /jobs/{id}:
     get:
       operationId: getJob
@@ -6795,6 +6825,34 @@ paths:
 
 components:
   schemas:
+    CalendarJob:
+      type: object
+      required: [id, title, type, status, date]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        type:
+          type: string
+          description: "site_visit | consultation | planned_work | service_call | change | other"
+        status:
+          type: string
+          description: "planned | in_progress | done | cancelled | vyfakturovano"
+        date:
+          type: string
+          description: ISO date (YYYY-MM-DD)
+        startTime:
+          type: ["string", "null"]
+          description: "HH:MM"
+        endTime:
+          type: ["string", "null"]
+          description: "HH:MM"
+        assignedPersonId:
+          type: ["integer", "null"]
+        assignedPersonName:
+          type: ["string", "null"]
+
     ClientErrorInput:
       type: object
       required: [message]

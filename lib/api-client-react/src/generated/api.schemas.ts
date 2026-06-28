@@ -331,6 +331,31 @@ export interface BulkUpdateResult {
   updated: number;
 }
 
+export interface CalendarJob {
+  id: number;
+  title: string;
+  /** site_visit | consultation | planned_work | service_call | change | other */
+  type: string;
+  /** planned | in_progress | done | cancelled | vyfakturovano */
+  status: string;
+  /** ISO date (YYYY-MM-DD) */
+  date: string;
+  /**
+     * HH:MM
+     * @nullable
+     */
+  startTime?: string | null;
+  /**
+     * HH:MM
+     * @nullable
+     */
+  endTime?: string | null;
+  /** @nullable */
+  assignedPersonId?: number | null;
+  /** @nullable */
+  assignedPersonName?: string | null;
+}
+
 /**
  * Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write.
  */
@@ -4746,6 +4771,17 @@ export const ListJobsSegment = {
   without_price: 'without_price',
   cancelled: 'cancelled',
 } as const;
+
+export type GetJobsCalendarParams = {
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+from: string;
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+to: string;
+};
 
 export type ListLinkableDocumentLinesParams = {
 /**

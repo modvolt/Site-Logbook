@@ -56,6 +56,7 @@ import type {
   BulkConfirmReviewLinesInput,
   BulkReviewDiff,
   BulkUpdateResult,
+  CalendarJob,
   CancelInvoiceInput,
   ClientErrorInput,
   ClientErrorList,
@@ -123,6 +124,7 @@ import type {
   GdprEraseInput,
   GdprEraseResult,
   GdprExport,
+  GetJobsCalendarParams,
   GetLeavesSummaryParams,
   GetMyDoneJobsParams,
   GetMyVisitsParams,
@@ -715,6 +717,90 @@ export const useBulkUpdateJobStatus = <TError = ErrorType<void>,
       > => {
       return useMutation(getBulkUpdateJobStatusMutationOptions(options));
     }
+
+export const getGetJobsCalendarUrl = (params: GetJobsCalendarParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/jobs/calendar?${stringifiedParams}` : `/api/jobs/calendar`
+}
+
+/**
+ * @summary Lightweight calendar-optimised job list (no N+1 enrichment)
+ */
+export const getJobsCalendar = async (params: GetJobsCalendarParams, options?: RequestInit): Promise<CalendarJob[]> => {
+
+  return customFetch<CalendarJob[]>(getGetJobsCalendarUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetJobsCalendarQueryKey = (params?: GetJobsCalendarParams,) => {
+    return [
+    `/api/jobs/calendar`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetJobsCalendarQueryOptions = <TData = Awaited<ReturnType<typeof getJobsCalendar>>, TError = ErrorType<void>>(params: GetJobsCalendarParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobsCalendar>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetJobsCalendarQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJobsCalendar>>> = ({ signal }) => getJobsCalendar(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getJobsCalendar>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetJobsCalendarQueryResult = NonNullable<Awaited<ReturnType<typeof getJobsCalendar>>>
+export type GetJobsCalendarQueryError = ErrorType<void>
+
+
+/**
+ * @summary Lightweight calendar-optimised job list (no N+1 enrichment)
+ */
+
+export function useGetJobsCalendar<TData = Awaited<ReturnType<typeof getJobsCalendar>>, TError = ErrorType<void>>(
+ params: GetJobsCalendarParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobsCalendar>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetJobsCalendarQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getGetJobUrl = (id: number,) => {
 

@@ -30,6 +30,7 @@ export default function JobForm() {
   const initialDate = queryParams.get("date") || format(new Date(), "yyyy-MM-dd");
   const initialClientSite = queryParams.get("clientSite") || "";
   const initialCustomerId = queryParams.get("customerId") ? parseInt(queryParams.get("customerId")!) : null;
+  const initialPersonId = queryParams.get("personId") || "none";
   
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -58,7 +59,7 @@ export default function JobForm() {
     endDate: "",
     startTime: "",
     endTime: "",
-    assignedPersonId: "none",
+    assignedPersonId: initialPersonId,
     status: "planned",
     notes: "",
     customerId: initialCustomerId,

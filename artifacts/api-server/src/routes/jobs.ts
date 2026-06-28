@@ -476,6 +476,39 @@ router.patch("/jobs/reorder", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+router.get("/jobs/calendar", async (req, res): Promise<void> => {
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  if (!from || !to) {
+    res.status(400).json({ error: "Query params 'from' and 'to' are required (YYYY-MM-DD)." });
+    return;
+  }
+
+  const rows = await db
+    .select({
+      id: jobsTable.id,
+      title: jobsTable.title,
+      type: jobsTable.type,
+      status: jobsTable.status,
+      date: jobsTable.date,
+      startTime: jobsTable.startTime,
+      endTime: jobsTable.endTime,
+      assignedPersonId: jobsTable.assignedPersonId,
+      assignedPersonName: peopleTable.name,
+    })
+    .from(jobsTable)
+    .leftJoin(peopleTable, eq(jobsTable.assignedPersonId, peopleTable.id))
+    .where(and(gte(jobsTable.date, from), lte(jobsTable.date, to)))
+    .orderBy(jobsTable.date, jobsTable.startTime);
+
+  const result = rows.map((r) => ({
+    ...r,
+    assignedPersonName: r.assignedPersonName ?? null,
+  }));
+
+  res.json(result);
+});
+
 router.get("/jobs/:id", async (req, res): Promise<void> => {
   const params = GetJobParams.safeParse(req.params);
   if (!params.success) {
