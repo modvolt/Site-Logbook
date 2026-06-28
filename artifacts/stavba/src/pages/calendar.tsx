@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   format,
   startOfWeek,
@@ -25,10 +25,24 @@ import {
   getListLeavesQueryKey,
   useListPublicHolidays,
   getListPublicHolidaysQueryKey,
+  useUpdateJob,
   type CalendarJob,
   type EmployeeLeave,
   type Person,
 } from "@workspace/api-client-react";
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronLeft,
   ChevronRight,
@@ -41,6 +55,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { invalidateData } from "@/lib/query-invalidation";
 
 type View = "week" | "month" | "day";
 
@@ -98,16 +115,17 @@ interface JobChipProps {
   job: CalendarJob;
   onNavigate: (path: string) => void;
   compact?: boolean;
+  isDragging?: boolean;
 }
 
-function JobChip({ job, onNavigate, compact }: JobChipProps) {
+function JobChip({ job, onNavigate, compact, isDragging }: JobChipProps) {
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={(e) => { e.stopPropagation(); onNavigate(`/jobs/${job.id}`); }}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); onNavigate(`/jobs/${job.id}`); } }}
-      className={`w-full rounded px-1 py-0.5 text-[10px] font-medium leading-tight truncate cursor-pointer select-none ${statusChip(job.status)}`}
+      className={`w-full rounded px-1 py-0.5 text-[10px] font-medium leading-tight truncate cursor-grab select-none ${statusChip(job.status)} ${isDragging ? "opacity-40" : ""}`}
       title={`${job.title}${job.startTime ? ` · ${job.startTime}` : ""}`}
     >
       {compact ? truncate(job.title, 14) : (
@@ -118,6 +136,73 @@ function JobChip({ job, onNavigate, compact }: JobChipProps) {
       )}
     </div>
   );
+}
+
+interface DraggableJobChipProps {
+  job: CalendarJob;
+  onNavigate: (path: string) => void;
+}
+
+function DraggableJobChip({ job, onNavigate }: DraggableJobChipProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `job-${job.id}`,
+    data: { job },
+  });
+
+  const style = transform
+    ? { transform: CSS.Translate.toString(transform), zIndex: 50, opacity: 0 }
+    : undefined;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className="touch-none"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <JobChip job={job} onNavigate={onNavigate} compact isDragging={isDragging} />
+    </div>
+  );
+}
+
+interface DroppableSlotProps {
+  id: string;
+  children: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
+}
+
+function DroppableSlot({ id, children, className, onClick, onKeyDown }: DroppableSlotProps) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      className={`${className ?? ""} ${isOver ? "ring-2 ring-primary/60 ring-inset bg-primary/5" : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function slotId(personId: number | null, dateStr: string) {
+  return `slot-${personId ?? "null"}-${dateStr}`;
+}
+
+function parseSlotId(id: string): { personId: number | null; dateStr: string } | null {
+  const m = id.match(/^slot-([\d]+|null)-(\d{4}-\d{2}-\d{2})$/);
+  if (!m) return null;
+  return {
+    personId: m[1] === "null" ? null : Number(m[1]),
+    dateStr: m[2],
+  };
 }
 
 interface WeekViewProps {
@@ -136,105 +221,217 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
   const today = format(new Date(), "yyyy-MM-dd");
   const DAY_NAMES = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
+  const updateJob = useUpdateJob();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const [optimisticOverrides, setOptimisticOverrides] = useState<
+    Map<number, { date: string; assignedPersonId: number | null }>
+  >(new Map());
+
+  const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  );
+
+  const effectiveJobs = useMemo(() => {
+    if (optimisticOverrides.size === 0) return jobs;
+    return jobs.map((j) => {
+      const override = optimisticOverrides.get(j.id);
+      if (!override) return j;
+      return { ...j, ...override };
+    });
+  }, [jobs, optimisticOverrides]);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const job = event.active.data.current?.job as CalendarJob | undefined;
+    if (job) setDraggingJobId(job.id);
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setDraggingJobId(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const job = active.data.current?.job as CalendarJob | undefined;
+    if (!job) return;
+
+    const target = parseSlotId(String(over.id));
+    if (!target) return;
+
+    const sameSlot = job.date === target.dateStr && job.assignedPersonId === target.personId;
+    if (sameSlot) return;
+
+    setOptimisticOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(job.id, { date: target.dateStr, assignedPersonId: target.personId });
+      return next;
+    });
+
+    updateJob.mutate(
+      {
+        id: job.id,
+        data: {
+          date: target.dateStr,
+          assignedPersonId: target.personId,
+        },
+      },
+      {
+        onSuccess: () => {
+          setOptimisticOverrides((prev) => {
+            const next = new Map(prev);
+            next.delete(job.id);
+            return next;
+          });
+          invalidateData(queryClient, "jobs");
+          toast({ title: "Zakázka přeřazena" });
+        },
+        onError: (err: unknown) => {
+          setOptimisticOverrides((prev) => {
+            const next = new Map(prev);
+            next.delete(job.id);
+            return next;
+          });
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 409) {
+            toast({
+              title: "Přeřazení neprovedeno",
+              description: "Zaměstnanec má v tento den dovolenou.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Přeřazení selhalo",
+              description: "Zkuste to prosím znovu.",
+              variant: "destructive",
+            });
+          }
+        },
+      },
+    );
+  }, [updateJob, queryClient, toast]);
+
+  const draggingJob = draggingJobId != null
+    ? (jobs.find((j) => j.id === draggingJobId) ?? null)
+    : null;
+
   const rows: Array<{ person: Person | null; label: string }> = [
     ...people.map((p) => ({ person: p, label: p.name })),
     { person: null, label: "Nepřiřazeno" },
   ];
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[680px]">
-        <div
-          className="grid border-b bg-card"
-          style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}
-        >
-          <div className="px-2 py-2 text-xs font-medium text-muted-foreground border-r" />
-          {days.map((d, i) => {
-            const ds = dayStrs[i];
-            const isToday = ds === today;
-            const isWeekend = i >= 5;
-            const holiday = holidays.get(ds);
-            return (
-              <div
-                key={ds}
-                className={`px-1 py-1.5 text-center border-r last:border-r-0 ${isWeekend ? "bg-gray-50 dark:bg-gray-800/30" : ""}`}
-              >
-                <div className={`text-xs font-semibold ${isWeekend ? "text-gray-400" : "text-muted-foreground"}`}>
-                  {DAY_NAMES[i]}
-                </div>
-                <div className={`text-sm font-bold mx-auto w-7 h-7 flex items-center justify-center rounded-full
-                  ${isToday ? "bg-primary text-primary-foreground" : isWeekend ? "text-gray-400 dark:text-gray-500" : "text-foreground"}`}>
-                  {format(d, "d")}
-                </div>
-                {holiday && (
-                  <div className="text-[8px] text-amber-700 dark:text-amber-400 font-medium truncate mt-0.5 px-0.5" title={holiday}>
-                    {truncate(holiday, 10)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {rows.map(({ person, label }) => (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="overflow-x-auto">
+        <div className="min-w-[680px]">
           <div
-            key={person?.id ?? "unassigned"}
-            className="grid border-b last:border-b-0"
+            className="grid border-b bg-card"
             style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}
           >
-            <div className="px-2 py-2 border-r bg-muted/30 flex items-start">
-              <span className="text-xs font-semibold text-foreground leading-tight break-words">
-                {label}
-              </span>
-            </div>
+            <div className="px-2 py-2 text-xs font-medium text-muted-foreground border-r" />
             {days.map((d, i) => {
               const ds = dayStrs[i];
               const isToday = ds === today;
               const isWeekend = i >= 5;
-              const slotJobs = jobsForSlot(jobs, person?.id ?? null, ds);
-              const onLeave = person ? personLeavesOn(leaves, person.id, ds) : [];
-
+              const holiday = holidays.get(ds);
               return (
                 <div
                   key={ds}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    const params = new URLSearchParams({ date: ds });
-                    if (person) params.set("personId", String(person.id));
-                    onNavigate(`/jobs/new?${params.toString()}`);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      const params = new URLSearchParams({ date: ds });
-                      if (person) params.set("personId", String(person.id));
-                      onNavigate(`/jobs/new?${params.toString()}`);
-                    }
-                  }}
-                  className={`min-h-[64px] p-1 border-r last:border-r-0 cursor-pointer transition-colors space-y-0.5
-                    ${isToday ? "bg-blue-50/40 dark:bg-blue-950/10" : isWeekend ? "bg-gray-50/70 dark:bg-gray-800/20" : "bg-card"}
-                    hover:bg-muted/50`}
+                  className={`px-1 py-1.5 text-center border-r last:border-r-0 ${isWeekend ? "bg-gray-50 dark:bg-gray-800/30" : ""}`}
                 >
-                  {onLeave.map((lv) => (
-                    <div
-                      key={lv.id}
-                      className={`w-full rounded px-1 py-0.5 text-[9px] font-medium leading-tight truncate text-white ${leaveBgClass(lv.type)}`}
-                      title={`${leaveLabel(lv.type)}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {leaveIcon(lv.type)} {leaveLabel(lv.type)}
+                  <div className={`text-xs font-semibold ${isWeekend ? "text-gray-400" : "text-muted-foreground"}`}>
+                    {DAY_NAMES[i]}
+                  </div>
+                  <div className={`text-sm font-bold mx-auto w-7 h-7 flex items-center justify-center rounded-full
+                    ${isToday ? "bg-primary text-primary-foreground" : isWeekend ? "text-gray-400 dark:text-gray-500" : "text-foreground"}`}>
+                    {format(d, "d")}
+                  </div>
+                  {holiday && (
+                    <div className="text-[8px] text-amber-700 dark:text-amber-400 font-medium truncate mt-0.5 px-0.5" title={holiday}>
+                      {truncate(holiday, 10)}
                     </div>
-                  ))}
-                  {slotJobs.map((job) => (
-                    <JobChip key={job.id} job={job} onNavigate={onNavigate} compact />
-                  ))}
+                  )}
                 </div>
               );
             })}
           </div>
-        ))}
+
+          {rows.map(({ person, label }) => (
+            <div
+              key={person?.id ?? "unassigned"}
+              className="grid border-b last:border-b-0"
+              style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}
+            >
+              <div className="px-2 py-2 border-r bg-muted/30 flex items-start">
+                <span className="text-xs font-semibold text-foreground leading-tight break-words">
+                  {label}
+                </span>
+              </div>
+              {days.map((d, i) => {
+                const ds = dayStrs[i];
+                const isToday = ds === today;
+                const isWeekend = i >= 5;
+                const slotJobs = jobsForSlot(effectiveJobs, person?.id ?? null, ds);
+                const onLeave = person ? personLeavesOn(leaves, person.id, ds) : [];
+
+                return (
+                  <DroppableSlot
+                    key={ds}
+                    id={slotId(person?.id ?? null, ds)}
+                    className={`min-h-[64px] p-1 border-r last:border-r-0 cursor-pointer transition-colors space-y-0.5
+                      ${isToday ? "bg-blue-50/40 dark:bg-blue-950/10" : isWeekend ? "bg-gray-50/70 dark:bg-gray-800/20" : "bg-card"}
+                      hover:bg-muted/50`}
+                    onClick={() => {
+                      const params = new URLSearchParams({ date: ds });
+                      if (person) params.set("personId", String(person.id));
+                      onNavigate(`/jobs/new?${params.toString()}`);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        const params = new URLSearchParams({ date: ds });
+                        if (person) params.set("personId", String(person.id));
+                        onNavigate(`/jobs/new?${params.toString()}`);
+                      }
+                    }}
+                  >
+                    {onLeave.map((lv) => (
+                      <div
+                        key={lv.id}
+                        className={`w-full rounded px-1 py-0.5 text-[9px] font-medium leading-tight truncate text-white ${leaveBgClass(lv.type)}`}
+                        title={`${leaveLabel(lv.type)}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {leaveIcon(lv.type)} {leaveLabel(lv.type)}
+                      </div>
+                    ))}
+                    {slotJobs.map((job) => (
+                      <DraggableJobChip
+                        key={job.id}
+                        job={job}
+                        onNavigate={onNavigate}
+                      />
+                    ))}
+                  </DroppableSlot>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+
+      <DragOverlay dropAnimation={null}>
+        {draggingJob ? (
+          <div
+            className={`rounded px-1 py-0.5 text-[10px] font-medium leading-tight truncate shadow-lg ring-2 ring-primary/60 cursor-grabbing select-none ${statusChip(draggingJob.status)}`}
+            style={{ minWidth: "80px", maxWidth: "140px" }}
+          >
+            {truncate(draggingJob.title, 14)}
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -356,8 +553,8 @@ function MonthView({ jobs, holidays, monthDate, onNavigate }: MonthViewProps) {
   );
 }
 
-const HOUR_HEIGHT = 56; // px per hour slot
-const TIMELINE_HOURS = 24; // 00:00 – 23:xx
+const HOUR_HEIGHT = 56;
+const TIMELINE_HOURS = 24;
 
 function parseTimeDecimal(t: string): number {
   const parts = t.split(":");
