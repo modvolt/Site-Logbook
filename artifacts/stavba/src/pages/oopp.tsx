@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useLocation, useSearch } from "wouter";
+import QRCode from "qrcode";
 import {
   useListPpeItems,
   useCreatePpeItem,
@@ -8,7 +9,6 @@ import {
   useListPpeAssignments,
   useCreatePpeAssignment,
   useUpdatePpeAssignment,
-  useRequestPpeConfirm,
   useListPeople,
   getListPpeItemsQueryKey,
   getListPpeAssignmentsQueryKey,
@@ -30,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, Link2, Copy, Check
+  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, User, Package, Download, QrCode, Copy, X
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -49,6 +49,78 @@ const PPE_CATEGORIES = ["hlava", "ruky", "telo", "nohy", "oci", "sluch", "dychac
 const PPE_STATUSES = ["issued", "returned", "damaged", "lost", "disposed"] as const;
 
 type Tab = "vydeje" | "katalog";
+
+function ShareSignDialog({
+  assignment,
+  onClose,
+}: {
+  assignment: PpeAssignment;
+  onClose: () => void;
+}) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [signUrl, setSignUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/ppe/assignments/${assignment.id}/sign-token`, { method: "POST" })
+      .then((r) => r.json())
+      .then(async (data) => {
+        if (data.error) { setError(data.error); return; }
+        const fullUrl = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, "")}${data.signUrl}`;
+        setSignUrl(fullUrl);
+        const qr = await QRCode.toDataURL(fullUrl, { width: 240, margin: 2 });
+        setQrDataUrl(qr);
+      })
+      .catch(() => setError("Nepodařilo se vygenerovat odkaz"))
+      .finally(() => setLoading(false));
+  }, [assignment.id]);
+
+  function copyLink() {
+    if (!signUrl) return;
+    navigator.clipboard.writeText(signUrl).then(() => {
+      toast({ title: "Odkaz zkopírován" });
+    });
+  }
+
+  return (
+    <Card className="mb-6 border-blue-200 bg-blue-50/50 dark:bg-blue-950/20">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <QrCode className="h-4 w-4 text-blue-600" />
+            Podpis zaměstnance
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-3">
+          Pošlete zaměstnanci <strong>{assignment.personNameSnapshot}</strong> odkaz nebo nechte naskenovat QR kód, aby mohl potvrdit převzetí <strong>{assignment.ppeNameSnapshot}</strong>.
+        </p>
+        {loading && <div className="text-sm text-muted-foreground py-4 text-center">Generuji odkaz…</div>}
+        {error && <div className="text-sm text-destructive">{error}</div>}
+        {!loading && !error && (
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            {qrDataUrl && (
+              <img src={qrDataUrl} alt="QR kód pro podpis" className="w-32 h-32 rounded-lg border bg-white p-1 shrink-0" />
+            )}
+            <div className="flex-1 min-w-0 space-y-2 w-full">
+              <p className="text-xs text-muted-foreground break-all font-mono bg-white border rounded px-2 py-1.5 select-all">
+                {signUrl}
+              </p>
+              <Button variant="outline" size="sm" className="gap-1.5 w-full sm:w-auto" onClick={copyLink}>
+                <Copy className="h-3.5 w-3.5" /> Zkopírovat odkaz
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function PpeStatusBadge({ status }: { status: string }) {
   return (
@@ -364,6 +436,7 @@ export default function Oopp() {
   const [showItemForm, setShowItemForm] = useState(false);
   const [editingItem, setEditingItem] = useState<PpeItem | null>(null);
   const [returningId, setReturningId] = useState<number | null>(null);
+  const [sharingAssignmentId, setSharingAssignmentId] = useState<number | null>(null);
 
   const [filterPerson, setFilterPerson] = useState(prefillPersonId ? String(prefillPersonId) : "_all");
   const [filterStatus, setFilterStatus] = useState("_all");
@@ -398,8 +471,6 @@ export default function Oopp() {
   const archiveItem = useArchivePpeItem();
   const createAssignment = useCreatePpeAssignment();
   const updateAssignment = useUpdatePpeAssignment();
-  const requestConfirm = useRequestPpeConfirm();
-  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const activeItems = useMemo(() => (items ?? []).filter((i) => i.active), [items]);
 
@@ -513,25 +584,6 @@ export default function Oopp() {
         toast({ title: "Výdej uzavřen" });
       },
       onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
-    });
-  };
-
-  const handleCopyConfirmLink = (a: PpeAssignment) => {
-    requestConfirm.mutate({ id: a.id }, {
-      onSuccess: (result) => {
-        navigator.clipboard.writeText(result.confirmUrl).then(() => {
-          setCopiedId(a.id);
-          toast({ title: "Odkaz zkopírován do schránky" });
-          setTimeout(() => setCopiedId((prev) => (prev === a.id ? null : prev)), 3000);
-        }).catch(() => {
-          toast({ title: result.confirmUrl, description: "Odkaz se nepodařilo zkopírovat automaticky" });
-        });
-        invalidateData(queryClient, "ppe");
-      },
-      onError: (err: any) => {
-        const msg = err?.response?.data?.error ?? "Nepodařilo se vygenerovat odkaz";
-        toast({ title: msg, variant: "destructive" });
-      },
     });
   };
 
@@ -687,6 +739,14 @@ export default function Oopp() {
             </Card>
           )}
 
+          {/* Share sign link dialog */}
+          {sharingAssignmentId && (
+            (() => {
+              const a = assignments?.find((x) => x.id === sharingAssignmentId);
+              return a ? <ShareSignDialog assignment={a} onClose={() => setSharingAssignmentId(null)} /> : null;
+            })()
+          )}
+
           {/* Filters */}
           <div className="flex flex-wrap gap-2 mb-4">
             <Input
@@ -793,17 +853,15 @@ export default function Oopp() {
                           <span className="font-semibold">{a.ppeNameSnapshot}</span>
                           <PpeStatusBadge status={a.status} />
                           <OverdueBadge assignment={a} />
-                          {!a.employeeConfirmedAt && a.status === "issued" && (
+                          {a.employeeConfirmedAt ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-medium">
+                              <CheckCircle2 className="h-3 w-3" /> Podepsáno {formatPpeDate(a.employeeConfirmedAt)}
+                            </span>
+                          ) : a.status === "issued" ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">
                               Bez potvrzení
                             </span>
-                          )}
-                          {a.employeeConfirmedAt && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-medium">
-                              <CheckCircle2 className="h-3 w-3" />
-                              Potvrzeno {new Date(a.employeeConfirmedAt).toLocaleDateString("cs-CZ")}
-                            </span>
-                          )}
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground mb-1">
                           <User className="h-3.5 w-3.5 shrink-0" />
@@ -826,27 +884,21 @@ export default function Oopp() {
                         {a.notes && <p className="text-xs text-muted-foreground mt-1 italic">{a.notes}</p>}
                       </div>
                       {can("write") && a.status === "issued" && (
-                        <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+                        <div className="flex gap-2 shrink-0">
                           {!a.employeeConfirmedAt && (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="shrink-0 gap-1.5"
-                              onClick={() => handleCopyConfirmLink(a)}
-                              disabled={requestConfirm.isPending}
-                              title="Zkopírovat odkaz pro zaměstnance"
+                              className="gap-1.5"
+                              onClick={() => setSharingAssignmentId(sharingAssignmentId === a.id ? null : a.id)}
                             >
-                              {copiedId === a.id ? (
-                                <><Check className="h-3.5 w-3.5 text-green-600" /> Zkopírováno</>
-                              ) : (
-                                <><Link2 className="h-3.5 w-3.5" /> Odkaz</>
-                              )}
+                              <QrCode className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Podpis</span>
                             </Button>
                           )}
                           <Button
                             variant="outline"
                             size="sm"
-                            className="shrink-0"
                             onClick={() => setReturningId(a.id)}
                           >
                             Vrátit

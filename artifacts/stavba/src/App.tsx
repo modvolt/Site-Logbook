@@ -10,6 +10,7 @@ import { Layout } from "@/components/layout";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { QuickAddDateProvider } from "@/hooks/use-quick-add-date";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
+import OoppSign from "@/pages/oopp-sign";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -226,6 +227,11 @@ function AuthenticatedApp() {
 }
 
 function Router() {
+  const [path] = useLocation();
+  // Public sign page — accessible without authentication
+  if (path.startsWith("/oopp/sign/")) {
+    return <OoppSign />;
+  }
   const { isAuthenticated, isLoading } = useAuth();
   const [location] = useLocation();
 
