@@ -2407,6 +2407,106 @@ paths:
         "409":
           description: Assignment is no longer active
 
+  /ppe/assignments/{id}/sign:
+    post:
+      operationId: signPpeHandover
+      tags: [ppe]
+      summary: Submit employee signature for PPE handover — creates immutable handover document (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PpeSignHandoverInput"
+      responses:
+        "201":
+          description: Handover document created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeHandoverDocument"
+        "400":
+          description: Validation error (invalid PNG, size exceeded, missing fields)
+        "409":
+          description: Assignment already signed
+        "403":
+          description: Forbidden
+        "404":
+          description: Assignment not found
+
+  /ppe/assignments/{id}/handover-pdf:
+    get:
+      operationId: getPpeHandoverPdf
+      tags: [ppe]
+      summary: Download the handover protocol PDF and record an audit event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not found
+
+  /ppe/assignments/{id}/signature:
+    get:
+      operationId: getPpeSignatureImage
+      tags: [ppe]
+      summary: Download the handover signature PNG and record an audit event
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PNG signature image
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not found
+
+  /ppe/assignments/{id}/events:
+    get:
+      operationId: listPpeHandoverEvents
+      tags: [ppe]
+      summary: List handover audit events for a PPE assignment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of handover events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PpeHandoverEvent"
+        "404":
+          description: Assignment not found
+
   /client-errors:
     post:
       operationId: reportClientError
@@ -11627,6 +11727,14 @@ components:
           type: string
         personNameSnapshot:
           type: string
+        ppeCategorySnapshot:
+          type: ["string", "null"]
+        ppeStandardSnapshot:
+          type: ["string", "null"]
+        ppeProtectionClassSnapshot:
+          type: ["string", "null"]
+        ppeRiskDescriptionSnapshot:
+          type: ["string", "null"]
         quantity:
           type: integer
         size:
@@ -11653,6 +11761,10 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+        handoverDocument:
+          anyOf:
+            - $ref: "#/components/schemas/PpeHandoverDocument"
+            - type: "null"
 
     PpeConfirmLinkResponse:
       type: object
@@ -11726,3 +11838,72 @@ components:
         quantity:
           type: integer
           minimum: 1
+
+    PpeSignHandoverInput:
+      type: object
+      required: [signatureDataUrl, signatoryName, confirmationText, confirmationAccepted]
+      properties:
+        signatureDataUrl:
+          type: string
+          description: PNG signature as data URL (data:image/png;base64,...)
+        signatoryName:
+          type: string
+          minLength: 1
+          description: Name of the person signing (employee)
+        confirmationText:
+          type: string
+          description: Confirmation text the employee agreed to
+        confirmationAccepted:
+          type: boolean
+          description: Must be exactly true
+
+    PpeHandoverDocument:
+      type: object
+      required: [id, assignmentId, version, documentNumber, signatoryName, signedAt, confirmationText, pngObjectPath, pngSha256, pdfObjectPath, pdfSha256, issuerSnapshot, createdAt]
+      properties:
+        id:
+          type: integer
+        assignmentId:
+          type: integer
+        version:
+          type: integer
+        documentNumber:
+          type: string
+        signatoryName:
+          type: string
+        signedAt:
+          type: string
+        confirmationText:
+          type: string
+        pngObjectPath:
+          type: string
+        pngSha256:
+          type: string
+        pdfObjectPath:
+          type: string
+        pdfSha256:
+          type: string
+        issuerSnapshot:
+          type: string
+        createdAt:
+          type: string
+
+    PpeHandoverEvent:
+      type: object
+      required: [id, assignmentId, eventType, createdAt]
+      properties:
+        id:
+          type: integer
+        assignmentId:
+          type: integer
+        handoverDocumentId:
+          type: ["integer", "null"]
+        eventType:
+          type: string
+          enum: [signed, pdf_downloaded, signature_viewed]
+        actorUserId:
+          type: ["integer", "null"]
+        actorName:
+          type: ["string", "null"]
+        createdAt:
+          type: string

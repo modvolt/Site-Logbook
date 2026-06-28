@@ -41,7 +41,7 @@ export default function PersonDetail() {
 
   const issuedAssignments = (assignments ?? []).filter((a) => a.status === "issued");
   const overdueCount = issuedAssignments.filter((a) => isPpeOverdue(a)).length;
-  const unconfirmedCount = issuedAssignments.filter((a) => !a.employeeConfirmedAt).length;
+  const unconfirmedCount = issuedAssignments.filter((a) => !a.handoverDocument).length;
 
   if (personLoading) {
     return (
@@ -154,9 +154,13 @@ export default function PersonDetail() {
                           <AlertCircle className="h-3 w-3" /> Po termínu
                         </span>
                       )}
-                      {!a.employeeConfirmedAt && (
+                      {a.handoverDocument ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-medium">
+                          <CheckCircle2 className="h-3 w-3" /> {a.handoverDocument.documentNumber}
+                        </span>
+                      ) : (
                         <span className="inline-flex px-1.5 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">
-                          Bez potvrzení
+                          Bez protokolu
                         </span>
                       )}
                     </div>

@@ -188,8 +188,11 @@ import type {
   PpeConfirmInput,
   PpeConfirmLinkResponse,
   PpeConfirmResult,
+  PpeHandoverDocument,
+  PpeHandoverEvent,
   PpeItem,
   PpeItemInput,
+  PpeSignHandoverInput,
   PublicHoliday,
   PurgeClientErrorsParams,
   ResetPasswordWithAnswersInput,
@@ -7976,6 +7979,309 @@ export const useConfirmPpeAssignment = <TError = ErrorType<void>,
       > => {
       return useMutation(getConfirmPpeAssignmentMutationOptions(options));
     }
+
+export const getSignPpeHandoverUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/sign`
+}
+
+/**
+ * @summary Submit employee signature for PPE handover — creates immutable handover document (admin/master)
+ */
+export const signPpeHandover = async (id: number,
+    ppeSignHandoverInput: PpeSignHandoverInput, options?: RequestInit): Promise<PpeHandoverDocument> => {
+
+  return customFetch<PpeHandoverDocument>(getSignPpeHandoverUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      ppeSignHandoverInput,)
+  }
+);}
+
+
+
+
+export const getSignPpeHandoverMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signPpeHandover>>, TError,{id: number;data: BodyType<PpeSignHandoverInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof signPpeHandover>>, TError,{id: number;data: BodyType<PpeSignHandoverInput>}, TContext> => {
+
+const mutationKey = ['signPpeHandover'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof signPpeHandover>>, {id: number;data: BodyType<PpeSignHandoverInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  signPpeHandover(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SignPpeHandoverMutationResult = NonNullable<Awaited<ReturnType<typeof signPpeHandover>>>
+    export type SignPpeHandoverMutationBody = BodyType<PpeSignHandoverInput>
+    export type SignPpeHandoverMutationError = ErrorType<void>
+
+    /**
+ * @summary Submit employee signature for PPE handover — creates immutable handover document (admin/master)
+ */
+export const useSignPpeHandover = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signPpeHandover>>, TError,{id: number;data: BodyType<PpeSignHandoverInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof signPpeHandover>>,
+        TError,
+        {id: number;data: BodyType<PpeSignHandoverInput>},
+        TContext
+      > => {
+      return useMutation(getSignPpeHandoverMutationOptions(options));
+    }
+
+export const getGetPpeHandoverPdfUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/handover-pdf`
+}
+
+/**
+ * @summary Download the handover protocol PDF and record an audit event
+ */
+export const getPpeHandoverPdf = async (id: number, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetPpeHandoverPdfUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPpeHandoverPdfQueryKey = (id: number,) => {
+    return [
+    `/api/ppe/assignments/${id}/handover-pdf`
+    ] as const;
+    }
+
+
+export const getGetPpeHandoverPdfQueryOptions = <TData = Awaited<ReturnType<typeof getPpeHandoverPdf>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPpeHandoverPdf>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPpeHandoverPdfQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPpeHandoverPdf>>> = ({ signal }) => getPpeHandoverPdf(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPpeHandoverPdf>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPpeHandoverPdfQueryResult = NonNullable<Awaited<ReturnType<typeof getPpeHandoverPdf>>>
+export type GetPpeHandoverPdfQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download the handover protocol PDF and record an audit event
+ */
+
+export function useGetPpeHandoverPdf<TData = Awaited<ReturnType<typeof getPpeHandoverPdf>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPpeHandoverPdf>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPpeHandoverPdfQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetPpeSignatureImageUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/signature`
+}
+
+/**
+ * @summary Download the handover signature PNG and record an audit event
+ */
+export const getPpeSignatureImage = async (id: number, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetPpeSignatureImageUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPpeSignatureImageQueryKey = (id: number,) => {
+    return [
+    `/api/ppe/assignments/${id}/signature`
+    ] as const;
+    }
+
+
+export const getGetPpeSignatureImageQueryOptions = <TData = Awaited<ReturnType<typeof getPpeSignatureImage>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPpeSignatureImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPpeSignatureImageQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPpeSignatureImage>>> = ({ signal }) => getPpeSignatureImage(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPpeSignatureImage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPpeSignatureImageQueryResult = NonNullable<Awaited<ReturnType<typeof getPpeSignatureImage>>>
+export type GetPpeSignatureImageQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download the handover signature PNG and record an audit event
+ */
+
+export function useGetPpeSignatureImage<TData = Awaited<ReturnType<typeof getPpeSignatureImage>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPpeSignatureImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPpeSignatureImageQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListPpeHandoverEventsUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/events`
+}
+
+/**
+ * @summary List handover audit events for a PPE assignment
+ */
+export const listPpeHandoverEvents = async (id: number, options?: RequestInit): Promise<PpeHandoverEvent[]> => {
+
+  return customFetch<PpeHandoverEvent[]>(getListPpeHandoverEventsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPpeHandoverEventsQueryKey = (id: number,) => {
+    return [
+    `/api/ppe/assignments/${id}/events`
+    ] as const;
+    }
+
+
+export const getListPpeHandoverEventsQueryOptions = <TData = Awaited<ReturnType<typeof listPpeHandoverEvents>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPpeHandoverEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPpeHandoverEventsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPpeHandoverEvents>>> = ({ signal }) => listPpeHandoverEvents(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPpeHandoverEvents>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPpeHandoverEventsQueryResult = NonNullable<Awaited<ReturnType<typeof listPpeHandoverEvents>>>
+export type ListPpeHandoverEventsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List handover audit events for a PPE assignment
+ */
+
+export function useListPpeHandoverEvents<TData = Awaited<ReturnType<typeof listPpeHandoverEvents>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPpeHandoverEvents>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPpeHandoverEventsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getReportClientErrorUrl = () => {
 

@@ -2367,6 +2367,10 @@ export const ListPpeAssignmentsResponseItem = zod.object({
   "personId": zod.number(),
   "ppeNameSnapshot": zod.string(),
   "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullish(),
+  "ppeStandardSnapshot": zod.string().nullish(),
+  "ppeProtectionClassSnapshot": zod.string().nullish(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullish(),
   "quantity": zod.number(),
   "size": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
@@ -2378,7 +2382,22 @@ export const ListPpeAssignmentsResponseItem = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "handoverDocument": zod.union([zod.object({
+  "id": zod.number(),
+  "assignmentId": zod.number(),
+  "version": zod.number(),
+  "documentNumber": zod.string(),
+  "signatoryName": zod.string(),
+  "signedAt": zod.string(),
+  "confirmationText": zod.string(),
+  "pngObjectPath": zod.string(),
+  "pngSha256": zod.string(),
+  "pdfObjectPath": zod.string(),
+  "pdfSha256": zod.string(),
+  "issuerSnapshot": zod.string(),
   "createdAt": zod.string()
+}),zod.null()]).optional()
 })
 export const ListPpeAssignmentsResponse = zod.array(ListPpeAssignmentsResponseItem)
 
@@ -2450,6 +2469,10 @@ export const UpdatePpeAssignmentResponse = zod.object({
   "personId": zod.number(),
   "ppeNameSnapshot": zod.string(),
   "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullish(),
+  "ppeStandardSnapshot": zod.string().nullish(),
+  "ppeProtectionClassSnapshot": zod.string().nullish(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullish(),
   "quantity": zod.number(),
   "size": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
@@ -2461,7 +2484,22 @@ export const UpdatePpeAssignmentResponse = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "handoverDocument": zod.union([zod.object({
+  "id": zod.number(),
+  "assignmentId": zod.number(),
+  "version": zod.number(),
+  "documentNumber": zod.string(),
+  "signatoryName": zod.string(),
+  "signedAt": zod.string(),
+  "confirmationText": zod.string(),
+  "pngObjectPath": zod.string(),
+  "pngSha256": zod.string(),
+  "pdfObjectPath": zod.string(),
+  "pdfSha256": zod.string(),
+  "issuerSnapshot": zod.string(),
   "createdAt": zod.string()
+}),zod.null()]).optional()
 })
 
 
@@ -2491,6 +2529,10 @@ export const GetPpeConfirmDetailsResponse = zod.object({
   "personId": zod.number(),
   "ppeNameSnapshot": zod.string(),
   "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullish(),
+  "ppeStandardSnapshot": zod.string().nullish(),
+  "ppeProtectionClassSnapshot": zod.string().nullish(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullish(),
   "quantity": zod.number(),
   "size": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
@@ -2502,7 +2544,22 @@ export const GetPpeConfirmDetailsResponse = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "handoverDocument": zod.union([zod.object({
+  "id": zod.number(),
+  "assignmentId": zod.number(),
+  "version": zod.number(),
+  "documentNumber": zod.string(),
+  "signatoryName": zod.string(),
+  "signedAt": zod.string(),
+  "confirmationText": zod.string(),
+  "pngObjectPath": zod.string(),
+  "pngSha256": zod.string(),
+  "pdfObjectPath": zod.string(),
+  "pdfSha256": zod.string(),
+  "issuerSnapshot": zod.string(),
   "createdAt": zod.string()
+}),zod.null()]).optional()
 })
 
 
@@ -2521,6 +2578,10 @@ export const ConfirmPpeAssignmentResponse = zod.object({
   "personId": zod.number(),
   "ppeNameSnapshot": zod.string(),
   "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullish(),
+  "ppeStandardSnapshot": zod.string().nullish(),
+  "ppeProtectionClassSnapshot": zod.string().nullish(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullish(),
   "quantity": zod.number(),
   "size": zod.string().nullish(),
   "serialNumber": zod.string().nullish(),
@@ -2532,9 +2593,77 @@ export const ConfirmPpeAssignmentResponse = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "handoverDocument": zod.union([zod.object({
+  "id": zod.number(),
+  "assignmentId": zod.number(),
+  "version": zod.number(),
+  "documentNumber": zod.string(),
+  "signatoryName": zod.string(),
+  "signedAt": zod.string(),
+  "confirmationText": zod.string(),
+  "pngObjectPath": zod.string(),
+  "pngSha256": zod.string(),
+  "pdfObjectPath": zod.string(),
+  "pdfSha256": zod.string(),
+  "issuerSnapshot": zod.string(),
+  "createdAt": zod.string()
+}),zod.null()]).optional()
+})
+})
+
+
+/**
+ * @summary Submit employee signature for PPE handover — creates immutable handover document (admin/master)
+ */
+export const SignPpeHandoverParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const SignPpeHandoverBody = zod.object({
+  "signatureDataUrl": zod.string().describe('PNG signature as data URL (data:image\/png;base64,...)'),
+  "signatoryName": zod.string().min(1).describe('Name of the person signing (employee)'),
+  "confirmationText": zod.string().describe('Confirmation text the employee agreed to'),
+  "confirmationAccepted": zod.boolean().describe('Must be exactly true')
+})
+
+
+/**
+ * @summary Download the handover protocol PDF and record an audit event
+ */
+export const GetPpeHandoverPdfParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Download the handover signature PNG and record an audit event
+ */
+export const GetPpeSignatureImageParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary List handover audit events for a PPE assignment
+ */
+export const ListPpeHandoverEventsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListPpeHandoverEventsResponseItem = zod.object({
+  "id": zod.number(),
+  "assignmentId": zod.number(),
+  "handoverDocumentId": zod.number().nullish(),
+  "eventType": zod.enum(['signed', 'pdf_downloaded', 'signature_viewed']),
+  "actorUserId": zod.number().nullish(),
+  "actorName": zod.string().nullish(),
   "createdAt": zod.string()
 })
-})
+export const ListPpeHandoverEventsResponse = zod.array(ListPpeHandoverEventsResponseItem)
 
 
 /**

@@ -1,8 +1,18 @@
 import { Router, type IRouter } from "express";
 import { and, count, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
-import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  db,
+  ppeItemsTable,
+  ppeAssignmentsTable,
+  ppeHandoverDocumentsTable,
+  ppeHandoverEventsTable,
+  peopleTable,
+} from "@workspace/db";
 import { PPE_CATEGORIES, PPE_STATUSES } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
+import { ObjectStorageService } from "../lib/objectStorage";
+import { generatePpeHandoverPdf } from "../lib/ppe-handover-pdf";
 import { z } from "zod/v4";
 import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pdf";
 import { ensureBillingSettings } from "../lib/invoice-service";
@@ -12,9 +22,51 @@ import { randomUUID } from "crypto";
 const objectStorage = new ObjectStorageService();
 
 const router: IRouter = Router();
+const objectStorageService = new ObjectStorageService();
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const MAX_SIGNATURE_BYTES = 500 * 1024;
+
+const CONFIRMATION_TEXT_DEFAULT =
+  "Svým podpisem potvrzuji, že jsem převzal/a výše uvedené ochranné pracovní pomůcky (OOPP). " +
+  "Zavazuji se je používat v souladu s pokyny výrobce a zaměstnavatele a chránit je před poškozením.";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function serializeHandoverDocument(
+  doc: typeof ppeHandoverDocumentsTable.$inferSelect,
+) {
+  return {
+    ...doc,
+    signedAt: doc.signedAt.toISOString(),
+    createdAt: doc.createdAt.toISOString(),
+  };
+}
+
+function serializeHandoverEvent(
+  ev: typeof ppeHandoverEventsTable.$inferSelect,
+) {
+  return {
+    ...ev,
+    createdAt: ev.createdAt.toISOString(),
+  };
+}
+
+function serializeAssignment(
+  a: typeof ppeAssignmentsTable.$inferSelect,
+  doc?: typeof ppeHandoverDocumentsTable.$inferSelect | null,
+) {
+  return {
+    ...a,
+    confirmToken: undefined,
+    confirmTokenExpiresAt: undefined,
+    hasConfirmToken: !!a.confirmToken,
+    employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
+    createdAt: a.createdAt.toISOString(),
+    handoverDocument: doc ? serializeHandoverDocument(doc) : null,
+  };
 }
 
 function serializeItem(item: typeof ppeItemsTable.$inferSelect) {
@@ -68,7 +120,43 @@ const PpeAssignmentUpdateSchema = z.object({
   quantity: z.number().int().min(1).optional(),
 });
 
+const PpeSignHandoverInputSchema = z.object({
+  signatureDataUrl: z.string().min(1, "Podpis je povinný"),
+  signatoryName: z.string().min(1, "Jméno podepisujícího je povinné"),
+  confirmationText: z.string().optional(),
+  confirmationAccepted: z.literal(true, { error: "Souhlas je povinný" }),
+});
+
 const IdParamSchema = z.object({ id: z.coerce.number().int().positive() });
+
+/**
+ * Fetch all assignments with their handover documents via LEFT JOIN, applying
+ * optional WHERE conditions. Returns serialized rows ready for the response.
+ */
+async function fetchAssignmentsWithDocs(conditions: Parameters<typeof and>[0][]) {
+  const rows =
+    conditions.length > 0
+      ? await db
+          .select()
+          .from(ppeAssignmentsTable)
+          .leftJoin(
+            ppeHandoverDocumentsTable,
+            eq(ppeHandoverDocumentsTable.assignmentId, ppeAssignmentsTable.id),
+          )
+          .where(and(...conditions))
+          .orderBy(ppeAssignmentsTable.issuedAt)
+      : await db
+          .select()
+          .from(ppeAssignmentsTable)
+          .leftJoin(
+            ppeHandoverDocumentsTable,
+            eq(ppeHandoverDocumentsTable.assignmentId, ppeAssignmentsTable.id),
+          )
+          .orderBy(ppeAssignmentsTable.issuedAt);
+  return rows.map((r) => serializeAssignment(r.ppe_assignments, r.ppe_handover_documents));
+}
+
+// ── PPE Items ─────────────────────────────────────────────────────────────────
 
 router.get("/ppe/items", async (req, res): Promise<void> => {
   const includeArchived = req.query.includeArchived === "true";
@@ -137,9 +225,11 @@ router.delete("/ppe/items/:id", requireRole("admin", "master"), async (req, res)
   res.json(serializeItem(item));
 });
 
+// ── PPE Assignments ───────────────────────────────────────────────────────────
+
 router.get("/ppe/assignments", async (req, res): Promise<void> => {
   const todayStr = today();
-  const conditions = [];
+  const conditions: Parameters<typeof and>[0][] = [];
 
   const personId = req.query.personId ? Number(req.query.personId) : null;
   if (personId && Number.isFinite(personId)) {
@@ -147,7 +237,7 @@ router.get("/ppe/assignments", async (req, res): Promise<void> => {
   }
 
   const status = req.query.status as string | undefined;
-  if (status && PPE_STATUSES.includes(status as typeof PPE_STATUSES[number])) {
+  if (status && PPE_STATUSES.includes(status as (typeof PPE_STATUSES)[number])) {
     conditions.push(eq(ppeAssignmentsTable.status, status));
   }
 
@@ -163,11 +253,8 @@ router.get("/ppe/assignments", async (req, res): Promise<void> => {
     );
   }
 
-  const rows = conditions.length
-    ? await db.select().from(ppeAssignmentsTable).where(and(...conditions)).orderBy(ppeAssignmentsTable.issuedAt)
-    : await db.select().from(ppeAssignmentsTable).orderBy(ppeAssignmentsTable.issuedAt);
-
-  res.json(rows.map(serializeAssignment));
+  const assignments = await fetchAssignmentsWithDocs(conditions);
+  res.json(assignments);
 });
 
 // ─────────── Public sign endpoints (no auth required — gated by token) ───────────
@@ -440,11 +527,15 @@ router.post("/ppe/assignments", requireRole("admin", "master"), async (req, res)
       nextInspectionAt: parsed.data.nextInspectionAt ?? null,
       ppeNameSnapshot: ppeItem.name,
       personNameSnapshot: person.name,
+      ppeCategorySnapshot: ppeItem.category ?? null,
+      ppeRiskDescriptionSnapshot: ppeItem.description ?? null,
+      ppeStandardSnapshot: null,
+      ppeProtectionClassSnapshot: null,
       status: "issued",
     })
     .returning();
 
-  res.status(201).json(serializeAssignment(assignment));
+  res.status(201).json(serializeAssignment(assignment, null));
 });
 
 router.delete("/ppe/assignments/:id", requireRole("admin", "master"), async (req, res): Promise<void> => {
@@ -503,7 +594,331 @@ router.patch("/ppe/assignments/:id", requireRole("admin", "master"), async (req,
     .where(eq(ppeAssignmentsTable.id, params.data.id))
     .returning();
 
-  res.json(serializeAssignment(updated));
+  // Fetch the handover document if it exists
+  const [doc] = await db
+    .select()
+    .from(ppeHandoverDocumentsTable)
+    .where(eq(ppeHandoverDocumentsTable.assignmentId, params.data.id));
+
+  res.json(serializeAssignment(updated, doc ?? null));
+});
+
+// ── PPE Handover: Sign ────────────────────────────────────────────────────────
+
+router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+  const parsed = PpeSignHandoverInputSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    return;
+  }
+
+  // Validate PNG data URL
+  const dataUrl = parsed.data.signatureDataUrl;
+  if (!dataUrl.startsWith("data:image/png;base64,")) {
+    res.status(400).json({ error: "Podpis musí být ve formátu PNG (data:image/png;base64,...)" });
+    return;
+  }
+  let pngBuffer: Buffer;
+  try {
+    pngBuffer = Buffer.from(dataUrl.slice("data:image/png;base64,".length), "base64");
+  } catch {
+    res.status(400).json({ error: "Nepodařilo se dekódovat podpis" });
+    return;
+  }
+  if (pngBuffer.length > MAX_SIGNATURE_BYTES) {
+    res.status(400).json({ error: `Podpis je příliš velký (max ${Math.round(MAX_SIGNATURE_BYTES / 1024)} kB)` });
+    return;
+  }
+  if (pngBuffer.length < 8 || !pngBuffer.slice(0, 8).equals(PNG_MAGIC)) {
+    res.status(400).json({ error: "Soubor podpisu není platný PNG" });
+    return;
+  }
+
+  // Load assignment
+  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!assignment) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+  if (assignment.employeeConfirmedAt) {
+    res.status(409).json({ error: "Výdej již byl podepsán" });
+    return;
+  }
+  if (assignment.status !== "issued") {
+    res.status(409).json({ error: "Podpis lze přidat pouze na aktivní výdej" });
+    return;
+  }
+
+  const signedAt = new Date();
+  const year = signedAt.getFullYear();
+  const confirmationText = parsed.data.confirmationText ?? CONFIRMATION_TEXT_DEFAULT;
+  const signatoryName = parsed.data.signatoryName;
+  const issuerSnapshot = req.auth?.name ?? req.auth?.username ?? "Systém";
+
+  // SHA-256 of the PNG
+  const pngSha256 = createHash("sha256").update(pngBuffer).digest("hex");
+
+  // Upload PNG
+  const pngObjectPath = `/objects/ppe-handovers/${randomUUID()}.png`;
+  let pngUploaded = false;
+  let pdfObjectPath = `/objects/ppe-handovers/${randomUUID()}.pdf`;
+  let pdfUploaded = false;
+
+  try {
+    await objectStorageService.putPrivateObject(pngObjectPath, pngBuffer, "image/png");
+    pngUploaded = true;
+
+    // Fetch company/person info for PDF
+    const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, assignment.personId));
+    const companyName = "Modvolt s.r.o.";
+
+    // Generate PDF (uses snapshot data from assignment)
+    const pdfBuffer = generatePpeHandoverPdf({
+      documentNumber: "OOPP-PENDING",
+      companyName,
+      employeeName: assignment.personNameSnapshot,
+      signatoryName,
+      signedAt,
+      issuerSnapshot,
+      confirmationText,
+      signatureDataUrl: dataUrl,
+      signatureSha256: pngSha256,
+      ppeNameSnapshot: assignment.ppeNameSnapshot,
+      ppeCategorySnapshot: assignment.ppeCategorySnapshot,
+      ppeStandardSnapshot: assignment.ppeStandardSnapshot,
+      ppeProtectionClassSnapshot: assignment.ppeProtectionClassSnapshot,
+      ppeRiskDescriptionSnapshot: assignment.ppeRiskDescriptionSnapshot,
+      quantity: assignment.quantity,
+      size: assignment.size,
+      serialNumber: assignment.serialNumber,
+      issuedAt: assignment.issuedAt,
+      replaceBy: assignment.replaceBy,
+      nextInspectionAt: assignment.nextInspectionAt,
+    });
+
+    await objectStorageService.putPrivateObject(pdfObjectPath, pdfBuffer, "application/pdf");
+    pdfUploaded = true;
+
+    const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex");
+
+    // Atomic DB transaction
+    const handoverDoc = await db.transaction(async (tx) => {
+      // Idempotency guard inside transaction
+      const [recheck] = await tx.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+      if (recheck?.employeeConfirmedAt) {
+        throw new Error("ALREADY_SIGNED");
+      }
+
+      // Insert handover document with placeholder number
+      const [doc] = await tx
+        .insert(ppeHandoverDocumentsTable)
+        .values({
+          assignmentId: params.data.id,
+          version: 1,
+          documentNumber: "OOPP-PENDING",
+          signatoryName,
+          signedAt,
+          confirmationText,
+          pngObjectPath,
+          pngSha256,
+          pdfObjectPath,
+          pdfSha256,
+          issuerSnapshot,
+        })
+        .returning();
+
+      // Update document number using the new ID
+      const documentNumber = `OOPP-${year}-${String(doc.id).padStart(6, "0")}`;
+      const [finalDoc] = await tx
+        .update(ppeHandoverDocumentsTable)
+        .set({ documentNumber })
+        .where(eq(ppeHandoverDocumentsTable.id, doc.id))
+        .returning();
+
+      // Regenerate PDF with the real document number
+      const realPdfBuffer = generatePpeHandoverPdf({
+        documentNumber,
+        companyName,
+        employeeName: assignment.personNameSnapshot,
+        signatoryName,
+        signedAt,
+        issuerSnapshot,
+        confirmationText,
+        signatureDataUrl: dataUrl,
+        signatureSha256: pngSha256,
+        ppeNameSnapshot: assignment.ppeNameSnapshot,
+        ppeCategorySnapshot: assignment.ppeCategorySnapshot,
+        ppeStandardSnapshot: assignment.ppeStandardSnapshot,
+        ppeProtectionClassSnapshot: assignment.ppeProtectionClassSnapshot,
+        ppeRiskDescriptionSnapshot: assignment.ppeRiskDescriptionSnapshot,
+        quantity: assignment.quantity,
+        size: assignment.size,
+        serialNumber: assignment.serialNumber,
+        issuedAt: assignment.issuedAt,
+        replaceBy: assignment.replaceBy,
+        nextInspectionAt: assignment.nextInspectionAt,
+      });
+      const realPdfSha256 = createHash("sha256").update(realPdfBuffer).digest("hex");
+
+      // Upload final PDF (overwrite the same path)
+      await objectStorageService.putPrivateObject(pdfObjectPath, realPdfBuffer, "application/pdf");
+
+      // Update PDF SHA
+      const [docWithRealSha] = await tx
+        .update(ppeHandoverDocumentsTable)
+        .set({ pdfSha256: realPdfSha256 })
+        .where(eq(ppeHandoverDocumentsTable.id, doc.id))
+        .returning();
+
+      // Set employeeConfirmedAt on the assignment
+      await tx
+        .update(ppeAssignmentsTable)
+        .set({ employeeConfirmedAt: signedAt })
+        .where(eq(ppeAssignmentsTable.id, params.data.id));
+
+      // Record signed event
+      await tx.insert(ppeHandoverEventsTable).values({
+        assignmentId: params.data.id,
+        handoverDocumentId: doc.id,
+        eventType: "signed",
+        actorUserId: req.auth?.userId ?? null,
+        actorName: issuerSnapshot,
+      });
+
+      return docWithRealSha ?? finalDoc;
+    });
+
+    res.status(201).json(serializeHandoverDocument(handoverDoc));
+  } catch (err) {
+    // Clean up uploaded objects if transaction failed
+    if (pngUploaded) {
+      objectStorageService.deletePrivateObject(pngObjectPath).catch(() => undefined);
+    }
+    if (pdfUploaded) {
+      objectStorageService.deletePrivateObject(pdfObjectPath).catch(() => undefined);
+    }
+
+    if (err instanceof Error && err.message === "ALREADY_SIGNED") {
+      res.status(409).json({ error: "Výdej již byl podepsán" });
+      return;
+    }
+    req.log.error({ err }, "Error signing PPE handover");
+    res.status(500).json({ error: "Nepodařilo se vytvořit protokol o předání" });
+  }
+});
+
+// ── PPE Handover: Download PDF ────────────────────────────────────────────────
+
+router.get("/ppe/assignments/:id/handover-pdf", async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!assignment) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+  const [doc] = await db
+    .select()
+    .from(ppeHandoverDocumentsTable)
+    .where(eq(ppeHandoverDocumentsTable.assignmentId, params.data.id));
+  if (!doc) {
+    res.status(404).json({ error: "Protokol nenalezen" });
+    return;
+  }
+  // Record audit event (fire-and-forget, non-blocking)
+  db.insert(ppeHandoverEventsTable)
+    .values({
+      assignmentId: params.data.id,
+      handoverDocumentId: doc.id,
+      eventType: "pdf_downloaded",
+      actorUserId: req.auth?.userId ?? null,
+      actorName: req.auth?.name ?? req.auth?.username ?? null,
+    })
+    .catch(() => undefined);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="protokol-oopp-${doc.documentNumber}.pdf"`,
+  );
+  try {
+    await objectStorageService.servePrivateObject(doc.pdfObjectPath, res);
+  } catch {
+    if (!res.headersSent) {
+      res.status(404).json({ error: "Soubor nenalezen" });
+    }
+  }
+});
+
+// ── PPE Handover: Download Signature PNG ──────────────────────────────────────
+
+router.get("/ppe/assignments/:id/signature", async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!assignment) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+  const [doc] = await db
+    .select()
+    .from(ppeHandoverDocumentsTable)
+    .where(eq(ppeHandoverDocumentsTable.assignmentId, params.data.id));
+  if (!doc) {
+    res.status(404).json({ error: "Podpis nenalezen" });
+    return;
+  }
+  db.insert(ppeHandoverEventsTable)
+    .values({
+      assignmentId: params.data.id,
+      handoverDocumentId: doc.id,
+      eventType: "signature_viewed",
+      actorUserId: req.auth?.userId ?? null,
+      actorName: req.auth?.name ?? req.auth?.username ?? null,
+    })
+    .catch(() => undefined);
+
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Content-Disposition", `inline; filename="podpis-${doc.documentNumber}.png"`);
+  try {
+    await objectStorageService.servePrivateObject(doc.pngObjectPath, res);
+  } catch {
+    if (!res.headersSent) {
+      res.status(404).json({ error: "Soubor nenalezen" });
+    }
+  }
+});
+
+// ── PPE Handover: Events ──────────────────────────────────────────────────────
+
+router.get("/ppe/assignments/:id/events", async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!assignment) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+  const events = await db
+    .select()
+    .from(ppeHandoverEventsTable)
+    .where(eq(ppeHandoverEventsTable.assignmentId, params.data.id))
+    .orderBy(ppeHandoverEventsTable.createdAt);
+  res.json(events.map(serializeHandoverEvent));
 });
 
 export default router;

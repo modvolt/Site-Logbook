@@ -1720,12 +1720,36 @@ export const PpeAssignmentStatus = {
   disposed: 'disposed',
 } as const;
 
+export interface PpeHandoverDocument {
+  id: number;
+  assignmentId: number;
+  version: number;
+  documentNumber: string;
+  signatoryName: string;
+  signedAt: string;
+  confirmationText: string;
+  pngObjectPath: string;
+  pngSha256: string;
+  pdfObjectPath: string;
+  pdfSha256: string;
+  issuerSnapshot: string;
+  createdAt: string;
+}
+
 export interface PpeAssignment {
   id: number;
   ppeItemId: number;
   personId: number;
   ppeNameSnapshot: string;
   personNameSnapshot: string;
+  /** @nullable */
+  ppeCategorySnapshot?: string | null;
+  /** @nullable */
+  ppeStandardSnapshot?: string | null;
+  /** @nullable */
+  ppeProtectionClassSnapshot?: string | null;
+  /** @nullable */
+  ppeRiskDescriptionSnapshot?: string | null;
   quantity: number;
   /** @nullable */
   size?: string | null;
@@ -1746,6 +1770,7 @@ export interface PpeAssignment {
   /** @nullable */
   notes?: string | null;
   createdAt: string;
+  handoverDocument?: PpeHandoverDocument | null;
 }
 
 export interface PpeAssignmentInput {
@@ -1809,6 +1834,42 @@ export interface PpeConfirmResult {
   /** True if the assignment was already confirmed before this request */
   already: boolean;
   assignment: PpeAssignment;
+}
+
+export interface PpeSignHandoverInput {
+  /** PNG signature as data URL (data:image/png;base64,...) */
+  signatureDataUrl: string;
+  /**
+     * Name of the person signing (employee)
+     * @minLength 1
+     */
+  signatoryName: string;
+  /** Confirmation text the employee agreed to */
+  confirmationText: string;
+  /** Must be exactly true */
+  confirmationAccepted: boolean;
+}
+
+export type PpeHandoverEventEventType = typeof PpeHandoverEventEventType[keyof typeof PpeHandoverEventEventType];
+
+
+export const PpeHandoverEventEventType = {
+  signed: 'signed',
+  pdf_downloaded: 'pdf_downloaded',
+  signature_viewed: 'signature_viewed',
+} as const;
+
+export interface PpeHandoverEvent {
+  id: number;
+  assignmentId: number;
+  /** @nullable */
+  handoverDocumentId?: number | null;
+  eventType: PpeHandoverEventEventType;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorName?: string | null;
+  createdAt: string;
 }
 
 export interface ClientErrorInput {

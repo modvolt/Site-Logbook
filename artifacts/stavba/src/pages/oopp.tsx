@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import QRCode from "qrcode";
 import {
@@ -9,6 +9,8 @@ import {
   useListPpeAssignments,
   useCreatePpeAssignment,
   useUpdatePpeAssignment,
+  useRequestPpeConfirm,
+  useSignPpeHandover,
   useListPeople,
   getListPpeItemsQueryKey,
   getListPpeAssignmentsQueryKey,
@@ -29,8 +31,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
-  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, User, Package, Download, QrCode, Copy, X
+  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, QrCode, Link2, Copy, X, Check, PenLine, FileText, Image, History
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -480,7 +484,7 @@ export default function Oopp() {
     return {
       total: issued.length,
       overdue: issued.filter((a) => isPpeOverdue(a)).length,
-      unconfirmed: issued.filter((a) => !a.employeeConfirmedAt).length,
+      unconfirmed: issued.filter((a) => !a.handoverDocument).length,
     };
   }, [assignments]);
 
@@ -489,8 +493,7 @@ export default function Oopp() {
     return assignments.filter((a) => {
       if (filterPerson !== "_all" && a.personId !== parseInt(filterPerson)) return false;
       if (filterStatus !== "_all" && a.status !== filterStatus) return false;
-      if (filterOverdue && !isPpeOverdue(a)) return false;
-      if (filterUnconfirmed && (a.status !== "issued" || !!a.employeeConfirmedAt)) return false;
+      if (filterUnconfirmed && (a.status !== "issued" || !!a.handoverDocument || !!a.employeeConfirmedAt)) return false;
       if (filterIssuedFrom || filterIssuedTo) {
         if (!a.issuedAt) {
           if (!filterIncludeNoDate) return false;
@@ -511,6 +514,10 @@ export default function Oopp() {
       return true;
     });
   }, [assignments, filterPerson, filterStatus, filterOverdue, filterUnconfirmed, filterIssuedFrom, filterIssuedTo, filterIncludeNoDate, searchTerm]);
+
+  const [signingId, setSigningId] = useState<number | null>(null);
+  const signHandover = useSignPpeHandover();
+  const signingAssignment = assignments?.find((a) => a.id === signingId) ?? null;
 
   const returningAssignment = assignments?.find((a) => a.id === returningId) ?? null;
 
@@ -882,10 +889,51 @@ export default function Oopp() {
                           {a.serialNumber && <span>SN: {a.serialNumber}</span>}
                         </div>
                         {a.notes && <p className="text-xs text-muted-foreground mt-1 italic">{a.notes}</p>}
+                        {a.handoverDocument && (
+                          <div className="mt-2 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-2 text-xs">
+                            <div className="flex items-center gap-1.5 text-green-700 dark:text-green-400 font-semibold mb-0.5">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Podepsáno – protokol {a.handoverDocument.documentNumber}
+                            </div>
+                            <div className="text-muted-foreground mb-1.5">
+                              {a.handoverDocument.signatoryName} · {new Date(a.handoverDocument.signedAt).toLocaleString("cs-CZ")}
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs px-2"
+                                onClick={() => window.open(`/api/ppe/assignments/${a.id}/handover-pdf`, "_blank")}
+                              >
+                                <FileText className="h-3.5 w-3.5 mr-1" /> Protokol PDF
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs px-2"
+                                onClick={() => window.open(`/api/ppe/assignments/${a.id}/signature`, "_blank")}
+                              >
+                                <Image className="h-3.5 w-3.5 mr-1" /> Podpis
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       {can("write") && a.status === "issued" && (
-                        <div className="flex gap-2 shrink-0">
-                          {!a.employeeConfirmedAt && (
+                        <div className="flex flex-col gap-2 shrink-0">
+                          {!a.handoverDocument && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() => setSigningId(a.id)}
+                            >
+                              <PenLine className="h-4 w-4 mr-1" /> Podepsat převzetí
+                            </Button>
+                          )}
+                          {!a.employeeConfirmedAt && !a.handoverDocument && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1044,6 +1092,265 @@ export default function Oopp() {
       )}
 
       <ConfirmDialog {...dialogProps} />
+
+      {/* ── Signing Dialog ── */}
+      <SigningDialog
+        assignment={signingAssignment}
+        onClose={() => setSigningId(null)}
+        onSigned={() => {
+          setSigningId(null);
+          invalidateData(queryClient, "ppe", "people");
+          toast({ title: "Protokol o předání podepsán" });
+        }}
+      />
+    </div>
+  );
+}
+
+const CONFIRMATION_TEXT =
+  "Svým podpisem potvrzuji, že jsem převzal/a výše uvedené ochranné pracovní pomůcky (OOPP). " +
+  "Zavazuji se je používat v souladu s pokyny výrobce a zaměstnavatele a chránit je před poškozením.";
+
+function SigningDialog({
+  assignment,
+  onClose,
+  onSigned,
+}: {
+  assignment: PpeAssignment | null;
+  onClose: () => void;
+  onSigned: () => void;
+}) {
+  const [signatoryName, setSignatoryName] = useState("");
+  const [accepted, setAccepted] = useState(false);
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const signHandover = useSignPpeHandover();
+  const { toast } = useToast();
+
+  const reset = () => {
+    setSignatoryName("");
+    setAccepted(false);
+    setSignatureDataUrl(null);
+  };
+
+  const canSubmit = !!signatoryName.trim() && accepted && !!signatureDataUrl && !signHandover.isPending;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignment || !canSubmit || !signatureDataUrl) return;
+    signHandover.mutate(
+      {
+        id: assignment.id,
+        data: {
+          signatureDataUrl,
+          signatoryName: signatoryName.trim(),
+          confirmationText: CONFIRMATION_TEXT,
+          confirmationAccepted: true,
+        },
+      },
+      {
+        onSuccess: () => {
+          reset();
+          onSigned();
+        },
+        onError: (err: unknown) => {
+          const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Nepodařilo se uložit podpis";
+          toast({ title: msg, variant: "destructive" });
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog
+      open={!!assignment}
+      onOpenChange={(open) => {
+        if (!open) {
+          reset();
+          onClose();
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PenLine className="h-5 w-5" /> Podpis převzetí OOPP
+          </DialogTitle>
+        </DialogHeader>
+
+        {assignment && (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+              <div className="font-semibold">{assignment.ppeNameSnapshot}</div>
+              <div className="text-muted-foreground">
+                Zaměstnanec: {assignment.personNameSnapshot}
+              </div>
+              {assignment.quantity > 1 && (
+                <div className="text-muted-foreground">Počet: {assignment.quantity} ks</div>
+              )}
+              {assignment.size && <div className="text-muted-foreground">Velikost: {assignment.size}</div>}
+              {assignment.serialNumber && (
+                <div className="text-muted-foreground">SN: {assignment.serialNumber}</div>
+              )}
+            </div>
+
+            <div className="rounded-md border bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-muted-foreground leading-relaxed">
+              {CONFIRMATION_TEXT}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="signatoryName">Jméno podepisujícího *</Label>
+              <Input
+                id="signatoryName"
+                value={signatoryName}
+                onChange={(e) => setSignatoryName(e.target.value)}
+                placeholder="Celé jméno zaměstnance"
+                className="h-11 bg-background"
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Podpis *</Label>
+              <InlineSignaturePad onSignature={setSignatureDataUrl} />
+            </div>
+
+            <div className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                id="accepted"
+                checked={accepted}
+                onChange={(e) => setAccepted(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input"
+              />
+              <label htmlFor="accepted" className="text-sm leading-snug cursor-pointer select-none">
+                Souhlasím s výše uvedeným textem potvrzení a beru na vědomí svá práva a povinnosti ohledně OOPP.
+              </label>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="ghost" onClick={() => { reset(); onClose(); }}>
+                Zrušit
+              </Button>
+              <Button type="submit" disabled={!canSubmit}>
+                {signHandover.isPending ? "Ukládám…" : "Potvrdit a podepsat"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function initCanvas(canvas: HTMLCanvasElement) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width || 480;
+  const h = rect.height || 160;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#1e3a8a";
+}
+
+function InlineSignaturePad({ onSignature }: { onSignature: (dataUrl: string | null) => void }) {
+  const drawingRef = useRef(false);
+  const lastRef = useRef<{ x: number; y: number } | null>(null);
+  const [hasInk, setHasInk] = useState(false);
+
+  const callbackRef = useRef<HTMLCanvasElement | null>(null);
+  const setCanvasRef = (el: HTMLCanvasElement | null) => {
+    callbackRef.current = el;
+    if (el) initCanvas(el);
+  };
+
+  const getPos = (clientX: number, clientY: number, target: HTMLCanvasElement) => {
+    const rect = target.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  };
+
+  const draw = (x: number, y: number) => {
+    const canvas = callbackRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx || !lastRef.current) return;
+    ctx.beginPath();
+    ctx.moveTo(lastRef.current.x, lastRef.current.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    lastRef.current = { x, y };
+    setHasInk(true);
+    onSignature(canvas!.toDataURL("image/png"));
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore in test env */ }
+    drawingRef.current = true;
+    const p = getPos(e.clientX, e.clientY, e.currentTarget);
+    lastRef.current = p;
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current) return;
+    e.preventDefault();
+    draw(e.clientX - e.currentTarget.getBoundingClientRect().left, e.clientY - e.currentTarget.getBoundingClientRect().top);
+  };
+  const onPointerEnd = () => { drawingRef.current = false; lastRef.current = null; };
+
+  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    drawingRef.current = true;
+    const p = getPos(e.clientX, e.clientY, e.currentTarget);
+    lastRef.current = p;
+  };
+  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!drawingRef.current || e.buttons === 0) return;
+    const canvas = e.currentTarget;
+    draw(e.clientX - canvas.getBoundingClientRect().left, e.clientY - canvas.getBoundingClientRect().top);
+  };
+  const onMouseUp = () => { drawingRef.current = false; lastRef.current = null; };
+
+  const clear = () => {
+    const canvas = callbackRef.current;
+    if (!canvas) return;
+    initCanvas(canvas);
+    setHasInk(false);
+    onSignature(null);
+  };
+
+  return (
+    <div>
+      <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 bg-white overflow-hidden relative">
+        <canvas
+          ref={setCanvasRef}
+          data-testid="signature-canvas"
+          className="w-full touch-none"
+          style={{ height: "160px", display: "block", touchAction: "none", cursor: "crosshair" }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerEnd}
+          onPointerLeave={onPointerEnd}
+          onPointerCancel={onPointerEnd}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+        />
+        {!hasInk && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-sm text-muted-foreground select-none">Podepište se prstem nebo myší</span>
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end mt-1">
+        <Button type="button" variant="ghost" size="sm" onClick={clear} disabled={!hasInk} className="h-7 text-xs text-muted-foreground">
+          Smazat podpis
+        </Button>
+      </div>
     </div>
   );
 }

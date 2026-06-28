@@ -302,6 +302,20 @@
       "when": 1782678887603,
       "tag": "0041_ppe_signature",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1783750000000,
+      "tag": "0042_ppe_confirm_expiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783800000000,
+      "tag": "0043_ppe_handover_documents",
+      "breakpoints": true
     }
   ]
 }

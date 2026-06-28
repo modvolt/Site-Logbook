@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PpeAssignmentStatus } from './ppeAssignmentStatus';
+import type { PpeHandoverDocument } from './ppeHandoverDocument';
 
 export interface PpeAssignment {
   id: number;
@@ -13,6 +14,14 @@ export interface PpeAssignment {
   personId: number;
   ppeNameSnapshot: string;
   personNameSnapshot: string;
+  /** @nullable */
+  ppeCategorySnapshot?: string | null;
+  /** @nullable */
+  ppeStandardSnapshot?: string | null;
+  /** @nullable */
+  ppeProtectionClassSnapshot?: string | null;
+  /** @nullable */
+  ppeRiskDescriptionSnapshot?: string | null;
   quantity: number;
   /** @nullable */
   size?: string | null;
@@ -33,4 +42,5 @@ export interface PpeAssignment {
   /** @nullable */
   notes?: string | null;
   createdAt: string;
+  handoverDocument?: PpeHandoverDocument | null;
 }

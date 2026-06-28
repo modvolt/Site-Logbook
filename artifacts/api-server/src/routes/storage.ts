@@ -221,7 +221,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
  *                  guessable from the invoice number, so it must be blocked here
  *                  to stop a non-admin from downloading invoices directly.
  */
-const PROTECTED_OBJECT_PREFIXES = ["backups", "invoices"] as const;
+export const PROTECTED_OBJECT_PREFIXES = ["backups", "invoices", "ppe-handovers"] as const;
 
 /**
  * True when `wildcardPath` (the part after `/objects/`) falls under an
