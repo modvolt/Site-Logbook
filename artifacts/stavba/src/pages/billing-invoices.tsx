@@ -22,7 +22,7 @@ import {
 import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
 import { fmtKc, fmtDate, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, FileText, Plus, ChevronRight, CircleDollarSign, BellRing, AlertCircle } from "lucide-react";
+import { ArrowLeft, FileText, Plus, ChevronRight, CircleDollarSign, BellRing, AlertCircle, CalendarClock } from "lucide-react";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "Všechny stavy" },
@@ -160,6 +160,11 @@ export default function BillingInvoices() {
                       </p>
                       <InvoiceStatusBadge status={inv.status} />
                       {overdue != null && <OverdueBadge days={overdue} />}
+                      {inv.recurringTemplateId != null && (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                          <CalendarClock className="h-3 w-3" /> Paušál
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground truncate mt-0.5">
                       {inv.customerName || "—"}
