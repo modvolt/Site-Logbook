@@ -131,10 +131,33 @@ export async function sendEmailWithPdf(params: SendEmailParams): Promise<void> {
 }
 
 /**
- * Send a plain-text email (no attachment). Used for PPE confirmation links.
+ * Send a plain-text email (no attachment). Used for PPE confirmation links
+ * and signature request emails.
+ *
+ * In non-production environments, if SMTP is not configured the email body is
+ * written to the server log instead of being delivered. This lets automated
+ * tests exercise the full request-signature path without requiring an SMTP
+ * server to be set up in the dev environment.
  */
 export async function sendPlainEmail(params: { to: string; subject: string; text: string }): Promise<void> {
-  const cfg = await resolveEmailConfig();
+  let cfg: ResolvedEmailConfig;
+  try {
+    cfg = await resolveEmailConfig();
+  } catch (configErr) {
+    if (process.env.NODE_ENV !== "production") {
+      // Dev/test fallback: log the email content and proceed so the token is
+      // stored and callers (e.g. e2e tests) receive a successful response.
+      console.warn(
+        "[DEV] SMTP not configured — email not sent. Would have delivered:\n" +
+        `  To: ${params.to}\n` +
+        `  Subject: ${params.subject}\n` +
+        `---\n${params.text}\n---`,
+      );
+      return;
+    }
+    throw configErr;
+  }
+
   try {
     await getTransporter(cfg).sendMail({
       from: cfg.from,

@@ -784,6 +784,50 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   res.json({ sent: true, to });
 });
 
+/**
+ * Generate (or renew) a signature token for a job and return the sign URL
+ * WITHOUT sending an email. Useful for sharing the link manually and in
+ * automated tests where SMTP delivery is not configured.
+ *
+ * In non-production environments an optional body field `expiredForTesting`
+ * (boolean) can be passed to create an already-expired token for testing the
+ * expired-state UI path.
+ */
+router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Neplatné ID zakázky" });
+    return;
+  }
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, id));
+  if (!job) {
+    res.status(404).json({ error: "Zakázka nenalezena" });
+    return;
+  }
+
+  const isDev = process.env.NODE_ENV !== "production";
+  const expiredForTesting =
+    isDev &&
+    (req.body as Record<string, unknown>)?.expiredForTesting === true;
+
+  const token = randomUUID();
+  const expiresAt = expiredForTesting
+    ? new Date(Date.now() - 1000)
+    : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const requestedAt = new Date();
+
+  await db
+    .update(jobsTable)
+    .set({ signatureToken: token, signatureTokenExpiresAt: expiresAt, signatureRequestedAt: requestedAt })
+    .where(eq(jobsTable.id, id));
+
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const signUrl = `${baseUrl}/sign/${token}`;
+
+  res.json({ token, signUrl, expiresAt: expiresAt.toISOString() });
+});
+
 router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
