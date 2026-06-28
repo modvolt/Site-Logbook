@@ -371,6 +371,7 @@ export default function Oopp() {
   const [filterUnconfirmed, setFilterUnconfirmed] = useState(false);
   const [filterIssuedFrom, setFilterIssuedFrom] = useState("");
   const [filterIssuedTo, setFilterIssuedTo] = useState("");
+  const [filterIncludeNoDate, setFilterIncludeNoDate] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [exportFormat, setExportFormat] = useState<"pdf" | "csv">("pdf");
   const [exporting, setExporting] = useState(false);
@@ -419,8 +420,14 @@ export default function Oopp() {
       if (filterStatus !== "_all" && a.status !== filterStatus) return false;
       if (filterOverdue && !isPpeOverdue(a)) return false;
       if (filterUnconfirmed && (a.status !== "issued" || !!a.employeeConfirmedAt)) return false;
-      if (filterIssuedFrom && a.issuedAt && a.issuedAt < filterIssuedFrom) return false;
-      if (filterIssuedTo && a.issuedAt && a.issuedAt > filterIssuedTo) return false;
+      if (filterIssuedFrom || filterIssuedTo) {
+        if (!a.issuedAt) {
+          if (!filterIncludeNoDate) return false;
+        } else {
+          if (filterIssuedFrom && a.issuedAt < filterIssuedFrom) return false;
+          if (filterIssuedTo && a.issuedAt > filterIssuedTo) return false;
+        }
+      }
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         if (
@@ -432,7 +439,7 @@ export default function Oopp() {
       }
       return true;
     });
-  }, [assignments, filterPerson, filterStatus, filterOverdue, filterUnconfirmed, filterIssuedFrom, filterIssuedTo, searchTerm]);
+  }, [assignments, filterPerson, filterStatus, filterOverdue, filterUnconfirmed, filterIssuedFrom, filterIssuedTo, filterIncludeNoDate, searchTerm]);
 
   const returningAssignment = assignments?.find((a) => a.id === returningId) ?? null;
 
@@ -528,7 +535,8 @@ export default function Oopp() {
     });
   };
 
-  const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm || !!filterIssuedFrom || !!filterIssuedTo;
+  const hasDateFilter = !!filterIssuedFrom || !!filterIssuedTo;
+  const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm || hasDateFilter || (hasDateFilter && !filterIncludeNoDate);
 
   const handleExport = async (fmt: "pdf" | "csv") => {
     setExporting(true);
@@ -539,6 +547,7 @@ export default function Oopp() {
       if (filterOverdue) params.set("overdue", "true");
       if (filterIssuedFrom) params.set("issuedFrom", filterIssuedFrom);
       if (filterIssuedTo) params.set("issuedTo", filterIssuedTo);
+      if (hasDateFilter && !filterIncludeNoDate) params.set("excludeNoDate", "true");
       const res = await fetch(`/api/ppe/assignments/export?${params.toString()}`);
       if (!res.ok) throw new Error("Export selhal");
       const blob = await res.blob();
@@ -726,12 +735,23 @@ export default function Oopp() {
                 className="h-9 w-36 text-sm"
               />
             </div>
+            {hasDateFilter && (
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={filterIncludeNoDate}
+                  onChange={(e) => setFilterIncludeNoDate(e.target.checked)}
+                  className="accent-primary"
+                />
+                Zahrnout bez data vydání
+              </label>
+            )}
             {hasFilters && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-9 text-muted-foreground"
-                onClick={() => { setFilterPerson("_all"); setFilterStatus("_all"); setFilterOverdue(false); setFilterUnconfirmed(false); setFilterIssuedFrom(""); setFilterIssuedTo(""); setSearchTerm(""); }}
+                onClick={() => { setFilterPerson("_all"); setFilterStatus("_all"); setFilterOverdue(false); setFilterUnconfirmed(false); setFilterIssuedFrom(""); setFilterIssuedTo(""); setFilterIncludeNoDate(true); setSearchTerm(""); }}
               >
                 Zrušit filtry
               </Button>

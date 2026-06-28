@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, count, eq, gte, lte, or, isNotNull } from "drizzle-orm";
+import { and, count, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
 import { PPE_CATEGORIES, PPE_STATUSES } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
@@ -182,13 +182,23 @@ router.get("/ppe/assignments/export", async (req, res): Promise<void> => {
   }
 
   const issuedFrom = req.query.issuedFrom as string | undefined;
-  if (issuedFrom && /^\d{4}-\d{2}-\d{2}$/.test(issuedFrom)) {
-    conditions.push(gte(ppeAssignmentsTable.issuedAt, issuedFrom));
-  }
+  const validIssuedFrom = issuedFrom && /^\d{4}-\d{2}-\d{2}$/.test(issuedFrom) ? issuedFrom : undefined;
 
   const issuedTo = req.query.issuedTo as string | undefined;
-  if (issuedTo && /^\d{4}-\d{2}-\d{2}$/.test(issuedTo)) {
-    conditions.push(lte(ppeAssignmentsTable.issuedAt, issuedTo));
+  const validIssuedTo = issuedTo && /^\d{4}-\d{2}-\d{2}$/.test(issuedTo) ? issuedTo : undefined;
+
+  if (validIssuedFrom || validIssuedTo) {
+    const excludeNoDate = req.query.excludeNoDate === "true";
+    const dateParts = [
+      ...(validIssuedFrom ? [gte(ppeAssignmentsTable.issuedAt, validIssuedFrom)] : []),
+      ...(validIssuedTo ? [lte(ppeAssignmentsTable.issuedAt, validIssuedTo)] : []),
+    ];
+    const dateCondition = dateParts.length === 1 ? dateParts[0] : and(...dateParts)!;
+    if (excludeNoDate) {
+      conditions.push(and(isNotNull(ppeAssignmentsTable.issuedAt), dateCondition)!);
+    } else {
+      conditions.push(or(isNull(ppeAssignmentsTable.issuedAt), dateCondition)!);
+    }
   }
 
   if (req.query.overdue === "true") {
