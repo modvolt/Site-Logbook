@@ -419,6 +419,8 @@ export default function Oopp() {
       if (filterStatus !== "_all" && a.status !== filterStatus) return false;
       if (filterOverdue && !isPpeOverdue(a)) return false;
       if (filterUnconfirmed && (a.status !== "issued" || !!a.employeeConfirmedAt)) return false;
+      if (filterIssuedFrom && a.issuedAt && a.issuedAt < filterIssuedFrom) return false;
+      if (filterIssuedTo && a.issuedAt && a.issuedAt > filterIssuedTo) return false;
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         if (
@@ -430,7 +432,7 @@ export default function Oopp() {
       }
       return true;
     });
-  }, [assignments, filterPerson, filterStatus, filterOverdue, filterUnconfirmed, searchTerm]);
+  }, [assignments, filterPerson, filterStatus, filterOverdue, filterUnconfirmed, filterIssuedFrom, filterIssuedTo, searchTerm]);
 
   const returningAssignment = assignments?.find((a) => a.id === returningId) ?? null;
 
