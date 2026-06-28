@@ -3177,6 +3177,11 @@ export const GetMyDoneJobsResponse = zod.array(GetMyDoneJobsResponseItem)
 /**
  * @summary Current user's planned site visits
  */
+export const GetMyVisitsQueryParams = zod.object({
+  "from": zod.date().optional().describe('Filter visits on or after this date (YYYY-MM-DD). Defaults to today when not provided.'),
+  "to": zod.date().optional().describe('Filter visits on or before this date (YYYY-MM-DD). Omit for no upper bound.')
+})
+
 export const GetMyVisitsResponseItem = zod.object({
   "id": zod.number(),
   "kind": zod.string().describe('job | activity'),

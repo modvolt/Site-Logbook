@@ -3959,6 +3959,17 @@ export type GetMyDoneJobsParams = {
 limit?: number;
 };
 
+export type GetMyVisitsParams = {
+/**
+ * Filter visits on or after this date (YYYY-MM-DD). Defaults to today when not provided.
+ */
+from?: string;
+/**
+ * Filter visits on or before this date (YYYY-MM-DD). Omit for no upper bound.
+ */
+to?: string;
+};
+
 export type ListInvoicesParams = {
 status?: string;
 /**

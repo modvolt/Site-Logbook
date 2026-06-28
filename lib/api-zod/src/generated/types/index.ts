@@ -154,6 +154,7 @@ export * from './gdprEraseResult';
 export * from './gdprExport';
 export * from './gdprExportData';
 export * from './getMyDoneJobsParams';
+export * from './getMyVisitsParams';
 export * from './getRisksSummaryParams';
 export * from './getStatsOverviewParams';
 export * from './getWarehouseActivityMarginTrendParams';

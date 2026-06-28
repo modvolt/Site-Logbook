@@ -151,8 +151,12 @@ router.get("/me/jobs", requireAuth, async (req, res): Promise<void> => {
 // (people.name === users.name) — the only available link in the schema.
 // Returns both job visits and activity visits unified under a single shape:
 // { kind: "job"|"activity", parentId, parentName, ... }
+// Optional query params: from (YYYY-MM-DD, defaults to today), to (YYYY-MM-DD, no upper bound by default).
 router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
   const name = req.auth!.name;
+
+  const fromParam = typeof req.query.from === "string" ? req.query.from : ymd(new Date());
+  const toParam = typeof req.query.to === "string" ? req.query.to : null;
 
   const matchingPeople = await db
     .select({ id: peopleTable.id })
@@ -164,6 +168,15 @@ router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
     res.json([]);
     return;
   }
+
+  const jobDateConditions = [
+    gte(jobVisitsTable.date, fromParam),
+    ...(toParam ? [lte(jobVisitsTable.date, toParam)] : []),
+  ];
+  const activityDateConditions = [
+    gte(activityVisitsTable.date, fromParam),
+    ...(toParam ? [lte(activityVisitsTable.date, toParam)] : []),
+  ];
 
   const [jobRows, activityRows] = await Promise.all([
     db
@@ -184,6 +197,7 @@ router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
         and(
           inArray(jobVisitsTable.personId, personIds),
           eq(jobVisitsTable.status, "planned"),
+          ...jobDateConditions,
         ),
       )
       .orderBy(asc(jobVisitsTable.date), asc(jobVisitsTable.id)),
@@ -205,6 +219,7 @@ router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
         and(
           inArray(activityVisitsTable.personId, personIds),
           eq(activityVisitsTable.status, "planned"),
+          ...activityDateConditions,
         ),
       )
       .orderBy(asc(activityVisitsTable.date), asc(activityVisitsTable.id)),

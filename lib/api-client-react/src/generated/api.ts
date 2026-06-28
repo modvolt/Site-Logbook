@@ -112,6 +112,7 @@ import type {
   GdprEraseResult,
   GdprExport,
   GetMyDoneJobsParams,
+  GetMyVisitsParams,
   GetRisksSummaryParams,
   GetStatsOverviewParams,
   GetWarehouseActivityMarginTrendParams,
@@ -10768,20 +10769,27 @@ export function useGetMyDoneJobs<TData = Awaited<ReturnType<typeof getMyDoneJobs
 
 
 
-export const getGetMyVisitsUrl = () => {
+export const getGetMyVisitsUrl = (params?: GetMyVisitsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/me/visits`
+  return stringifiedParams.length > 0 ? `/api/me/visits?${stringifiedParams}` : `/api/me/visits`
 }
 
 /**
  * @summary Current user's planned site visits
  */
-export const getMyVisits = async ( options?: RequestInit): Promise<MyVisit[]> => {
+export const getMyVisits = async (params?: GetMyVisitsParams, options?: RequestInit): Promise<MyVisit[]> => {
 
-  return customFetch<MyVisit[]>(getGetMyVisitsUrl(),
+  return customFetch<MyVisit[]>(getGetMyVisitsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -10794,23 +10802,23 @@ export const getMyVisits = async ( options?: RequestInit): Promise<MyVisit[]> =>
 
 
 
-export const getGetMyVisitsQueryKey = () => {
+export const getGetMyVisitsQueryKey = (params?: GetMyVisitsParams,) => {
     return [
-    `/api/me/visits`
+    `/api/me/visits`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetMyVisitsQueryOptions = <TData = Awaited<ReturnType<typeof getMyVisits>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMyVisits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetMyVisitsQueryOptions = <TData = Awaited<ReturnType<typeof getMyVisits>>, TError = ErrorType<unknown>>(params?: GetMyVisitsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMyVisits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetMyVisitsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetMyVisitsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyVisits>>> = ({ signal }) => getMyVisits({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyVisits>>> = ({ signal }) => getMyVisits(params, { signal, ...requestOptions });
 
 
 
@@ -10828,11 +10836,11 @@ export type GetMyVisitsQueryError = ErrorType<unknown>
  */
 
 export function useGetMyVisits<TData = Awaited<ReturnType<typeof getMyVisits>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMyVisits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetMyVisitsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMyVisits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetMyVisitsQueryOptions(options)
+  const queryOptions = getGetMyVisitsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

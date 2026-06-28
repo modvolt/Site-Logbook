@@ -3337,6 +3337,21 @@ paths:
       operationId: getMyVisits
       tags: [me]
       summary: Current user's planned site visits
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: "Filter visits on or after this date (YYYY-MM-DD). Defaults to today when not provided."
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: "Filter visits on or before this date (YYYY-MM-DD). Omit for no upper bound."
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: Planned visits for the logged-in technician
