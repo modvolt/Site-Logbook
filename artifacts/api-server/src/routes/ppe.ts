@@ -396,6 +396,36 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
   });
 });
 
+// Admin: serve stored signature image for a confirmed assignment
+router.get("/ppe/assignments/:id/signature", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+
+  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!assignment) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+
+  if (!assignment.signatureObjectPath) {
+    res.status(404).json({ error: "Podpis nebyl nalezen" });
+    return;
+  }
+
+  try {
+    const buffer = await objectStorage.getPrivateObjectBuffer(assignment.signatureObjectPath);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.send(buffer);
+  } catch (err) {
+    req.log?.error({ err }, "PPE signature fetch failed");
+    res.status(500).json({ error: "Nepodařilo se načíst podpis" });
+  }
+});
+
 // ─────────── Export ───────────
 
 router.get("/ppe/assignments/export", async (req, res): Promise<void> => {

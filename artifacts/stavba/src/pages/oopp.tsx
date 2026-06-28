@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
-  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, QrCode, Link2, Copy, X, Check, PenLine, FileText, Image, History
+  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, QrCode, Link2, Copy, X, Check, PenLine, FileText, Image, History, Eye
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -490,6 +490,7 @@ export default function Oopp() {
   const [editingItem, setEditingItem] = useState<PpeItem | null>(null);
   const [returningId, setReturningId] = useState<number | null>(null);
   const [sharingAssignmentId, setSharingAssignmentId] = useState<number | null>(null);
+  const [viewingSignatureId, setViewingSignatureId] = useState<number | null>(null);
 
   const [filterPerson, setFilterPerson] = useState(prefillPersonId ? String(prefillPersonId) : "_all");
   const [filterStatus, setFilterStatus] = useState("_all");
@@ -982,6 +983,17 @@ export default function Oopp() {
                               <PenLine className="h-4 w-4 mr-1" /> Podepsat převzetí
                             </Button>
                           )}
+                          {(a as any).hasSignature && !a.handoverDocument && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1.5"
+                              onClick={() => setViewingSignatureId(viewingSignatureId === a.id ? null : a.id)}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Podpis</span>
+                            </Button>
+                          )}
                           {!a.employeeConfirmedAt && !a.handoverDocument && (
                             <Button
                               variant="outline"
@@ -1003,6 +1015,16 @@ export default function Oopp() {
                         </div>
                       )}
                     </div>
+                    {viewingSignatureId === a.id && (
+                      <div className="mt-3 pt-3 border-t border-border">
+                        <p className="text-xs text-muted-foreground mb-2">Podpis zaměstnance</p>
+                        <img
+                          src={`/api/ppe/assignments/${a.id}/signature`}
+                          alt={`Podpis – ${a.personNameSnapshot}`}
+                          className="max-h-32 border rounded bg-white p-1"
+                        />
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
