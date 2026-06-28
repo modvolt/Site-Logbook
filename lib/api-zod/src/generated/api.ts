@@ -2383,6 +2383,7 @@ export const ListPpeAssignmentsResponseItem = zod.object({
   "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
+  "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({
@@ -2437,6 +2438,14 @@ export const ExportPpeAssignmentsQueryParams = zod.object({
 
 
 /**
+ * @summary Revoke the signature link for an assignment so the token is no longer valid (admin/master)
+ */
+export const RevokePpeSignTokenParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary Hard-delete a PPE assignment record (admin/master)
  */
 export const DeletePpeAssignmentParams = zod.object({
@@ -2485,6 +2494,7 @@ export const UpdatePpeAssignmentResponse = zod.object({
   "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
+  "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({
@@ -2545,6 +2555,7 @@ export const GetPpeConfirmDetailsResponse = zod.object({
   "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
+  "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({
@@ -2594,6 +2605,7 @@ export const ConfirmPpeAssignmentResponse = zod.object({
   "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
+  "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({

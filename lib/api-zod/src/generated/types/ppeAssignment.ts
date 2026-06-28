@@ -39,6 +39,8 @@ export interface PpeAssignment {
   employeeConfirmedAt?: string | null;
   /** True when a confirmation link has been generated for this assignment */
   hasConfirmToken: boolean;
+  /** True when an active signature link exists for this assignment */
+  hasSignToken?: boolean;
   /** @nullable */
   notes?: string | null;
   createdAt: string;

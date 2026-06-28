@@ -2300,6 +2300,25 @@ paths:
                 type: string
                 format: binary
 
+  /ppe/assignments/{id}/sign-token:
+    delete:
+      operationId: revokePpeSignToken
+      tags: [ppe]
+      summary: Revoke the signature link for an assignment so the token is no longer valid (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Token revoked (or was already absent)
+        "404":
+          description: Not found
+        "403":
+          description: Forbidden
+
   /ppe/assignments/{id}:
     delete:
       operationId: deletePpeAssignment
@@ -11769,6 +11788,9 @@ components:
         hasConfirmToken:
           type: boolean
           description: True when a confirmation link has been generated for this assignment
+        hasSignToken:
+          type: boolean
+          description: True when an active signature link exists for this assignment
         notes:
           type: ["string", "null"]
         createdAt:

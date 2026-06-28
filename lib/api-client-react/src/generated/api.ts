@@ -7613,6 +7613,76 @@ export function useExportPpeAssignments<TData = Awaited<ReturnType<typeof export
 
 
 
+export const getRevokePpeSignTokenUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/sign-token`
+}
+
+/**
+ * @summary Revoke the signature link for an assignment so the token is no longer valid (admin/master)
+ */
+export const revokePpeSignToken = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRevokePpeSignTokenUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRevokePpeSignTokenMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokePpeSignToken>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokePpeSignToken>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['revokePpeSignToken'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokePpeSignToken>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  revokePpeSignToken(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokePpeSignTokenMutationResult = NonNullable<Awaited<ReturnType<typeof revokePpeSignToken>>>
+
+    export type RevokePpeSignTokenMutationError = ErrorType<void>
+
+    /**
+ * @summary Revoke the signature link for an assignment so the token is no longer valid (admin/master)
+ */
+export const useRevokePpeSignToken = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokePpeSignToken>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokePpeSignToken>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRevokePpeSignTokenMutationOptions(options));
+    }
+
 export const getDeletePpeAssignmentUrl = (id: number,) => {
 
 

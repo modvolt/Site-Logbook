@@ -82,6 +82,7 @@ function serializeAssignment(a: typeof ppeAssignmentsTable.$inferSelect) {
     signatureToken: undefined,
     signatureObjectPath: undefined,
     hasSignature: !!a.signatureObjectPath,
+    hasSignToken: !!a.signatureToken,
     employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
     createdAt: a.createdAt.toISOString(),
   };
@@ -279,6 +280,24 @@ router.post("/ppe/assignments/:id/sign-token", requireRole("admin", "master"), a
   }
 
   res.json({ token, signUrl: `/oopp/sign/${token}` });
+});
+
+router.delete("/ppe/assignments/:id/sign-token", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+
+  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!existing) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+
+  await db.update(ppeAssignmentsTable).set({ signatureToken: null }).where(eq(ppeAssignmentsTable.id, params.data.id));
+
+  res.status(204).end();
 });
 
 // Public: fetch assignment info for signing (by token)

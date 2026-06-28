@@ -64,14 +64,19 @@ function ShareSignDialog({
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [signUrl, setSignUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [revoking, setRevoking] = useState(false);
+  const [revoked, setRevoked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const qc = useQueryClient();
 
-  useEffect(() => {
+  function generateToken() {
     setLoading(true);
+    setError(null);
+    setRevoked(false);
     fetch(`/api/ppe/assignments/${assignment.id}/sign-token`, { method: "POST" })
       .then((r) => r.json())
-      .then(async (data) => {
+      .then(async (data: { error?: string; signUrl?: string }) => {
         if (data.error) { setError(data.error); return; }
         const fullUrl = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, "")}${data.signUrl}`;
         setSignUrl(fullUrl);
@@ -80,6 +85,11 @@ function ShareSignDialog({
       })
       .catch(() => setError("Nepodařilo se vygenerovat odkaz"))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    generateToken();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignment.id]);
 
   function copyLink() {
@@ -87,6 +97,26 @@ function ShareSignDialog({
     navigator.clipboard.writeText(signUrl).then(() => {
       toast({ title: "Odkaz zkopírován" });
     });
+  }
+
+  function revokeToken() {
+    setRevoking(true);
+    fetch(`/api/ppe/assignments/${assignment.id}/sign-token`, { method: "DELETE" })
+      .then((r) => {
+        if (r.ok || r.status === 204) {
+          setSignUrl(null);
+          setQrDataUrl(null);
+          setRevoked(true);
+          toast({ title: "Odkaz byl zrušen" });
+          invalidateData(qc, "ppe");
+          return;
+        }
+        return r.json().then((data: { error?: string }) => {
+          setError(data.error ?? "Nepodařilo se zrušit odkaz");
+        });
+      })
+      .catch(() => setError("Nepodařilo se zrušit odkaz"))
+      .finally(() => setRevoking(false));
   }
 
   return (
@@ -106,7 +136,15 @@ function ShareSignDialog({
         </p>
         {loading && <div className="text-sm text-muted-foreground py-4 text-center">Generuji odkaz…</div>}
         {error && <div className="text-sm text-destructive">{error}</div>}
-        {!loading && !error && (
+        {revoked && !loading && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Odkaz byl zrušen a již není platný.</p>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={generateToken}>
+              <QrCode className="h-3.5 w-3.5" /> Vygenerovat nový odkaz
+            </Button>
+          </div>
+        )}
+        {!loading && !error && !revoked && (
           <div className="flex flex-col sm:flex-row items-center gap-4">
             {qrDataUrl && (
               <img src={qrDataUrl} alt="QR kód pro podpis" className="w-32 h-32 rounded-lg border bg-white p-1 shrink-0" />
@@ -115,9 +153,20 @@ function ShareSignDialog({
               <p className="text-xs text-muted-foreground break-all font-mono bg-white border rounded px-2 py-1.5 select-all">
                 {signUrl}
               </p>
-              <Button variant="outline" size="sm" className="gap-1.5 w-full sm:w-auto" onClick={copyLink}>
-                <Copy className="h-3.5 w-3.5" /> Zkopírovat odkaz
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={copyLink}>
+                  <Copy className="h-3.5 w-3.5" /> Zkopírovat odkaz
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  onClick={revokeToken}
+                  disabled={revoking}
+                >
+                  <X className="h-3.5 w-3.5" /> Zrušit odkaz
+                </Button>
+              </div>
             </div>
           </div>
         )}
