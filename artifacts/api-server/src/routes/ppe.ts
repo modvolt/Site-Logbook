@@ -365,26 +365,55 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
   const pngBuffer = Buffer.from(base64Data, "base64");
 
   const objectPath = `/objects/ppe-signatures/${assignment.id}-${token}.png`;
+  let uploaded = false;
   try {
     await objectStorage.putPrivateObject(objectPath, pngBuffer, "image/png");
+    uploaded = true;
   } catch (err) {
     req.log?.error({ err }, "PPE signature upload failed");
     res.status(500).json({ error: "Nepodařilo se uložit podpis" });
     return;
   }
 
-  const confirmedAt = new Date();
-  await db
-    .update(ppeAssignmentsTable)
-    .set({ employeeConfirmedAt: confirmedAt, signatureObjectPath: objectPath })
-    .where(eq(ppeAssignmentsTable.id, assignment.id));
+  try {
+    const confirmedAt = new Date();
+    await db.transaction(async (tx) => {
+      // Lock the row to serialize concurrent sign attempts from multiple tabs/devices
+      const [recheck] = await tx
+        .select()
+        .from(ppeAssignmentsTable)
+        .where(eq(ppeAssignmentsTable.id, assignment.id))
+        .for("update");
 
-  res.json({
-    ok: true,
-    employeeConfirmedAt: confirmedAt.toISOString(),
-    personNameSnapshot: assignment.personNameSnapshot,
-    ppeNameSnapshot: assignment.ppeNameSnapshot,
-  });
+      if (recheck?.employeeConfirmedAt) {
+        throw new Error("ALREADY_SIGNED");
+      }
+
+      await tx
+        .update(ppeAssignmentsTable)
+        .set({ employeeConfirmedAt: confirmedAt, signatureObjectPath: objectPath })
+        .where(eq(ppeAssignmentsTable.id, assignment.id));
+    });
+
+    res.json({
+      ok: true,
+      employeeConfirmedAt: confirmedAt.toISOString(),
+      personNameSnapshot: assignment.personNameSnapshot,
+      ppeNameSnapshot: assignment.ppeNameSnapshot,
+    });
+  } catch (err) {
+    // Clean up the uploaded signature PNG if we could not commit
+    if (uploaded) {
+      objectStorage.deletePrivateObject(objectPath).catch(() => undefined);
+    }
+
+    if (err instanceof Error && err.message === "ALREADY_SIGNED") {
+      res.status(409).json({ error: "Výdej byl již podepsán" });
+      return;
+    }
+    req.log?.error({ err }, "PPE signature save failed");
+    res.status(500).json({ error: "Nepodařilo se uložit podpis" });
+  }
 });
 
 // Admin: serve stored signature image for a confirmed assignment
