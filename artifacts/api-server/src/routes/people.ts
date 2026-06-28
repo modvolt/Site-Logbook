@@ -215,6 +215,18 @@ router.delete("/people/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const [ppeCount] = await db
+    .select({ cnt: count() })
+    .from(ppeAssignmentsTable)
+    .where(eq(ppeAssignmentsTable.personId, params.data.id));
+
+  if (ppeCount && Number(ppeCount.cnt) > 0) {
+    res.status(409).json({
+      error: `Pracovník má ${ppeCount.cnt} záznam/ů BOZP výdeje a nelze jej smazat. Nejprve vraťte nebo archivujte všechny výdeje OOPP.`,
+    });
+    return;
+  }
+
   const [person] = await db
     .delete(peopleTable)
     .where(eq(peopleTable.id, params.data.id))
