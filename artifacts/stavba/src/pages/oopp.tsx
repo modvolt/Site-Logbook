@@ -10,6 +10,7 @@ import {
   useCreatePpeAssignment,
   useUpdatePpeAssignment,
   useSignPpeHandover,
+  useRequestPpeConfirm,
   useListPeople,
   getListPpeItemsQueryKey,
   getListPpeAssignmentsQueryKey,
@@ -650,6 +651,19 @@ export default function Oopp() {
       },
       onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
     });
+  };
+
+  const handleCopyConfirmLink = async (a: PpeAssignment) => {
+    try {
+      const result = await requestConfirm.mutateAsync({ id: a.id });
+      await navigator.clipboard.writeText(result.confirmUrl);
+      setCopiedId(a.id);
+      setTimeout(() => setCopiedId((prev) => (prev === a.id ? null : prev)), 3000);
+      invalidateData(queryClient, "ppe");
+      toast({ title: "Odkaz zkopírován do schránky" });
+    } catch {
+      toast({ title: "Nepodařilo se vygenerovat odkaz", variant: "destructive" });
+    }
   };
 
   const hasDateFilter = !!filterIssuedFrom || !!filterIssuedTo;
