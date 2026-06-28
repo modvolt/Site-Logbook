@@ -3055,8 +3055,11 @@ export async function listReviewQueue(opts: {
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50));
 
-  // Fetch ALL non-approved, non-invoiced lines from open documents.
-  // We intentionally widen the SQL filter here and compute reasons in-memory
+  // Fetch ALL non-approved, non-confirmed, non-invoiced lines from open documents.
+  // matchConfirmed=0 is enforced at SQL level so confirmed lines stay hidden even
+  // when a document is re-set to needs_review — returnReviewLines explicitly resets
+  // matchConfirmed=0 for lines that should come back.
+  // We intentionally widen the remaining SQL filter and compute reasons in-memory
   // so every trigger (missing warehouse item, price jump, etc.) is covered —
   // not just confidence and document status.
   const allRows = await db
@@ -3080,6 +3083,7 @@ export async function listReviewQueue(opts: {
     .where(
       and(
         eq(billingDocumentLinesTable.approved, 0),
+        eq(billingDocumentLinesTable.matchConfirmed, 0),
         isNull(billingDocumentLinesTable.invoicedInvoiceId),
         inArray(billingDocumentsTable.status, [...OPEN_DOC_STATUSES]),
       ),

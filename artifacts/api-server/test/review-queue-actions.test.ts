@@ -341,3 +341,45 @@ describe("listReviewQueue excludes skipped lines", () => {
     void ids;
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7. listReviewQueue keeps matchConfirmed lines hidden after document re-open
+// ---------------------------------------------------------------------------
+
+describe("listReviewQueue – confirmed lines stay hidden when document is re-set to needs_review", () => {
+  let confirmedLine: number;
+  let unconfirmedLine: number;
+  let docId: number;
+
+  beforeAll(async () => {
+    // Create document in reviewed state, confirm one line, then reset doc to needs_review
+    docId = await makeDoc("reviewed");
+    confirmedLine = await makeLine(docId, {
+      allocationType: "rebill",
+      matchConfirmed: 1,
+      confidence: "0.9",
+    });
+    unconfirmedLine = await makeLine(docId, {
+      allocationType: "rebill",
+      matchConfirmed: 0,
+      confidence: "0.5",
+    });
+    // Simulate re-opening the document (e.g. admin resets to needs_review)
+    await db
+      .update(billingDocumentsTable)
+      .set({ status: "needs_review" })
+      .where(eq(billingDocumentsTable.id, docId));
+  });
+
+  it("confirmed line (matchConfirmed=1) does NOT appear in queue after document re-open", async () => {
+    const result = await listReviewQueue({ pageSize: 200 });
+    const ids = result.items.map((i) => i.lineId);
+    expect(ids).not.toContain(confirmedLine);
+  });
+
+  it("unconfirmed line (matchConfirmed=0) still appears in queue", async () => {
+    const result = await listReviewQueue({ pageSize: 200 });
+    const ids = result.items.map((i) => i.lineId);
+    expect(ids).toContain(unconfirmedLine);
+  });
+});
