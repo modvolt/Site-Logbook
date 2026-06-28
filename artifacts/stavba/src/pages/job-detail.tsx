@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
@@ -1110,11 +1110,20 @@ function VisitForm({
   const [status, setStatus] = useState(initial.status);
 
   const personIdNum = personId !== "none" ? parseInt(personId) : null;
-  const visitLeaveParams = { personId: personIdNum ?? undefined, from: date, to: date };
-  const { data: personLeaves } = useListLeaves(
-    visitLeaveParams,
-    { query: { queryKey: getListLeavesQueryKey(visitLeaveParams), enabled: personIdNum !== null && !!date } },
+  const allVisitLeavesParams = { from: date, to: date };
+  const { data: allVisitLeaves } = useListLeaves(
+    allVisitLeavesParams,
+    { query: { queryKey: getListLeavesQueryKey(allVisitLeavesParams), enabled: !!date } },
   );
+  const leavesByPerson = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const l of allVisitLeaves ?? []) {
+      const label = l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná";
+      if (!map.has(l.personId)) map.set(l.personId, []);
+      map.get(l.personId)!.push(label);
+    }
+    return map;
+  }, [allVisitLeaves]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1142,16 +1151,28 @@ function VisitForm({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">Bez technika</SelectItem>
-              {people.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-              ))}
+              {people.map((p) => {
+                const absentLabels = leavesByPerson.get(p.id);
+                return (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    <span className="flex items-center gap-2">
+                      <span className={absentLabels ? "text-muted-foreground" : ""}>{p.name}</span>
+                      {absentLabels && (
+                        <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 rounded px-1.5 py-0.5 font-normal">
+                          {absentLabels.join(", ")}
+                        </span>
+                      )}
+                    </span>
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
-          {personLeaves && personLeaves.length > 0 && (
+          {personIdNum !== null && leavesByPerson.get(personIdNum) && (
             <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs text-amber-800 dark:text-amber-300">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>
-                Technik má v tento den absenci ({personLeaves.map(l => l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná").join(", ")})
+                Technik má v tento den absenci ({leavesByPerson.get(personIdNum)!.join(", ")})
               </span>
             </div>
           )}

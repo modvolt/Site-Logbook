@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { format, addDays, parseISO } from "date-fns";
@@ -80,10 +80,23 @@ export default function JobForm() {
     return formData.date;
   })();
 
-  const leaveParams = { personId: assignedPersonIdNum ?? undefined, from: formData.date, to: leaveEndDate };
-  const { data: personLeaves } = useListLeaves(
-    leaveParams,
-    { query: { queryKey: getListLeavesQueryKey(leaveParams), enabled: assignedPersonIdNum !== null && !!formData.date } },
+  const allLeavesParams = { from: formData.date, to: leaveEndDate };
+  const { data: allLeaves } = useListLeaves(
+    allLeavesParams,
+    { query: { queryKey: getListLeavesQueryKey(allLeavesParams), enabled: !!formData.date } },
+  );
+  const leavesByPerson = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const l of allLeaves ?? []) {
+      const label = l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná";
+      if (!map.has(l.personId)) map.set(l.personId, []);
+      map.get(l.personId)!.push(label);
+    }
+    return map;
+  }, [allLeaves]);
+  const personLeaves = useMemo(
+    () => (assignedPersonIdNum !== null ? (allLeaves ?? []).filter(l => l.personId === assignedPersonIdNum) : []),
+    [allLeaves, assignedPersonIdNum],
   );
 
   const [titleError, setTitleError] = useState<string | null>(null);
@@ -535,12 +548,24 @@ export default function JobForm() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nepřiřazeno</SelectItem>
-                  {people?.map(p => (
-                    <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                  ))}
+                  {people?.map(p => {
+                    const absentLabels = leavesByPerson.get(p.id);
+                    return (
+                      <SelectItem key={p.id} value={p.id.toString()}>
+                        <span className="flex items-center gap-2">
+                          <span className={absentLabels ? "text-muted-foreground" : ""}>{p.name}</span>
+                          {absentLabels && (
+                            <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 rounded px-1.5 py-0.5 font-normal">
+                              {absentLabels.join(", ")}
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
-              {personLeaves && personLeaves.length > 0 && (
+              {assignedPersonIdNum !== null && leavesByPerson.get(assignedPersonIdNum) && (
                 <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
