@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
   useGetDashboardSummary, useGetTodayJobs, useUpdateJob, useUpdateJobStatus,
@@ -242,10 +242,56 @@ function MgmtKpiCard({ label, value, sub, href, urgent, icon }: MgmtKpiCardProps
   return inner;
 }
 
+type KpiPeriod = "week" | "month" | "year";
+
+const KPI_PERIOD_LABELS: Record<KpiPeriod, string> = {
+  week: "Týden",
+  month: "Měsíc",
+  year: "Rok",
+};
+
+const KPI_PERIOD_TITLE: Record<KpiPeriod, string> = {
+  week: "Vedení – přehled týdne",
+  month: "Vedení – přehled měsíce",
+  year: "Vedení – přehled roku",
+};
+
+function getKpiRange(period: KpiPeriod, now: Date): { from: string; to: string } {
+  switch (period) {
+    case "week":
+      return {
+        from: format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd"),
+        to: format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd"),
+      };
+    case "month":
+      return {
+        from: format(startOfMonth(now), "yyyy-MM-dd"),
+        to: format(endOfMonth(now), "yyyy-MM-dd"),
+      };
+    case "year":
+      return {
+        from: format(startOfYear(now), "yyyy-MM-dd"),
+        to: format(endOfYear(now), "yyyy-MM-dd"),
+      };
+  }
+}
+
 function ManagementKpiPanel() {
+  const [period, setPeriodRaw] = useState<KpiPeriod>(() => {
+    try {
+      const saved = localStorage.getItem("dashboard.kpiPeriod");
+      if (saved === "week" || saved === "month" || saved === "year") return saved;
+    } catch { }
+    return "month";
+  });
+
+  const setPeriod = (next: KpiPeriod) => {
+    try { localStorage.setItem("dashboard.kpiPeriod", next); } catch { }
+    setPeriodRaw(next);
+  };
+
   const now = new Date();
-  const from = format(startOfMonth(now), "yyyy-MM-dd");
-  const to = format(endOfMonth(now), "yyyy-MM-dd");
+  const { from, to } = getKpiRange(period, now);
 
   const { data: stats, isLoading } = useGetStatsOverview(
     { from, to },
@@ -258,11 +304,27 @@ function ManagementKpiPanel() {
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <BarChart2 className="w-4 h-4 text-primary shrink-0" />
-            <h2 className="text-sm font-bold uppercase tracking-wider text-primary">Vedení – přehled měsíce</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-primary">{KPI_PERIOD_TITLE[period]}</h2>
           </div>
           <Link href="/statistika" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
             Statistika <ArrowRight className="w-3 h-3" />
           </Link>
+        </div>
+        <div className="flex gap-1 mb-3">
+          {(["week", "month", "year"] as KpiPeriod[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPeriod(p)}
+              className={`flex-1 py-1 text-xs font-medium rounded-md transition-colors ${
+                period === p
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {KPI_PERIOD_LABELS[p]}
+            </button>
+          ))}
         </div>
         {isLoading ? (
           <div className="grid grid-cols-2 gap-2">
