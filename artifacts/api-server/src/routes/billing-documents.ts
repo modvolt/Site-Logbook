@@ -14,7 +14,11 @@ import {
   UpdateCostDocumentReferenceBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
-import { contentMatchesType } from "../lib/fileSignature";
+import {
+  contentMatchesType,
+  validateZipContents,
+  BILLING_ALLOWED_MIME_TYPES,
+} from "../lib/fileSignature";
 import {
   ingestFile,
   listDocuments,
@@ -219,26 +223,9 @@ router.put("/billing/document-linking", async (req, res): Promise<void> => {
 // client_max_body_size at/above this or large files are rejected at the proxy.
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
-// Content types accepted for cost documents. Broader than the generic uploader:
-// also allows ISDOC/XML (machine-parsable) and its zipped .isdocx container.
-const ALLOWED_UPLOAD_TYPES = new Set<string>([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/heic",
-  "image/heif",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/xml",
-  "text/xml",
-  "application/zip",
-  "text/plain",
-  "text/csv",
-]);
+// The accepted MIME types are defined in fileSignature.ts so that the allowlist
+// and the magic-byte validators share a single source of truth.
+const ALLOWED_UPLOAD_TYPES = BILLING_ALLOWED_MIME_TYPES;
 
 function isAppError(err: unknown): err is AppError {
   return (
@@ -344,6 +331,16 @@ router.post(
     if (!contentMatchesType(contentType, body)) {
       res.status(415).json({ error: "Obsah souboru neodpovídá jeho typu." });
       return;
+    }
+
+    if (contentType === "application/zip") {
+      const zipCheck = validateZipContents(body);
+      if (!zipCheck.ok) {
+        res.status(415).json({
+          error: zipCheck.reason ?? "Obsah archivu není podporován.",
+        });
+        return;
+      }
     }
 
     try {

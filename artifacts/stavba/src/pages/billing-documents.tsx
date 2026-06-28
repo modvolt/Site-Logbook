@@ -47,7 +47,7 @@ import type { CostDocumentDuplicate } from "@workspace/api-client-react";
 import { ArrowLeft, FileText, Inbox, Sparkles, Upload, AlertCircle } from "lucide-react";
 
 const UPLOAD_ACCEPT =
-  "image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.xml,.isdoc,.isdocx,.zip,application/zip";
+  "application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp,image/gif,.gif,image/heic,.heic,image/heif,.heif,application/xml,text/xml,.xml,.isdoc,application/zip,.isdocx,.zip";
 
 const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
   status: "needs_review",

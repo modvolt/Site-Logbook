@@ -19,6 +19,48 @@ export class DuplicateCostDocumentError extends Error {
 }
 
 /**
+ * Extensions accepted by the cost-document upload endpoint. Keep in sync with
+ * BILLING_ALLOWED_MIME_TYPES on the server (artifacts/api-server/src/lib/fileSignature.ts).
+ */
+export const ALLOWED_COST_DOC_EXTENSIONS = [
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".heic",
+  ".heif",
+  ".xml",
+  ".isdoc",
+  ".isdocx",
+  ".zip",
+] as const;
+
+function extOf(name: string): string {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot >= 0 ? lower.slice(dot) : "";
+}
+
+function isAllowedExtension(name: string): boolean {
+  const ext = extOf(name) as (typeof ALLOWED_COST_DOC_EXTENSIONS)[number];
+  return (ALLOWED_COST_DOC_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/**
+ * Validate a file before uploading. Returns an error message (Czech) if the
+ * file's extension is not on the server allowlist, or null if it is accepted.
+ * This is a fast client-side gate; the server also validates content.
+ */
+export function validateCostDocumentFile(file: File): string | null {
+  if (!isAllowedExtension(file.name)) {
+    return `Soubor „${file.name}" není podporován. Povolené typy: PDF, fotografie (JPEG, PNG, WEBP, GIF, HEIC), XML/ISDOC nebo ZIP.`;
+  }
+  return null;
+}
+
+/**
  * Map a file to the content type the cost-document upload endpoint expects.
  * Browsers often report an empty type for `.isdoc`/`.isdocx`, so derive it from
  * the extension: ISDOC/XML → application/xml, the zipped ISDOCx → application/zip.
@@ -27,16 +69,22 @@ export function costDocumentContentType(file: File): string {
   const name = file.name.toLowerCase();
   if (name.endsWith(".isdoc") || name.endsWith(".xml")) return "application/xml";
   if (name.endsWith(".isdocx")) return "application/zip";
+  if (name.endsWith(".heic") || name.endsWith(".heif")) {
+    return file.type || "image/heic";
+  }
   return file.type || "application/octet-stream";
 }
 
-/** File extensions the cost-document upload endpoint accepts. */
+/** File extensions the cost-document upload endpoint accepts (inside a ZIP). */
 const SUPPORTED_DOC_EXTENSIONS = [
   ".pdf",
   ".jpg",
   ".jpeg",
   ".png",
   ".webp",
+  ".gif",
+  ".heic",
+  ".heif",
   ".xml",
   ".isdoc",
   ".isdocx",
@@ -68,6 +116,9 @@ function guessMimeFromName(name: string): string {
   if (lower.endsWith(".png")) return "image/png";
   if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
   if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".heic")) return "image/heic";
+  if (lower.endsWith(".heif")) return "image/heif";
   if (lower.endsWith(".isdocx")) return "application/zip";
   if (lower.endsWith(".xml") || lower.endsWith(".isdoc")) return "application/xml";
   return "application/octet-stream";
@@ -129,11 +180,19 @@ export interface UploadCostDocumentOptions {
  * (same origin, cookie-authenticated). The upload op is intentionally excluded
  * from the generated react-query client (Orval JSON-stringifies bodies), so we
  * hand-roll the fetch here.
+ *
+ * Throws synchronously (before the network request) if the file's extension is
+ * not on the server allowlist.
  */
 export async function uploadCostDocument(
   file: File,
   opts: UploadCostDocumentOptions = {},
 ): Promise<CostDocumentDetail> {
+  const validationError = validateCostDocumentFile(file);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
   const contentType = costDocumentContentType(file);
   const query = new URLSearchParams({ name: file.name, contentType });
   if (opts.docType) query.set("docType", opts.docType);

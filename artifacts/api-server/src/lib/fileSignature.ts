@@ -1,13 +1,15 @@
 /**
  * Content-sniffing for uploaded files. The upload route validates the *declared*
  * content type against an allowlist, but a client can lie about it (e.g. POST
- * HTML/script bytes labelled as `image/png`). This module inspects the actual
+ * script bytes labelled as `image/png`). This module inspects the actual
  * leading bytes ("magic numbers") and confirms they match the declared type, so
  * disguised active content is rejected before it is stored.
  *
- * Plain-text formats (text/plain, text/csv) have no reliable signature and are
- * intentionally not byte-checked — they are inert and already on the allowlist.
+ * Additionally, `validateZipContents` checks each entry inside a ZIP archive
+ * for path traversal, nested archives, and disallowed extensions.
  */
+
+import { unzipSync } from "fflate";
 
 function startsWith(buf: Buffer, bytes: number[], offset = 0): boolean {
   if (buf.length < offset + bytes.length) return false;
@@ -45,11 +47,17 @@ function isHeif(b: Buffer): boolean {
 function isPdf(b: Buffer): boolean {
   return asciiAt(b, "%PDF");
 }
-// Legacy Office (.doc/.xls): OLE2 compound file.
-function isOle2(b: Buffer): boolean {
-  return startsWith(b, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+// XML: starts with an XML declaration (<?xml) or optional UTF-8 BOM then <?xml.
+// ISDOC files always carry the declaration, so this covers the real-world case
+// while rejecting HTML, scripts, and other text labelled as XML.
+function isXml(b: Buffer): boolean {
+  let offset = 0;
+  if (b.length >= 3 && b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) {
+    offset = 3;
+  }
+  return asciiAt(b, "<?xml", offset);
 }
-// Modern Office (.docx/.xlsx): ZIP container (PK\x03\x04 / empty / spanned).
+// ZIP (PK\x03\x04 normal / empty / spanned). Used for .isdocx and bare .zip.
 function isZip(b: Buffer): boolean {
   return (
     startsWith(b, [0x50, 0x4b, 0x03, 0x04]) ||
@@ -66,18 +74,125 @@ const VALIDATORS: Record<string, (b: Buffer) => boolean> = {
   "image/heic": isHeif,
   "image/heif": isHeif,
   "application/pdf": isPdf,
-  "application/msword": isOle2,
-  "application/vnd.ms-excel": isOle2,
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": isZip,
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": isZip,
+  "application/xml": isXml,
+  "text/xml": isXml,
+  "application/zip": isZip,
 };
 
 /**
+ * The set of MIME types accepted by the cost-document upload endpoint.
+ * Exported so the route and tests share a single source of truth.
+ */
+export const BILLING_ALLOWED_MIME_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+  "application/xml",
+  "text/xml",
+  "application/zip",
+]);
+
+/**
  * Returns true when the file bytes are consistent with the declared content
- * type. Types without a defined validator (text/plain, text/csv) always pass.
+ * type. Types without a defined validator always pass the byte check (they
+ * must still be on the allowlist to be accepted at all).
  */
 export function contentMatchesType(contentType: string, body: Buffer): boolean {
   const validate = VALIDATORS[contentType];
   if (!validate) return true;
   return validate(body);
+}
+
+// ---------------------------------------------------------------------------
+// ZIP content safety
+// ---------------------------------------------------------------------------
+
+/** File extensions permitted inside an uploaded ZIP archive. */
+const ALLOWED_ZIP_ENTRY_EXTENSIONS = new Set([
+  ".pdf",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".heic",
+  ".heif",
+  ".xml",
+  ".isdoc",
+  ".isdocx",
+]);
+
+function extOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+export interface ZipValidationResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Inspect the contents of a ZIP archive for safety:
+ * - No path traversal (entries must not contain `../` or start with `/`).
+ * - No nested ZIP archives (a `.zip` inside a `.zip` is rejected;
+ *   `.isdocx` is allowed because it is an ISDOC e-invoice container, not
+ *   a recursive archive).
+ * - Every entry's extension must be in the document allowlist.
+ * - The archive must contain at least one non-directory entry.
+ */
+export function validateZipContents(buf: Buffer): ZipValidationResult {
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(buf);
+  } catch {
+    return { ok: false, reason: "Archiv nelze otevřít nebo je poškozený." };
+  }
+
+  let fileCount = 0;
+  for (const entryPath of Object.keys(entries)) {
+    if (entryPath.endsWith("/")) continue;
+
+    const normalized = entryPath.replace(/\\/g, "/");
+    const segments = normalized.split("/");
+
+    if (
+      normalized.startsWith("/") ||
+      segments.some((s) => s === "..")
+    ) {
+      return {
+        ok: false,
+        reason: `Archiv obsahuje nebezpečné cesty: ${entryPath}`,
+      };
+    }
+
+    const base = segments[segments.length - 1] ?? entryPath;
+    const ext = extOf(base);
+
+    if (ext === ".zip") {
+      return { ok: false, reason: "Archiv obsahuje vnořený archiv (.zip)." };
+    }
+
+    if (!ALLOWED_ZIP_ENTRY_EXTENSIONS.has(ext)) {
+      return {
+        ok: false,
+        reason: `Archiv obsahuje nepodporovaný typ souboru: ${base}`,
+      };
+    }
+
+    fileCount++;
+  }
+
+  if (fileCount === 0) {
+    return {
+      ok: false,
+      reason: "Archiv je prázdný nebo neobsahuje podporované soubory.",
+    };
+  }
+
+  return { ok: true };
 }
