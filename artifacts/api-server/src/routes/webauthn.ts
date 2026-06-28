@@ -84,7 +84,10 @@ router.post("/auth/webauthn/register/begin", async (req, res): Promise<void> => 
     authenticatorSelection: {
       authenticatorAttachment: "platform",
       userVerification: "required",
-      residentKey: "discouraged",
+      // "preferred" ensures the authenticator stores a resident/discoverable
+      // credential on the device, which is required for the no-username
+      // (passkey) login flow to work reliably across all devices.
+      residentKey: "preferred",
     },
   });
 
