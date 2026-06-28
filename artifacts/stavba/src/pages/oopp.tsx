@@ -9,7 +9,6 @@ import {
   useListPpeAssignments,
   useCreatePpeAssignment,
   useUpdatePpeAssignment,
-  useRequestPpeConfirm,
   useSignPpeHandover,
   useListPeople,
   getListPpeItemsQueryKey,
@@ -529,6 +528,12 @@ export default function Oopp() {
 
   const activeItems = useMemo(() => (items ?? []).filter((i) => i.active), [items]);
 
+  const personEmailMap = useMemo(() => {
+    const map = new Map<number, string | null>();
+    for (const p of (people ?? [])) map.set(p.id, p.email ?? null);
+    return map;
+  }, [people]);
+
   const summary = useMemo(() => {
     if (!assignments) return { total: 0, overdue: 0, unconfirmed: 0 };
     const issued = assignments.filter((a) => a.status === "issued");
@@ -644,33 +649,6 @@ export default function Oopp() {
       onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
     });
   };
-
-  const handleCopyConfirmLink = (a: PpeAssignment) => {
-    requestConfirm.mutate({ id: a.id }, {
-      onSuccess: (result) => {
-        if (result.emailSent) {
-          toast({ title: "E-mail odeslán zaměstnanci", description: "Odkaz pro potvrzení byl zaslán na e-mailovou adresu zaměstnance." });
-        }
-        navigator.clipboard.writeText(result.confirmUrl).then(() => {
-          setCopiedId(a.id);
-          if (!result.emailSent) {
-            toast({ title: "Odkaz zkopírován do schránky" });
-          }
-          setTimeout(() => setCopiedId((prev) => (prev === a.id ? null : prev)), 3000);
-        }).catch(() => {
-          if (!result.emailSent) {
-            toast({ title: result.confirmUrl, description: "Odkaz se nepodařilo zkopírovat automaticky" });
-          }
-        });
-        invalidateData(queryClient, "ppe");
-      },
-      onError: (err: any) => {
-        const msg = err?.response?.data?.error ?? "Nepodařilo se vygenerovat odkaz";
-        toast({ title: msg, variant: "destructive" });
-      },
-    });
-  };
-
 
   const hasDateFilter = !!filterIssuedFrom || !!filterIssuedTo;
   const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm || hasDateFilter || (hasDateFilter && !filterIncludeNoDate);
@@ -946,7 +924,7 @@ export default function Oopp() {
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">
                               Bez potvrzení
                             </span>
-                          )}
+                          ) : null}
                           {!a.employeeConfirmedAt && a.confirmEmailSentAt && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium" title={`E-mail odeslán ${new Date(a.confirmEmailSentAt).toLocaleString("cs-CZ")}`}>
                               <Mail className="h-3 w-3" />
@@ -969,6 +947,20 @@ export default function Oopp() {
                             {a.personNameSnapshot}
                           </button>
                         </div>
+                        {(() => {
+                          const email = personEmailMap.get(a.personId);
+                          return email ? (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1" title={email}>
+                              <Mail className="h-3 w-3 shrink-0 text-blue-500" />
+                              <span className="truncate">{email}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground/50 mb-1" title="E-mail není nastaven – odkaz sdílejte ručně">
+                              <Mail className="h-3 w-3 shrink-0" />
+                              <span>bez e-mailu</span>
+                            </div>
+                          );
+                        })()}
                         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                           <span>Vydáno: {formatPpeDate(a.issuedAt)}</span>
                           {a.replaceBy && <span>Výměna: {formatPpeDate(a.replaceBy)}</span>}
