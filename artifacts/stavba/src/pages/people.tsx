@@ -681,8 +681,13 @@ export default function People() {
           invalidateData(queryClient, "people");
           toast({ title: "Pracovník odebrán" });
         },
-        onError: () => {
-          toast({ title: "Nepodařilo se odebrat pracovníka", variant: "destructive" });
+        onError: (err) => {
+          const serverMsg = extractServerError(err);
+          toast({
+            title: serverMsg ? "Nelze odebrat pracovníka" : "Nepodařilo se odebrat pracovníka",
+            description: serverMsg ?? undefined,
+            variant: "destructive",
+          });
         },
       });
     });
