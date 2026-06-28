@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { format } from "date-fns";
 import { 
   useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
@@ -32,6 +33,10 @@ export default function JobForm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const createJob = useCreateJob();
+
+  const [isDirty, setIsDirty] = useState(false);
+  const markDirty = useCallback(() => setIsDirty(true), []);
+  const { confirmNavigation } = useUnsavedChanges(isDirty);
   const createTask = useCreateTask();
   const createMaterial = useCreateMaterial();
   
@@ -98,10 +103,12 @@ export default function JobForm() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    markDirty();
   };
 
   const handleSelectChange = (name: string, value: string) => {
     setFormData(prev => ({ ...prev, [name]: value }));
+    markDirty();
   };
 
   const handleUseCurrentLocation = () => {
@@ -127,13 +134,16 @@ export default function JobForm() {
           const address: string | undefined = data?.display_name;
           if (address) {
             setFormData((p) => ({ ...p, address }));
+            markDirty();
             toast({ title: "Poloha načtena" });
           } else {
             setFormData((p) => ({ ...p, address: coords }));
+            markDirty();
             toast({ title: "Poloha načtena (souřadnice)" });
           }
         } catch {
           setFormData((p) => ({ ...p, address: coords }));
+          markDirty();
           toast({ title: "Poloha načtena (souřadnice)" });
         } finally {
           setGpsLoading(false);
@@ -158,29 +168,33 @@ export default function JobForm() {
     setFormData(prev => ({ ...prev, customerId: c.id, clientSite: c.companyName }));
     setCustomerSearch(c.companyName);
     setShowCustomerDropdown(false);
+    markDirty();
   };
 
   const clearCustomer = () => {
     setFormData(prev => ({ ...prev, customerId: null, clientSite: "" }));
     setCustomerSearch("");
     setSelectedSiteId(null);
+    markDirty();
   };
 
   const addTask = () => {
     if (!newTaskInput.trim()) return;
     setTasks(prev => [...prev, newTaskInput.trim()]);
     setNewTaskInput("");
+    markDirty();
   };
 
-  const removeTask = (i: number) => setTasks(prev => prev.filter((_, idx) => idx !== i));
+  const removeTask = (i: number) => { setTasks(prev => prev.filter((_, idx) => idx !== i)); markDirty(); };
 
   const addMaterial = () => {
     if (!newMaterial.name.trim()) return;
     setMaterials(prev => [...prev, { ...newMaterial }]);
     setNewMaterial({ name: "", quantity: "", unit: "ks", pricePerUnit: "" });
+    markDirty();
   };
 
-  const removeMaterial = (i: number) => setMaterials(prev => prev.filter((_, idx) => idx !== i));
+  const removeMaterial = (i: number) => { setMaterials(prev => prev.filter((_, idx) => idx !== i)); markDirty(); };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,6 +224,7 @@ export default function JobForm() {
 
     createJob.mutate({ data: jobData }, {
       onSuccess: async (newJob) => {
+        setIsDirty(false);
         invalidateData(queryClient, "jobs", "warehouse");
         for (const title of tasks) {
           await createTask.mutateAsync({ jobId: newJob.id, data: { title } }).catch(() => {});
@@ -247,7 +262,7 @@ export default function JobForm() {
   return (
     <div className="flex flex-col min-h-screen bg-background pb-20 md:pb-0">
       <div className="sticky top-0 z-10 bg-card border-b p-4 flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
+        <Button variant="ghost" size="icon" onClick={() => confirmNavigation(() => window.history.back())}>
           <ArrowLeft className="h-6 w-6" />
         </Button>
         <h1 className="text-xl font-bold flex-1">Nová zakázka</h1>
@@ -280,7 +295,7 @@ export default function JobForm() {
             <Autocomplete
               id="title"
               value={formData.title}
-              onValueChange={v => { setFormData(p => ({ ...p, title: v })); if (titleError) setTitleError(null); }}
+              onValueChange={v => { setFormData(p => ({ ...p, title: v })); markDirty(); if (titleError) setTitleError(null); }}
               suggestions={titleSuggestions}
               placeholder="např. Oprava střechy"
               className={`h-14 text-lg${titleError ? " border-destructive focus-visible:ring-destructive" : ""}`}
@@ -327,7 +342,7 @@ export default function JobForm() {
                   <DecimalInput
                     id="recurrenceIntervalDays"
                     value={formData.recurrenceIntervalDays}
-                    onChange={(val) => setFormData(prev => ({ ...prev, recurrenceIntervalDays: val }))}
+                    onChange={(val) => { setFormData(prev => ({ ...prev, recurrenceIntervalDays: val })); markDirty(); }}
                     placeholder="např. 30"
                     inputMode="numeric"
                     className="h-12 w-28 text-base"
@@ -368,7 +383,7 @@ export default function JobForm() {
               <div className="relative">
                 <Input
                   value={customerSearch}
-                  onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); setFormData(p => ({ ...p, clientSite: e.target.value, customerId: null })); }}
+                  onChange={e => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); setFormData(p => ({ ...p, clientSite: e.target.value, customerId: null })); markDirty(); }}
                   onFocus={() => setShowCustomerDropdown(true)}
                   placeholder="Vyhledat nebo zadat adresu..."
                   className="h-14 text-base"
@@ -402,6 +417,7 @@ export default function JobForm() {
                 <Select
                   value={selectedSiteId ? String(selectedSiteId) : "none"}
                   onValueChange={(v) => {
+                    markDirty();
                     if (v === "none") {
                       setSelectedSiteId(null);
                       setFormData(p => ({ ...p, clientSite: selectedCustomer.companyName }));
@@ -469,11 +485,11 @@ export default function JobForm() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="startTime" className="text-base">Začátek</Label>
-              <TimePicker id="startTime" value={formData.startTime} onChange={(v) => setFormData(prev => ({ ...prev, startTime: v }))} className="h-14 text-base w-full" />
+              <TimePicker id="startTime" value={formData.startTime} onChange={(v) => { setFormData(prev => ({ ...prev, startTime: v })); markDirty(); }} className="h-14 text-base w-full" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="endTime" className="text-base">Konec</Label>
-              <TimePicker id="endTime" value={formData.endTime} onChange={(v) => setFormData(prev => ({ ...prev, endTime: v }))} className="h-14 text-base w-full" />
+              <TimePicker id="endTime" value={formData.endTime} onChange={(v) => { setFormData(prev => ({ ...prev, endTime: v })); markDirty(); }} className="h-14 text-base w-full" />
             </div>
           </div>
 
@@ -528,7 +544,7 @@ export default function JobForm() {
             <div className="flex gap-2">
               <Input
                 value={newTaskInput}
-                onChange={e => setNewTaskInput(e.target.value)}
+                onChange={e => { setNewTaskInput(e.target.value); markDirty(); }}
                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTask(); } }}
                 placeholder="Přidat úkol..."
                 className="h-12 text-base"
@@ -559,7 +575,7 @@ export default function JobForm() {
             <div className="space-y-2">
               <Autocomplete
                 value={newMaterial.name}
-                onValueChange={v => setNewMaterial(p => ({ ...p, name: v }))}
+                onValueChange={v => { setNewMaterial(p => ({ ...p, name: v })); markDirty(); }}
                 suggestions={materialSuggestions}
                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addMaterial(); } }}
                 placeholder="Název materiálu..."
@@ -568,20 +584,20 @@ export default function JobForm() {
               <div className="grid grid-cols-3 gap-2">
                 <DecimalInput
                   value={newMaterial.quantity}
-                  onChange={v => setNewMaterial(p => ({ ...p, quantity: v }))}
+                  onChange={v => { setNewMaterial(p => ({ ...p, quantity: v })); markDirty(); }}
                   placeholder="Množství"
                   className="h-10"
                   error={newMatQtyError}
                 />
                 <Input
                   value={newMaterial.unit}
-                  onChange={e => setNewMaterial(p => ({ ...p, unit: e.target.value }))}
+                  onChange={e => { setNewMaterial(p => ({ ...p, unit: e.target.value })); markDirty(); }}
                   placeholder="Jednotka"
                   className="h-10"
                 />
                 <DecimalInput
                   value={newMaterial.pricePerUnit}
-                  onChange={v => setNewMaterial(p => ({ ...p, pricePerUnit: v }))}
+                  onChange={v => { setNewMaterial(p => ({ ...p, pricePerUnit: v })); markDirty(); }}
                   placeholder="Kč/ks"
                   className="h-10"
                   error={newMatPriceError}
@@ -597,7 +613,7 @@ export default function JobForm() {
         </form>
       </div>
       
-      <div className="md:hidden fixed bottom-16 left-0 right-0 p-4 bg-background border-t">
+      <div className="md:hidden fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] left-0 right-0 p-4 bg-background border-t">
         <Button onClick={handleSubmit} disabled={createJob.isPending || formHasErrors} className="w-full h-14 text-lg font-bold">
           {createJob.isPending ? (
             <><Loader2 className="h-6 w-6 mr-2 animate-spin" /> Ukládám…</>

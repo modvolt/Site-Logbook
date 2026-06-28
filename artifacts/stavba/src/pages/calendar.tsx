@@ -3,6 +3,7 @@ import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks } from "dat
 import { cs } from "date-fns/locale";
 import { useListJobs, getListJobsQueryKey } from "@workspace/api-client-react";
 import { ChevronLeft, ChevronRight, Plus, Timer } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 import { Button } from "@/components/ui/button";
 import { JobCard } from "@/components/job-card";
 import { JOB_TYPES } from "@/components/badges";
@@ -30,13 +31,13 @@ export default function Calendar() {
   const endDate = addDays(addWeeks(currentWeekStart, 3), -1);
   const todayStart = startOfWeek(new Date(), { weekStartsOn: 1 });
 
-  const { data: jobs } = useListJobs(
+  const { data: jobs, isError: jobsError, refetch: refetchJobs } = useListJobs(
     { from: format(startDate, "yyyy-MM-dd"), to: format(endDate, "yyyy-MM-dd") },
     { query: { queryKey: getListJobsQueryKey({ from: format(startDate, "yyyy-MM-dd"), to: format(endDate, "yyyy-MM-dd") }) } }
   );
 
   const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
-  const selectedDateJobs = sortJobsDoneLast(jobs?.filter(job => job.date === selectedDateStr) || []);
+  const selectedDateJobs = jobsError ? [] : sortJobsDoneLast(jobs?.filter(job => job.date === selectedDateStr) || []);
 
   const nextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
   const prevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
@@ -150,7 +151,12 @@ export default function Calendar() {
             })()}
           </div>
 
-          {selectedDateJobs.length > 0 ? (
+          {jobsError ? (
+            <QueryErrorState
+              title="Nepodařilo se načíst zakázky"
+              onRetry={() => refetchJobs()}
+            />
+          ) : selectedDateJobs.length > 0 ? (
             <div className="space-y-3">
               {selectedDateJobs.map(job => (
                 <JobCard key={job.id} job={job} />

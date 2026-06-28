@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollText, ArrowLeft, TrendingUp, TrendingDown, Minus, AlertTriangle } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 import { MovementRow } from "@/components/warehouse-movements";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -172,7 +173,7 @@ export default function SkladPohyby() {
     limit: 500,
   };
 
-  const { data: movements, isLoading } = useListWarehouseMovements(params, {
+  const { data: movements, isLoading, isError: movementsError, refetch: refetchMovements } = useListWarehouseMovements(params, {
     query: { queryKey: getListWarehouseMovementsQueryKey(params) },
   });
 
@@ -340,6 +341,11 @@ export default function SkladPohyby() {
                 <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
+          ) : movementsError ? (
+            <QueryErrorState
+              title="Nepodařilo se načíst pohyby skladu"
+              onRetry={() => refetchMovements()}
+            />
           ) : movements && movements.length > 0 ? (
             <div>
               {movements.map((m) => (

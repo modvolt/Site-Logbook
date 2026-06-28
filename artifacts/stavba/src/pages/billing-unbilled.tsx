@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtKc } from "@/lib/billing-format";
 import { Building2, ChevronRight, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 
 export default function BillingUnbilled() {
   const [, setLocation] = useLocation();
-  const { data, isLoading } = useListUnbilledCustomers({
+  const { data, isLoading, isError, refetch } = useListUnbilledCustomers({
     query: { queryKey: getListUnbilledCustomersQueryKey() },
   });
 
@@ -33,6 +34,11 @@ export default function BillingUnbilled() {
       <div className="space-y-3">
         {isLoading ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)
+        ) : isError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst nevyfakturované zakázky"
+            onRetry={() => refetch()}
+          />
         ) : data && data.length > 0 ? (
           data.map((c) => (
             <Card key={c.customerId} className="overflow-hidden">

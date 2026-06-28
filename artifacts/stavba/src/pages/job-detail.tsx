@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation, useSearch } from "wouter";
@@ -717,6 +718,10 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(job.customerId || null);
   const [showDropdown, setShowDropdown] = useState(false);
   const customerDropRef = useRef<HTMLDivElement>(null);
+
+  // Guard navigation while any inline edit section is open and unsaved
+  const anyEditing = editingNotes || editingShortName || editingAddress || editingDate || editingRecurrence || editingCustomer;
+  useUnsavedChanges(anyEditing);
 
   const { data: customers } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() }

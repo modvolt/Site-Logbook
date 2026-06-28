@@ -4,6 +4,7 @@ import { cs } from "date-fns/locale";
 import { useGetStatsOverview, getGetStatsOverviewQueryKey, useGetRisksSummary, getGetRisksSummaryQueryKey } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
 import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp, ShieldOff } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -139,7 +140,7 @@ export default function Statistika() {
   const companyName = company.name || BRAND_NAME;
   const companyLogo = company.logoDataUrl || BRAND_LOGO_URL;
 
-  const { data: stats, isLoading } = useGetStatsOverview(
+  const { data: stats, isLoading, isError: statsError, refetch: refetchStats } = useGetStatsOverview(
     { from: fromStr, to: toStr },
     { query: { queryKey: getGetStatsOverviewQueryKey({ from: fromStr, to: toStr }), enabled: isAdmin } },
   );
@@ -240,8 +241,13 @@ export default function Statistika() {
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-96 w-full" />
           </div>
+        ) : statsError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst statistiku"
+            onRetry={() => refetchStats()}
+          />
         ) : !stats ? (
-          <div className="p-8 text-center text-muted-foreground">Statistiku se nepodařilo načíst.</div>
+          <div className="p-8 text-center text-muted-foreground">Žádná data pro zvolené období.</div>
         ) : (
           <div id="statistika-list" className="bg-white text-neutral-900 shadow-lg mx-auto p-8 md:p-10" style={{ maxWidth: "210mm" }}>
             {/* Header */}

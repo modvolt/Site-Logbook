@@ -177,8 +177,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )}
         {children}
 
-        {/* Global FAB on mobile for fast add (writers only) */}
-        {can("write") && (
+        {/* Global FAB — visible only on dashboard, calendar and jobs list.
+            Hidden on /jobs/new (user is already on the form), and on warehouse,
+            actions and machines pages where a page-local add button is used. */}
+        {can("write") && ["/", "/calendar", "/jobs"].includes(location) && (
           <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 md:bottom-8 md:right-8 z-50">
             <Link href={quickAddDate ? `/jobs/new?date=${quickAddDate}` : "/jobs/new"}>
               <Button

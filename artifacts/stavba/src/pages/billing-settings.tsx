@@ -38,6 +38,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorState } from "@/components/query-error-state";
 import { VAT_MODE_LABELS } from "@/lib/billing-format";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
@@ -123,7 +124,7 @@ export default function BillingSettings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data, isLoading } = useGetBillingSettings({
+  const { data, isLoading, isError: settingsError, refetch: refetchSettings } = useGetBillingSettings({
     query: { queryKey: getGetBillingSettingsQueryKey() },
   });
   const update = useUpdateBillingSettings();
@@ -316,6 +317,17 @@ export default function BillingSettings() {
       },
     );
   };
+
+  if (settingsError) {
+    return (
+      <div className="p-4 md:p-8 max-w-3xl mx-auto w-full">
+        <QueryErrorState
+          title="Nepodařilo se načíst nastavení fakturace"
+          onRetry={() => refetchSettings()}
+        />
+      </div>
+    );
+  }
 
   if (isLoading || !form) {
     return (

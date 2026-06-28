@@ -140,4 +140,31 @@ app.use("/api", broadcastMutations);
 
 app.use("/api", router);
 
+// Catch-all 404 for unknown /api routes
+app.use("/api", (_req: Request, res: Response) => {
+  res.status(404).json({ error: "Zadaná cesta neexistuje." });
+});
+
+// Global error handler — must be last and must have 4 params so Express
+// recognises it as an error-handling middleware.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const requestId = (req as any).id ?? "unknown";
+  const method = req.method;
+  const path = req.path;
+
+  if (err instanceof Error) {
+    req.log?.error({ requestId, method, path, stack: err.stack }, "Unhandled error");
+  } else {
+    req.log?.error({ requestId, method, path, err }, "Unhandled error (non-Error)");
+  }
+
+  if (res.headersSent) return;
+
+  res.status(500).json({
+    error: "Došlo k neočekávané chybě serveru. Zkuste to prosím znovu.",
+    requestId,
+  });
+});
+
 export default app;

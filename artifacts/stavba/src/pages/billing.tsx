@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorState } from "@/components/query-error-state";
 import { fmtKc } from "@/lib/billing-format";
 import {
   Receipt,
@@ -33,7 +34,7 @@ const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
 
 export default function Billing() {
   const [, setLocation] = useLocation();
-  const { data, isLoading } = useGetBillingSummary({
+  const { data, isLoading, isError: summaryError, refetch: refetchSummary } = useGetBillingSummary({
     query: { queryKey: getGetBillingSummaryQueryKey() },
   });
   const { data: reviewDocs } = useListCostDocuments(NEEDS_REVIEW_PARAMS, {
@@ -128,6 +129,13 @@ export default function Billing() {
             <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
+      ) : summaryError ? (
+        <div className="mb-6">
+          <QueryErrorState
+            title="Nepodařilo se načíst přehled fakturace"
+            onRetry={() => refetchSummary()}
+          />
+        </div>
       ) : !hasUrgentItems ? (
         <Card className="mb-6">
           <CardContent className="p-4 flex items-center gap-3 text-muted-foreground">
@@ -164,23 +172,23 @@ export default function Billing() {
         <MetricCard
           label="K vyfakturování"
           sublabel="bez DPH"
-          value={isLoading ? "—" : fmtKc(data?.totalToInvoiceWithoutVat, 0)}
+          value={isLoading || summaryError ? "—" : fmtKc(data?.totalToInvoiceWithoutVat, 0)}
         />
         <MetricCard
           label="Vystaveno letos"
           sublabel="s DPH"
-          value={isLoading ? "—" : fmtKc(data?.issuedThisMonthWithVat, 0)}
+          value={isLoading || summaryError ? "—" : fmtKc(data?.issuedThisMonthWithVat, 0)}
         />
         <MetricCard
           label="Zaplaceno"
           sublabel={`letos · ${data?.paidThisMonthCount ?? 0} fakt.`}
-          value={isLoading ? "—" : fmtKc(data?.paidThisMonthWithVat, 0)}
+          value={isLoading || summaryError ? "—" : fmtKc(data?.paidThisMonthWithVat, 0)}
           valueColor="text-emerald-600 dark:text-emerald-400"
         />
         <MetricCard
           label="Nezaplaceno"
           sublabel={`${data?.unpaidCount ?? 0} ${invoiceNoun(data?.unpaidCount ?? 0)}`}
-          value={isLoading ? "—" : fmtKc(data?.unpaidTotalWithVat, 0)}
+          value={isLoading || summaryError ? "—" : fmtKc(data?.unpaidTotalWithVat, 0)}
         />
       </div>
 
