@@ -2315,6 +2315,19 @@ export const CreatePpeAssignmentBody = zod.object({
 
 
 /**
+ * @summary Export PPE assignments as PDF or CSV for safety audits (BOZP)
+ */
+export const ExportPpeAssignmentsQueryParams = zod.object({
+  "format": zod.enum(['pdf', 'csv']).optional().describe('Output format — pdf (default) or csv'),
+  "personId": zod.coerce.number().optional(),
+  "status": zod.coerce.string().optional(),
+  "issuedFrom": zod.coerce.string().optional().describe('Filter assignments issued on or after this date (YYYY-MM-DD)'),
+  "issuedTo": zod.coerce.string().optional().describe('Filter assignments issued on or before this date (YYYY-MM-DD)'),
+  "overdue": zod.coerce.boolean().optional()
+})
+
+
+/**
  * @summary Update a PPE assignment — return, status change, date edit (admin/master)
  */
 export const UpdatePpeAssignmentParams = zod.object({

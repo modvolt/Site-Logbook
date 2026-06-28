@@ -4422,6 +4422,32 @@ status?: string;
 overdue?: boolean;
 };
 
+export type ExportPpeAssignmentsParams = {
+/**
+ * Output format — pdf (default) or csv
+ */
+format?: ExportPpeAssignmentsFormat;
+personId?: number;
+status?: string;
+/**
+ * Filter assignments issued on or after this date (YYYY-MM-DD)
+ */
+issuedFrom?: string;
+/**
+ * Filter assignments issued on or before this date (YYYY-MM-DD)
+ */
+issuedTo?: string;
+overdue?: boolean;
+};
+
+export type ExportPpeAssignmentsFormat = typeof ExportPpeAssignmentsFormat[keyof typeof ExportPpeAssignmentsFormat];
+
+
+export const ExportPpeAssignmentsFormat = {
+  pdf: 'pdf',
+  csv: 'csv',
+} as const;
+
 export type ListClientErrorsParams = {
 limit?: number;
 offset?: number;

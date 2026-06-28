@@ -112,6 +112,7 @@ import type {
   EmployeeLeaveInput,
   ErrorEnvelope,
   ExportLeavesParams,
+  ExportPpeAssignmentsParams,
   ExportSubjectDataParams,
   ForgotPasswordQuestions,
   ForgotPasswordQuestionsInput,
@@ -7370,6 +7371,90 @@ export const useCreatePpeAssignment = <TError = ErrorType<void>,
       > => {
       return useMutation(getCreatePpeAssignmentMutationOptions(options));
     }
+
+export const getExportPpeAssignmentsUrl = (params?: ExportPpeAssignmentsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ppe/assignments/export?${stringifiedParams}` : `/api/ppe/assignments/export`
+}
+
+/**
+ * @summary Export PPE assignments as PDF or CSV for safety audits (BOZP)
+ */
+export const exportPpeAssignments = async (params?: ExportPpeAssignmentsParams, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportPpeAssignmentsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportPpeAssignmentsQueryKey = (params?: ExportPpeAssignmentsParams,) => {
+    return [
+    `/api/ppe/assignments/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportPpeAssignmentsQueryOptions = <TData = Awaited<ReturnType<typeof exportPpeAssignments>>, TError = ErrorType<unknown>>(params?: ExportPpeAssignmentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportPpeAssignments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportPpeAssignmentsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportPpeAssignments>>> = ({ signal }) => exportPpeAssignments(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportPpeAssignments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportPpeAssignmentsQueryResult = NonNullable<Awaited<ReturnType<typeof exportPpeAssignments>>>
+export type ExportPpeAssignmentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Export PPE assignments as PDF or CSV for safety audits (BOZP)
+ */
+
+export function useExportPpeAssignments<TData = Awaited<ReturnType<typeof exportPpeAssignments>>, TError = ErrorType<unknown>>(
+ params?: ExportPpeAssignmentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportPpeAssignments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportPpeAssignmentsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getUpdatePpeAssignmentUrl = (id: number,) => {
 

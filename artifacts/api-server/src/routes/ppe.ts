@@ -1,9 +1,11 @@
 import { Router, type IRouter } from "express";
-import { and, eq, lte, or, isNull, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, lte, or, isNotNull } from "drizzle-orm";
 import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
 import { PPE_CATEGORIES, PPE_STATUSES } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { z } from "zod/v4";
+import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pdf";
+import { ensureBillingSettings } from "../lib/invoice-service";
 
 const router: IRouter = Router();
 
@@ -147,6 +149,98 @@ router.get("/ppe/assignments", async (req, res): Promise<void> => {
     : await db.select().from(ppeAssignmentsTable).orderBy(ppeAssignmentsTable.issuedAt);
 
   res.json(rows.map(serializeAssignment));
+});
+
+router.get("/ppe/assignments/export", async (req, res): Promise<void> => {
+  const format = req.query.format === "csv" ? "csv" : "pdf";
+  const conditions = [];
+
+  const personId = req.query.personId ? Number(req.query.personId) : null;
+  if (personId && Number.isFinite(personId)) {
+    conditions.push(eq(ppeAssignmentsTable.personId, personId));
+  }
+
+  const status = req.query.status as string | undefined;
+  if (status && PPE_STATUSES.includes(status as (typeof PPE_STATUSES)[number])) {
+    conditions.push(eq(ppeAssignmentsTable.status, status));
+  }
+
+  const issuedFrom = req.query.issuedFrom as string | undefined;
+  if (issuedFrom && /^\d{4}-\d{2}-\d{2}$/.test(issuedFrom)) {
+    conditions.push(gte(ppeAssignmentsTable.issuedAt, issuedFrom));
+  }
+
+  const issuedTo = req.query.issuedTo as string | undefined;
+  if (issuedTo && /^\d{4}-\d{2}-\d{2}$/.test(issuedTo)) {
+    conditions.push(lte(ppeAssignmentsTable.issuedAt, issuedTo));
+  }
+
+  if (req.query.overdue === "true") {
+    const todayStr = today();
+    conditions.push(
+      and(
+        eq(ppeAssignmentsTable.status, "issued"),
+        or(
+          and(isNotNull(ppeAssignmentsTable.replaceBy), lte(ppeAssignmentsTable.replaceBy, todayStr)),
+          and(isNotNull(ppeAssignmentsTable.nextInspectionAt), lte(ppeAssignmentsTable.nextInspectionAt, todayStr)),
+        ),
+      )!,
+    );
+  }
+
+  const rows = await db
+    .select({
+      personNameSnapshot: ppeAssignmentsTable.personNameSnapshot,
+      ppeNameSnapshot: ppeAssignmentsTable.ppeNameSnapshot,
+      category: ppeItemsTable.category,
+      quantity: ppeAssignmentsTable.quantity,
+      size: ppeAssignmentsTable.size,
+      serialNumber: ppeAssignmentsTable.serialNumber,
+      issuedAt: ppeAssignmentsTable.issuedAt,
+      replaceBy: ppeAssignmentsTable.replaceBy,
+      returnedAt: ppeAssignmentsTable.returnedAt,
+      status: ppeAssignmentsTable.status,
+    })
+    .from(ppeAssignmentsTable)
+    .innerJoin(ppeItemsTable, eq(ppeAssignmentsTable.ppeItemId, ppeItemsTable.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(ppeAssignmentsTable.issuedAt, ppeAssignmentsTable.personNameSnapshot);
+
+  const exportRows: PpeExportRow[] = rows.map((r) => ({
+    personNameSnapshot: r.personNameSnapshot,
+    ppeNameSnapshot: r.ppeNameSnapshot,
+    category: r.category,
+    quantity: r.quantity,
+    size: r.size,
+    serialNumber: r.serialNumber,
+    issuedAt: r.issuedAt,
+    replaceBy: r.replaceBy,
+    returnedAt: r.returnedAt,
+    status: r.status,
+  }));
+
+  const todaySlug = today();
+
+  if (format === "csv") {
+    const csv = generatePpeCsv(exportRows);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="oopp-vydeje-${todaySlug}.csv"`);
+    res.send(csv);
+    return;
+  }
+
+  let companyName: string | undefined;
+  try {
+    const settings = await ensureBillingSettings();
+    companyName = settings.supplierName ?? undefined;
+  } catch {
+    // non-fatal — branding is optional
+  }
+
+  const pdfBuffer = generatePpePdf(exportRows, companyName);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="oopp-vydeje-${todaySlug}.pdf"`);
+  res.send(pdfBuffer);
 });
 
 router.post("/ppe/assignments", requireRole("admin", "master"), async (req, res): Promise<void> => {

@@ -156,6 +156,8 @@ export * from './employeeLeaveType';
 export * from './errorEnvelope';
 export * from './exportLeavesFormat';
 export * from './exportLeavesParams';
+export * from './exportPpeAssignmentsFormat';
+export * from './exportPpeAssignmentsParams';
 export * from './exportSubjectDataParams';
 export * from './forgotPasswordQuestions';
 export * from './forgotPasswordQuestionsInput';

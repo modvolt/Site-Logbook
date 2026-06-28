@@ -2203,6 +2203,59 @@ paths:
         "403":
           description: Forbidden
 
+  /ppe/assignments/export:
+    get:
+      operationId: exportPpeAssignments
+      tags: [ppe]
+      summary: Export PPE assignments as PDF or CSV for safety audits (BOZP)
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: Output format — pdf (default) or csv
+          schema:
+            type: string
+            enum: [pdf, csv]
+        - name: personId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: issuedFrom
+          in: query
+          required: false
+          description: Filter assignments issued on or after this date (YYYY-MM-DD)
+          schema:
+            type: string
+        - name: issuedTo
+          in: query
+          required: false
+          description: Filter assignments issued on or before this date (YYYY-MM-DD)
+          schema:
+            type: string
+        - name: overdue
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: PDF or CSV file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
   /ppe/assignments/{id}:
     patch:
       operationId: updatePpeAssignment

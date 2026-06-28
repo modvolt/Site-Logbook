@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package
+  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -369,6 +369,8 @@ export default function Oopp() {
   const [filterOverdue, setFilterOverdue] = useState(false);
   const [filterUnconfirmed, setFilterUnconfirmed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [exportFormat, setExportFormat] = useState<"pdf" | "csv">("pdf");
+  const [exporting, setExporting] = useState(false);
   const [includeArchived, setIncludeArchived] = useState(false);
 
   const queryClient = useQueryClient();
@@ -498,6 +500,32 @@ export default function Oopp() {
   };
 
   const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm;
+
+  const handleExport = async (fmt: "pdf" | "csv") => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ format: fmt });
+      if (filterPerson !== "_all") params.set("personId", filterPerson);
+      if (filterStatus !== "_all") params.set("status", filterStatus);
+      if (filterOverdue) params.set("overdue", "true");
+      const res = await fetch(`/api/ppe/assignments/export?${params.toString()}`);
+      if (!res.ok) throw new Error("Export selhal");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const today = new Date().toISOString().slice(0, 10);
+      a.download = `oopp-vydeje-${today}.${fmt}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Export se nezdařil", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto w-full">
@@ -659,6 +687,27 @@ export default function Oopp() {
                 Zrušit filtry
               </Button>
             )}
+            <div className="ml-auto flex items-center gap-1">
+              <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as "pdf" | "csv")}>
+                <SelectTrigger className="h-9 w-[80px] text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="csv">CSV</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5"
+                disabled={exporting}
+                onClick={() => handleExport(exportFormat)}
+              >
+                <Download className="h-4 w-4" />
+                {exporting ? "Exportuji…" : "Export"}
+              </Button>
+            </div>
           </div>
 
           {/* Assignment list */}
