@@ -1,4 +1,5 @@
 - [Job visits & technician person link](job-visits-person-link.md) — výjezdy are per-job visits separate from assignedPersonId; /me/visits maps user→person ONLY by users.name===people.name (handle 0/>1 matches).
+- [Wouter useParams outside Route](wouter-useparams-outside-route.md) — useParams() returns {} when rendered via manual startsWith check; extract token from useLocation() path slice instead.
 - [Object storage setup](object-storage.md) — dual backend: S3-compatible (prod) else GCS/Replit (dev), chosen by s3Configured(); url column holds backend-agnostic /objects/... paths; legacy base64 still displays via getAttachmentUrl() fallback.
 - [Upload failure diagnostics](upload-failure-diagnostics.md) — request-url 500 = scheme-less S3 endpoint (now https-normalized); else browser→storage PUT fails on S3_PUBLIC_ENDPOINT/CORS.
 - [S3 InvalidAccessKeyId on self-host](s3-invalid-access-key-selfhost.md) — Hetzner: if ListBuckets ok+bucketListed but HeadBucket/PutObject 403 InvalidAccessKeyId, it's ADDRESSING not creds → set S3_FORCE_PATH_STYLE=false (Hetzner needs virtual-hosted, not path-style).

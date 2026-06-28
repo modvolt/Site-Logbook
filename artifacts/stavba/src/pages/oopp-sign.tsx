@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "wouter";
+import { useLocation } from "wouter";
 import { ShieldCheck, CheckCircle2, PenLine, RotateCcw, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -122,9 +122,11 @@ function SignatureCanvas({ onCapture }: { onCapture: (dataUrl: string | null) =>
   );
 }
 
+const SIGN_PREFIX = "/oopp/sign/";
+
 export default function OoppSign() {
-  const params = useParams<{ token: string }>();
-  const token = params.token;
+  const [path] = useLocation();
+  const token = path.startsWith(SIGN_PREFIX) ? path.slice(SIGN_PREFIX.length) : "";
 
   const [info, setInfo] = useState<AssignmentInfo | null>(null);
   const [loading, setLoading] = useState(true);
