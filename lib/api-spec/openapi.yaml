@@ -6941,6 +6941,172 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/recurring-templates:
+    get:
+      operationId: listRecurringTemplates
+      tags: [billing]
+      summary: List recurring invoice templates (admin only)
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecurringInvoiceTemplate"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createRecurringTemplate
+      tags: [billing]
+      summary: Create a recurring invoice template (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecurringTemplateInput"
+      responses:
+        "201":
+          description: Created template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringInvoiceTemplateDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/recurring-templates/generate:
+    post:
+      operationId: triggerRecurringGeneration
+      tags: [billing]
+      summary: Manually trigger recurring invoice generation for all due templates (admin only)
+      responses:
+        "200":
+          description: Generation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringGenerationResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/recurring-templates/{id}:
+    get:
+      operationId: getRecurringTemplate
+      tags: [billing]
+      summary: Get a recurring invoice template with history (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Template detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringInvoiceTemplateDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: updateRecurringTemplate
+      tags: [billing]
+      summary: Update a recurring invoice template (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRecurringTemplateInput"
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringInvoiceTemplateDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteRecurringTemplate
+      tags: [billing]
+      summary: Delete a recurring invoice template (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /jobs/{id}/analyze-documents:
     post:
       operationId: analyzeJobDocuments
@@ -10711,6 +10877,9 @@ components:
           type: ["string", "null"]
         cancelledAt:
           type: ["string", "null"]
+        recurringTemplateId:
+          type: ["integer", "null"]
+          description: ID of the recurring template that generated this invoice (if any)
         createdAt:
           type: string
         updatedAt:
@@ -10847,6 +11016,9 @@ components:
           type: ["string", "null"]
         cancelledAt:
           type: ["string", "null"]
+        recurringTemplateId:
+          type: ["integer", "null"]
+          description: ID of the recurring template that generated this invoice (if any)
         createdAt:
           type: string
         updatedAt:
@@ -12996,6 +13168,168 @@ components:
           type: string
         createdAt:
           type: string
+
+    RecurringTemplateItem:
+      type: object
+      required: [description, quantity, unitPriceWithoutVat, vatMode, sortOrder]
+      properties:
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: number
+        vatRate:
+          type: ["number", "null"]
+        vatMode:
+          type: string
+        discountPercent:
+          type: ["number", "null"]
+        sortOrder:
+          type: integer
+
+    RecurringInvoiceTemplate:
+      type: object
+      required:
+        - id
+        - customerId
+        - name
+        - items
+        - interval
+        - dayOfMonth
+        - nextGenerationDate
+        - isActive
+        - vatModeDefault
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        customerId:
+          type: integer
+        customerName:
+          type: ["string", "null"]
+        name:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringTemplateItem"
+        interval:
+          type: string
+          enum: [monthly, quarterly, yearly]
+        dayOfMonth:
+          type: integer
+        nextGenerationDate:
+          type: string
+        isActive:
+          type: boolean
+        lastGeneratedAt:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    RecurringInvoiceGeneration:
+      type: object
+      required: [id, templateId, invoiceId, period, createdAt]
+      properties:
+        id:
+          type: integer
+        templateId:
+          type: integer
+        invoiceId:
+          type: integer
+        period:
+          type: string
+        createdAt:
+          type: string
+        invoiceNumber:
+          type: ["string", "null"]
+        invoiceStatus:
+          type: ["string", "null"]
+        totalWithVat:
+          type: ["number", "null"]
+
+    RecurringInvoiceTemplateDetail:
+      allOf:
+        - $ref: "#/components/schemas/RecurringInvoiceTemplate"
+        - type: object
+          required: [generations]
+          properties:
+            generations:
+              type: array
+              items:
+                $ref: "#/components/schemas/RecurringInvoiceGeneration"
+
+    CreateRecurringTemplateInput:
+      type: object
+      required: [customerId, name, items, interval, dayOfMonth, nextGenerationDate]
+      properties:
+        customerId:
+          type: integer
+        name:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringTemplateItem"
+        interval:
+          type: string
+          enum: [monthly, quarterly, yearly]
+        dayOfMonth:
+          type: integer
+        nextGenerationDate:
+          type: string
+        isActive:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+
+    UpdateRecurringTemplateInput:
+      type: object
+      properties:
+        name:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecurringTemplateItem"
+        interval:
+          type: string
+          enum: [monthly, quarterly, yearly]
+        dayOfMonth:
+          type: integer
+        nextGenerationDate:
+          type: string
+        isActive:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+
+    RecurringGenerationResult:
+      type: object
+      required: [processed, created, skipped, failed]
+      properties:
+        processed:
+          type: integer
+        created:
+          type: integer
+        skipped:
+          type: integer
+        failed:
+          type: integer
 
     PpeHandoverEvent:
       type: object

@@ -3556,6 +3556,11 @@ export interface Invoice {
   issuedAt?: string | null;
   /** @nullable */
   cancelledAt?: string | null;
+  /**
+     * ID of the recurring template that generated this invoice (if any)
+     * @nullable
+     */
+  recurringTemplateId?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -3812,6 +3817,11 @@ export interface InvoiceDetail {
   issuedAt?: string | null;
   /** @nullable */
   cancelledAt?: string | null;
+  /**
+     * ID of the recurring template that generated this invoice (if any)
+     * @nullable
+     */
+  recurringTemplateId?: number | null;
   createdAt: string;
   updatedAt: string;
   lines: InvoiceLine[];
@@ -4853,6 +4863,117 @@ export interface EmailImportImportResult {
   imported: number;
   skipped: number;
   duplicates: number;
+}
+
+export type RecurringInvoiceTemplateInterval = typeof RecurringInvoiceTemplateInterval[keyof typeof RecurringInvoiceTemplateInterval];
+
+
+export const RecurringInvoiceTemplateInterval = {
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
+} as const;
+
+export interface RecurringTemplateItem {
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  vatRate?: number | null;
+  vatMode: string;
+  /** @nullable */
+  discountPercent?: number | null;
+  sortOrder: number;
+}
+
+export interface RecurringInvoiceTemplate {
+  id: number;
+  customerId: number;
+  /** @nullable */
+  customerName?: string | null;
+  name: string;
+  items: RecurringTemplateItem[];
+  interval: RecurringInvoiceTemplateInterval;
+  dayOfMonth: number;
+  nextGenerationDate: string;
+  isActive: boolean;
+  /** @nullable */
+  lastGeneratedAt?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  vatModeDefault: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CreateRecurringTemplateInputInterval = typeof CreateRecurringTemplateInputInterval[keyof typeof CreateRecurringTemplateInputInterval];
+
+
+export const CreateRecurringTemplateInputInterval = {
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
+} as const;
+
+export interface CreateRecurringTemplateInput {
+  customerId: number;
+  name: string;
+  items: RecurringTemplateItem[];
+  interval: CreateRecurringTemplateInputInterval;
+  dayOfMonth: number;
+  nextGenerationDate: string;
+  isActive?: boolean;
+  /** @nullable */
+  notes?: string | null;
+  vatModeDefault?: string;
+}
+
+export interface RecurringInvoiceGeneration {
+  id: number;
+  templateId: number;
+  invoiceId: number;
+  period: string;
+  createdAt: string;
+  /** @nullable */
+  invoiceNumber?: string | null;
+  /** @nullable */
+  invoiceStatus?: string | null;
+  /** @nullable */
+  totalWithVat?: number | null;
+}
+
+export type RecurringInvoiceTemplateDetail = RecurringInvoiceTemplate & {
+  generations: RecurringInvoiceGeneration[];
+};
+
+export interface RecurringGenerationResult {
+  processed: number;
+  created: number;
+  skipped: number;
+  failed: number;
+}
+
+export type UpdateRecurringTemplateInputInterval = typeof UpdateRecurringTemplateInputInterval[keyof typeof UpdateRecurringTemplateInputInterval];
+
+
+export const UpdateRecurringTemplateInputInterval = {
+  monthly: 'monthly',
+  quarterly: 'quarterly',
+  yearly: 'yearly',
+} as const;
+
+export interface UpdateRecurringTemplateInput {
+  name?: string;
+  items?: RecurringTemplateItem[];
+  interval?: UpdateRecurringTemplateInputInterval;
+  dayOfMonth?: number;
+  nextGenerationDate?: string;
+  isActive?: boolean;
+  /** @nullable */
+  notes?: string | null;
+  vatModeDefault?: string;
 }
 
 export interface AnalyzeJobDocumentsResult {

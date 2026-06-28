@@ -10,6 +10,8 @@ import {
   ParseBankStatementBody,
   ConfirmBankPaymentsBody,
   UpsertMaterialMarkupRuleBody,
+  CreateRecurringTemplateBody,
+  UpdateRecurringTemplateBody,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import {
@@ -52,6 +54,14 @@ import {
   type InvoiceLineInput,
 } from "../lib/invoice-service";
 import type { VatMode } from "../lib/invoice-calc";
+import {
+  listRecurringTemplates,
+  getRecurringTemplateDetail,
+  createRecurringTemplate,
+  updateRecurringTemplate,
+  deleteRecurringTemplate,
+  runRecurringGeneration,
+} from "../lib/recurring-templates";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -579,6 +589,110 @@ router.get("/billing/invoices/:id/pdf", async (req, res): Promise<void> => {
     if (!res.headersSent) {
       res.status(500).json({ error: "Stažení PDF faktury selhalo." });
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Recurring invoice templates (paušální faktury)
+// ---------------------------------------------------------------------------
+
+router.get("/billing/recurring-templates", async (_req, res): Promise<void> => {
+  res.json(await listRecurringTemplates());
+});
+
+router.post("/billing/recurring-templates", async (req, res): Promise<void> => {
+  const parsed = CreateRecurringTemplateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const d = parsed.data;
+  try {
+    const template = await createRecurringTemplate({
+      customerId: d.customerId,
+      name: d.name,
+      items: d.items.map((item) => ({ ...item, unit: item.unit ?? null, vatRate: item.vatRate ?? null, discountPercent: item.discountPercent ?? null })),
+      interval: d.interval,
+      dayOfMonth: d.dayOfMonth,
+      nextGenerationDate: d.nextGenerationDate,
+      isActive: d.isActive ?? true,
+      notes: d.notes ?? null,
+      vatModeDefault: d.vatModeDefault ?? "standard",
+    });
+    res.status(201).json(template);
+  } catch (err) {
+    handleError(err, "Vytvoření šablony selhalo.", res);
+  }
+});
+
+router.get("/billing/recurring-templates/:id", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID šablony." });
+    return;
+  }
+  const template = await getRecurringTemplateDetail(id);
+  if (!template) {
+    res.status(404).json({ error: "Šablona nenalezena." });
+    return;
+  }
+  res.json(template);
+});
+
+router.put("/billing/recurring-templates/:id", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID šablony." });
+    return;
+  }
+  const parsed = UpdateRecurringTemplateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const d = parsed.data;
+  try {
+    const template = await updateRecurringTemplate(id, {
+      name: d.name ?? undefined,
+      items: d.items ? d.items.map((item) => ({ ...item, unit: item.unit ?? null, vatRate: item.vatRate ?? null, discountPercent: item.discountPercent ?? null })) : undefined,
+      interval: d.interval ?? undefined,
+      dayOfMonth: d.dayOfMonth ?? undefined,
+      nextGenerationDate: d.nextGenerationDate ?? undefined,
+      isActive: d.isActive ?? undefined,
+      notes: d.notes,
+      vatModeDefault: d.vatModeDefault ?? undefined,
+    });
+    res.json(template);
+  } catch (err) {
+    handleError(err, "Aktualizace šablony selhala.", res);
+  }
+});
+
+router.delete("/billing/recurring-templates/:id", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID šablony." });
+    return;
+  }
+  try {
+    const ok = await deleteRecurringTemplate(id);
+    if (!ok) {
+      res.status(404).json({ error: "Šablona nenalezena." });
+      return;
+    }
+    res.status(204).end();
+  } catch (err) {
+    handleError(err, "Smazání šablony selhalo.", res);
+  }
+});
+
+router.post("/billing/recurring-templates/generate", async (req, res): Promise<void> => {
+  const today = new Date().toISOString().split("T")[0]!;
+  try {
+    const result = await runRecurringGeneration(today);
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Ruční generování paušálních faktur selhalo.", res);
   }
 });
 

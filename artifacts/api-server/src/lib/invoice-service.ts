@@ -55,7 +55,7 @@ function appError(statusCode: number, message: string): AppError {
 }
 
 export interface Actor {
-  userId: number;
+  userId: number | null;
   name: string;
 }
 
@@ -874,6 +874,7 @@ export function serializeInvoice(row: Invoice) {
     issuedByUserId: row.issuedByUserId,
     issuedAt: row.issuedAt ? row.issuedAt.toISOString() : null,
     cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
+    recurringTemplateId: row.recurringTemplateId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

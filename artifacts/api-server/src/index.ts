@@ -8,6 +8,7 @@ import { startClientErrorPurgeScheduler } from "./routes/client-errors";
 import { describeObjectStorageConfig } from "./lib/objectStorage";
 import { startPpeOverdueScheduler } from "./lib/ppe-overdue-notifier";
 import { startHealthWatchdog } from "./lib/health-watchdog";
+import { startRecurringInvoiceScheduler } from "./lib/recurring-templates";
 
 const rawPort = process.env["PORT"];
 
@@ -38,4 +39,5 @@ app.listen(port, (err) => {
   startClientErrorPurgeScheduler();
   startPpeOverdueScheduler();
   startHealthWatchdog();
+  startRecurringInvoiceScheduler();
 });

@@ -59,6 +59,8 @@ import BillingDocuments from "@/pages/billing-documents";
 import BillingDocumentDetail from "@/pages/billing-document-detail";
 import BillingReviewQueue from "@/pages/billing-review-queue";
 import BillingEmailImport from "@/pages/billing-email-import";
+import BillingRecurringTemplates from "@/pages/billing-recurring-templates";
+import BillingRecurringTemplateDetail from "@/pages/billing-recurring-template-detail";
 import AdminHealth from "@/pages/admin-health";
 import AdminSessions from "@/pages/admin-sessions";
 import Quotes from "@/pages/quotes";
@@ -222,6 +224,8 @@ function AuthenticatedApp() {
         <Route path="/billing/invoices/:id/edit">{() => <AdminOnly component={BillingInvoiceEdit} />}</Route>
         <Route path="/billing/invoices/:id">{() => <AdminOnly component={BillingInvoiceDetail} />}</Route>
         <Route path="/billing/invoices">{() => <AdminOnly component={BillingInvoices} />}</Route>
+        <Route path="/billing/recurring-templates/:id">{() => <AdminOnly component={BillingRecurringTemplateDetail} />}</Route>
+        <Route path="/billing/recurring-templates">{() => <AdminOnly component={BillingRecurringTemplates} />}</Route>
         <Route path="/billing">{() => <AdminOnly component={Billing} />}</Route>
         <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
         <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>

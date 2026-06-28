@@ -69,6 +69,7 @@ import {
   BellRing,
   Loader2,
   AlertCircle,
+  CalendarClock,
 } from "lucide-react";
 
 export default function BillingInvoiceDetail() {
@@ -417,6 +418,15 @@ export default function BillingInvoiceDetail() {
             <h1 className="text-2xl font-bold">{inv.invoiceNumber || "Koncept faktury"}</h1>
             <InvoiceStatusBadge status={inv.status} />
             {overdue !== null && <OverdueBadge days={overdue} />}
+            {inv.recurringTemplateId != null && (
+              <button
+                type="button"
+                onClick={() => setLocation(`/billing/recurring-templates/${inv.recurringTemplateId}`)}
+                className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 hover:opacity-80 transition-opacity"
+              >
+                <CalendarClock className="h-3 w-3" /> Paušál
+              </button>
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">{inv.customerName || "—"}</p>
         </div>

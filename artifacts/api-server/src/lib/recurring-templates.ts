@@ -1,0 +1,438 @@
+import { and, desc, eq, lte, sql } from "drizzle-orm";
+import {
+  db,
+  recurringInvoiceTemplatesTable,
+  recurringInvoiceGenerationsTable,
+  invoicesTable,
+  customersTable,
+  type RecurringInvoiceTemplate,
+  type RecurringTemplateItem,
+} from "@workspace/db";
+import { logger } from "./logger";
+import { createDraft, type Actor } from "./invoice-service";
+
+type VatMode = "standard" | "reverse_charge" | "zero" | "non_vat";
+
+export type { RecurringTemplateItem };
+
+export interface RecurringTemplateCreateInput {
+  customerId: number;
+  name: string;
+  items: RecurringTemplateItem[];
+  interval: "monthly" | "quarterly" | "yearly";
+  dayOfMonth: number;
+  nextGenerationDate: string;
+  isActive?: boolean;
+  notes?: string | null;
+  vatModeDefault?: string;
+}
+
+export interface RecurringTemplateUpdateInput {
+  name?: string;
+  items?: RecurringTemplateItem[];
+  interval?: "monthly" | "quarterly" | "yearly";
+  dayOfMonth?: number;
+  nextGenerationDate?: string;
+  isActive?: boolean;
+  notes?: string | null;
+  vatModeDefault?: string;
+}
+
+function appError(statusCode: number, message: string): Error & { statusCode: number } {
+  const err = new Error(message) as Error & { statusCode: number };
+  err.statusCode = statusCode;
+  return err;
+}
+
+/**
+ * Compute the next generation date after a successful run.
+ * dayOfMonth is clamped to the actual last day of the resulting month.
+ */
+export function nextDateAfter(
+  from: string,
+  interval: "monthly" | "quarterly" | "yearly",
+  dayOfMonth: number,
+): string {
+  const [year, month] = from.split("-").map(Number) as [number, number, number];
+  let nextYear = year;
+  let nextMonth = month;
+
+  if (interval === "monthly") {
+    nextMonth += 1;
+  } else if (interval === "quarterly") {
+    nextMonth += 3;
+  } else {
+    nextYear += 1;
+  }
+
+  if (nextMonth > 12) {
+    nextYear += Math.floor((nextMonth - 1) / 12);
+    nextMonth = ((nextMonth - 1) % 12) + 1;
+  }
+
+  const maxDay = new Date(nextYear, nextMonth, 0).getDate();
+  const day = Math.min(dayOfMonth, maxDay);
+  return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * Build a billing period label for deduplication (e.g. "2025-01" for monthly,
+ * "2025-Q1" for quarterly, "2025" for yearly).
+ */
+export function periodLabel(
+  date: string,
+  interval: "monthly" | "quarterly" | "yearly",
+): string {
+  const [year, month] = date.split("-").map(Number) as [number, number];
+  if (interval === "monthly") return `${year}-${String(month).padStart(2, "0")}`;
+  if (interval === "quarterly") return `${year}-Q${Math.ceil(month / 3)}`;
+  return String(year);
+}
+
+export async function listRecurringTemplates() {
+  const rows = await db
+    .select({
+      id: recurringInvoiceTemplatesTable.id,
+      customerId: recurringInvoiceTemplatesTable.customerId,
+      customerName: customersTable.companyName,
+      name: recurringInvoiceTemplatesTable.name,
+      items: recurringInvoiceTemplatesTable.items,
+      interval: recurringInvoiceTemplatesTable.interval,
+      dayOfMonth: recurringInvoiceTemplatesTable.dayOfMonth,
+      nextGenerationDate: recurringInvoiceTemplatesTable.nextGenerationDate,
+      isActive: recurringInvoiceTemplatesTable.isActive,
+      lastGeneratedAt: recurringInvoiceTemplatesTable.lastGeneratedAt,
+      notes: recurringInvoiceTemplatesTable.notes,
+      vatModeDefault: recurringInvoiceTemplatesTable.vatModeDefault,
+      createdAt: recurringInvoiceTemplatesTable.createdAt,
+      updatedAt: recurringInvoiceTemplatesTable.updatedAt,
+    })
+    .from(recurringInvoiceTemplatesTable)
+    .leftJoin(
+      customersTable,
+      eq(recurringInvoiceTemplatesTable.customerId, customersTable.id),
+    )
+    .orderBy(
+      desc(recurringInvoiceTemplatesTable.isActive),
+      recurringInvoiceTemplatesTable.nextGenerationDate,
+      recurringInvoiceTemplatesTable.id,
+    );
+  return rows;
+}
+
+export async function getRecurringTemplateDetail(id: number) {
+  const [row] = await db
+    .select({
+      id: recurringInvoiceTemplatesTable.id,
+      customerId: recurringInvoiceTemplatesTable.customerId,
+      customerName: customersTable.companyName,
+      name: recurringInvoiceTemplatesTable.name,
+      items: recurringInvoiceTemplatesTable.items,
+      interval: recurringInvoiceTemplatesTable.interval,
+      dayOfMonth: recurringInvoiceTemplatesTable.dayOfMonth,
+      nextGenerationDate: recurringInvoiceTemplatesTable.nextGenerationDate,
+      isActive: recurringInvoiceTemplatesTable.isActive,
+      lastGeneratedAt: recurringInvoiceTemplatesTable.lastGeneratedAt,
+      notes: recurringInvoiceTemplatesTable.notes,
+      vatModeDefault: recurringInvoiceTemplatesTable.vatModeDefault,
+      createdAt: recurringInvoiceTemplatesTable.createdAt,
+      updatedAt: recurringInvoiceTemplatesTable.updatedAt,
+    })
+    .from(recurringInvoiceTemplatesTable)
+    .leftJoin(
+      customersTable,
+      eq(recurringInvoiceTemplatesTable.customerId, customersTable.id),
+    )
+    .where(eq(recurringInvoiceTemplatesTable.id, id));
+
+  if (!row) return null;
+
+  const generations = await db
+    .select({
+      id: recurringInvoiceGenerationsTable.id,
+      invoiceId: recurringInvoiceGenerationsTable.invoiceId,
+      period: recurringInvoiceGenerationsTable.period,
+      createdAt: recurringInvoiceGenerationsTable.createdAt,
+      invoiceNumber: invoicesTable.invoiceNumber,
+      invoiceStatus: invoicesTable.status,
+      totalWithVat: invoicesTable.totalWithVat,
+    })
+    .from(recurringInvoiceGenerationsTable)
+    .leftJoin(
+      invoicesTable,
+      eq(recurringInvoiceGenerationsTable.invoiceId, invoicesTable.id),
+    )
+    .where(eq(recurringInvoiceGenerationsTable.templateId, id))
+    .orderBy(desc(recurringInvoiceGenerationsTable.createdAt));
+
+  return { ...row, generations };
+}
+
+export async function createRecurringTemplate(input: RecurringTemplateCreateInput) {
+  const [customer] = await db
+    .select({ id: customersTable.id })
+    .from(customersTable)
+    .where(eq(customersTable.id, input.customerId));
+  if (!customer) throw appError(400, "Zákazník nenalezen.");
+
+  const [row] = await db
+    .insert(recurringInvoiceTemplatesTable)
+    .values({
+      customerId: input.customerId,
+      name: input.name,
+      items: input.items,
+      interval: input.interval,
+      dayOfMonth: input.dayOfMonth,
+      nextGenerationDate: input.nextGenerationDate,
+      isActive: input.isActive ?? true,
+      notes: input.notes ?? null,
+      vatModeDefault: input.vatModeDefault ?? "standard",
+    })
+    .returning();
+  return getRecurringTemplateDetail(row!.id);
+}
+
+export async function updateRecurringTemplate(
+  id: number,
+  input: RecurringTemplateUpdateInput,
+) {
+  const [existing] = await db
+    .select({ id: recurringInvoiceTemplatesTable.id })
+    .from(recurringInvoiceTemplatesTable)
+    .where(eq(recurringInvoiceTemplatesTable.id, id));
+  if (!existing) throw appError(404, "Šablona nenalezena.");
+
+  await db
+    .update(recurringInvoiceTemplatesTable)
+    .set({
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.items !== undefined && { items: input.items }),
+      ...(input.interval !== undefined && { interval: input.interval }),
+      ...(input.dayOfMonth !== undefined && { dayOfMonth: input.dayOfMonth }),
+      ...(input.nextGenerationDate !== undefined && {
+        nextGenerationDate: input.nextGenerationDate,
+      }),
+      ...(input.isActive !== undefined && { isActive: input.isActive }),
+      ...(input.notes !== undefined && { notes: input.notes }),
+      ...(input.vatModeDefault !== undefined && {
+        vatModeDefault: input.vatModeDefault,
+      }),
+      updatedAt: new Date(),
+    })
+    .where(eq(recurringInvoiceTemplatesTable.id, id));
+
+  return getRecurringTemplateDetail(id);
+}
+
+export async function deleteRecurringTemplate(id: number): Promise<boolean> {
+  const [existing] = await db
+    .select({ id: recurringInvoiceTemplatesTable.id })
+    .from(recurringInvoiceTemplatesTable)
+    .where(eq(recurringInvoiceTemplatesTable.id, id));
+  if (!existing) return false;
+
+  await db
+    .delete(recurringInvoiceTemplatesTable)
+    .where(eq(recurringInvoiceTemplatesTable.id, id));
+  return true;
+}
+
+/**
+ * Process all due templates and create draft invoices for them.
+ * Returns counts for logging/monitoring.
+ */
+export async function runRecurringGeneration(today: string): Promise<{
+  processed: number;
+  created: number;
+  skipped: number;
+  failed: number;
+}> {
+  const dueTemplates = await db
+    .select()
+    .from(recurringInvoiceTemplatesTable)
+    .where(
+      and(
+        eq(recurringInvoiceTemplatesTable.isActive, true),
+        lte(recurringInvoiceTemplatesTable.nextGenerationDate, today),
+      ),
+    );
+
+  let processed = 0;
+  let created = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const template of dueTemplates) {
+    processed++;
+    const period = periodLabel(
+      template.nextGenerationDate,
+      template.interval as "monthly" | "quarterly" | "yearly",
+    );
+
+    try {
+      await generateFromTemplate(template, period, today);
+      created++;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("DEDUPE")) {
+        skipped++;
+      } else {
+        failed++;
+        logger.warn(
+          { err, templateId: template.id, period },
+          "Recurring invoice generation failed",
+        );
+      }
+    }
+  }
+
+  return { processed, created, skipped, failed };
+}
+
+async function generateFromTemplate(
+  template: RecurringInvoiceTemplate,
+  period: string,
+  today: string,
+): Promise<void> {
+  // Use an advisory lock keyed on the template id to serialize concurrent
+  // generation attempts for the same template. The lock is held for the
+  // duration of the outer transaction, so a second concurrent caller will
+  // block on pg_advisory_xact_lock and only proceed after the first commits
+  // — at which point the dedup check will find the generation record and throw
+  // DEDUPE. This ensures only one draft invoice is created per template+period
+  // even if the scheduler and a manual trigger fire simultaneously.
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${template.id})`,
+    );
+
+    // Dedupe: abort if a draft for this period already exists
+    const [existing] = await tx
+      .select({ id: recurringInvoiceGenerationsTable.id })
+      .from(recurringInvoiceGenerationsTable)
+      .where(
+        and(
+          eq(recurringInvoiceGenerationsTable.templateId, template.id),
+          eq(recurringInvoiceGenerationsTable.period, period),
+        ),
+      );
+    if (existing) {
+      // Advance nextGenerationDate even when dedupe fires so we don't get stuck
+      await tx
+        .update(recurringInvoiceTemplatesTable)
+        .set({
+          nextGenerationDate: nextDateAfter(
+            template.nextGenerationDate,
+            template.interval as "monthly" | "quarterly" | "yearly",
+            template.dayOfMonth,
+          ),
+          updatedAt: new Date(),
+        })
+        .where(eq(recurringInvoiceTemplatesTable.id, template.id));
+      throw new Error("DEDUPE");
+    }
+
+    // Build line items from template items
+    const lines = (template.items as RecurringTemplateItem[]).map((item) => ({
+      sourceType: "manual" as const,
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit ?? undefined,
+      unitPriceWithoutVat: item.unitPriceWithoutVat,
+      vatRate: item.vatRate ?? undefined,
+      vatMode: item.vatMode as VatMode,
+      discountPercent: item.discountPercent ?? undefined,
+    }));
+
+    // Create the draft invoice.
+    // createDraft() opens its own db.transaction() on a separate connection,
+    // which is fine here: the advisory lock prevents a second concurrent
+    // generateFromTemplate call for the same template from also calling
+    // createDraft simultaneously, so only one draft can be created.
+    const systemActor: Actor = { userId: null, name: "Systém (paušál)" };
+    const draft = await createDraft(
+      {
+        customerId: template.customerId,
+        vatModeDefault: template.vatModeDefault as
+          | "standard"
+          | "reverse_charge"
+          | "zero"
+          | "non_vat",
+        notes: template.notes ?? undefined,
+        lines,
+      },
+      systemActor,
+    );
+
+    if (!draft) throw new Error("createDraft returned null");
+
+    // Link the invoice to the template
+    await tx
+      .update(invoicesTable)
+      .set({ recurringTemplateId: template.id })
+      .where(eq(invoicesTable.id, draft.id));
+
+    // Record the generation for dedup
+    await tx.insert(recurringInvoiceGenerationsTable).values({
+      templateId: template.id,
+      invoiceId: draft.id,
+      period,
+    });
+
+    // Advance nextGenerationDate
+    const next = nextDateAfter(
+      template.nextGenerationDate,
+      template.interval as "monthly" | "quarterly" | "yearly",
+      template.dayOfMonth,
+    );
+    await tx
+      .update(recurringInvoiceTemplatesTable)
+      .set({
+        nextGenerationDate: next,
+        lastGeneratedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(recurringInvoiceTemplatesTable.id, template.id));
+  });
+}
+
+let schedulerStarted = false;
+
+/**
+ * Start the daily recurring invoice generation scheduler.
+ * Runs once per day (configurable via RECURRING_CHECK_INTERVAL_HOURS env).
+ */
+export function startRecurringInvoiceScheduler(): void {
+  if (schedulerStarted) return;
+  schedulerStarted = true;
+
+  const hours = Number(process.env.RECURRING_CHECK_INTERVAL_HOURS);
+  const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+
+  const tick = () => {
+    const today = new Date().toISOString().split("T")[0]!;
+    return runRecurringGeneration(today)
+      .then(({ processed, created, skipped, failed }) => {
+        if (processed > 0) {
+          logger.info(
+            { processed, created, skipped, failed },
+            "Recurring invoice generation sweep",
+          );
+        }
+      })
+      .catch((err) =>
+        logger.error({ err }, "Recurring invoice generation sweep failed"),
+      );
+  };
+
+  const timer = setInterval(tick, intervalMs);
+  timer.unref();
+
+  // Run shortly after startup
+  const initial = setTimeout(tick, 30_000);
+  initial.unref();
+
+  logger.info(
+    { intervalHours: intervalMs / (60 * 60 * 1000) },
+    "Recurring invoice scheduler started",
+  );
+}

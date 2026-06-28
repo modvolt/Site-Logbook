@@ -26,6 +26,7 @@ import {
   ClipboardList,
   Mail,
   CheckCircle2,
+  CalendarClock,
 } from "lucide-react";
 
 const NEEDS_REVIEW_PARAMS: ListCostDocumentsParams = { status: "needs_review" };
@@ -247,6 +248,13 @@ export default function Billing() {
           title="Import z e-mailu"
           subtitle="Stahování příloh z Gmailu ke kontrole"
           onClick={() => setLocation("/billing/email-import")}
+        />
+        <NavCard
+          icon={CalendarClock}
+          color="text-violet-500"
+          title="Paušální faktury"
+          subtitle="Šablony pro automatické generování faktur"
+          onClick={() => setLocation("/billing/recurring-templates")}
         />
         <NavCard
           icon={SettingsIcon}

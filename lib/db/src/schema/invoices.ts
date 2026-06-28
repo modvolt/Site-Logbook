@@ -14,6 +14,7 @@ import { customersTable } from "./customers";
 import { usersTable } from "./users";
 import { jobsTable } from "./jobs";
 import { activitiesTable } from "./activities";
+import { recurringInvoiceTemplatesTable } from "./recurring-invoice-templates";
 
 /**
  * Issued (outgoing) customer invoices — "vydané faktury".
@@ -78,6 +79,10 @@ export const invoicesTable = pgTable(
     }),
     issuedAt: timestamp("issued_at"),
     cancelledAt: timestamp("cancelled_at"),
+    recurringTemplateId: integer("recurring_template_id").references(
+      () => recurringInvoiceTemplatesTable.id,
+      { onDelete: "set null" },
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -4927,6 +4927,7 @@ export const ListInvoicesResponseItem = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -5016,6 +5017,7 @@ export const GetInvoiceResponse = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "lines": zod.array(zod.object({
@@ -5110,6 +5112,7 @@ export const UpdateInvoiceResponse = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "lines": zod.array(zod.object({
@@ -5182,6 +5185,7 @@ export const RecalculateInvoiceResponse = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "lines": zod.array(zod.object({
@@ -5246,6 +5250,7 @@ export const IssueInvoiceResponse = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "lines": zod.array(zod.object({
@@ -5314,6 +5319,7 @@ export const CancelInvoiceResponse = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "lines": zod.array(zod.object({
@@ -5384,6 +5390,7 @@ export const UpdateInvoiceStatusResponse = zod.object({
   "issuedByUserId": zod.number().nullish(),
   "issuedAt": zod.string().nullish(),
   "cancelledAt": zod.string().nullish(),
+  "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -7814,6 +7821,191 @@ export const ReprocessEmailImportMessageParams = zod.object({
 
 export const ReprocessEmailImportMessageResponse = zod.object({
   "ok": zod.boolean()
+})
+
+
+/**
+ * @summary List recurring invoice templates (admin only)
+ */
+export const ListRecurringTemplatesResponseItem = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "customerName": zod.string().nullish(),
+  "name": zod.string(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.string(),
+  "discountPercent": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "interval": zod.enum(['monthly', 'quarterly', 'yearly']),
+  "dayOfMonth": zod.number(),
+  "nextGenerationDate": zod.string(),
+  "isActive": zod.boolean(),
+  "lastGeneratedAt": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "vatModeDefault": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListRecurringTemplatesResponse = zod.array(ListRecurringTemplatesResponseItem)
+
+
+/**
+ * @summary Create a recurring invoice template (admin only)
+ */
+export const CreateRecurringTemplateBody = zod.object({
+  "customerId": zod.number(),
+  "name": zod.string(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.string(),
+  "discountPercent": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "interval": zod.enum(['monthly', 'quarterly', 'yearly']),
+  "dayOfMonth": zod.number(),
+  "nextGenerationDate": zod.string(),
+  "isActive": zod.boolean().optional(),
+  "notes": zod.string().nullish(),
+  "vatModeDefault": zod.string().optional()
+})
+
+
+/**
+ * @summary Manually trigger recurring invoice generation for all due templates (admin only)
+ */
+export const TriggerRecurringGenerationResponse = zod.object({
+  "processed": zod.number(),
+  "created": zod.number(),
+  "skipped": zod.number(),
+  "failed": zod.number()
+})
+
+
+/**
+ * @summary Get a recurring invoice template with history (admin only)
+ */
+export const GetRecurringTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetRecurringTemplateResponse = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "customerName": zod.string().nullish(),
+  "name": zod.string(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.string(),
+  "discountPercent": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "interval": zod.enum(['monthly', 'quarterly', 'yearly']),
+  "dayOfMonth": zod.number(),
+  "nextGenerationDate": zod.string(),
+  "isActive": zod.boolean(),
+  "lastGeneratedAt": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "vatModeDefault": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}).and(zod.object({
+  "generations": zod.array(zod.object({
+  "id": zod.number(),
+  "templateId": zod.number(),
+  "invoiceId": zod.number(),
+  "period": zod.string(),
+  "createdAt": zod.string(),
+  "invoiceNumber": zod.string().nullish(),
+  "invoiceStatus": zod.string().nullish(),
+  "totalWithVat": zod.number().nullish()
+}))
+}))
+
+
+/**
+ * @summary Update a recurring invoice template (admin only)
+ */
+export const UpdateRecurringTemplateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateRecurringTemplateBody = zod.object({
+  "name": zod.string().optional(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.string(),
+  "discountPercent": zod.number().nullish(),
+  "sortOrder": zod.number()
+})).optional(),
+  "interval": zod.enum(['monthly', 'quarterly', 'yearly']).optional(),
+  "dayOfMonth": zod.number().optional(),
+  "nextGenerationDate": zod.string().optional(),
+  "isActive": zod.boolean().optional(),
+  "notes": zod.string().nullish(),
+  "vatModeDefault": zod.string().optional()
+})
+
+export const UpdateRecurringTemplateResponse = zod.object({
+  "id": zod.number(),
+  "customerId": zod.number(),
+  "customerName": zod.string().nullish(),
+  "name": zod.string(),
+  "items": zod.array(zod.object({
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.string(),
+  "discountPercent": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "interval": zod.enum(['monthly', 'quarterly', 'yearly']),
+  "dayOfMonth": zod.number(),
+  "nextGenerationDate": zod.string(),
+  "isActive": zod.boolean(),
+  "lastGeneratedAt": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "vatModeDefault": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}).and(zod.object({
+  "generations": zod.array(zod.object({
+  "id": zod.number(),
+  "templateId": zod.number(),
+  "invoiceId": zod.number(),
+  "period": zod.string(),
+  "createdAt": zod.string(),
+  "invoiceNumber": zod.string().nullish(),
+  "invoiceStatus": zod.string().nullish(),
+  "totalWithVat": zod.number().nullish()
+}))
+}))
+
+
+/**
+ * @summary Delete a recurring invoice template (admin only)
+ */
+export const DeleteRecurringTemplateParams = zod.object({
+  "id": zod.coerce.number()
 })
 
 

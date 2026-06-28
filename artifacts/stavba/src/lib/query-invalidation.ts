@@ -35,6 +35,7 @@ export type InvalidationDomain =
   | "leaves"
   | "billingInvoices"
   | "billingDocuments"
+  | "billingRecurringTemplates"
   | "bankImport"
   | "emailImport"
   | "reviewQueue"
@@ -74,6 +75,8 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
     "/api/billing/summary",
     "/api/billing/unbilled",
   ],
+  // Šablony paušálních faktur.
+  billingRecurringTemplates: ["/api/billing/recurring-templates"],
   // Přijaté doklady, schválené řádky a souhrn fakturace.
   billingDocuments: [
     "/api/billing/documents",
