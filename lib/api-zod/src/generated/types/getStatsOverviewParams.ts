@@ -15,4 +15,12 @@ from: string;
  * ISO date string (YYYY-MM-DD), inclusive
  */
 to: string;
+/**
+ * Filter the 6-month trend by customer ID
+ */
+trendCustomerId?: number;
+/**
+ * Filter the 6-month trend by job type (e.g. site_visit, planned_work)
+ */
+trendJobType?: string;
 };

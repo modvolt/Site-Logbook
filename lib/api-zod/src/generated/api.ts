@@ -1083,7 +1083,9 @@ export const SendCredentialsEmailResponse = zod.object({
  */
 export const GetStatsOverviewQueryParams = zod.object({
   "from": zod.coerce.string(),
-  "to": zod.coerce.string()
+  "to": zod.coerce.string(),
+  "trendCustomerId": zod.coerce.number().optional(),
+  "trendJobType": zod.coerce.string().optional()
 })
 
 export const GetStatsOverviewResponse = zod.object({

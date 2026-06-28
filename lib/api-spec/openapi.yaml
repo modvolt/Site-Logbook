@@ -1135,6 +1135,18 @@ paths:
           schema:
             type: string
             description: ISO date string (YYYY-MM-DD), inclusive
+        - name: trendCustomerId
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: Filter the 6-month trend by customer ID
+        - name: trendJobType
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter the 6-month trend by job type (e.g. site_visit, planned_work)
       responses:
         "200":
           description: Aggregated statistics

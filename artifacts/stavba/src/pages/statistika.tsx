@@ -6,6 +6,8 @@ import {
   getGetStatsOverviewQueryKey,
   useGetRisksSummary,
   getGetRisksSummaryQueryKey,
+  useListCustomers,
+  getListCustomersQueryKey,
 } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
 import {
@@ -56,6 +58,13 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { JOB_TYPES } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
 import { renderJobSheetPdf } from "@/lib/job-sheet-pdf";
@@ -245,6 +254,8 @@ export default function Statistika() {
   };
 
   const [profitFilter, setProfitFilter] = useState("");
+  const [trendCustomerId, setTrendCustomerId] = useState<number | undefined>(undefined);
+  const [trendJobType, setTrendJobType] = useState<string | undefined>(undefined);
 
   const { from, to } = getRange(period, anchor);
   const fromStr = format(from, "yyyy-MM-dd");
@@ -254,10 +265,19 @@ export default function Statistika() {
   const companyName = company.name || BRAND_NAME;
   const companyLogo = company.logoDataUrl || BRAND_LOGO_URL;
 
+  const trendParams = {
+    from: fromStr,
+    to: toStr,
+    ...(trendCustomerId != null ? { trendCustomerId } : {}),
+    ...(trendJobType != null ? { trendJobType } : {}),
+  };
+
   const { data: stats, isLoading, isError: statsError, refetch: refetchStats } = useGetStatsOverview(
-    { from: fromStr, to: toStr },
-    { query: { queryKey: getGetStatsOverviewQueryKey({ from: fromStr, to: toStr }), enabled: isAdmin } },
+    trendParams,
+    { query: { queryKey: getGetStatsOverviewQueryKey(trendParams), enabled: isAdmin } },
   );
+
+  const { data: customers } = useListCustomers({ query: { queryKey: getListCustomersQueryKey(), enabled: isAdmin } });
 
   const { data: risks, isLoading: risksLoading } = useGetRisksSummary(undefined, {
     query: { queryKey: getGetRisksSummaryQueryKey(), retry: false, enabled: isAdmin },
@@ -423,7 +443,49 @@ export default function Statistika() {
             {/* 6-month chart */}
             {chartData.length > 0 && (
               <div className="rounded-xl border bg-card p-4">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Vývoj posledních 6 měsíců</h2>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex-1">
+                    Vývoj posledních 6 měsíců
+                    {(trendCustomerId != null || trendJobType != null) && (
+                      <span className="ml-1 normal-case font-medium text-foreground">
+                        {[
+                          trendCustomerId != null ? (customers?.find((c) => c.id === trendCustomerId)?.companyName ?? "Zákazník") : null,
+                          trendJobType != null ? (JOB_TYPES[trendJobType as keyof typeof JOB_TYPES]?.label ?? trendJobType) : null,
+                        ].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
+                  </h2>
+                  <div className="no-print flex items-center gap-2 flex-wrap">
+                    <Select
+                      value={trendCustomerId != null ? String(trendCustomerId) : "all"}
+                      onValueChange={(v) => setTrendCustomerId(v === "all" ? undefined : Number(v))}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-44">
+                        <SelectValue placeholder="Zákazník" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Všichni zákazníci</SelectItem>
+                        {(customers ?? []).map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>{c.companyName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={trendJobType ?? "all"}
+                      onValueChange={(v) => setTrendJobType(v === "all" ? undefined : v)}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-44">
+                        <SelectValue placeholder="Typ zakázky" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Všechny typy</SelectItem>
+                        {(Object.entries(JOB_TYPES) as [string, { label: string }][]).map(([key, { label }]) => (
+                          <SelectItem key={key} value={key}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div className="h-48 sm:h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>

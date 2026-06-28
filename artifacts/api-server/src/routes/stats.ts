@@ -63,7 +63,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid query parameters" });
     return;
   }
-  const { from, to } = parsed.data;
+  const { from, to, trendCustomerId, trendJobType } = parsed.data;
   const isoDate = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoDate.test(from) || !isoDate.test(to) || from > to) {
     res.status(400).json({ error: "Invalid date range" });
@@ -345,6 +345,12 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
 
   // ─── 6-month trend ────────────────────────────────────────────────────────
   const months = last6Months(to);
+  // Build optional trend filters
+  const trendInvoiceExtra = trendCustomerId != null ? eq(invoicesTable.customerId, trendCustomerId) : undefined;
+  const trendJobExtra = and(
+    trendCustomerId != null ? eq(jobsTable.customerId, trendCustomerId) : undefined,
+    trendJobType != null ? eq(jobsTable.type, trendJobType) : undefined,
+  );
   // One query: aggregate by month using to_char on issueDate / paidDate
   const [trendIssued, trendPaid, trendJobs] = await Promise.all([
     db
@@ -357,6 +363,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
         gte(invoicesTable.issueDate, months[0] + "-01"),
         lte(invoicesTable.issueDate, to),
         inArray(invoicesTable.status, [...BILLABLE_STATUSES]),
+        trendInvoiceExtra,
       ))
       .groupBy(sql`to_char(${invoicesTable.issueDate}::date, 'YYYY-MM')`),
 
@@ -370,6 +377,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
         gte(invoicesTable.paidDate, months[0] + "-01"),
         lte(invoicesTable.paidDate, to),
         eq(invoicesTable.status, "paid"),
+        trendInvoiceExtra,
       ))
       .groupBy(sql`to_char(${invoicesTable.paidDate}::date, 'YYYY-MM')`),
 
@@ -382,6 +390,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       .where(and(
         gte(jobsTable.date, months[0] + "-01"),
         lte(jobsTable.date, to),
+        trendJobExtra,
       ))
       .groupBy(sql`to_char(${jobsTable.date}::date, 'YYYY-MM')`),
   ]);
