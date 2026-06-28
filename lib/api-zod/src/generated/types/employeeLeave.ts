@@ -19,7 +19,7 @@ export interface EmployeeLeave {
   endDate: string;
   /** @nullable */
   note?: string | null;
-  /** Calendar days (inclusive) */
+  /** Business days (Mon–Fri, excluding Czech public holidays) */
   days: number;
   createdAt: string;
   updatedAt: string;

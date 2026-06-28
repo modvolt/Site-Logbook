@@ -799,7 +799,7 @@ export const ListLeavesResponseItem = zod.object({
   "startDate": zod.string().describe('YYYY-MM-DD'),
   "endDate": zod.string().describe('YYYY-MM-DD'),
   "note": zod.string().nullish(),
-  "days": zod.number().describe('Calendar days (inclusive)'),
+  "days": zod.number().describe('Business days (Mon–Fri, excluding Czech public holidays)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -845,7 +845,7 @@ export const UpdateLeaveResponse = zod.object({
   "startDate": zod.string().describe('YYYY-MM-DD'),
   "endDate": zod.string().describe('YYYY-MM-DD'),
   "note": zod.string().nullish(),
-  "days": zod.number().describe('Calendar days (inclusive)'),
+  "days": zod.number().describe('Business days (Mon–Fri, excluding Czech public holidays)'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -882,10 +882,10 @@ export const GetLeavesSummaryResponseItem = zod.object({
   "personId": zod.number(),
   "personName": zod.string(),
   "year": zod.number(),
-  "vacationDays": zod.number(),
-  "sickDays": zod.number(),
-  "otherDays": zod.number(),
-  "totalDays": zod.number()
+  "vacationDays": zod.number().describe('Business days of vacation (Mon–Fri, excl. public holidays)'),
+  "sickDays": zod.number().describe('Business days of sick leave'),
+  "otherDays": zod.number().describe('Business days of other leave'),
+  "totalDays": zod.number().describe('Total business days (vacation + sick + other)')
 })
 export const GetLeavesSummaryResponse = zod.array(GetLeavesSummaryResponseItem)
 

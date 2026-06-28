@@ -665,7 +665,7 @@ export interface EmployeeLeave {
   endDate: string;
   /** @nullable */
   note?: string | null;
-  /** Calendar days (inclusive) */
+  /** Business days (Mon–Fri, excluding Czech public holidays) */
   days: number;
   createdAt: string;
   updatedAt: string;
@@ -695,9 +695,13 @@ export interface LeaveSummary {
   personId: number;
   personName: string;
   year: number;
+  /** Business days of vacation (Mon–Fri, excl. public holidays) */
   vacationDays: number;
+  /** Business days of sick leave */
   sickDays: number;
+  /** Business days of other leave */
   otherDays: number;
+  /** Total business days (vacation + sick + other) */
   totalDays: number;
 }
 
