@@ -1699,6 +1699,18 @@ export interface Activity {
      */
   completedAt?: string | null;
   isArchived: boolean;
+  /**
+     * Date of the most recent completed/in_progress visit (YYYY-MM-DD)
+     * @nullable
+     */
+  lastVisitDate?: string | null;
+  /**
+     * Date of the nearest planned visit (YYYY-MM-DD)
+     * @nullable
+     */
+  nextVisitDate?: string | null;
+  /** Total number of visits */
+  visitsCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -1897,7 +1909,13 @@ export interface MyJobSummary {
 
 export interface MyVisit {
   id: number;
-  jobId: number;
+  /** job | activity */
+  kind: string;
+  parentId: number;
+  /** @nullable */
+  parentName?: string | null;
+  /** @nullable */
+  jobId?: number | null;
   /** @nullable */
   jobTitle?: string | null;
   /** @nullable */
@@ -1957,6 +1975,81 @@ export interface JobVisitUpdate {
   /** @nullable */
   note?: string | null;
   status?: JobVisitUpdateStatus;
+}
+
+export interface ActivityVisit {
+  id: number;
+  activityId: number;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  personName?: string | null;
+  date: string;
+  /** @nullable */
+  timeFrom?: string | null;
+  /** @nullable */
+  timeTo?: string | null;
+  /** planned | in_progress | completed | cancelled */
+  status: string;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  nextStep?: string | null;
+  createdAt: string;
+  /** @nullable */
+  createdBy?: string | null;
+}
+
+export type ActivityVisitInputStatus = typeof ActivityVisitInputStatus[keyof typeof ActivityVisitInputStatus];
+
+
+export const ActivityVisitInputStatus = {
+  planned: 'planned',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  cancelled: 'cancelled',
+} as const;
+
+export interface ActivityVisitInput {
+  /** @minLength 1 */
+  date: string;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  timeFrom?: string | null;
+  /** @nullable */
+  timeTo?: string | null;
+  status?: ActivityVisitInputStatus;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  nextStep?: string | null;
+}
+
+export type ActivityVisitUpdateStatus = typeof ActivityVisitUpdateStatus[keyof typeof ActivityVisitUpdateStatus];
+
+
+export const ActivityVisitUpdateStatus = {
+  planned: 'planned',
+  in_progress: 'in_progress',
+  completed: 'completed',
+  cancelled: 'cancelled',
+} as const;
+
+export interface ActivityVisitUpdate {
+  /** @minLength 1 */
+  date?: string;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  timeFrom?: string | null;
+  /** @nullable */
+  timeTo?: string | null;
+  status?: ActivityVisitUpdateStatus;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  nextStep?: string | null;
 }
 
 export type BackupStatus = typeof BackupStatus[keyof typeof BackupStatus];

@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, sql, ne, isNotNull } from "drizzle-orm";
+import { eq, and, desc, sql, ne, isNotNull, asc } from "drizzle-orm";
 import {
   db,
   activitiesTable,
   activityMaterialsTable,
   activityAttachmentsTable,
   activityExtraWorksTable,
+  activityVisitsTable,
   customersTable,
   usersTable,
   invoicesTable,
@@ -87,7 +88,7 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
     )
     .limit(1);
 
-  const [mat, attRow, extraRow] = await Promise.all([
+  const [mat, attRow, extraRow, visitSummary] = await Promise.all([
     db
       .select({
         total: sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(Number),
@@ -110,6 +111,15 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
       })
       .from(activityExtraWorksTable)
       .where(eq(activityExtraWorksTable.activityId, a.id))
+      .then((r) => r[0]),
+    db
+      .select({
+        total: sql<number>`count(*)`.mapWith(Number),
+        lastVisitDate: sql<string | null>`max(case when ${activityVisitsTable.status} in ('completed', 'in_progress') then ${activityVisitsTable.date} end)`,
+        nextVisitDate: sql<string | null>`min(case when ${activityVisitsTable.status} = 'planned' then ${activityVisitsTable.date} end)`,
+      })
+      .from(activityVisitsTable)
+      .where(eq(activityVisitsTable.activityId, a.id))
       .then((r) => r[0]),
   ]);
 
@@ -134,6 +144,9 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
     billedInvoiceStatus: billingLink?.invoiceStatus ?? null,
     completedAt: a.completedAt ? a.completedAt.toISOString() : null,
     isArchived: a.isArchived,
+    lastVisitDate: visitSummary?.lastVisitDate ?? null,
+    nextVisitDate: visitSummary?.nextVisitDate ?? null,
+    visitsCount: visitSummary?.total ?? 0,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
   };

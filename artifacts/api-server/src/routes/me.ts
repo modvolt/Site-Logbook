@@ -6,6 +6,7 @@ import {
   jobsTable,
   customersTable,
   jobVisitsTable,
+  activityVisitsTable,
   peopleTable,
 } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
@@ -148,6 +149,8 @@ router.get("/me/jobs", requireAuth, async (req, res): Promise<void> => {
 // Planned site visits for the logged-in technician. There is no FK linking a
 // user account to a person row, so the technician is resolved by name match
 // (people.name === users.name) — the only available link in the schema.
+// Returns both job visits and activity visits unified under a single shape:
+// { kind: "job"|"activity", parentId, parentName, ... }
 router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
   const name = req.auth!.name;
 
@@ -162,31 +165,57 @@ router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const rows = await db
-    .select({
-      id: jobVisitsTable.id,
-      jobId: jobVisitsTable.jobId,
-      date: jobVisitsTable.date,
-      note: jobVisitsTable.note,
-      status: jobVisitsTable.status,
-      jobTitle: jobsTable.title,
-      jobClientSite: jobsTable.clientSite,
-      customerName: customersTable.companyName,
-    })
-    .from(jobVisitsTable)
-    .innerJoin(jobsTable, eq(jobVisitsTable.jobId, jobsTable.id))
-    .leftJoin(customersTable, eq(jobsTable.customerId, customersTable.id))
-    .where(
-      and(
-        inArray(jobVisitsTable.personId, personIds),
-        eq(jobVisitsTable.status, "planned"),
-      ),
-    )
-    .orderBy(asc(jobVisitsTable.date), asc(jobVisitsTable.id));
+  const [jobRows, activityRows] = await Promise.all([
+    db
+      .select({
+        id: jobVisitsTable.id,
+        jobId: jobVisitsTable.jobId,
+        date: jobVisitsTable.date,
+        note: jobVisitsTable.note,
+        status: jobVisitsTable.status,
+        jobTitle: jobsTable.title,
+        jobClientSite: jobsTable.clientSite,
+        customerName: customersTable.companyName,
+      })
+      .from(jobVisitsTable)
+      .innerJoin(jobsTable, eq(jobVisitsTable.jobId, jobsTable.id))
+      .leftJoin(customersTable, eq(jobsTable.customerId, customersTable.id))
+      .where(
+        and(
+          inArray(jobVisitsTable.personId, personIds),
+          eq(jobVisitsTable.status, "planned"),
+        ),
+      )
+      .orderBy(asc(jobVisitsTable.date), asc(jobVisitsTable.id)),
 
-  res.json(
-    rows.map((r) => ({
+    db
+      .select({
+        id: activityVisitsTable.id,
+        activityId: activityVisitsTable.activityId,
+        date: activityVisitsTable.date,
+        note: activityVisitsTable.note,
+        status: activityVisitsTable.status,
+        activityName: activitiesTable.name,
+        customerName: customersTable.companyName,
+      })
+      .from(activityVisitsTable)
+      .innerJoin(activitiesTable, eq(activityVisitsTable.activityId, activitiesTable.id))
+      .leftJoin(customersTable, eq(activitiesTable.customerId, customersTable.id))
+      .where(
+        and(
+          inArray(activityVisitsTable.personId, personIds),
+          eq(activityVisitsTable.status, "planned"),
+        ),
+      )
+      .orderBy(asc(activityVisitsTable.date), asc(activityVisitsTable.id)),
+  ]);
+
+  const results = [
+    ...jobRows.map((r) => ({
       id: r.id,
+      kind: "job" as const,
+      parentId: r.jobId,
+      parentName: r.jobTitle ?? r.jobClientSite ?? r.customerName ?? null,
       jobId: r.jobId,
       jobTitle: r.jobTitle,
       clientSite: r.jobClientSite ?? r.customerName ?? null,
@@ -194,7 +223,21 @@ router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
       note: r.note,
       status: r.status,
     })),
-  );
+    ...activityRows.map((r) => ({
+      id: r.id,
+      kind: "activity" as const,
+      parentId: r.activityId,
+      parentName: r.activityName ?? r.customerName ?? null,
+      jobId: null,
+      jobTitle: null,
+      clientSite: r.customerName ?? null,
+      date: r.date,
+      note: r.note,
+      status: r.status,
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+
+  res.json(results);
 });
 
 export default router;

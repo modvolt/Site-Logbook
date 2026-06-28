@@ -54,7 +54,7 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
     "/api/stats/overview",
   ],
   // Činnosti se promítají do statistik.
-  activities: ["/api/activities", "/api/me/stats", "/api/stats/overview"],
+  activities: ["/api/activities", "/api/me/stats", "/api/me/visits", "/api/stats/overview"],
   // Skladové položky i kniha pohybů (vč. pohybů jedné položky).
   warehouse: ["/api/warehouse-items", "/api/warehouse-movements"],
   // Zákazníci, jejich místa, kontakty, přístupové údaje + detail místa.

@@ -3426,6 +3426,104 @@ paths:
         "204":
           description: Deleted
 
+  /activities/{activityId}/visits:
+    get:
+      operationId: listActivityVisits
+      tags: [visits]
+      summary: List visits for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Visits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityVisit"
+    post:
+      operationId: createActivityVisit
+      tags: [visits]
+      summary: Add a visit to an activity (admin/master)
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityVisitInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityVisit"
+
+  /activities/{activityId}/visits/{visitId}:
+    patch:
+      operationId: updateActivityVisit
+      tags: [visits]
+      summary: Update an activity visit (admin/master)
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: visitId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivityVisitUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityVisit"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteActivityVisit
+      tags: [visits]
+      summary: Delete an activity visit (admin/master)
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: visitId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
   /backups:
     get:
       operationId: listBackups
@@ -7083,6 +7181,15 @@ components:
           description: ISO timestamp when the activity was marked done
         isArchived:
           type: boolean
+        lastVisitDate:
+          type: ["string", "null"]
+          description: Date of the most recent completed/in_progress visit (YYYY-MM-DD)
+        nextVisitDate:
+          type: ["string", "null"]
+          description: Date of the nearest planned visit (YYYY-MM-DD)
+        visitsCount:
+          type: integer
+          description: Total number of visits
         createdAt:
           type: string
         updatedAt:
@@ -7400,14 +7507,92 @@ components:
           type: string
           enum: [planned, done]
 
-    MyVisit:
+    ActivityVisit:
       type: object
-      required: [id, jobId, date, status]
+      required: [id, activityId, date, status, createdAt]
       properties:
         id:
           type: integer
-        jobId:
+        activityId:
           type: integer
+        personId:
+          type: ["integer", "null"]
+        personName:
+          type: ["string", "null"]
+        date:
+          type: string
+        timeFrom:
+          type: ["string", "null"]
+        timeTo:
+          type: ["string", "null"]
+        status:
+          type: string
+          description: "planned | in_progress | completed | cancelled"
+        note:
+          type: ["string", "null"]
+        nextStep:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        createdBy:
+          type: ["string", "null"]
+
+    ActivityVisitInput:
+      type: object
+      required: [date]
+      properties:
+        date:
+          type: string
+          minLength: 1
+        personId:
+          type: ["integer", "null"]
+        timeFrom:
+          type: ["string", "null"]
+        timeTo:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [planned, in_progress, completed, cancelled]
+        note:
+          type: ["string", "null"]
+        nextStep:
+          type: ["string", "null"]
+
+    ActivityVisitUpdate:
+      type: object
+      properties:
+        date:
+          type: string
+          minLength: 1
+        personId:
+          type: ["integer", "null"]
+        timeFrom:
+          type: ["string", "null"]
+        timeTo:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [planned, in_progress, completed, cancelled]
+        note:
+          type: ["string", "null"]
+        nextStep:
+          type: ["string", "null"]
+
+    MyVisit:
+      type: object
+      required: [id, date, status, kind, parentId]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          description: "job | activity"
+        parentId:
+          type: integer
+        parentName:
+          type: ["string", "null"]
+        jobId:
+          type: ["integer", "null"]
         jobTitle:
           type: ["string", "null"]
         clientSite:

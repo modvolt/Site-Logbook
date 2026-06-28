@@ -58,6 +58,18 @@ export interface Activity {
      */
   completedAt?: string | null;
   isArchived: boolean;
+  /**
+     * Date of the most recent completed/in_progress visit (YYYY-MM-DD)
+     * @nullable
+     */
+  lastVisitDate?: string | null;
+  /**
+     * Date of the nearest planned visit (YYYY-MM-DD)
+     * @nullable
+     */
+  nextVisitDate?: string | null;
+  /** Total number of visits */
+  visitsCount?: number;
   createdAt: string;
   updatedAt: string;
 }

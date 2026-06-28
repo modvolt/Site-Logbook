@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Hammer, Plus, Trash2, ChevronRight, Archive, ArchiveRestore, Clock,
   Play, X, CheckCircle2, Receipt, Camera, PlusCircle, User2, AlertCircle,
+  CalendarPlus, CalendarClock, TriangleAlert,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -348,8 +349,15 @@ export default function Activities() {
                           </span>
                         )}
                       </div>
-                      {a.customerName && (
-                        <div className="text-xs text-muted-foreground mt-0.5">{a.customerName}</div>
+                      {(a.customerName || a.createdByUserName) && (
+                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                          {a.customerName && <span>{a.customerName}</span>}
+                          {a.createdByUserName && (
+                            <span className="inline-flex items-center gap-1">
+                              <User2 className="h-3 w-3" /> {a.createdByUserName}
+                            </span>
+                          )}
+                        </div>
                       )}
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground">
                         {hoursStr && (
@@ -378,10 +386,34 @@ export default function Activities() {
                             <Camera className="h-3.5 w-3.5" /> {a.photosCount}
                           </span>
                         )}
+                        {a.lastVisitDate && (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground/80" title="Poslední návštěva">
+                            <CalendarClock className="h-3.5 w-3.5" /> {fmtDate(a.lastVisitDate)}
+                          </span>
+                        )}
+                        {a.nextVisitDate && (
+                          <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400 font-medium" title="Příští výjezd">
+                            <CalendarPlus className="h-3.5 w-3.5" /> {fmtDate(a.nextVisitDate)}
+                          </span>
+                        )}
                         {a.updatedAt && (
                           <span className="text-muted-foreground/70">{fmtDate(a.updatedAt)}</span>
                         )}
                       </div>
+                      {tab === "active" && !a.completedAt && (!a.customerId || !a.nextVisitDate) && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {!a.customerId && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400">
+                              <TriangleAlert className="h-3 w-3" /> Bez zákazníka
+                            </span>
+                          )}
+                          {!a.nextVisitDate && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
+                              <TriangleAlert className="h-3 w-3" /> Bez příštího termínu
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </Link>
                     <div className="flex items-center gap-1 shrink-0">
                       {can("write") && (

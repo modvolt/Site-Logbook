@@ -8,7 +8,13 @@
 
 export interface MyVisit {
   id: number;
-  jobId: number;
+  /** job | activity */
+  kind: string;
+  parentId: number;
+  /** @nullable */
+  parentName?: string | null;
+  /** @nullable */
+  jobId?: number | null;
   /** @nullable */
   jobTitle?: string | null;
   /** @nullable */

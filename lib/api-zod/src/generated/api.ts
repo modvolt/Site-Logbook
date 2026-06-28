@@ -2488,6 +2488,9 @@ export const ListActivitiesResponseItem = zod.object({
   "billedInvoiceStatus": zod.string().nullish().describe('Status of the linked invoice (draft | issued | sent | paid)'),
   "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
+  "lastVisitDate": zod.string().nullish().describe('Date of the most recent completed\/in_progress visit (YYYY-MM-DD)'),
+  "nextVisitDate": zod.string().nullish().describe('Date of the nearest planned visit (YYYY-MM-DD)'),
+  "visitsCount": zod.number().optional().describe('Total number of visits'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -2535,6 +2538,9 @@ export const GetActivityResponse = zod.object({
   "billedInvoiceStatus": zod.string().nullish().describe('Status of the linked invoice (draft | issued | sent | paid)'),
   "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
+  "lastVisitDate": zod.string().nullish().describe('Date of the most recent completed\/in_progress visit (YYYY-MM-DD)'),
+  "nextVisitDate": zod.string().nullish().describe('Date of the nearest planned visit (YYYY-MM-DD)'),
+  "visitsCount": zod.number().optional().describe('Total number of visits'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -2581,6 +2587,9 @@ export const UpdateActivityResponse = zod.object({
   "billedInvoiceStatus": zod.string().nullish().describe('Status of the linked invoice (draft | issued | sent | paid)'),
   "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
+  "lastVisitDate": zod.string().nullish().describe('Date of the most recent completed\/in_progress visit (YYYY-MM-DD)'),
+  "nextVisitDate": zod.string().nullish().describe('Date of the nearest planned visit (YYYY-MM-DD)'),
+  "visitsCount": zod.number().optional().describe('Total number of visits'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -2622,6 +2631,9 @@ export const StartActivityTimerResponse = zod.object({
   "billedInvoiceStatus": zod.string().nullish().describe('Status of the linked invoice (draft | issued | sent | paid)'),
   "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
+  "lastVisitDate": zod.string().nullish().describe('Date of the most recent completed\/in_progress visit (YYYY-MM-DD)'),
+  "nextVisitDate": zod.string().nullish().describe('Date of the nearest planned visit (YYYY-MM-DD)'),
+  "visitsCount": zod.number().optional().describe('Total number of visits'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -2655,6 +2667,9 @@ export const StopActivityTimerResponse = zod.object({
   "billedInvoiceStatus": zod.string().nullish().describe('Status of the linked invoice (draft | issued | sent | paid)'),
   "completedAt": zod.string().nullish().describe('ISO timestamp when the activity was marked done'),
   "isArchived": zod.boolean(),
+  "lastVisitDate": zod.string().nullish().describe('Date of the most recent completed\/in_progress visit (YYYY-MM-DD)'),
+  "nextVisitDate": zod.string().nullish().describe('Date of the nearest planned visit (YYYY-MM-DD)'),
+  "visitsCount": zod.number().optional().describe('Total number of visits'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -3119,7 +3134,10 @@ export const GetMyDoneJobsResponse = zod.array(GetMyDoneJobsResponseItem)
  */
 export const GetMyVisitsResponseItem = zod.object({
   "id": zod.number(),
-  "jobId": zod.number(),
+  "kind": zod.string().describe('job | activity'),
+  "parentId": zod.number(),
+  "parentName": zod.string().nullish(),
+  "jobId": zod.number().nullish(),
   "jobTitle": zod.string().nullish(),
   "clientSite": zod.string().nullish(),
   "date": zod.string(),
@@ -3202,6 +3220,97 @@ export const UpdateJobVisitResponse = zod.object({
  */
 export const DeleteJobVisitParams = zod.object({
   "jobId": zod.coerce.number(),
+  "visitId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List visits for an activity
+ */
+export const ListActivityVisitsParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const ListActivityVisitsResponseItem = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "personId": zod.number().nullish(),
+  "personName": zod.string().nullish(),
+  "date": zod.string(),
+  "timeFrom": zod.string().nullish(),
+  "timeTo": zod.string().nullish(),
+  "status": zod.string().describe('planned | in_progress | completed | cancelled'),
+  "note": zod.string().nullish(),
+  "nextStep": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "createdBy": zod.string().nullish()
+})
+export const ListActivityVisitsResponse = zod.array(ListActivityVisitsResponseItem)
+
+
+/**
+ * @summary Add a visit to an activity (admin/master)
+ */
+export const CreateActivityVisitParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+
+
+
+export const CreateActivityVisitBody = zod.object({
+  "date": zod.string().min(1),
+  "personId": zod.number().nullish(),
+  "timeFrom": zod.string().nullish(),
+  "timeTo": zod.string().nullish(),
+  "status": zod.enum(['planned', 'in_progress', 'completed', 'cancelled']).optional(),
+  "note": zod.string().nullish(),
+  "nextStep": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update an activity visit (admin/master)
+ */
+export const UpdateActivityVisitParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "visitId": zod.coerce.number()
+})
+
+
+
+
+export const UpdateActivityVisitBody = zod.object({
+  "date": zod.string().min(1).optional(),
+  "personId": zod.number().nullish(),
+  "timeFrom": zod.string().nullish(),
+  "timeTo": zod.string().nullish(),
+  "status": zod.enum(['planned', 'in_progress', 'completed', 'cancelled']).optional(),
+  "note": zod.string().nullish(),
+  "nextStep": zod.string().nullish()
+})
+
+export const UpdateActivityVisitResponse = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "personId": zod.number().nullish(),
+  "personName": zod.string().nullish(),
+  "date": zod.string(),
+  "timeFrom": zod.string().nullish(),
+  "timeTo": zod.string().nullish(),
+  "status": zod.string().describe('planned | in_progress | completed | cancelled'),
+  "note": zod.string().nullish(),
+  "nextStep": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "createdBy": zod.string().nullish()
+})
+
+
+/**
+ * @summary Delete an activity visit (admin/master)
+ */
+export const DeleteActivityVisitParams = zod.object({
+  "activityId": zod.coerce.number(),
   "visitId": zod.coerce.number()
 })
 

@@ -19,6 +19,8 @@ import {
   useCreateActivityTimeEntry, useStartActivityTimeEntry, useStopActivityTimeEntry,
   useUpdateActivityTimeEntry, useDeleteActivityTimeEntry,
   useListPeople, getListPeopleQueryKey,
+  useListActivityVisits, getListActivityVisitsQueryKey,
+  useCreateActivityVisit, useUpdateActivityVisit, useDeleteActivityVisit,
 } from "@workspace/api-client-react";
 import {
   ResponsiveContainer, AreaChart, Area,
@@ -40,7 +42,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, Hammer, Clock, Play, Square, Trash2, Plus, Save, Edit3, X,
   ShoppingCart, Archive, ArchiveRestore, Camera, PlusCircle, CheckCircle2, RotateCcw, FileText, Download,
-  Receipt, FileImage, Banknote, RefreshCw,
+  Receipt, FileImage, Banknote, RefreshCw, CalendarPlus, User, AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -604,6 +606,9 @@ export default function ActivityDetail() {
         </CardContent>
       </Card>
 
+      {/* Výjezdy */}
+      <ActivityVisitsSection activityId={id} canWrite={can("write")} onMutate={() => invalidateData(queryClient, "activities", "people")} />
+
       {/* Materials */}
       <MaterialsSection
         activityId={id}
@@ -1018,6 +1023,337 @@ function ActivityTimeEntries({ activityId, canWrite, onChange }: { activityId: n
 }
 
 const DOKLAD_TYPES = ["invoice", "receipt", "delivery_note"];
+
+function visitStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    planned: "Plánovaný",
+    in_progress: "Probíhá",
+    completed: "Dokončen",
+    cancelled: "Zrušen",
+  };
+  return map[status] ?? status;
+}
+
+function visitStatusClass(status: string) {
+  if (status === "completed") return "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400";
+  if (status === "in_progress") return "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400";
+  if (status === "cancelled") return "bg-muted text-muted-foreground";
+  return "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400";
+}
+
+function fmtDateCz(d: string) {
+  try {
+    return new Date(d).toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", year: "numeric" });
+  } catch {
+    return d;
+  }
+}
+
+type VisitFormState = {
+  date: string;
+  personId: string;
+  timeFrom: string;
+  timeTo: string;
+  status: string;
+  note: string;
+  nextStep: string;
+};
+
+function ActivityVisitForm({
+  people,
+  initial,
+  pending,
+  onSubmit,
+  onCancel,
+  submitLabel,
+}: {
+  people: { id: number; name: string }[];
+  initial: VisitFormState;
+  pending: boolean;
+  onSubmit: (data: VisitFormState) => void;
+  onCancel?: () => void;
+  submitLabel: string;
+}) {
+  const [form, setForm] = useState<VisitFormState>(initial);
+  const f = (k: keyof VisitFormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm((p) => ({ ...p, [k]: e.target.value }));
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.date) return;
+    onSubmit(form);
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3 bg-muted/30 p-3 rounded-xl">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium block mb-1">Datum *</label>
+          <Input type="date" value={form.date} onChange={f("date")} className="h-10 bg-background" required />
+        </div>
+        <div>
+          <label className="text-xs font-medium block mb-1">Technik</label>
+          <select
+            className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+            value={form.personId}
+            onChange={f("personId")}
+          >
+            <option value="">Bez technika</option>
+            {people.map((p) => (
+              <option key={p.id} value={String(p.id)}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="text-xs font-medium block mb-1">Čas od</label>
+          <Input type="time" value={form.timeFrom} onChange={f("timeFrom")} className="h-10 bg-background" />
+        </div>
+        <div>
+          <label className="text-xs font-medium block mb-1">Čas do</label>
+          <Input type="time" value={form.timeTo} onChange={f("timeTo")} className="h-10 bg-background" />
+        </div>
+        <div>
+          <label className="text-xs font-medium block mb-1">Stav</label>
+          <select
+            className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+            value={form.status}
+            onChange={f("status")}
+          >
+            <option value="planned">Plánovaný</option>
+            <option value="in_progress">Probíhá</option>
+            <option value="completed">Dokončen</option>
+            <option value="cancelled">Zrušen</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-medium block mb-1">Poznámka (co se dělalo)</label>
+        <Textarea value={form.note} onChange={f("note")} placeholder="Co se na výjezdu dělalo…" className="bg-background" rows={2} />
+      </div>
+      <div>
+        <label className="text-xs font-medium block mb-1">Příští kroky</label>
+        <Textarea value={form.nextStep} onChange={f("nextStep")} placeholder="Co je třeba udělat příště…" className="bg-background" rows={2} />
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={!form.date || pending} className="flex-1">
+          <Save className="w-4 h-4 mr-1.5" /> {submitLabel}
+        </Button>
+        {onCancel && (
+          <Button type="button" variant="outline" onClick={onCancel}>
+            <X className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+const EMPTY_VISIT_FORM: VisitFormState = {
+  date: "",
+  personId: "",
+  timeFrom: "",
+  timeTo: "",
+  status: "planned",
+  note: "",
+  nextStep: "",
+};
+
+function toVisitPayload(f: VisitFormState) {
+  return {
+    date: f.date,
+    personId: f.personId ? Number(f.personId) : null,
+    timeFrom: f.timeFrom || null,
+    timeTo: f.timeTo || null,
+    status: f.status as "planned" | "in_progress" | "completed" | "cancelled",
+    note: f.note.trim() || null,
+    nextStep: f.nextStep.trim() || null,
+  };
+}
+
+function fromVisitToForm(v: { date: string; personId?: number | null; timeFrom?: string | null; timeTo?: string | null; status: string; note?: string | null; nextStep?: string | null }): VisitFormState {
+  return {
+    date: v.date,
+    personId: v.personId != null ? String(v.personId) : "",
+    timeFrom: v.timeFrom ?? "",
+    timeTo: v.timeTo ?? "",
+    status: v.status,
+    note: v.note ?? "",
+    nextStep: v.nextStep ?? "",
+  };
+}
+
+function ActivityVisitsSection({ activityId, canWrite, onMutate }: { activityId: number; canWrite: boolean; onMutate: () => void }) {
+  const { toast } = useToast();
+  const { openConfirm, dialogProps } = useConfirmDialog();
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+  const peopleList = (people ?? []).map((p) => ({ id: p.id, name: p.name }));
+
+  const { data: visits, isLoading, isError } = useListActivityVisits(activityId, {
+    query: { queryKey: getListActivityVisitsQueryKey(activityId) },
+  });
+
+  const createVisit = useCreateActivityVisit();
+  const updateVisit = useUpdateActivityVisit();
+  const deleteVisit = useDeleteActivityVisit();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const handleCreate = (data: VisitFormState) => {
+    createVisit.mutate(
+      { activityId, data: toVisitPayload(data) },
+      {
+        onSuccess: () => { setShowAdd(false); onMutate(); toast({ title: "Výjezd přidán" }); },
+        onError: (err: any) => toast({ title: "Nepodařilo se přidat výjezd", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleUpdate = (visitId: number, data: VisitFormState) => {
+    updateVisit.mutate(
+      { activityId, visitId, data: toVisitPayload(data) },
+      {
+        onSuccess: () => { setEditId(null); onMutate(); toast({ title: "Výjezd upraven" }); },
+        onError: (err: any) => toast({ title: "Úprava selhala", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleDelete = (visitId: number) => {
+    openConfirm("Smazat tento výjezd?", () => {
+      deleteVisit.mutate(
+        { activityId, visitId },
+        {
+          onSuccess: () => { onMutate(); toast({ title: "Výjezd smazán" }); },
+          onError: (err: any) => toast({ title: "Smazání selhalo", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+        },
+      );
+    });
+  };
+
+  const count = visits?.length ?? 0;
+  const plannedCount = visits?.filter((v) => v.status === "planned").length ?? 0;
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <CalendarPlus className="h-4 w-4" /> Výjezdy
+            {count > 0 && (
+              <span className="text-xs font-normal normal-case text-muted-foreground/70">
+                · {count} celkem{plannedCount > 0 ? `, ${plannedCount} plánovaných` : ""}
+              </span>
+            )}
+          </h2>
+          {canWrite && !showAdd && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { setShowAdd(true); setEditId(null); }}
+              className="border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20"
+            >
+              <Plus className="h-4 w-4 mr-1" /> Přidat výjezd
+            </Button>
+          )}
+        </div>
+
+        {canWrite && showAdd && (
+          <ActivityVisitForm
+            people={peopleList}
+            initial={{ ...EMPTY_VISIT_FORM, date: today }}
+            pending={createVisit.isPending}
+            onSubmit={handleCreate}
+            onCancel={() => setShowAdd(false)}
+            submitLabel="Uložit výjezd"
+          />
+        )}
+
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : isError ? (
+          <div className="flex items-center gap-2 text-destructive text-sm py-2">
+            <AlertCircle className="h-4 w-4" /> Nepodařilo se načíst výjezdy.
+          </div>
+        ) : count === 0 ? (
+          <div className="text-center py-4 text-sm text-muted-foreground">Zatím žádné výjezdy na tuto akci.</div>
+        ) : (
+          <div className="space-y-2">
+            {visits!.map((v) =>
+              editId === v.id && canWrite ? (
+                <ActivityVisitForm
+                  key={v.id}
+                  people={peopleList}
+                  initial={fromVisitToForm(v)}
+                  pending={updateVisit.isPending}
+                  onSubmit={(data) => handleUpdate(v.id, data)}
+                  onCancel={() => setEditId(null)}
+                  submitLabel="Uložit změny"
+                />
+              ) : (
+                <div key={v.id} className="border rounded-xl p-3 bg-background">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{fmtDateCz(v.date)}</span>
+                        {(v.timeFrom || v.timeTo) && (
+                          <span className="text-xs text-muted-foreground">
+                            {v.timeFrom ?? "?"} – {v.timeTo ?? "?"}
+                          </span>
+                        )}
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${visitStatusClass(v.status)}`}>
+                          {visitStatusLabel(v.status)}
+                        </span>
+                      </div>
+                      <div className="text-sm text-muted-foreground flex items-center gap-1">
+                        <User className="h-3.5 w-3.5 shrink-0" />
+                        {v.personName ?? "Bez technika"}
+                      </div>
+                      {v.note && <div className="text-sm whitespace-pre-wrap pt-0.5">{v.note}</div>}
+                      {v.nextStep && (
+                        <div className="text-xs text-muted-foreground italic pt-0.5">
+                          Příště: {v.nextStep}
+                        </div>
+                      )}
+                    </div>
+                    {canWrite && (
+                      <div className="flex gap-1 shrink-0">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => { setEditId(v.id); setShowAdd(false); }}
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleDelete(v.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+      </CardContent>
+      <ConfirmDialog {...dialogProps} />
+    </Card>
+  );
+}
 
 function dokladTypeLabel(t: string | null | undefined): string {
   return t === "invoice" ? "Faktura" : t === "receipt" ? "Účtenka" : "Dodací list";
