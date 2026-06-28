@@ -4,7 +4,7 @@ import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation } from "wouter";
 import {
   useGetActivity, getGetActivityQueryKey,
-  useUpdateActivity, useDeleteActivity,
+  useUpdateActivity,
   useStartActivityTimer, useStopActivityTimer,
   useListActivityMaterials, getListActivityMaterialsQueryKey,
   useCreateActivityMaterial, useUpdateActivityMaterial, useDeleteActivityMaterial,
@@ -179,7 +179,6 @@ export default function ActivityDetail() {
   const { data: customers } = useListCustomers();
 
   const updateActivity = useUpdateActivity();
-  const deleteActivity = useDeleteActivity();
   const startTimer = useStartActivityTimer();
   const stopTimer = useStopActivityTimer();
   const createMaterial = useCreateActivityMaterial();
@@ -285,16 +284,51 @@ export default function ActivityDetail() {
     );
   };
 
-  const handleDelete = () => {
-    openConfirmActivity({ title: `Smazat akci „${activity.name}"?`, description: "Smažou se i materiály." }, () => {
-      deleteActivity.mutate({ id }, {
-        onSuccess: () => {
+  const visitSuffix = (n: number) => (n === 1 ? "" : n < 5 ? "y" : "ů");
+
+  const doDeleteActivity = (activityId: number, force: boolean) => {
+    const url = `/api/activities/${activityId}${force ? "?force=true" : ""}`;
+    fetch(url, { method: "DELETE", credentials: "include" })
+      .then(async (res) => {
+        if (res.ok) {
           invalidateData(queryClient, "activities", "warehouse");
           toast({ title: "Akce smazána" });
           setLocation("/activities");
-        },
+        } else if (res.status === 409 && !force) {
+          const body: { visitCount?: number } = await res.json().catch(() => ({}));
+          const count = body.visitCount ?? 1;
+          openConfirmActivity(
+            {
+              title: "Smazat včetně výjezdů?",
+              description: `Akce má ${count} výjezd${visitSuffix(count)}, které budou trvale smazány. Chcete pokračovat?`,
+              confirmLabel: "Smazat vše",
+              destructive: true,
+            },
+            () => doDeleteActivity(activityId, true),
+          );
+        } else {
+          const body: { error?: string } = await res.json().catch(() => ({}));
+          toast({ title: body.error ?? "Chyba při mazání akce", variant: "destructive" });
+        }
+      })
+      .catch(() => {
+        toast({ title: "Chyba při mazání akce", variant: "destructive" });
       });
-    });
+  };
+
+  const handleDelete = () => {
+    const cachedVisits = queryClient.getQueryData<unknown[]>(getListActivityVisitsQueryKey(id));
+    const cachedCount = cachedVisits?.length ?? 0;
+    const visitNote =
+      cachedCount > 0 ? ` a ${cachedCount} výjezd${visitSuffix(cachedCount)}` : "";
+    openConfirmActivity(
+      {
+        title: `Smazat akci „${activity.name}"?`,
+        description: `Smažou se i materiály${visitNote}.`,
+        destructive: true,
+      },
+      () => doDeleteActivity(id, cachedCount > 0),
+    );
   };
 
   const handleToggleArchive = () => {
