@@ -6420,7 +6420,7 @@
     },
     "public.ppe_items": {
       "name": "ppe_items",
-      "schema": "public",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -6484,11 +6484,13 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {},
+      "isRLSEnabled": false,
+      "policies": {}
     },
     "public.ppe_assignments": {
       "name": "ppe_assignments",
-      "schema": "public",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
@@ -6593,22 +6595,19 @@
           "name": "signature_token",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "signature_object_path": {
           "name": "signature_object_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "confirm_token_expires_at": {
           "name": "confirm_token_expires_at",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         }
       },
       "indexes": {
@@ -6690,18 +6689,22 @@
         "ppe_assignments_signature_token_idx": {
           "name": "ppe_assignments_signature_token_idx",
           "columns": [
-            "signature_token"
+            {
+              "expression": "signature_token",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
           ],
           "isUnique": true,
           "concurrently": false,
           "method": "btree",
-          "where": "\"signature_token\" IS NOT NULL",
-          "nullsNotDistinct": false
+          "where": "\"ppe_assignments\".\"signature_token\" is not null",
+          "with": {}
         }
       },
       "foreignKeys": {
         "ppe_assignments_ppe_item_id_ppe_items_id_fk": {
-          "constraintName": "ppe_assignments_ppe_item_id_ppe_items_id_fk",
           "tableFrom": "ppe_assignments",
           "columnsFrom": [
             "ppe_item_id"
@@ -6712,10 +6715,10 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "name": "ppe_assignments_ppe_item_id_ppe_items_id_fk"
         },
         "ppe_assignments_person_id_people_id_fk": {
-          "constraintName": "ppe_assignments_person_id_people_id_fk",
           "tableFrom": "ppe_assignments",
           "columnsFrom": [
             "person_id"
@@ -6726,12 +6729,15 @@
             "id"
           ],
           "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "name": "ppe_assignments_person_id_people_id_fk"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {},
+      "isRLSEnabled": false,
+      "policies": {}
     }
   },
   "enums": {},
