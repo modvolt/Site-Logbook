@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { cleanupJob, cleanupPerson } from "./helpers";
 
 test.describe("Job time-entry mutations", () => {
   let jobId: number;
@@ -29,6 +30,8 @@ test.describe("Job time-entry mutations", () => {
     await request
       .delete(`/api/jobs/${jobId}/time-entries/${personId}`)
       .catch(() => {});
+    if (jobId) await cleanupJob(request, jobId);
+    if (personId) await cleanupPerson(request, personId);
   });
 
   test("create time entry returns hours=0 and no running timer", async ({

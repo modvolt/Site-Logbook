@@ -40,3 +40,25 @@ export async function cleanupWarehouseItem(
 ): Promise<void> {
   await request.delete(`/api/warehouse-items/${id}`).catch(() => {});
 }
+
+/**
+ * Delete a job by ID, silently ignoring errors.
+ * Cascades attached time-entries, materials, and visits on the server.
+ */
+export async function cleanupJob(
+  request: APIRequestContext,
+  id: number,
+): Promise<void> {
+  await request.delete(`/api/jobs/${id}`).catch(() => {});
+}
+
+/**
+ * Force-delete an activity (and all its visits) by ID, silently ignoring errors.
+ * Uses ?force=true so the call succeeds even when visits are attached.
+ */
+export async function cleanupActivity(
+  request: APIRequestContext,
+  id: number,
+): Promise<void> {
+  await request.delete(`/api/activities/${id}?force=true`).catch(() => {});
+}

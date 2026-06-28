@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { cleanupJob } from "./helpers";
 
 type Material = {
   id: number;
@@ -52,6 +53,7 @@ test.describe("Job material-line mutations with warehouse stock", () => {
         .delete(`/api/warehouse-items/${warehouseItemId}`)
         .catch(() => {});
     }
+    if (jobId) await cleanupJob(request, jobId);
   });
 
   test("add material creates entry and 'out' stock movement", async ({
