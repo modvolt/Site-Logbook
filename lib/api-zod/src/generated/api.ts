@@ -691,6 +691,7 @@ export const DeleteAttachmentParams = zod.object({
 export const ListPeopleResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "email": zod.string().nullish().describe('Email address used to send PPE confirmation links'),
   "createdAt": zod.string()
 })
 export const ListPeopleResponse = zod.array(ListPeopleResponseItem)
@@ -703,7 +704,8 @@ export const ListPeopleResponse = zod.array(ListPeopleResponseItem)
 
 
 export const CreatePersonBody = zod.object({
-  "name": zod.string().min(1)
+  "name": zod.string().min(1),
+  "email": zod.string().nullish().describe('Email address used to send PPE confirmation links')
 })
 
 
@@ -748,6 +750,7 @@ export const GetPersonParams = zod.object({
 export const GetPersonResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "email": zod.string().nullish().describe('Email address used to send PPE confirmation links'),
   "createdAt": zod.string()
 })
 
@@ -763,12 +766,14 @@ export const UpdatePersonParams = zod.object({
 
 
 export const UpdatePersonBody = zod.object({
-  "name": zod.string().min(1)
+  "name": zod.string().min(1),
+  "email": zod.string().nullish().describe('Email address used to send PPE confirmation links')
 })
 
 export const UpdatePersonResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "email": zod.string().nullish().describe('Email address used to send PPE confirmation links'),
   "createdAt": zod.string()
 })
 
@@ -2384,6 +2389,7 @@ export const ListPpeAssignmentsResponseItem = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
+  "confirmEmailSentAt": zod.string().nullish().describe('ISO timestamp when the confirmation link was emailed to the employee'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({
@@ -2495,6 +2501,7 @@ export const UpdatePpeAssignmentResponse = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
+  "confirmEmailSentAt": zod.string().nullish().describe('ISO timestamp when the confirmation link was emailed to the employee'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({
@@ -2524,7 +2531,8 @@ export const RequestPpeConfirmParams = zod.object({
 
 export const RequestPpeConfirmResponse = zod.object({
   "confirmUrl": zod.string().describe('Full URL the employee opens to confirm receipt'),
-  "token": zod.string()
+  "token": zod.string(),
+  "emailSent": zod.boolean().describe('True when the confirmation link was successfully emailed to the employee')
 })
 
 
@@ -2556,6 +2564,7 @@ export const GetPpeConfirmDetailsResponse = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
+  "confirmEmailSentAt": zod.string().nullish().describe('ISO timestamp when the confirmation link was emailed to the employee'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({
@@ -2606,6 +2615,7 @@ export const ConfirmPpeAssignmentResponse = zod.object({
   "employeeConfirmedAt": zod.string().nullish(),
   "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
+  "confirmEmailSentAt": zod.string().nullish().describe('ISO timestamp when the confirmation link was emailed to the employee'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
   "handoverDocument": zod.union([zod.object({

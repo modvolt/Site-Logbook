@@ -16,6 +16,7 @@ import { generatePpeHandoverPdf } from "../lib/ppe-handover-pdf";
 import { z } from "zod/v4";
 import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pdf";
 import { ensureBillingSettings } from "../lib/invoice-service";
+import { sendPlainEmail } from "../lib/email";
 
 const objectStorage = new ObjectStorageService();
 
@@ -65,6 +66,7 @@ function serializeAssignment(
     hasSignature: !!a.signatureObjectPath,
     hasSignToken: !!a.signatureToken,
     employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
+    confirmEmailSentAt: a.confirmEmailSentAt ? a.confirmEmailSentAt.toISOString() : null,
     createdAt: a.createdAt.toISOString(),
     handoverDocument: doc ? serializeHandoverDocument(doc) : null,
   };
@@ -973,6 +975,129 @@ router.get("/ppe/assignments/:id/events", async (req, res): Promise<void> => {
     .where(eq(ppeHandoverEventsTable.assignmentId, params.data.id))
     .orderBy(ppeHandoverEventsTable.createdAt);
   res.json(events.map(serializeHandoverEvent));
+});
+
+router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+
+  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+  if (!existing) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+  if (existing.status !== "issued") {
+    res.status(409).json({ error: "Potvrdit lze pouze aktivní výdej" });
+    return;
+  }
+  if (existing.employeeConfirmedAt) {
+    res.status(409).json({ error: "Výdej již byl potvrzen zaměstnancem" });
+    return;
+  }
+
+  const expiryDays = parseInt(process.env.PPE_CONFIRM_EXPIRY_DAYS ?? "30", 10);
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + expiryDays);
+
+  const isExpired = existing.confirmTokenExpiresAt && existing.confirmTokenExpiresAt < new Date();
+  const token = (!existing.confirmToken || isExpired) ? crypto.randomBytes(32).toString("hex") : existing.confirmToken;
+  await db.update(ppeAssignmentsTable)
+    .set({ confirmToken: token, confirmTokenExpiresAt: expiresAt })
+    .where(eq(ppeAssignmentsTable.id, params.data.id));
+
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const confirmUrl = `${baseUrl}/oopp/potvrdit?token=${token}`;
+
+  const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, existing.personId));
+  let emailSent = false;
+
+  if (person?.email) {
+    try {
+      await sendPlainEmail({
+        to: person.email,
+        subject: `Potvrzení převzetí OOPP – ${existing.ppeNameSnapshot}`,
+        text:
+          `Dobrý den ${existing.personNameSnapshot},\n\n` +
+          `Prosíme potvrďte převzetí ochranné pomůcky: ${existing.ppeNameSnapshot}.\n\n` +
+          `Pro potvrzení klikněte na odkaz:\n${confirmUrl}\n\n` +
+          `Pokud jste pomůcku nepřevzali, tuto zprávu ignorujte.\n`,
+      });
+      await db
+        .update(ppeAssignmentsTable)
+        .set({ confirmEmailSentAt: new Date() })
+        .where(eq(ppeAssignmentsTable.id, params.data.id));
+      emailSent = true;
+    } catch (err) {
+      req.log.warn({ err }, "Failed to send PPE confirmation email");
+    }
+  }
+
+  res.json({ confirmUrl, token, emailSent });
+});
+
+router.post("/ppe/confirm", async (req, res): Promise<void> => {
+  const parsed = z.object({ token: z.string().min(1) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Chybí token" });
+    return;
+  }
+
+  const [assignment] = await db
+    .select()
+    .from(ppeAssignmentsTable)
+    .where(eq(ppeAssignmentsTable.confirmToken, parsed.data.token));
+
+  if (!assignment) {
+    res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
+    return;
+  }
+  if (assignment.confirmTokenExpiresAt && assignment.confirmTokenExpiresAt < new Date()) {
+    res.status(410).json({ error: "Odkaz vypršel. Požádejte správce o nový potvrzovací odkaz." });
+    return;
+  }
+  if (assignment.status !== "issued") {
+    res.status(409).json({ error: "Tato pomůcka již byla vrácena nebo uzavřena" });
+    return;
+  }
+  if (assignment.employeeConfirmedAt) {
+    res.json({ already: true, assignment: serializeAssignment(assignment) });
+    return;
+  }
+
+  const [updated] = await db
+    .update(ppeAssignmentsTable)
+    .set({ employeeConfirmedAt: new Date() })
+    .where(eq(ppeAssignmentsTable.id, assignment.id))
+    .returning();
+
+  res.json({ already: false, assignment: serializeAssignment(updated) });
+});
+
+router.get("/ppe/confirm", async (req, res): Promise<void> => {
+  const token = typeof req.query.token === "string" ? req.query.token : null;
+  if (!token) {
+    res.status(400).json({ error: "Chybí token" });
+    return;
+  }
+
+  const [assignment] = await db
+    .select()
+    .from(ppeAssignmentsTable)
+    .where(eq(ppeAssignmentsTable.confirmToken, token));
+
+  if (!assignment) {
+    res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
+    return;
+  }
+  if (assignment.confirmTokenExpiresAt && assignment.confirmTokenExpiresAt < new Date()) {
+    res.status(410).json({ error: "Odkaz vypršel. Požádejte správce o nový potvrzovací odkaz." });
+    return;
+  }
+
+  res.json(serializeAssignment(assignment));
 });
 
 export default router;

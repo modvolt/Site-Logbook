@@ -1,15 +1,21 @@
+import { useState } from "react";
 import { useParams, Link } from "wouter";
 import {
   useGetPerson,
+  useUpdatePerson,
   useListPpeAssignments,
   getGetPersonQueryKey,
   getListPpeAssignmentsQueryKey,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, User, Shield, AlertCircle, Clock, CheckCircle2, Plus } from "lucide-react";
+import { ArrowLeft, User, Shield, AlertCircle, Clock, CheckCircle2, Plus, Mail, Pencil, X, Check } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { invalidateData } from "@/lib/query-invalidation";
 import {
   PPE_STATUS_LABELS,
   PPE_STATUS_COLORS,
@@ -30,6 +36,11 @@ export default function PersonDetail() {
   const { id } = useParams<{ id: string }>();
   const personId = parseInt(id ?? "0");
   const { can } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const updatePerson = useUpdatePerson();
 
   const { data: person, isLoading: personLoading } = useGetPerson(personId, {
     query: { queryKey: getGetPersonQueryKey(personId), enabled: !!personId },
@@ -86,6 +97,64 @@ export default function PersonDetail() {
                 Zaměstnanec od {new Date(person.createdAt).toLocaleDateString("cs-CZ")}
               </p>
             )}
+            {/* Email row */}
+            {can("write") ? (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                {editingEmail ? (
+                  <form
+                    className="flex items-center gap-1"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      updatePerson.mutate(
+                        { id: personId, data: { name: person.name, email: emailDraft.trim() || null } },
+                        {
+                          onSuccess: () => {
+                            invalidateData(queryClient, "people");
+                            setEditingEmail(false);
+                            toast({ title: "E-mail uložen" });
+                          },
+                          onError: () => toast({ title: "Nepodařilo se uložit e-mail", variant: "destructive" }),
+                        },
+                      );
+                    }}
+                  >
+                    <Input
+                      type="email"
+                      value={emailDraft}
+                      onChange={(e) => setEmailDraft(e.target.value)}
+                      placeholder="email@example.com"
+                      className="h-7 text-sm w-52"
+                      autoFocus
+                    />
+                    <Button type="submit" size="icon" variant="ghost" className="h-7 w-7 text-green-600" disabled={updatePerson.isPending}>
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingEmail(false)}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 group"
+                    onClick={() => { setEmailDraft(person.email ?? ""); setEditingEmail(true); }}
+                  >
+                    {person.email ? (
+                      <span className="underline-offset-2 group-hover:underline">{person.email}</span>
+                    ) : (
+                      <span className="italic opacity-60">Přidat e-mail pro odesílání OOPP</span>
+                    )}
+                    <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                  </button>
+                )}
+              </div>
+            ) : person.email ? (
+              <div className="flex items-center gap-1.5 mt-1.5 text-sm text-muted-foreground">
+                <Mail className="h-3.5 w-3.5 shrink-0" />
+                <span>{person.email}</span>
+              </div>
+            ) : null}
           </div>
         </div>
         {can("write") && (

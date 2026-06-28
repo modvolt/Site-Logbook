@@ -7822,6 +7822,9 @@ components:
           type: integer
         name:
           type: string
+        email:
+          type: ["string", "null"]
+          description: Email address used to send PPE confirmation links
         createdAt:
           type: string
 
@@ -7832,6 +7835,9 @@ components:
         name:
           type: string
           minLength: 1
+        email:
+          type: ["string", "null"]
+          description: Email address used to send PPE confirmation links
 
     PersonStats:
       type: object
@@ -11791,6 +11797,9 @@ components:
         hasSignToken:
           type: boolean
           description: True when an active signature link exists for this assignment
+        confirmEmailSentAt:
+          type: ["string", "null"]
+          description: ISO timestamp when the confirmation link was emailed to the employee
         notes:
           type: ["string", "null"]
         createdAt:
@@ -11802,13 +11811,16 @@ components:
 
     PpeConfirmLinkResponse:
       type: object
-      required: [confirmUrl, token]
+      required: [confirmUrl, token, emailSent]
       properties:
         confirmUrl:
           type: string
           description: Full URL the employee opens to confirm receipt
         token:
           type: string
+        emailSent:
+          type: boolean
+          description: True when the confirmation link was successfully emailed to the employee
 
     PpeConfirmInput:
       type: object

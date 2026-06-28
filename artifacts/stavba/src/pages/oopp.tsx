@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
-  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, QrCode, Link2, Copy, X, Check, PenLine, FileText, Image, History, Eye
+  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, QrCode, Link2, Copy, X, Check, PenLine, FileText, Image, History, Eye, Mail
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -645,6 +645,33 @@ export default function Oopp() {
     });
   };
 
+  const handleCopyConfirmLink = (a: PpeAssignment) => {
+    requestConfirm.mutate({ id: a.id }, {
+      onSuccess: (result) => {
+        if (result.emailSent) {
+          toast({ title: "E-mail odeslán zaměstnanci", description: "Odkaz pro potvrzení byl zaslán na e-mailovou adresu zaměstnance." });
+        }
+        navigator.clipboard.writeText(result.confirmUrl).then(() => {
+          setCopiedId(a.id);
+          if (!result.emailSent) {
+            toast({ title: "Odkaz zkopírován do schránky" });
+          }
+          setTimeout(() => setCopiedId((prev) => (prev === a.id ? null : prev)), 3000);
+        }).catch(() => {
+          if (!result.emailSent) {
+            toast({ title: result.confirmUrl, description: "Odkaz se nepodařilo zkopírovat automaticky" });
+          }
+        });
+        invalidateData(queryClient, "ppe");
+      },
+      onError: (err: any) => {
+        const msg = err?.response?.data?.error ?? "Nepodařilo se vygenerovat odkaz";
+        toast({ title: msg, variant: "destructive" });
+      },
+    });
+  };
+
+
   const hasDateFilter = !!filterIssuedFrom || !!filterIssuedTo;
   const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm || hasDateFilter || (hasDateFilter && !filterIncludeNoDate);
 
@@ -919,7 +946,19 @@ export default function Oopp() {
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-medium">
                               Bez potvrzení
                             </span>
-                          ) : null}
+                          )}
+                          {!a.employeeConfirmedAt && a.confirmEmailSentAt && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium" title={`E-mail odeslán ${new Date(a.confirmEmailSentAt).toLocaleString("cs-CZ")}`}>
+                              <Mail className="h-3 w-3" />
+                              E-mail odeslán
+                            </span>
+                          )}
+                          {a.employeeConfirmedAt && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-medium">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Potvrzeno {new Date(a.employeeConfirmedAt).toLocaleDateString("cs-CZ")}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground mb-1">
                           <User className="h-3.5 w-3.5 shrink-0" />

@@ -9,5 +9,10 @@
 export interface Person {
   id: number;
   name: string;
+  /**
+     * Email address used to send PPE confirmation links
+     * @nullable
+     */
+  email?: string | null;
   createdAt: string;
 }

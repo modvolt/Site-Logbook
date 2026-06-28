@@ -131,6 +131,24 @@ export async function sendEmailWithPdf(params: SendEmailParams): Promise<void> {
 }
 
 /**
+ * Send a plain-text email (no attachment). Used for PPE confirmation links.
+ */
+export async function sendPlainEmail(params: { to: string; subject: string; text: string }): Promise<void> {
+  const cfg = await resolveEmailConfig();
+  try {
+    await getTransporter(cfg).sendMail({
+      from: cfg.from,
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Odeslání e-mailu selhalo: ${detail}`);
+  }
+}
+
+/**
  * Verify the active configuration and send a short test message. Used by the
  * Settings page so admins can confirm e-mail works before relying on it.
  */

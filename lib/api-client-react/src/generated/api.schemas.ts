@@ -605,12 +605,22 @@ export interface AttachmentInput {
 export interface Person {
   id: number;
   name: string;
+  /**
+     * Email address used to send PPE confirmation links
+     * @nullable
+     */
+  email?: string | null;
   createdAt: string;
 }
 
 export interface PersonInput {
   /** @minLength 1 */
   name: string;
+  /**
+     * Email address used to send PPE confirmation links
+     * @nullable
+     */
+  email?: string | null;
 }
 
 export interface PersonStats {
@@ -1769,6 +1779,11 @@ export interface PpeAssignment {
   hasConfirmToken: boolean;
   /** True when an active signature link exists for this assignment */
   hasSignToken?: boolean;
+  /**
+     * ISO timestamp when the confirmation link was emailed to the employee
+     * @nullable
+     */
+  confirmEmailSentAt?: string | null;
   /** @nullable */
   notes?: string | null;
   createdAt: string;
@@ -1826,6 +1841,8 @@ export interface PpeConfirmLinkResponse {
   /** Full URL the employee opens to confirm receipt */
   confirmUrl: string;
   token: string;
+  /** True when the confirmation link was successfully emailed to the employee */
+  emailSent: boolean;
 }
 
 export interface PpeConfirmInput {

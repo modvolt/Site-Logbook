@@ -10,4 +10,6 @@ export interface PpeConfirmLinkResponse {
   /** Full URL the employee opens to confirm receipt */
   confirmUrl: string;
   token: string;
+  /** True when the confirmation link was successfully emailed to the employee */
+  emailSent: boolean;
 }

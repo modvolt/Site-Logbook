@@ -41,6 +41,11 @@ export interface PpeAssignment {
   hasConfirmToken: boolean;
   /** True when an active signature link exists for this assignment */
   hasSignToken?: boolean;
+  /**
+     * ISO timestamp when the confirmation link was emailed to the employee
+     * @nullable
+     */
+  confirmEmailSentAt?: string | null;
   /** @nullable */
   notes?: string | null;
   createdAt: string;

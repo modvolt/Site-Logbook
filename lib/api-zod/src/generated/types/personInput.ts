@@ -9,4 +9,9 @@
 export interface PersonInput {
   /** @minLength 1 */
   name: string;
+  /**
+     * Email address used to send PPE confirmation links
+     * @nullable
+     */
+  email?: string | null;
 }
