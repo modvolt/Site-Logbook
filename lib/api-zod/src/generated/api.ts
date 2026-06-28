@@ -110,6 +110,8 @@ export const ListJobsResponseItem = zod.object({
   "materialCount": zod.number().optional(),
   "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string()
 })
 export const ListJobsResponse = zod.array(ListJobsResponseItem)
@@ -144,7 +146,9 @@ export const CreateJobBody = zod.object({
   "transportCost": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
-  "recurrenceIntervalDays": zod.number().nullish()
+  "recurrenceIntervalDays": zod.number().nullish(),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional(),
+  "contractPrice": zod.number().nullish()
 })
 
 
@@ -216,6 +220,8 @@ export const GetJobResponse = zod.object({
   "materialCount": zod.number().optional(),
   "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string()
 })
 
@@ -254,7 +260,9 @@ export const UpdateJobBody = zod.object({
   "fines": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "recurrenceIntervalDays": zod.number().nullish(),
-  "timerStartedAt": zod.string().nullish()
+  "timerStartedAt": zod.string().nullish(),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional(),
+  "contractPrice": zod.number().nullish()
 })
 
 export const UpdateJobResponse = zod.object({
@@ -294,6 +302,8 @@ export const UpdateJobResponse = zod.object({
   "materialCount": zod.number().optional(),
   "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string()
 })
 
@@ -354,6 +364,8 @@ export const UpdateJobStatusResponse = zod.object({
   "materialCount": zod.number().optional(),
   "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string()
 })
 
@@ -489,6 +501,7 @@ export const ListMaterialsResponseItem = zod.object({
   "priceSourceSupplierName": zod.string().nullish(),
   "priceSourceDate": zod.string().nullish(),
   "priceConfidence": zod.number().nullish(),
+  "purchasePricePerUnit": zod.number().nullish(),
   "adminNote": zod.string().nullish(),
   "invoicedAt": zod.string().nullish(),
   "invoicedInvoiceId": zod.number().nullish(),
@@ -551,6 +564,7 @@ export const UpdateMaterialResponse = zod.object({
   "priceSourceSupplierName": zod.string().nullish(),
   "priceSourceDate": zod.string().nullish(),
   "priceConfidence": zod.number().nullish(),
+  "purchasePricePerUnit": zod.number().nullish(),
   "adminNote": zod.string().nullish(),
   "invoicedAt": zod.string().nullish(),
   "invoicedInvoiceId": zod.number().nullish(),
@@ -564,6 +578,65 @@ export const UpdateMaterialResponse = zod.object({
 export const DeleteMaterialParams = zod.object({
   "jobId": zod.coerce.number(),
   "materialId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Search approved billing-document lines available for manual linking
+ */
+export const ListLinkableDocumentLinesQueryParams = zod.object({
+  "q": zod.coerce.string().optional().describe('Free-text search across description, supplier name and document number')
+})
+
+export const ListLinkableDocumentLinesResponseItem = zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "totalWithoutVat": zod.number(),
+  "approved": zod.boolean(),
+  "sortOrder": zod.number()
+})
+export const ListLinkableDocumentLinesResponse = zod.array(ListLinkableDocumentLinesResponseItem)
+
+
+/**
+ * @summary Link or unlink a job material to a billing-document line (admin only)
+ */
+export const LinkMaterialToDocumentParams = zod.object({
+  "materialId": zod.coerce.number()
+})
+
+export const LinkMaterialToDocumentBody = zod.object({
+  "billingDocumentLineId": zod.number().nullish().describe('ID of the approved billing-document line to link; null to unlink')
+})
+
+export const LinkMaterialToDocumentResponse = zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "done": zod.boolean(),
+  "sortOrder": zod.number(),
+  "sourceType": zod.string().nullish(),
+  "sourceId": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceSourceDocumentId": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "priceSourceSupplierName": zod.string().nullish(),
+  "priceSourceDate": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "purchasePricePerUnit": zod.number().nullish(),
+  "adminNote": zod.string().nullish(),
+  "invoicedAt": zod.string().nullish(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "createdAt": zod.string()
 })
 
 
@@ -1997,6 +2070,8 @@ export const GetTodayJobsResponseItem = zod.object({
   "materialCount": zod.number().optional(),
   "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string()
 })
 export const GetTodayJobsResponse = zod.array(GetTodayJobsResponseItem)

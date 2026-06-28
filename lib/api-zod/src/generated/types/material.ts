@@ -35,6 +35,8 @@ export interface Material {
   /** @nullable */
   priceConfidence?: number | null;
   /** @nullable */
+  purchasePricePerUnit?: number | null;
+  /** @nullable */
   adminNote?: string | null;
   /** @nullable */
   invoicedAt?: string | null;

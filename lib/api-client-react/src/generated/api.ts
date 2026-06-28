@@ -143,6 +143,7 @@ import type {
   JobVisitInput,
   JobVisitUpdate,
   LeaveSummary,
+  LinkableBillingDocumentLine,
   ListActivitiesParams,
   ListApprovedCostLinesParams,
   ListAuditLogsParams,
@@ -153,6 +154,7 @@ import type {
   ListInvoicesParams,
   ListJobsParams,
   ListLeavesParams,
+  ListLinkableDocumentLinesParams,
   ListPpeAssignmentsParams,
   ListPpeItemsParams,
   ListPublicHolidaysParams,
@@ -164,6 +166,7 @@ import type {
   MachineUpdate,
   Material,
   MaterialInput,
+  MaterialLinkDocumentInput,
   MaterialMarkupRule,
   MaterialMarkupRuleList,
   MaterialUpdate,
@@ -1718,6 +1721,162 @@ export const useDeleteMaterial = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteMaterialMutationOptions(options));
+    }
+
+export const getListLinkableDocumentLinesUrl = (params?: ListLinkableDocumentLinesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/materials/linkable-document-lines?${stringifiedParams}` : `/api/materials/linkable-document-lines`
+}
+
+/**
+ * @summary Search approved billing-document lines available for manual linking
+ */
+export const listLinkableDocumentLines = async (params?: ListLinkableDocumentLinesParams, options?: RequestInit): Promise<LinkableBillingDocumentLine[]> => {
+
+  return customFetch<LinkableBillingDocumentLine[]>(getListLinkableDocumentLinesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLinkableDocumentLinesQueryKey = (params?: ListLinkableDocumentLinesParams,) => {
+    return [
+    `/api/materials/linkable-document-lines`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListLinkableDocumentLinesQueryOptions = <TData = Awaited<ReturnType<typeof listLinkableDocumentLines>>, TError = ErrorType<unknown>>(params?: ListLinkableDocumentLinesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLinkableDocumentLines>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLinkableDocumentLinesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLinkableDocumentLines>>> = ({ signal }) => listLinkableDocumentLines(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLinkableDocumentLines>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLinkableDocumentLinesQueryResult = NonNullable<Awaited<ReturnType<typeof listLinkableDocumentLines>>>
+export type ListLinkableDocumentLinesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Search approved billing-document lines available for manual linking
+ */
+
+export function useListLinkableDocumentLines<TData = Awaited<ReturnType<typeof listLinkableDocumentLines>>, TError = ErrorType<unknown>>(
+ params?: ListLinkableDocumentLinesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLinkableDocumentLines>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLinkableDocumentLinesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getLinkMaterialToDocumentUrl = (materialId: number,) => {
+
+
+
+
+  return `/api/materials/${materialId}/link-document`
+}
+
+/**
+ * @summary Link or unlink a job material to a billing-document line (admin only)
+ */
+export const linkMaterialToDocument = async (materialId: number,
+    materialLinkDocumentInput: MaterialLinkDocumentInput, options?: RequestInit): Promise<Material> => {
+
+  return customFetch<Material>(getLinkMaterialToDocumentUrl(materialId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      materialLinkDocumentInput,)
+  }
+);}
+
+
+
+
+export const getLinkMaterialToDocumentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkMaterialToDocument>>, TError,{materialId: number;data: BodyType<MaterialLinkDocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof linkMaterialToDocument>>, TError,{materialId: number;data: BodyType<MaterialLinkDocumentInput>}, TContext> => {
+
+const mutationKey = ['linkMaterialToDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof linkMaterialToDocument>>, {materialId: number;data: BodyType<MaterialLinkDocumentInput>}> = (props) => {
+          const {materialId,data} = props ?? {};
+
+          return  linkMaterialToDocument(materialId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LinkMaterialToDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof linkMaterialToDocument>>>
+    export type LinkMaterialToDocumentMutationBody = BodyType<MaterialLinkDocumentInput>
+    export type LinkMaterialToDocumentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Link or unlink a job material to a billing-document line (admin only)
+ */
+export const useLinkMaterialToDocument = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkMaterialToDocument>>, TError,{materialId: number;data: BodyType<MaterialLinkDocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof linkMaterialToDocument>>,
+        TError,
+        {materialId: number;data: BodyType<MaterialLinkDocumentInput>},
+        TContext
+      > => {
+      return useMutation(getLinkMaterialToDocumentMutationOptions(options));
     }
 
 export const getListAttachmentsUrl = (jobId: number,) => {

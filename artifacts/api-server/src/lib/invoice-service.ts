@@ -1038,17 +1038,64 @@ async function buildProposedLines(
     }
 
     const jobLines: RawLine[] = [];
-    if (num(job.price) > 0) {
+    const isFixedPrice = (job as any).pricingMode === "fixed_price";
+
+    if (isFixedPrice) {
+      // Fixed-price mode: one single line at the agreed contract price.
+      // Materials, hours (no hour lines exist currently) are internal only.
+      // Transport, parking and fines are still billed separately.
+      const contractPriceRaw = (job as any).contractPrice;
+      if (contractPriceRaw == null || num(contractPriceRaw) <= 0) {
+        throw appError(400, `Zakázka „${job.title}" má způsob fakturace „Smluvní cena", ale smluvní cena nebyla zadána. Před fakturací ji doplňte v Souhrnu práce.`);
+      }
+      const contractPrice = round2(num(contractPriceRaw));
       jobLines.push({
         sourceType: "job",
         jobId,
         sourceId: jobId,
-        description: job.title,
+        description: `${job.title} — smluvní cena`,
         quantity: 1,
         unit: "ks",
-        unitPriceWithoutVat: round2(num(job.price)),
+        unitPriceWithoutVat: contractPrice,
         vatMode: invoiceVatMode,
       });
+    } else {
+      // time_material mode (default): bill job price + materials individually.
+      if (num(job.price) > 0) {
+        jobLines.push({
+          sourceType: "job",
+          jobId,
+          sourceId: jobId,
+          description: job.title,
+          quantity: 1,
+          unit: "ks",
+          unitPriceWithoutVat: round2(num(job.price)),
+          vatMode: invoiceVatMode,
+        });
+      }
+      for (const m of materialsByJob.get(jobId) ?? []) {
+        if (m.pricePerUnit == null) continue;
+        // Skip materials already reserved on another invoice (no double-billing).
+        if (m.invoicedInvoiceId != null) continue;
+        // Material lines (and only these) carry the optional percent markup,
+        // resolved per line: per-line override → category default → invoice/
+        // settings default (the passed-in materialMarkupPercent).
+        const effectiveMarkup = resolveLineMaterialMarkup(
+          opts.lineMarkupOverrides?.get(m.id),
+          opts.categoryMarkupForName?.(m.name),
+          materialMarkupPercent,
+        );
+        jobLines.push({
+          sourceType: "material",
+          jobId,
+          sourceId: m.id,
+          description: m.name,
+          quantity: round2(num(m.quantity ?? 1)),
+          unit: m.unit ?? "ks",
+          unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), effectiveMarkup),
+          vatMode: invoiceVatMode,
+        });
+      }
     }
     if (num(job.transportCost) > 0) {
       const km = num(job.transportKm);
@@ -1070,29 +1117,6 @@ async function buildProposedLines(
         quantity: 1,
         unit: "ks",
         unitPriceWithoutVat: round2(num(job.parking)),
-        vatMode: invoiceVatMode,
-      });
-    }
-    for (const m of materialsByJob.get(jobId) ?? []) {
-      if (m.pricePerUnit == null) continue;
-      // Skip materials already reserved on another invoice (no double-billing).
-      if (m.invoicedInvoiceId != null) continue;
-      // Material lines (and only these) carry the optional percent markup,
-      // resolved per line: per-line override → category default → invoice/
-      // settings default (the passed-in materialMarkupPercent).
-      const effectiveMarkup = resolveLineMaterialMarkup(
-        opts.lineMarkupOverrides?.get(m.id),
-        opts.categoryMarkupForName?.(m.name),
-        materialMarkupPercent,
-      );
-      jobLines.push({
-        sourceType: "material",
-        jobId,
-        sourceId: m.id,
-        description: m.name,
-        quantity: round2(num(m.quantity ?? 1)),
-        unit: m.unit ?? "ks",
-        unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), effectiveMarkup),
         vatMode: invoiceVatMode,
       });
     }

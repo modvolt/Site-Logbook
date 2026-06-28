@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { JobPricingMode } from './jobPricingMode';
 
 export interface Job {
   id: number;
@@ -97,5 +98,12 @@ export interface Job {
   materialTotalCost?: number | null;
   /** True when the job is linked to at least one non-cancelled invoice */
   billingLinked: boolean;
+  /** time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice */
+  pricingMode?: JobPricingMode;
+  /**
+     * Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
+     * @nullable
+     */
+  contractPrice?: number | null;
   createdAt: string;
 }

@@ -41,6 +41,10 @@ export const materialsTable = pgTable("materials", {
   priceSourceSupplierName: text("price_source_supplier_name"),
   priceSourceDate: timestamp("price_source_date"),
   priceConfidence: numeric("price_confidence", { precision: 3, scale: 2 }),
+  // When a material is manually linked to a billing-document line, the purchase
+  // price from that line is denormalised here so margin can be shown per-row
+  // without a join on every render. Cleared when the link is removed.
+  purchasePricePerUnit: numeric("purchase_price_per_unit", { precision: 10, scale: 2 }),
   adminNote: text("admin_note"),
   // Customer-invoicing lifecycle for materials priced from a cost document and
   // offered for re-billing directly (Phase 4). Null = not yet invoiced.

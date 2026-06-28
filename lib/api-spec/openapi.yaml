@@ -526,6 +526,53 @@ paths:
         "204":
           description: Deleted
 
+  /materials/linkable-document-lines:
+    get:
+      operationId: listLinkableDocumentLines
+      tags: [materials]
+      summary: Search approved billing-document lines available for manual linking
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Free-text search across description, supplier name and document number
+      responses:
+        "200":
+          description: Matching approved lines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LinkableBillingDocumentLine"
+
+  /materials/{materialId}/link-document:
+    patch:
+      operationId: linkMaterialToDocument
+      tags: [materials]
+      summary: Link or unlink a job material to a billing-document line (admin only)
+      parameters:
+        - name: materialId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialLinkDocumentInput"
+      responses:
+        "200":
+          description: Updated material
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+
   /jobs/{jobId}/attachments:
     get:
       operationId: listAttachments
@@ -6948,6 +6995,13 @@ components:
         billingLinked:
           type: boolean
           description: True when the job is linked to at least one non-cancelled invoice
+        pricingMode:
+          type: string
+          enum: [time_material, fixed_price]
+          description: "time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice"
+        contractPrice:
+          type: ["number", "null"]
+          description: Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
         createdAt:
           type: string
 
@@ -7044,6 +7098,11 @@ components:
           type: ["number", "null"]
         recurrenceIntervalDays:
           type: ["integer", "null"]
+        pricingMode:
+          type: string
+          enum: [time_material, fixed_price]
+        contractPrice:
+          type: ["number", "null"]
 
     JobUpdate:
       type: object
@@ -7103,6 +7162,11 @@ components:
           type: ["integer", "null"]
         timerStartedAt:
           type: ["string", "null"]
+        pricingMode:
+          type: string
+          enum: [time_material, fixed_price]
+        contractPrice:
+          type: ["number", "null"]
 
     Material:
       type: object
@@ -7139,6 +7203,8 @@ components:
         priceSourceDate:
           type: ["string", "null"]
         priceConfidence:
+          type: ["number", "null"]
+        purchasePricePerUnit:
           type: ["number", "null"]
         adminNote:
           type: ["string", "null"]
@@ -7177,6 +7243,40 @@ components:
           type: ["number", "null"]
         done:
           type: boolean
+
+    MaterialLinkDocumentInput:
+      type: object
+      properties:
+        billingDocumentLineId:
+          type: ["integer", "null"]
+          description: ID of the approved billing-document line to link; null to unlink
+
+    LinkableBillingDocumentLine:
+      type: object
+      required: [id, documentId, description, unitPriceWithoutVat, totalWithoutVat, approved, sortOrder]
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        documentNumber:
+          type: ["string", "null"]
+        supplierName:
+          type: ["string", "null"]
+        description:
+          type: string
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: number
+        totalWithoutVat:
+          type: number
+        approved:
+          type: boolean
+        sortOrder:
+          type: integer
 
     JobStatusUpdate:
       type: object

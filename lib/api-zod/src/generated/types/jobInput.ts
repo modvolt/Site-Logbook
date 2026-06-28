@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { JobInputPricingMode } from './jobInputPricingMode';
 import type { JobInputStatus } from './jobInputStatus';
 
 export interface JobInput {
@@ -51,4 +52,7 @@ export interface JobInput {
   parking?: number | null;
   /** @nullable */
   recurrenceIntervalDays?: number | null;
+  pricingMode?: JobInputPricingMode;
+  /** @nullable */
+  contractPrice?: number | null;
 }

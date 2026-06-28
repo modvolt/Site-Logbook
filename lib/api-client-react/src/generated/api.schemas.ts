@@ -116,6 +116,17 @@ export interface AdminHealthStatus {
   lastBackupError?: AdminHealthLastBackup | null;
 }
 
+/**
+ * time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice
+ */
+export type JobPricingMode = typeof JobPricingMode[keyof typeof JobPricingMode];
+
+
+export const JobPricingMode = {
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
+} as const;
+
 export interface Job {
   id: number;
   title: string;
@@ -207,6 +218,13 @@ export interface Job {
   materialTotalCost?: number | null;
   /** True when the job is linked to at least one non-cancelled invoice */
   billingLinked: boolean;
+  /** time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice */
+  pricingMode?: JobPricingMode;
+  /**
+     * Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
+     * @nullable
+     */
+  contractPrice?: number | null;
   createdAt: string;
 }
 
@@ -221,6 +239,14 @@ export const JobInputStatus = {
   in_progress: 'in_progress',
   done: 'done',
   cancelled: 'cancelled',
+} as const;
+
+export type JobInputPricingMode = typeof JobInputPricingMode[keyof typeof JobInputPricingMode];
+
+
+export const JobInputPricingMode = {
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
 } as const;
 
 export interface JobInput {
@@ -267,6 +293,9 @@ export interface JobInput {
   parking?: number | null;
   /** @nullable */
   recurrenceIntervalDays?: number | null;
+  pricingMode?: JobInputPricingMode;
+  /** @nullable */
+  contractPrice?: number | null;
 }
 
 export interface JobReorderInput {
@@ -315,6 +344,14 @@ export const JobUpdateStatus = {
   cancelled: 'cancelled',
 } as const;
 
+export type JobUpdatePricingMode = typeof JobUpdatePricingMode[keyof typeof JobUpdatePricingMode];
+
+
+export const JobUpdatePricingMode = {
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
+} as const;
+
 export interface JobUpdate {
   /** @minLength 1 */
   title?: string;
@@ -361,6 +398,9 @@ export interface JobUpdate {
   recurrenceIntervalDays?: number | null;
   /** @nullable */
   timerStartedAt?: string | null;
+  pricingMode?: JobUpdatePricingMode;
+  /** @nullable */
+  contractPrice?: number | null;
 }
 
 /**
@@ -491,6 +531,8 @@ export interface Material {
   /** @nullable */
   priceConfidence?: number | null;
   /** @nullable */
+  purchasePricePerUnit?: number | null;
+  /** @nullable */
   adminNote?: string | null;
   /** @nullable */
   invoicedAt?: string | null;
@@ -520,6 +562,32 @@ export interface MaterialUpdate {
   /** @nullable */
   pricePerUnit?: number | null;
   done?: boolean;
+}
+
+export interface LinkableBillingDocumentLine {
+  id: number;
+  documentId: number;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  description: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  totalWithoutVat: number;
+  approved: boolean;
+  sortOrder: number;
+}
+
+export interface MaterialLinkDocumentInput {
+  /**
+     * ID of the approved billing-document line to link; null to unlink
+     * @nullable
+     */
+  billingDocumentLineId?: number | null;
 }
 
 export interface AttachmentInput {
@@ -4197,6 +4265,13 @@ export const ListJobsSegment = {
   without_price: 'without_price',
   cancelled: 'cancelled',
 } as const;
+
+export type ListLinkableDocumentLinesParams = {
+/**
+ * Free-text search across description, supplier name and document number
+ */
+q?: string;
+};
 
 export type ListLeavesParams = {
 personId?: number;

@@ -32,6 +32,11 @@ export const jobsTable = pgTable("jobs", {
   recurrenceIntervalDays: integer("recurrence_interval_days"),
   timerStartedAt: timestamp("timer_started_at"),
   sortOrder: integer("sort_order").notNull().default(0),
+  // Billing mode: 'time_material' (default) bills materials + job price normally;
+  // 'fixed_price' bills a single agreed-upon line at contractPrice instead.
+  pricingMode: text("pricing_mode").notNull().default("time_material"),
+  // The agreed-upon fixed price for the job (only used when pricingMode = 'fixed_price').
+  contractPrice: numeric("contract_price", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   // Defense-in-depth: jobs.status is free-text, but only this known set is valid.

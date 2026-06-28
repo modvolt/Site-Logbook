@@ -23,6 +23,8 @@ import {
   useCreateJobVisit, useUpdateJobVisit, useDeleteJobVisit,
   useAnalyzeJobDocuments,
   useListLeaves, getListLeavesQueryKey,
+  useListLinkableDocumentLines, getListLinkableDocumentLinesQueryKey,
+  useLinkMaterialToDocument,
 } from "@workspace/api-client-react";
 import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
@@ -52,6 +54,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { COST_DOC_TYPE_LABELS } from "@/lib/cost-document-format";
 import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
@@ -472,7 +480,7 @@ export default function JobDetail() {
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
         <VisitsSection jobId={id} job={job} isExpanded={expandedSection === "visits"} onToggle={() => toggleSection("visits")} />
         <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
-        <MaterialsSection jobId={id} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} onUnsavedChange={setMatHasUnsaved} />
+        <MaterialsSection jobId={id} job={job} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} onUnsavedChange={setMatHasUnsaved} />
         <JobTimeEntries jobId={id} />
         <JobSheetsSection jobId={id} isExpanded={expandedSection === "jobsheets"} onToggle={() => toggleSection("jobsheets")} />
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} matHasUnsaved={matHasUnsaved} />
@@ -1540,7 +1548,133 @@ const PRICE_SOURCE_META: Record<string, { label: string; cls: string }> = {
   awaiting_invoice: { label: "Čeká na fakturu", cls: "bg-amber-100 text-amber-700" },
   stock_history: { label: "Ze skladové historie", cls: "bg-cyan-100 text-cyan-700" },
   manual: { label: "Ručně", cls: "bg-muted text-muted-foreground" },
+  manual_link: { label: "Spárováno s dokladem", cls: "bg-violet-100 text-violet-700" },
 };
+
+function LinkDocumentDialog({
+  material,
+  open,
+  onClose,
+  onLinked,
+}: {
+  material: any;
+  open: boolean;
+  onClose: () => void;
+  onLinked: (updated: any) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const { toast } = useToast();
+  const linkMutation = useLinkMaterialToDocument();
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const { data: lines, isLoading } = useListLinkableDocumentLines(
+    debouncedSearch ? { q: debouncedSearch } : undefined,
+    { query: { enabled: open, queryKey: getListLinkableDocumentLinesQueryKey(debouncedSearch ? { q: debouncedSearch } : undefined) } },
+  );
+
+  const handleSelect = (lineId: number) => {
+    linkMutation.mutate(
+      { materialId: material.id, data: { billingDocumentLineId: lineId } },
+      {
+        onSuccess: (updated) => {
+          onLinked(updated);
+          onClose();
+          toast({ title: "Materiál spárován s dokladem" });
+        },
+        onError: (err: any) => toast({ title: "Nepodařilo se spárovat", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleUnlink = () => {
+    linkMutation.mutate(
+      { materialId: material.id, data: { billingDocumentLineId: null } },
+      {
+        onSuccess: (updated) => {
+          onLinked(updated);
+          onClose();
+          toast({ title: "Párování odstraněno" });
+        },
+        onError: (err: any) => toast({ title: "Nepodařilo se odpárovat", description: err?.data?.error ?? err?.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const isLinked = material?.priceSource === "manual_link" && material?.priceSourceLineId != null;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Spárovat materiál s dokladem</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground -mt-2">
+          Materiál: <span className="font-medium text-foreground">{material?.name}</span>
+        </p>
+
+        {isLinked && (
+          <div className="flex items-center justify-between rounded-lg border border-violet-200 bg-violet-50 dark:bg-violet-950/20 px-3 py-2">
+            <div className="text-sm">
+              <span className="font-medium text-violet-700 dark:text-violet-300">Spárováno</span>
+              {material.priceSourceSupplierName && (
+                <span className="text-muted-foreground ml-1">— {material.priceSourceSupplierName}</span>
+              )}
+            </div>
+            <Button size="sm" variant="ghost" onClick={handleUnlink} disabled={linkMutation.isPending} className="h-7 text-xs text-destructive hover:text-destructive">
+              <X className="w-3 h-3 mr-1" /> Odpárovat
+            </Button>
+          </div>
+        )}
+
+        <Input
+          placeholder="Hledat popis, dodavatele, číslo dokladu..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="h-10"
+          autoFocus
+        />
+
+        <div className="max-h-80 overflow-y-auto space-y-1 mt-1">
+          {isLoading ? (
+            <div className="space-y-2 p-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
+          ) : lines && lines.length > 0 ? (
+            lines.map((line: any) => (
+              <button
+                key={line.id}
+                type="button"
+                onClick={() => handleSelect(line.id)}
+                disabled={linkMutation.isPending}
+                className="w-full text-left flex items-start gap-3 rounded-lg border px-3 py-2.5 hover:bg-muted/60 transition-colors"
+              >
+                <Package className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{line.description}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {line.supplierName ?? "Neznámý dodavatel"}
+                    {line.documentNumber && <> · #{line.documentNumber}</>}
+                    {line.quantity != null && <> · {line.quantity} {line.unit ?? "ks"}</>}
+                  </p>
+                </div>
+                <span className="text-sm font-semibold text-emerald-600 shrink-0">
+                  {line.unitPriceWithoutVat != null ? `${Number(line.unitPriceWithoutVat).toLocaleString("cs-CZ")} Kč/ks` : ""}
+                </span>
+              </button>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              {debouncedSearch ? "Žádné schválené řádky neodpovídají hledání." : "Začněte psát pro hledání schválených řádků dokladů."}
+            </p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 type TrendPoint = { period: string; cumulativeSaleValue: number; cumulativeCostValue: number; cumulativeMarginPct?: number | null };
 type TrendGranularity = "week" | "month";
@@ -1662,8 +1796,10 @@ function JobMarginAlert({ jobId }: { jobId: number }) {
   );
 }
 
-function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any) {
+function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }: any) {
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
+  const { can } = useAuth();
+  const isAdmin = can("manageUsers");
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
   });
@@ -1690,12 +1826,15 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
     (warehouseItems ?? []).map((w: any) => String(w.name).trim().toLowerCase()),
   );
 
+  const isFixedPrice = job?.pricingMode === "fixed_price";
+
   const [newName, setNewName] = useState("");
   const [newQty, setNewQty] = useState("");
   const [newUnit, setNewUnit] = useState("ks");
   const [newPrice, setNewPrice] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<any>({});
+  const [linkingMaterial, setLinkingMaterial] = useState<any | null>(null);
 
   const newQtyErr = decimalError(newQty);
   const newPriceErr = decimalError(newPrice);
@@ -1739,9 +1878,21 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
     });
   };
 
+  const handleMaterialLinked = (updated: any) => {
+    queryClient.setQueryData(getListMaterialsQueryKey(jobId), (prev: any[]) =>
+      (prev ?? []).map((m: any) => m.id === updated.id ? { ...m, ...updated } : m),
+    );
+  };
+
   return (
     <SectionCard id="section-materials" title="Materiál" icon={ShoppingCart} isExpanded={isExpanded} onToggle={onToggle} summary={summary}>
       <div className="p-4 space-y-4">
+        {isFixedPrice && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            Zakázka je ve smluvní ceně — materiál slouží pouze jako interní kalkulace a nebude fakturován po položkách.
+          </div>
+        )}
         {/* Add form */}
         <form onSubmit={handleAdd} className="space-y-2">
           <div className="flex gap-2">
@@ -1822,9 +1973,33 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
                     )}
                   </div>
                   {m.pricePerUnit != null && (
-                    <span className="text-sm font-semibold text-emerald-600 shrink-0">
-                      {m.quantity ? `${(m.pricePerUnit * m.quantity).toLocaleString("cs-CZ")} Kč` : `${m.pricePerUnit} Kč/ks`}
-                    </span>
+                    <div className="shrink-0 text-right">
+                      <span className="text-sm font-semibold text-emerald-600 block">
+                        {m.quantity ? `${(m.pricePerUnit * m.quantity).toLocaleString("cs-CZ")} Kč` : `${m.pricePerUnit} Kč/ks`}
+                      </span>
+                      {m.purchasePricePerUnit != null && m.pricePerUnit > 0 && (
+                        <span className="text-[10px] text-muted-foreground block">
+                          nákup {m.purchasePricePerUnit.toLocaleString("cs-CZ")} Kč/ks
+                          {" · "}
+                          <span className={m.pricePerUnit >= m.purchasePricePerUnit ? "text-emerald-600" : "text-destructive"}>
+                            {m.purchasePricePerUnit > 0
+                              ? `${Math.round(((m.pricePerUnit - m.purchasePricePerUnit) / m.purchasePricePerUnit) * 100)} % marže`
+                              : "—"}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setLinkingMaterial(m)}
+                      className={`h-8 w-8 p-0 shrink-0 ${m.priceSource === "manual_link" ? "text-violet-600" : "text-muted-foreground"}`}
+                      title={m.priceSource === "manual_link" ? "Spárováno — klikněte pro změnu" : "Spárovat s dokladem"}
+                    >
+                      <Banknote className="w-3.5 h-3.5" />
+                    </Button>
                   )}
                   <Button variant="ghost" size="sm" onClick={() => startEdit(m)} className="h-8 w-8 p-0 shrink-0">
                     <Edit3 className="w-3.5 h-3.5" />
@@ -1886,6 +2061,14 @@ function MaterialsSection({ jobId, isExpanded, onToggle, onUnsavedChange }: any)
         )}
       </div>
       <ConfirmDialog {...dialogPropsMat} />
+      {linkingMaterial && (
+        <LinkDocumentDialog
+          material={linkingMaterial}
+          open={!!linkingMaterial}
+          onClose={() => setLinkingMaterial(null)}
+          onLinked={handleMaterialLinked}
+        />
+      )}
     </SectionCard>
   );
 }
@@ -2406,17 +2589,23 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { saved, flash } = useSaveFlash();
+  const { can } = useAuth();
+  const isAdmin = can("manageUsers");
   
   const [hoursVasek, setHoursVasek] = useState(job.hoursVasek?.toString() || "");
   const [hoursJonas, setHoursJonas] = useState(job.hoursJonas?.toString() || "");
   const [price, setPrice] = useState(job.price?.toString() || "");
+  const [pricingMode, setPricingMode] = useState<string>(job.pricingMode ?? "time_material");
+  const [contractPrice, setContractPrice] = useState(job.contractPrice?.toString() || "");
 
   const totalHours = (parseDecimal(hoursVasek) ?? 0) + (parseDecimal(hoursJonas) ?? 0);
 
   const hoursVasekErr = decimalError(hoursVasek);
   const hoursJonasErr = decimalError(hoursJonas);
   const priceErr = decimalError(price);
-  const workHasErrors = !!(hoursVasekErr || hoursJonasErr || priceErr);
+  const contractPriceErr = decimalError(contractPrice);
+  const isFixedPrice = pricingMode === "fixed_price";
+  const workHasErrors = !!(hoursVasekErr || hoursJonasErr || priceErr || (isFixedPrice && contractPriceErr));
 
   const handleSave = () => {
     updateJob.mutate({ 
@@ -2427,7 +2616,9 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
         hoursSpent: totalHours || null,
         hoursFromPlan: false,
         hoursBeforePlan: null,
-        price: parseDecimal(price)
+        price: parseDecimal(price),
+        pricingMode: pricingMode as any,
+        contractPrice: isFixedPrice ? (parseDecimal(contractPrice) ?? null) : null,
       } 
     }, {
       onSuccess: (data) => {
@@ -2439,8 +2630,13 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
     });
   };
 
-  const summary = (job.hoursVasek || job.hoursJonas || job.price)
-    ? `${totalHours.toFixed(1) !== "0.0" ? totalHours.toFixed(1) + "h" : ""} ${job.price ? "• " + Number(job.price).toLocaleString("cs-CZ") + " Kč" : ""}`.trim()
+  const summary = (job.hoursVasek || job.hoursJonas || job.price || job.contractPrice)
+    ? [
+        totalHours.toFixed(1) !== "0.0" ? totalHours.toFixed(1) + "h" : null,
+        job.pricingMode === "fixed_price" && job.contractPrice
+          ? `Smluvní cena: ${Number(job.contractPrice).toLocaleString("cs-CZ")} Kč`
+          : job.price ? Number(job.price).toLocaleString("cs-CZ") + " Kč" : null,
+      ].filter(Boolean).join(" • ")
     : "Nevyplněno";
 
   return (
@@ -2454,7 +2650,10 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
       <div className="p-4 space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Vašek (h)</label>
+            <label className="text-sm font-bold text-muted-foreground">
+              Vašek (h)
+              {isFixedPrice && <span className="ml-1 text-[10px] font-medium text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded-full align-middle">interní</span>}
+            </label>
             <div className="relative">
               <DecimalInput
                 value={hoursVasek}
@@ -2466,7 +2665,10 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Jonáš (h)</label>
+            <label className="text-sm font-bold text-muted-foreground">
+              Jonáš (h)
+              {isFixedPrice && <span className="ml-1 text-[10px] font-medium text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded-full align-middle">interní</span>}
+            </label>
             <div className="relative">
               <DecimalInput
                 value={hoursJonas}
@@ -2482,11 +2684,15 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
         {((parseDecimal(hoursVasek) ?? 0) > 0 || (parseDecimal(hoursJonas) ?? 0) > 0) && (
           <div className="text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
             Celkem: <span className="font-semibold text-foreground">{totalHours.toFixed(1)} h</span>
+            {isFixedPrice && <span className="ml-2 text-xs text-amber-600">(interní — nebude fakturováno)</span>}
           </div>
         )}
 
         <div className="space-y-2">
-          <label className="text-sm font-bold text-muted-foreground">Cena za práci (Kč) — volitelné</label>
+          <label className="text-sm font-bold text-muted-foreground">
+            Cena za práci (Kč) — volitelné
+            {isFixedPrice && <span className="ml-1 text-[10px] font-medium text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded-full align-middle">interní kalkulace</span>}
+          </label>
           <div className="relative">
             <DecimalInput
               value={price}
@@ -2497,6 +2703,41 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">Kč</span>
           </div>
         </div>
+
+        {/* Pricing mode toggle — admin only */}
+        {isAdmin && (
+          <div className="space-y-3 pt-2 border-t">
+            <div className="space-y-1.5">
+              <label className="text-sm font-bold text-muted-foreground flex items-center gap-1.5">
+                <CircleDollarSign className="w-3.5 h-3.5" /> Způsob fakturace
+              </label>
+              <Select value={pricingMode} onValueChange={setPricingMode}>
+                <SelectTrigger className="h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="time_material">Čas a materiál (výchozí)</SelectItem>
+                  <SelectItem value="fixed_price">Smluvní cena (pevná cena)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {isFixedPrice && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-muted-foreground">Smluvní cena (Kč) — zákazníkovi fakturovaná</label>
+                <div className="relative">
+                  <DecimalInput
+                    value={contractPrice}
+                    onChange={setContractPrice}
+                    className="h-12 text-base pr-14" placeholder="0"
+                    error={contractPriceErr}
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">Kč</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Materiál a hodiny jsou interní kalkulace. Na faktuře bude jeden řádek s touto cenou.</p>
+              </div>
+            )}
+          </div>
+        )}
 
         <Button 
           onClick={handleSave} 

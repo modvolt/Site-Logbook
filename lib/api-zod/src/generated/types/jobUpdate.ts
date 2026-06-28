@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { JobUpdatePricingMode } from './jobUpdatePricingMode';
 import type { JobUpdateStatus } from './jobUpdateStatus';
 
 export interface JobUpdate {
@@ -53,4 +54,7 @@ export interface JobUpdate {
   recurrenceIntervalDays?: number | null;
   /** @nullable */
   timerStartedAt?: string | null;
+  pricingMode?: JobUpdatePricingMode;
+  /** @nullable */
+  contractPrice?: number | null;
 }

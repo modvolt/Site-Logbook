@@ -1,6 +1,13 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, materialsTable, jobsTable } from "@workspace/db";
+import { eq, and, ilike, or } from "drizzle-orm";
+import {
+  db,
+  materialsTable,
+  jobsTable,
+  billingDocumentsTable,
+  billingDocumentLinesTable,
+  auditLogTable,
+} from "@workspace/db";
 import {
   ListMaterialsParams,
   CreateMaterialParams,
@@ -8,12 +15,15 @@ import {
   UpdateMaterialParams,
   UpdateMaterialBody,
   DeleteMaterialParams,
+  LinkMaterialToDocumentParams,
+  LinkMaterialToDocumentBody,
 } from "@workspace/api-zod";
 import {
   reconcileMaterialStockMovement,
   reconcileSourceMovements,
   type Actor,
 } from "../lib/warehouse-service";
+import { requireRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -29,6 +39,7 @@ function serializeMaterial(m: typeof materialsTable.$inferSelect) {
     ...m,
     quantity: m.quantity != null ? Number(m.quantity) : null,
     pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
+    purchasePricePerUnit: m.purchasePricePerUnit != null ? Number(m.purchasePricePerUnit) : null,
     priceConfidence: m.priceConfidence != null ? Number(m.priceConfidence) : null,
     priceSourceDate: m.priceSourceDate != null ? m.priceSourceDate.toISOString() : null,
     invoicedAt: m.invoicedAt != null ? m.invoicedAt.toISOString() : null,
@@ -129,6 +140,144 @@ router.delete("/jobs/:jobId/materials/:materialId", async (req, res): Promise<vo
   if (!material) { res.status(404).json({ error: "Material not found" }); return; }
 
   res.sendStatus(204);
+});
+
+// ---------------------------------------------------------------------------
+// Linkable document lines: approved billing-document lines searchable across
+// all documents — used by the material linking dialog (admin only).
+// ---------------------------------------------------------------------------
+
+router.get("/materials/linkable-document-lines", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  const conditions = [eq(billingDocumentLinesTable.approved, 1)];
+
+  if (q) {
+    const like = `%${q}%`;
+    conditions.push(
+      or(
+        ilike(billingDocumentLinesTable.description, like),
+        ilike(billingDocumentsTable.supplierName, like),
+        ilike(billingDocumentsTable.documentNumber, like),
+      )!,
+    );
+  }
+
+  const rows = await db
+    .select({
+      id: billingDocumentLinesTable.id,
+      documentId: billingDocumentLinesTable.documentId,
+      documentNumber: billingDocumentsTable.documentNumber,
+      supplierName: billingDocumentsTable.supplierName,
+      description: billingDocumentLinesTable.description,
+      quantity: billingDocumentLinesTable.quantity,
+      unit: billingDocumentLinesTable.unit,
+      unitPriceWithoutVat: billingDocumentLinesTable.unitPriceWithoutVat,
+      totalWithoutVat: billingDocumentLinesTable.totalWithoutVat,
+      approved: billingDocumentLinesTable.approved,
+      sortOrder: billingDocumentLinesTable.sortOrder,
+    })
+    .from(billingDocumentLinesTable)
+    .innerJoin(billingDocumentsTable, eq(billingDocumentLinesTable.documentId, billingDocumentsTable.id))
+    .where(and(...conditions))
+    .orderBy(billingDocumentsTable.documentNumber, billingDocumentLinesTable.sortOrder)
+    .limit(100);
+
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      quantity: r.quantity != null ? Number(r.quantity) : null,
+      unitPriceWithoutVat: Number(r.unitPriceWithoutVat),
+      totalWithoutVat: Number(r.totalWithoutVat),
+      approved: r.approved === 1,
+    })),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Link/unlink a job-material row to a billing-document line (admin only).
+// Linking records where the purchase price came from so margin is trackable.
+// The selling pricePerUnit stays unchanged — only the provenance link is set.
+// ---------------------------------------------------------------------------
+
+router.patch("/materials/:materialId/link-document", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = LinkMaterialToDocumentParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+
+  const parsed = LinkMaterialToDocumentBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+  const { materialId } = params.data;
+  const { billingDocumentLineId } = parsed.data;
+  const actor = actorOf(req);
+
+  const [existing] = await db
+    .select()
+    .from(materialsTable)
+    .where(eq(materialsTable.id, materialId));
+  if (!existing) { res.status(404).json({ error: "Material not found" }); return; }
+
+  let updateData: Record<string, unknown>;
+
+  if (billingDocumentLineId != null) {
+    // Verify the billing document line exists and is approved.
+    const [line] = await db
+      .select({
+        id: billingDocumentLinesTable.id,
+        documentId: billingDocumentLinesTable.documentId,
+        approved: billingDocumentLinesTable.approved,
+        supplierName: billingDocumentsTable.supplierName,
+        issueDate: billingDocumentsTable.issueDate,
+      })
+      .from(billingDocumentLinesTable)
+      .innerJoin(billingDocumentsTable, eq(billingDocumentLinesTable.documentId, billingDocumentsTable.id))
+      .where(eq(billingDocumentLinesTable.id, billingDocumentLineId));
+
+    if (!line) { res.status(404).json({ error: "Billing document line not found" }); return; }
+    if (!line.approved) { res.status(400).json({ error: "Řádek dokladu není schválen." }); return; }
+
+    // Fetch the line's unit price to store as purchase price for margin display.
+    const [linePrice] = await db
+      .select({ unitPriceWithoutVat: billingDocumentLinesTable.unitPriceWithoutVat })
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.id, billingDocumentLineId));
+
+    updateData = {
+      priceSource: "manual_link",
+      priceSourceDocumentId: line.documentId,
+      priceSourceLineId: billingDocumentLineId,
+      priceSourceSupplierName: line.supplierName ?? null,
+      priceSourceDate: line.issueDate ? new Date(line.issueDate) : null,
+      purchasePricePerUnit: linePrice?.unitPriceWithoutVat ?? null,
+    };
+  } else {
+    // Unlink: revert to "manual" provenance and clear all source references.
+    updateData = {
+      priceSource: "manual",
+      priceSourceDocumentId: null,
+      priceSourceLineId: null,
+      priceSourceSupplierName: null,
+      priceSourceDate: null,
+      purchasePricePerUnit: null,
+    };
+  }
+
+  const [updated] = await db
+    .update(materialsTable)
+    .set(updateData)
+    .where(eq(materialsTable.id, materialId))
+    .returning();
+
+  // Audit log.
+  await db.insert(auditLogTable).values({
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    action: billingDocumentLineId != null ? "material_link_document" : "material_unlink_document",
+    entityType: "material",
+    entityId: materialId,
+  });
+
+  res.json(serializeMaterial(updated));
 });
 
 export default router;

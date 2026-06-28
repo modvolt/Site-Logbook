@@ -73,7 +73,7 @@ function addDaysIso(iso: string, days: number): string {
 }
 
 function numericJobFields(data: Record<string, unknown>) {
-  const fields = ["hoursSpent", "hoursBeforePlan", "hoursVasek", "hoursJonas", "price", "transportKm", "transportCost", "fines", "parking"] as const;
+  const fields = ["hoursSpent", "hoursBeforePlan", "hoursVasek", "hoursJonas", "price", "transportKm", "transportCost", "fines", "parking", "contractPrice"] as const;
   const out: Record<string, unknown> = { ...data };
   for (const f of fields) {
     if (f in data) out[f] = toStr(data[f] as number | null | undefined);
@@ -81,6 +81,17 @@ function numericJobFields(data: Record<string, unknown>) {
   // Drizzle timestamp columns require Date objects, not ISO strings
   if ("timerStartedAt" in out && out.timerStartedAt != null) {
     out.timerStartedAt = new Date(out.timerStartedAt as string);
+  }
+  // When switching to fixed_price mode, keep jobs.price in sync with contractPrice
+  // so that unbilledValue in the dashboard and customer balance work correctly.
+  if (out.pricingMode === "fixed_price" && out.contractPrice !== undefined) {
+    out.price = out.contractPrice;
+  }
+  if (out.pricingMode === "time_material") {
+    // Clear contractPrice when reverting to time_material mode.
+    if (!("contractPrice" in data) || out.contractPrice == null) {
+      out.contractPrice = null;
+    }
   }
   return out;
 }
@@ -156,6 +167,7 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     transportCost: job.transportCost != null ? Number(job.transportCost) : null,
     fines: job.fines != null ? Number(job.fines) : null,
     parking: job.parking != null ? Number(job.parking) : null,
+    contractPrice: job.contractPrice != null ? Number(job.contractPrice) : null,
     taskCount: taskCounts?.total ?? 0,
     taskDoneCount: taskCounts?.done ?? 0,
     attachmentCount: attachmentCount?.total ?? 0,
@@ -384,6 +396,10 @@ router.post("/jobs", async (req, res): Promise<void> => {
   }
 
   const values = numericJobFields(parsed.data) as Record<string, unknown>;
+  if (values.pricingMode === "fixed_price" && (values.contractPrice == null || Number(values.contractPrice) <= 0)) {
+    res.status(400).json({ error: `Při způsobu fakturace „Smluvní cena“ je smluvní cena povinná a musí být větší než 0.` });
+    return;
+  }
   if (values.date) {
     const [agg] = await db
       .select({ maxSort: max(jobsTable.sortOrder) })
@@ -513,9 +529,15 @@ router.patch("/jobs/:id", async (req, res): Promise<void> => {
     }
   }
 
+  const updateValues = numericJobFields(parsed.data);
+  if (updateValues.pricingMode === "fixed_price" && (updateValues.contractPrice == null || Number(updateValues.contractPrice) <= 0)) {
+    res.status(400).json({ error: `Při způsobu fakturace „Smluvní cena“ je smluvní cena povinná a musí být větší než 0.` });
+    return;
+  }
+
   const [job] = await db
     .update(jobsTable)
-    .set(numericJobFields(parsed.data) as any)
+    .set(updateValues as any)
     .where(eq(jobsTable.id, params.data.id))
     .returning();
 
