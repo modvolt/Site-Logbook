@@ -612,6 +612,11 @@ export default function Statistika() {
                           stackId="types"
                           fill={TYPE_COLORS[type] ?? "#94a3b8"}
                           radius={0}
+                          opacity={
+                            trendJobType == null || trendJobType === type
+                              ? 1
+                              : 0.2
+                          }
                         />
                       ))}
                     </BarChart>
