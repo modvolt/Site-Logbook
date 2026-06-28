@@ -74,6 +74,10 @@ import type {
   Customer,
   CustomerContact,
   CustomerContactInput,
+  CustomerDocument,
+  CustomerDocumentInput,
+  CustomerDocumentUpdate,
+  CustomerDocumentsSummary,
   CustomerFinancialSummary,
   CustomerImportInput,
   CustomerImportResult,
@@ -154,6 +158,7 @@ import type {
   ListBillingReviewQueueParams,
   ListClientErrorsParams,
   ListCostDocumentsParams,
+  ListCustomerDocumentsParams,
   ListEmailImportMessagesParams,
   ListInvoicesParams,
   ListJobsParams,
@@ -4800,6 +4805,528 @@ export const useDeleteCustomerSiteAttachment = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteCustomerSiteAttachmentMutationOptions(options));
+    }
+
+export const getListCustomerDocumentsUrl = (customerId: number,
+    params?: ListCustomerDocumentsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/customers/${customerId}/documents?${stringifiedParams}` : `/api/customers/${customerId}/documents`
+}
+
+/**
+ * @summary List all documents across all sites of a customer
+ */
+export const listCustomerDocuments = async (customerId: number,
+    params?: ListCustomerDocumentsParams, options?: RequestInit): Promise<CustomerDocument[]> => {
+
+  return customFetch<CustomerDocument[]>(getListCustomerDocumentsUrl(customerId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCustomerDocumentsQueryKey = (customerId: number,
+    params?: ListCustomerDocumentsParams,) => {
+    return [
+    `/api/customers/${customerId}/documents`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListCustomerDocumentsQueryOptions = <TData = Awaited<ReturnType<typeof listCustomerDocuments>>, TError = ErrorType<unknown>>(customerId: number,
+    params?: ListCustomerDocumentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCustomerDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCustomerDocumentsQueryKey(customerId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCustomerDocuments>>> = ({ signal }) => listCustomerDocuments(customerId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(customerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCustomerDocuments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCustomerDocumentsQueryResult = NonNullable<Awaited<ReturnType<typeof listCustomerDocuments>>>
+export type ListCustomerDocumentsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all documents across all sites of a customer
+ */
+
+export function useListCustomerDocuments<TData = Awaited<ReturnType<typeof listCustomerDocuments>>, TError = ErrorType<unknown>>(
+ customerId: number,
+    params?: ListCustomerDocumentsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCustomerDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCustomerDocumentsQueryOptions(customerId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateCustomerDocumentUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/customers/${customerId}/documents`
+}
+
+/**
+ * @summary Add a document to a customer (optionally linked to a site)
+ */
+export const createCustomerDocument = async (customerId: number,
+    customerDocumentInput: CustomerDocumentInput, options?: RequestInit): Promise<CustomerDocument> => {
+
+  return customFetch<CustomerDocument>(getCreateCustomerDocumentUrl(customerId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      customerDocumentInput,)
+  }
+);}
+
+
+
+
+export const getCreateCustomerDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerDocument>>, TError,{customerId: number;data: BodyType<CustomerDocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCustomerDocument>>, TError,{customerId: number;data: BodyType<CustomerDocumentInput>}, TContext> => {
+
+const mutationKey = ['createCustomerDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCustomerDocument>>, {customerId: number;data: BodyType<CustomerDocumentInput>}> = (props) => {
+          const {customerId,data} = props ?? {};
+
+          return  createCustomerDocument(customerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCustomerDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof createCustomerDocument>>>
+    export type CreateCustomerDocumentMutationBody = BodyType<CustomerDocumentInput>
+    export type CreateCustomerDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a document to a customer (optionally linked to a site)
+ */
+export const useCreateCustomerDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerDocument>>, TError,{customerId: number;data: BodyType<CustomerDocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCustomerDocument>>,
+        TError,
+        {customerId: number;data: BodyType<CustomerDocumentInput>},
+        TContext
+      > => {
+      return useMutation(getCreateCustomerDocumentMutationOptions(options));
+    }
+
+export const getGetCustomerDocumentsSummaryUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/customers/${customerId}/documents/summary`
+}
+
+/**
+ * @summary Aggregated document counts (current / expiring / expired / no-expiry)
+ */
+export const getCustomerDocumentsSummary = async (customerId: number, options?: RequestInit): Promise<CustomerDocumentsSummary> => {
+
+  return customFetch<CustomerDocumentsSummary>(getGetCustomerDocumentsSummaryUrl(customerId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCustomerDocumentsSummaryQueryKey = (customerId: number,) => {
+    return [
+    `/api/customers/${customerId}/documents/summary`
+    ] as const;
+    }
+
+
+export const getGetCustomerDocumentsSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getCustomerDocumentsSummary>>, TError = ErrorType<unknown>>(customerId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerDocumentsSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCustomerDocumentsSummaryQueryKey(customerId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomerDocumentsSummary>>> = ({ signal }) => getCustomerDocumentsSummary(customerId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(customerId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCustomerDocumentsSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCustomerDocumentsSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getCustomerDocumentsSummary>>>
+export type GetCustomerDocumentsSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Aggregated document counts (current / expiring / expired / no-expiry)
+ */
+
+export function useGetCustomerDocumentsSummary<TData = Awaited<ReturnType<typeof getCustomerDocumentsSummary>>, TError = ErrorType<unknown>>(
+ customerId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerDocumentsSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCustomerDocumentsSummaryQueryOptions(customerId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateCustomerDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/customer-documents/${id}`
+}
+
+/**
+ * @summary Update metadata of a customer document
+ */
+export const updateCustomerDocument = async (id: number,
+    customerDocumentUpdate: CustomerDocumentUpdate, options?: RequestInit): Promise<CustomerDocument> => {
+
+  return customFetch<CustomerDocument>(getUpdateCustomerDocumentUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      customerDocumentUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateCustomerDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCustomerDocument>>, TError,{id: number;data: BodyType<CustomerDocumentUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCustomerDocument>>, TError,{id: number;data: BodyType<CustomerDocumentUpdate>}, TContext> => {
+
+const mutationKey = ['updateCustomerDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCustomerDocument>>, {id: number;data: BodyType<CustomerDocumentUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateCustomerDocument(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCustomerDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof updateCustomerDocument>>>
+    export type UpdateCustomerDocumentMutationBody = BodyType<CustomerDocumentUpdate>
+    export type UpdateCustomerDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Update metadata of a customer document
+ */
+export const useUpdateCustomerDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCustomerDocument>>, TError,{id: number;data: BodyType<CustomerDocumentUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCustomerDocument>>,
+        TError,
+        {id: number;data: BodyType<CustomerDocumentUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateCustomerDocumentMutationOptions(options));
+    }
+
+export const getDeleteCustomerDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/customer-documents/${id}`
+}
+
+/**
+ * @summary Permanently delete a customer document (master only) — audited, removes DB record and object from storage
+ */
+export const deleteCustomerDocument = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteCustomerDocumentUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteCustomerDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCustomerDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteCustomerDocument>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteCustomerDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteCustomerDocument>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteCustomerDocument(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteCustomerDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof deleteCustomerDocument>>>
+
+    export type DeleteCustomerDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Permanently delete a customer document (master only) — audited, removes DB record and object from storage
+ */
+export const useDeleteCustomerDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteCustomerDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteCustomerDocument>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteCustomerDocumentMutationOptions(options));
+    }
+
+export const getArchiveCustomerDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/customer-documents/${id}/archive`
+}
+
+/**
+ * @summary Archive a customer document — sets status=archived and archived_at
+ */
+export const archiveCustomerDocument = async (id: number, options?: RequestInit): Promise<CustomerDocument> => {
+
+  return customFetch<CustomerDocument>(getArchiveCustomerDocumentUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getArchiveCustomerDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof archiveCustomerDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof archiveCustomerDocument>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['archiveCustomerDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof archiveCustomerDocument>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  archiveCustomerDocument(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ArchiveCustomerDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof archiveCustomerDocument>>>
+
+    export type ArchiveCustomerDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Archive a customer document — sets status=archived and archived_at
+ */
+export const useArchiveCustomerDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof archiveCustomerDocument>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof archiveCustomerDocument>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getArchiveCustomerDocumentMutationOptions(options));
+    }
+
+export const getReplaceCustomerDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/customer-documents/${id}/replace`
+}
+
+/**
+ * @summary Replace a document with a new version — archives old record, returns new one linked by replacesAttachmentId
+ */
+export const replaceCustomerDocument = async (id: number,
+    customerDocumentInput: CustomerDocumentInput, options?: RequestInit): Promise<CustomerDocument> => {
+
+  return customFetch<CustomerDocument>(getReplaceCustomerDocumentUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      customerDocumentInput,)
+  }
+);}
+
+
+
+
+export const getReplaceCustomerDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceCustomerDocument>>, TError,{id: number;data: BodyType<CustomerDocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replaceCustomerDocument>>, TError,{id: number;data: BodyType<CustomerDocumentInput>}, TContext> => {
+
+const mutationKey = ['replaceCustomerDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replaceCustomerDocument>>, {id: number;data: BodyType<CustomerDocumentInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  replaceCustomerDocument(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplaceCustomerDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof replaceCustomerDocument>>>
+    export type ReplaceCustomerDocumentMutationBody = BodyType<CustomerDocumentInput>
+    export type ReplaceCustomerDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Replace a document with a new version — archives old record, returns new one linked by replacesAttachmentId
+ */
+export const useReplaceCustomerDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceCustomerDocument>>, TError,{id: number;data: BodyType<CustomerDocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replaceCustomerDocument>>,
+        TError,
+        {id: number;data: BodyType<CustomerDocumentInput>},
+        TContext
+      > => {
+      return useMutation(getReplaceCustomerDocumentMutationOptions(options));
     }
 
 export const getListDeviceCredentialsUrl = (customerId: number,) => {

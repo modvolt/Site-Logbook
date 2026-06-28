@@ -1092,6 +1092,8 @@ export interface CustomerSiteInput {
 export interface CustomerSiteAttachment {
   id: number;
   siteId: number;
+  /** @nullable */
+  customerId?: number | null;
   /** projektova_dokumentace | revize | ostatni */
   type: string;
   /** @nullable */
@@ -1104,6 +1106,35 @@ export interface CustomerSiteAttachment {
   /** @nullable */
   description?: string | null;
   createdAt: string;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  revision?: string | null;
+  /** @nullable */
+  issuedAt?: string | null;
+  /** @nullable */
+  validFrom?: string | null;
+  /** @nullable */
+  validUntil?: string | null;
+  docStatus?: string;
+  /** @nullable */
+  tags?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  fileSize?: number | null;
+  /** @nullable */
+  sha256?: string | null;
+  /** @nullable */
+  uploadedByUserId?: number | null;
+  /** @nullable */
+  uploadedByNameSnapshot?: string | null;
+  /** @nullable */
+  updatedAt?: string | null;
+  /** @nullable */
+  archivedAt?: string | null;
 }
 
 export interface CustomerSiteAttachmentInput {
@@ -1114,6 +1145,163 @@ export interface CustomerSiteAttachmentInput {
   url?: string | null;
   /** @nullable */
   description?: string | null;
+}
+
+export type CustomerDocumentDocStatus = typeof CustomerDocumentDocStatus[keyof typeof CustomerDocumentDocStatus];
+
+
+export const CustomerDocumentDocStatus = {
+  current: 'current',
+  expiring: 'expiring',
+  expired: 'expired',
+  replaced: 'replaced',
+  archived: 'archived',
+} as const;
+
+export interface CustomerDocument {
+  id: number;
+  /**
+     * customer_sites.id (null for customer-level docs)
+     * @nullable
+     */
+  siteId: number | null;
+  /** @nullable */
+  siteName?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** projektova_dokumentace | revize | ostatni | … */
+  type: string;
+  /** @nullable */
+  fileName?: string | null;
+  /**
+     * object storage path
+     * @nullable
+     */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  revision?: string | null;
+  /**
+     * YYYY-MM-DD
+     * @nullable
+     */
+  issuedAt?: string | null;
+  /**
+     * YYYY-MM-DD
+     * @nullable
+     */
+  validFrom?: string | null;
+  /**
+     * YYYY-MM-DD
+     * @nullable
+     */
+  validUntil?: string | null;
+  docStatus: CustomerDocumentDocStatus;
+  /** @nullable */
+  replacesAttachmentId?: number | null;
+  /** @nullable */
+  tags?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  fileSize?: number | null;
+  /** @nullable */
+  sha256?: string | null;
+  /** @nullable */
+  uploadedByUserId?: number | null;
+  /** @nullable */
+  uploadedByNameSnapshot?: string | null;
+  createdAt: string;
+  /** @nullable */
+  updatedAt?: string | null;
+  /** @nullable */
+  archivedAt?: string | null;
+}
+
+export interface CustomerDocumentInput {
+  /** @nullable */
+  siteId?: number | null;
+  type: string;
+  /** @minLength 1 */
+  title: string;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  revision?: string | null;
+  /** @nullable */
+  issuedAt?: string | null;
+  /** @nullable */
+  validFrom?: string | null;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  tags?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  fileSize?: number | null;
+  /** @nullable */
+  sha256?: string | null;
+}
+
+export interface CustomerDocumentsSummary {
+  current: number;
+  /** Documents expiring within 60 days (not yet expired) */
+  expiringSoon: number;
+  expired: number;
+  /** Non-archived documents without a validUntil date */
+  noExpiry: number;
+  total: number;
+  /**
+     * ISO date of the nearest upcoming expiry (YYYY-MM-DD)
+     * @nullable
+     */
+  nextExpiry?: string | null;
+}
+
+export type CustomerDocumentUpdateDocStatus = typeof CustomerDocumentUpdateDocStatus[keyof typeof CustomerDocumentUpdateDocStatus];
+
+
+export const CustomerDocumentUpdateDocStatus = {
+  current: 'current',
+  expiring: 'expiring',
+  expired: 'expired',
+  replaced: 'replaced',
+  archived: 'archived',
+} as const;
+
+export interface CustomerDocumentUpdate {
+  type?: string;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  revision?: string | null;
+  /** @nullable */
+  issuedAt?: string | null;
+  /** @nullable */
+  validFrom?: string | null;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  tags?: string | null;
+  docStatus?: CustomerDocumentUpdateDocStatus;
 }
 
 export interface JablotronUser {
@@ -1656,6 +1844,10 @@ export interface RiskSummary {
   machinesInspectionSoon: RiskMetric;
   /** Customers with at least one done unbilled job older than 7 days. */
   overdueUnbilledCustomers: RiskMetric;
+  /** Customer site documents whose validUntil has passed and are not archived/replaced. */
+  customerDocumentsExpired: RiskMetric;
+  /** Customer site documents expiring within 60 days (not yet expired, not archived/replaced). */
+  customerDocumentsExpiringSoon: RiskMetric;
   /** The staleness threshold (days) used for this response. */
   staleDays: number;
   /** ISO timestamp when this summary was computed. */
@@ -4600,6 +4792,20 @@ trendCustomerId?: number;
  * Filter the 6-month trend by job type (e.g. site_visit, planned_work)
  */
 trendJobType?: string;
+};
+
+export type ListCustomerDocumentsParams = {
+/**
+ * @nullable
+ */
+siteId?: number | null;
+type?: string;
+status?: string;
+/**
+ * current | expiring | expired | noexpiry
+ */
+validity?: string;
+search?: string;
 };
 
 export type ListWarehouseItemsParams = {

@@ -32,6 +32,7 @@ import {
   UserX,
   Tag,
   FileMinus,
+  FileText,
   Clock,
   Wrench,
   TrendingUp,
@@ -1026,6 +1027,23 @@ export default function Statistika() {
                         label="Stroje — revize do 30 dní"
                         count={risks.machinesInspectionSoon.count}
                         href={buildRiskUrl(risks.machinesInspectionSoon.filter)}
+                      />
+                    )}
+                    {risks.customerDocumentsExpired && risks.customerDocumentsExpired.count > 0 && (
+                      <RiskStatRow
+                        icon={<FileText className="w-3.5 h-3.5" />}
+                        label="Zákaznické dokumenty — prošlá platnost"
+                        count={risks.customerDocumentsExpired.count}
+                        href={buildRiskUrl(risks.customerDocumentsExpired.filter)}
+                        urgent
+                      />
+                    )}
+                    {risks.customerDocumentsExpiringSoon && risks.customerDocumentsExpiringSoon.count > 0 && (
+                      <RiskStatRow
+                        icon={<FileText className="w-3.5 h-3.5" />}
+                        label="Zákaznické dokumenty — platnost do 60 dní"
+                        count={risks.customerDocumentsExpiringSoon.count}
+                        href={buildRiskUrl(risks.customerDocumentsExpiringSoon.filter)}
                       />
                     )}
                   </tbody>

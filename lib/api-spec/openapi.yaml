@@ -1412,6 +1412,189 @@ paths:
         "404":
           description: Not found
 
+  /customers/{customerId}/documents:
+    get:
+      operationId: listCustomerDocuments
+      tags: [customers]
+      summary: List all documents across all sites of a customer
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: siteId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: validity
+          in: query
+          required: false
+          description: "current | expiring | expired | noexpiry"
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Customer documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomerDocument"
+    post:
+      operationId: createCustomerDocument
+      tags: [customers]
+      summary: Add a document to a customer (optionally linked to a site)
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerDocumentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDocument"
+        "409":
+          description: Duplicate SHA-256 already exists for this customer
+
+  /customers/{customerId}/documents/summary:
+    get:
+      operationId: getCustomerDocumentsSummary
+      tags: [customers]
+      summary: Aggregated document counts (current / expiring / expired / no-expiry)
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDocumentsSummary"
+
+  /customer-documents/{id}:
+    patch:
+      operationId: updateCustomerDocument
+      tags: [customers]
+      summary: Update metadata of a customer document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerDocumentUpdate"
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDocument"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCustomerDocument
+      tags: [customers]
+      summary: Permanently delete a customer document (master only) — audited, removes DB record and object from storage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /customer-documents/{id}/archive:
+    post:
+      operationId: archiveCustomerDocument
+      tags: [customers]
+      summary: Archive a customer document — sets status=archived and archived_at
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Archived document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDocument"
+        "404":
+          description: Not found
+
+  /customer-documents/{id}/replace:
+    post:
+      operationId: replaceCustomerDocument
+      tags: [customers]
+      summary: Replace a document with a new version — archives old record, returns new one linked by replacesAttachmentId
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerDocumentInput"
+      responses:
+        "201":
+          description: New document (old archived)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDocument"
+        "404":
+          description: Not found
+
   /customers/{customerId}/device-credentials:
     get:
       operationId: listDeviceCredentials
@@ -7176,6 +7359,8 @@ components:
           type: integer
         siteId:
           type: integer
+        customerId:
+          type: ["integer", "null"]
         type:
           type: string
           description: "projektova_dokumentace | revize | ostatni"
@@ -7188,6 +7373,36 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+        title:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        revision:
+          type: ["string", "null"]
+        issuedAt:
+          type: ["string", "null"]
+        validFrom:
+          type: ["string", "null"]
+        validUntil:
+          type: ["string", "null"]
+        docStatus:
+          type: string
+        tags:
+          type: ["string", "null"]
+        mimeType:
+          type: ["string", "null"]
+        fileSize:
+          type: ["integer", "null"]
+        sha256:
+          type: ["string", "null"]
+        uploadedByUserId:
+          type: ["integer", "null"]
+        uploadedByNameSnapshot:
+          type: ["string", "null"]
+        updatedAt:
+          type: ["string", "null"]
+        archivedAt:
+          type: ["string", "null"]
 
     CustomerSiteAttachmentInput:
       type: object
@@ -7201,6 +7416,151 @@ components:
           type: ["string", "null"]
         description:
           type: ["string", "null"]
+
+    CustomerDocument:
+      type: object
+      required: [id, siteId, type, docStatus, createdAt]
+      properties:
+        id:
+          type: integer
+        siteId:
+          type: ["integer", "null"]
+          description: customer_sites.id (null for customer-level docs)
+        siteName:
+          type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+        type:
+          type: string
+          description: "projektova_dokumentace | revize | ostatni | …"
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+          description: object storage path
+        description:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        revision:
+          type: ["string", "null"]
+        issuedAt:
+          type: ["string", "null"]
+          description: YYYY-MM-DD
+        validFrom:
+          type: ["string", "null"]
+          description: YYYY-MM-DD
+        validUntil:
+          type: ["string", "null"]
+          description: YYYY-MM-DD
+        docStatus:
+          type: string
+          enum: [current, expiring, expired, replaced, archived]
+        replacesAttachmentId:
+          type: ["integer", "null"]
+        tags:
+          type: ["string", "null"]
+        mimeType:
+          type: ["string", "null"]
+        fileSize:
+          type: ["integer", "null"]
+        sha256:
+          type: ["string", "null"]
+        uploadedByUserId:
+          type: ["integer", "null"]
+        uploadedByNameSnapshot:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: ["string", "null"]
+        archivedAt:
+          type: ["string", "null"]
+
+    CustomerDocumentInput:
+      type: object
+      required: [type, title]
+      properties:
+        siteId:
+          type: ["integer", "null"]
+        type:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        revision:
+          type: ["string", "null"]
+        issuedAt:
+          type: ["string", "null"]
+        validFrom:
+          type: ["string", "null"]
+        validUntil:
+          type: ["string", "null"]
+        tags:
+          type: ["string", "null"]
+        mimeType:
+          type: ["string", "null"]
+        fileSize:
+          type: ["integer", "null"]
+        sha256:
+          type: ["string", "null"]
+
+    CustomerDocumentUpdate:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: ["string", "null"]
+        fileName:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        revision:
+          type: ["string", "null"]
+        issuedAt:
+          type: ["string", "null"]
+        validFrom:
+          type: ["string", "null"]
+        validUntil:
+          type: ["string", "null"]
+        tags:
+          type: ["string", "null"]
+        docStatus:
+          type: string
+          enum: [current, expiring, expired, replaced, archived]
+
+    CustomerDocumentsSummary:
+      type: object
+      required: [current, expiringSoon, expired, noExpiry, total]
+      properties:
+        current:
+          type: integer
+        expiringSoon:
+          type: integer
+          description: Documents expiring within 60 days (not yet expired)
+        expired:
+          type: integer
+        noExpiry:
+          type: integer
+          description: Non-archived documents without a validUntil date
+        total:
+          type: integer
+        nextExpiry:
+          type: ["string", "null"]
+          description: ISO date of the nearest upcoming expiry (YYYY-MM-DD)
 
     JablotronUser:
       type: object
@@ -11536,6 +11896,8 @@ components:
         - machinesInspectionExpired
         - machinesInspectionSoon
         - overdueUnbilledCustomers
+        - customerDocumentsExpired
+        - customerDocumentsExpiringSoon
         - staleDays
         - computedAt
       properties:
@@ -11569,6 +11931,12 @@ components:
         overdueUnbilledCustomers:
           $ref: "#/components/schemas/RiskMetric"
           description: Customers with at least one done unbilled job older than 7 days.
+        customerDocumentsExpired:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Customer site documents whose validUntil has passed and are not archived/replaced.
+        customerDocumentsExpiringSoon:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Customer site documents expiring within 60 days (not yet expired, not archived/replaced).
         staleDays:
           type: integer
           description: The staleness threshold (days) used for this response.

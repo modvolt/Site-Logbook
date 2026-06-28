@@ -10,6 +10,7 @@ import {
   machinesTable,
   invoicesTable,
   invoiceSourceLinksTable,
+  customerSiteAttachmentsTable,
 } from "@workspace/db";
 import { num, round2 } from "../lib/invoice-calc";
 import { requireRole } from "../middlewares/auth";
@@ -83,6 +84,8 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
     machinesSoonRows,
     unbilledDoneRows,
     overdueUnbilledCustomersRows,
+    customerDocsExpiredRows,
+    customerDocsExpiringSoonRows,
   ] = await Promise.all([
     db
       .select({ c: count() })
@@ -196,6 +199,29 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
               lt(jobsTable.date, overdueUnbilledThreshold),
             ),
           ),
+
+    db
+      .select({ c: count() })
+      .from(customerSiteAttachmentsTable)
+      .where(
+        and(
+          isNull(customerSiteAttachmentsTable.archivedAt),
+          isNotNull(customerSiteAttachmentsTable.validUntil),
+          lt(customerSiteAttachmentsTable.validUntil, today),
+        ),
+      ),
+
+    db
+      .select({ c: count() })
+      .from(customerSiteAttachmentsTable)
+      .where(
+        and(
+          isNull(customerSiteAttachmentsTable.archivedAt),
+          isNotNull(customerSiteAttachmentsTable.validUntil),
+          gte(customerSiteAttachmentsTable.validUntil, today),
+          lte(customerSiteAttachmentsTable.validUntil, inspectionSoonThreshold),
+        ),
+      ),
   ]);
 
   const confirmedJobLinkedDocIds = await db
@@ -265,6 +291,16 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
     overdueUnbilledCustomers: metric(
       overdueUnbilledCustomersRows[0]?.c ?? 0,
       "billing/unbilled",
+    ),
+    customerDocumentsExpired: metric(
+      customerDocsExpiredRows[0]?.c ?? 0,
+      "customers",
+      { validity: "expired" },
+    ),
+    customerDocumentsExpiringSoon: metric(
+      customerDocsExpiringSoonRows[0]?.c ?? 0,
+      "customers",
+      { validity: "expiring" },
     ),
     staleDays,
     computedAt: new Date().toISOString(),

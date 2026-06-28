@@ -330,6 +330,13 @@
       "when": 1783800000001,
       "tag": "0045_people_email_ppe_confirm_email",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1784100000000,
+      "tag": "0046_customer_documents",
+      "breakpoints": true
     }
   ]
 }

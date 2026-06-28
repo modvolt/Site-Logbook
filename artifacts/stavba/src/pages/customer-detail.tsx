@@ -11,6 +11,9 @@ import {
   useGetCustomerFinancialSummary, getGetCustomerFinancialSummaryQueryKey,
   getListCustomersQueryKey, getListJobsQueryKey,
   getListCustomerContactsQueryKey, getListCustomerSitesQueryKey,
+  useListCustomerDocuments, useGetCustomerDocumentsSummary,
+  getListCustomerDocumentsQueryKey, getGetCustomerDocumentsSummaryQueryKey,
+  useCreateCustomerDocument, useArchiveCustomerDocument, useDeleteCustomerDocument,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
@@ -23,6 +26,7 @@ import {
   ArrowLeft, Building2, Phone, User, Edit3, Save, X, Plus,
   Briefcase, ChevronRight, Trash2, Hash, FileText, MapPin, Mail, Users, Store,
   KeyRound, Receipt, FileCheck, Clock, ExternalLink, Banknote, CalendarCheck, RefreshCw,
+  FolderOpen, ShieldAlert, Archive,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
@@ -67,6 +71,12 @@ export default function CustomerDetail() {
   const { data: sites, isLoading: loadingSites } = useListCustomerSites(id, {
     query: { queryKey: getListCustomerSitesQueryKey(id), enabled: id > 0 },
   });
+  const { data: customerDocs, isLoading: loadingDocs } = useListCustomerDocuments(id, {}, {
+    query: { queryKey: getListCustomerDocumentsQueryKey(id, {}), enabled: id > 0 },
+  });
+  const { data: docSummary } = useGetCustomerDocumentsSummary(id, {
+    query: { queryKey: getGetCustomerDocumentsSummaryQueryKey(id), enabled: id > 0 },
+  });
 
   const isAdminRole = role === "admin" || role === "master";
   const { data: financialSummary, isLoading: loadingFinancial } = useGetCustomerFinancialSummary(id, {
@@ -81,6 +91,9 @@ export default function CustomerDetail() {
   const createSite = useCreateCustomerSite();
   const updateSite = useUpdateCustomerSite();
   const deleteSite = useDeleteCustomerSite();
+  const createDoc = useCreateCustomerDocument();
+  const archiveDoc = useArchiveCustomerDocument();
+  const deleteDoc = useDeleteCustomerDocument();
 
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -102,8 +115,13 @@ export default function CustomerDetail() {
   const [editSite, setEditSite] = useState<SiteForm>(emptySite);
   const [editSiteErrors, setEditSiteErrors] = useState<Record<string, string>>({});
 
+  const [showAddDoc, setShowAddDoc] = useState(false);
+  const [newDoc, setNewDoc] = useState({ type: "ostatni", title: "", description: "", validUntil: "" });
+  const [newDocErrors, setNewDocErrors] = useState<Record<string, string>>({});
+
   const invalidateContacts = () => invalidateData(queryClient, "customers");
   const invalidateSites = () => invalidateData(queryClient, "customers");
+  const invalidateDocs = () => invalidateData(queryClient, "customers");
 
   const startEdit = () => {
     if (!customer) return;
@@ -357,6 +375,50 @@ export default function CustomerDetail() {
         onError: () => toast({ title: "Nepodařilo se smazat stavbu", variant: "destructive" }),
       }
     );
+    });
+  };
+
+  const handleAddDoc = () => {
+    const errors: Record<string, string> = {};
+    if (!newDoc.title.trim()) errors.title = "Název je povinný";
+    if (!newDoc.type.trim()) errors.type = "Typ je povinný";
+    if (Object.keys(errors).length > 0) { setNewDocErrors(errors); return; }
+    setNewDocErrors({});
+    createDoc.mutate(
+      { customerId: id, data: { type: newDoc.type, title: newDoc.title, description: newDoc.description || undefined, validUntil: newDoc.validUntil || undefined } },
+      {
+        onSuccess: () => {
+          invalidateDocs();
+          setShowAddDoc(false);
+          setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" });
+          toast({ title: "Dokument přidán" });
+        },
+        onError: () => toast({ title: "Nepodařilo se přidat dokument", variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleArchiveDoc = (docId: number) => {
+    openConfirm("Archivovat dokument?", () => {
+      archiveDoc.mutate(
+        { id: docId },
+        {
+          onSuccess: () => { invalidateDocs(); toast({ title: "Dokument archivován" }); },
+          onError: () => toast({ title: "Nepodařilo se archivovat dokument", variant: "destructive" }),
+        }
+      );
+    });
+  };
+
+  const handleDeleteDoc = (docId: number) => {
+    openConfirm("Trvale smazat dokument? Tato akce je nevratná.", () => {
+      deleteDoc.mutate(
+        { id: docId },
+        {
+          onSuccess: () => { invalidateDocs(); toast({ title: "Dokument smazán" }); },
+          onError: () => toast({ title: "Nepodařilo se smazat dokument", variant: "destructive" }),
+        }
+      );
     });
   };
 
@@ -1091,6 +1153,138 @@ export default function CustomerDetail() {
           ) : (
             <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-xl border-muted text-sm">
               Žádné stavby ani pobočky.
+            </div>
+          )}
+        </div>
+
+        {/* Dokumentace */}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold flex items-center gap-2">
+            <FolderOpen className="h-4 w-4 text-emerald-500" /> Dokumentace
+            {docSummary && docSummary.total > 0 && (
+              <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground ml-1">
+                <span>{docSummary.total} celkem</span>
+                {docSummary.expired > 0 && (
+                  <span className="flex items-center gap-0.5 text-destructive font-medium">
+                    <ShieldAlert className="h-3 w-3" />{docSummary.expired} prošlé
+                  </span>
+                )}
+                {docSummary.expiringSoon > 0 && (
+                  <span className="text-amber-600 font-medium">{docSummary.expiringSoon} brzy vyprší</span>
+                )}
+              </span>
+            )}
+          </h2>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9"
+            onClick={() => { setShowAddDoc(true); setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" }); setNewDocErrors({}); }}
+          >
+            <Plus className="h-4 w-4 mr-1" /> Přidat
+          </Button>
+        </div>
+
+        {showAddDoc && (
+          <Card className="mb-3 border-primary/30 bg-primary/5">
+            <CardContent className="p-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <Input
+                    value={newDoc.title}
+                    onChange={(e) => { setNewDoc((p) => ({ ...p, title: e.target.value })); if (newDocErrors.title) setNewDocErrors((p) => ({ ...p, title: "" })); }}
+                    placeholder="Název dokumentu *"
+                    className={`h-11${newDocErrors.title ? " border-destructive" : ""}`}
+                    autoFocus
+                  />
+                  {newDocErrors.title && <p className="text-sm text-destructive mt-1">{newDocErrors.title}</p>}
+                </div>
+                <select
+                  value={newDoc.type}
+                  onChange={(e) => setNewDoc((p) => ({ ...p, type: e.target.value }))}
+                  className="h-11 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="ostatni">Ostatní</option>
+                  <option value="projektova_dokumentace">Projektová dokumentace</option>
+                  <option value="revize">Revize</option>
+                  <option value="certifikat">Certifikát</option>
+                  <option value="smlouva">Smlouva</option>
+                </select>
+              </div>
+              <Input
+                value={newDoc.description}
+                onChange={(e) => setNewDoc((p) => ({ ...p, description: e.target.value }))}
+                placeholder="Popis (volitelné)"
+                className="h-11"
+              />
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Platnost do</label>
+                <Input
+                  type="date"
+                  value={newDoc.validUntil}
+                  onChange={(e) => setNewDoc((p) => ({ ...p, validUntil: e.target.value }))}
+                  className="h-11"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleAddDoc} disabled={createDoc.isPending} className="h-9">
+                  <Save className="h-4 w-4 mr-1" /> Uložit
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setShowAddDoc(false); setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" }); setNewDocErrors({}); }} className="h-9">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="space-y-2 mb-6">
+          {loadingDocs ? (
+            <Skeleton className="h-16 w-full" />
+          ) : customerDocs && customerDocs.length > 0 ? (
+            customerDocs.map((doc) => {
+              const isExpired = doc.docStatus === "expired";
+              const isExpiring = doc.docStatus === "expiring";
+              const isArchived = doc.docStatus === "archived";
+              return (
+                <Card key={doc.id} className={isExpired ? "border-destructive/40" : isExpiring ? "border-amber-400/60" : ""}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className={`font-semibold truncate${isArchived ? " text-muted-foreground line-through" : ""}`}>{doc.title ?? doc.fileName ?? "—"}</p>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">{doc.type}</span>
+                          {isExpired && <span className="text-xs px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium shrink-0 flex items-center gap-1"><ShieldAlert className="h-3 w-3" />prošlé</span>}
+                          {isExpiring && <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-medium shrink-0">brzy vyprší</span>}
+                          {isArchived && <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">archivováno</span>}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                          {doc.siteName && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{doc.siteName}</span>}
+                          {doc.validUntil && <span>Platnost do: {doc.validUntil}</span>}
+                          {doc.documentNumber && <span>č. {doc.documentNumber}</span>}
+                        </div>
+                        {doc.description && <p className="text-sm text-muted-foreground mt-1 truncate">{doc.description}</p>}
+                      </div>
+                      {!isArchived && (
+                        <div className="flex gap-1 shrink-0">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Archivovat" onClick={() => handleArchiveDoc(doc.id)}>
+                            <Archive className="h-4 w-4" />
+                          </Button>
+                          {role === "master" && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" title="Smazat" onClick={() => handleDeleteDoc(doc.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })
+          ) : (
+            <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-xl border-muted text-sm">
+              Žádná dokumentace.
             </div>
           )}
         </div>

@@ -1380,11 +1380,27 @@ export const ListCustomerSiteAttachmentsParams = zod.object({
 export const ListCustomerSiteAttachmentsResponseItem = zod.object({
   "id": zod.number(),
   "siteId": zod.number(),
+  "customerId": zod.number().nullish(),
   "type": zod.string().describe('projektova_dokumentace | revize | ostatni'),
   "fileName": zod.string().nullish(),
   "url": zod.string().nullish().describe('object storage path'),
   "description": zod.string().nullish(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "title": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "validFrom": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "docStatus": zod.string().optional(),
+  "tags": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "sha256": zod.string().nullish(),
+  "uploadedByUserId": zod.number().nullish(),
+  "uploadedByNameSnapshot": zod.string().nullish(),
+  "updatedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish()
 })
 export const ListCustomerSiteAttachmentsResponse = zod.array(ListCustomerSiteAttachmentsResponseItem)
 
@@ -1410,6 +1426,220 @@ export const CreateCustomerSiteAttachmentBody = zod.object({
 export const DeleteCustomerSiteAttachmentParams = zod.object({
   "siteId": zod.coerce.number(),
   "attachmentId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List all documents across all sites of a customer
+ */
+export const ListCustomerDocumentsParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const ListCustomerDocumentsQueryParams = zod.object({
+  "siteId": zod.coerce.number().nullish(),
+  "type": zod.coerce.string().optional(),
+  "status": zod.coerce.string().optional(),
+  "validity": zod.coerce.string().optional().describe('current | expiring | expired | noexpiry'),
+  "search": zod.coerce.string().optional()
+})
+
+export const ListCustomerDocumentsResponseItem = zod.object({
+  "id": zod.number(),
+  "siteId": zod.number().nullable().describe('customer_sites.id (null for customer-level docs)'),
+  "siteName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "type": zod.string().describe('projektova_dokumentace | revize | ostatni | …'),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish().describe('object storage path'),
+  "description": zod.string().nullish(),
+  "title": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish().describe('YYYY-MM-DD'),
+  "validFrom": zod.string().nullish().describe('YYYY-MM-DD'),
+  "validUntil": zod.string().nullish().describe('YYYY-MM-DD'),
+  "docStatus": zod.enum(['current', 'expiring', 'expired', 'replaced', 'archived']),
+  "replacesAttachmentId": zod.number().nullish(),
+  "tags": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "sha256": zod.string().nullish(),
+  "uploadedByUserId": zod.number().nullish(),
+  "uploadedByNameSnapshot": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish()
+})
+export const ListCustomerDocumentsResponse = zod.array(ListCustomerDocumentsResponseItem)
+
+
+/**
+ * @summary Add a document to a customer (optionally linked to a site)
+ */
+export const CreateCustomerDocumentParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+
+
+
+export const CreateCustomerDocumentBody = zod.object({
+  "siteId": zod.number().nullish(),
+  "type": zod.string(),
+  "title": zod.string().min(1),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "validFrom": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "tags": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "sha256": zod.string().nullish()
+})
+
+
+/**
+ * @summary Aggregated document counts (current / expiring / expired / no-expiry)
+ */
+export const GetCustomerDocumentsSummaryParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const GetCustomerDocumentsSummaryResponse = zod.object({
+  "current": zod.number(),
+  "expiringSoon": zod.number().describe('Documents expiring within 60 days (not yet expired)'),
+  "expired": zod.number(),
+  "noExpiry": zod.number().describe('Non-archived documents without a validUntil date'),
+  "total": zod.number(),
+  "nextExpiry": zod.string().nullish().describe('ISO date of the nearest upcoming expiry (YYYY-MM-DD)')
+})
+
+
+/**
+ * @summary Update metadata of a customer document
+ */
+export const UpdateCustomerDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateCustomerDocumentBody = zod.object({
+  "type": zod.string().optional(),
+  "title": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "validFrom": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "tags": zod.string().nullish(),
+  "docStatus": zod.enum(['current', 'expiring', 'expired', 'replaced', 'archived']).optional()
+})
+
+export const UpdateCustomerDocumentResponse = zod.object({
+  "id": zod.number(),
+  "siteId": zod.number().nullable().describe('customer_sites.id (null for customer-level docs)'),
+  "siteName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "type": zod.string().describe('projektova_dokumentace | revize | ostatni | …'),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish().describe('object storage path'),
+  "description": zod.string().nullish(),
+  "title": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish().describe('YYYY-MM-DD'),
+  "validFrom": zod.string().nullish().describe('YYYY-MM-DD'),
+  "validUntil": zod.string().nullish().describe('YYYY-MM-DD'),
+  "docStatus": zod.enum(['current', 'expiring', 'expired', 'replaced', 'archived']),
+  "replacesAttachmentId": zod.number().nullish(),
+  "tags": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "sha256": zod.string().nullish(),
+  "uploadedByUserId": zod.number().nullish(),
+  "uploadedByNameSnapshot": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Permanently delete a customer document (master only) — audited, removes DB record and object from storage
+ */
+export const DeleteCustomerDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Archive a customer document — sets status=archived and archived_at
+ */
+export const ArchiveCustomerDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ArchiveCustomerDocumentResponse = zod.object({
+  "id": zod.number(),
+  "siteId": zod.number().nullable().describe('customer_sites.id (null for customer-level docs)'),
+  "siteName": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "type": zod.string().describe('projektova_dokumentace | revize | ostatni | …'),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish().describe('object storage path'),
+  "description": zod.string().nullish(),
+  "title": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish().describe('YYYY-MM-DD'),
+  "validFrom": zod.string().nullish().describe('YYYY-MM-DD'),
+  "validUntil": zod.string().nullish().describe('YYYY-MM-DD'),
+  "docStatus": zod.enum(['current', 'expiring', 'expired', 'replaced', 'archived']),
+  "replacesAttachmentId": zod.number().nullish(),
+  "tags": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "sha256": zod.string().nullish(),
+  "uploadedByUserId": zod.number().nullish(),
+  "uploadedByNameSnapshot": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Replace a document with a new version — archives old record, returns new one linked by replacesAttachmentId
+ */
+export const ReplaceCustomerDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const ReplaceCustomerDocumentBody = zod.object({
+  "siteId": zod.number().nullish(),
+  "type": zod.string(),
+  "title": zod.string().min(1),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "revision": zod.string().nullish(),
+  "issuedAt": zod.string().nullish(),
+  "validFrom": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "tags": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "sha256": zod.string().nullish()
 })
 
 
@@ -2267,6 +2497,22 @@ export const GetRisksSummaryResponse = zod.object({
   "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
 }).describe('Describes how a UI should navigate to the items counted by this metric.')
 }).describe('Customers with at least one done unbilled job older than 7 days.'),
+  "customerDocumentsExpired": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Customer site documents whose validUntil has passed and are not archived\/replaced.'),
+  "customerDocumentsExpiringSoon": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Customer site documents expiring within 60 days (not yet expired, not archived\/replaced).'),
   "staleDays": zod.number().describe('The staleness threshold (days) used for this response.'),
   "computedAt": zod.string().describe('ISO timestamp when this summary was computed.')
 }).describe('All cross-domain risk metrics computed in one request.')
