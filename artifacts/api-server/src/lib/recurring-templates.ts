@@ -1,4 +1,4 @@
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lte, sql } from "drizzle-orm";
 import {
   db,
   recurringInvoiceTemplatesTable,
@@ -152,6 +152,7 @@ export async function getRecurringTemplateDetail(id: number) {
       id: recurringInvoiceGenerationsTable.id,
       invoiceId: recurringInvoiceGenerationsTable.invoiceId,
       period: recurringInvoiceGenerationsTable.period,
+      errorMessage: recurringInvoiceGenerationsTable.errorMessage,
       createdAt: recurringInvoiceGenerationsTable.createdAt,
       invoiceNumber: invoicesTable.invoiceNumber,
       invoiceStatus: invoicesTable.status,
@@ -277,10 +278,25 @@ export async function runRecurringGeneration(today: string): Promise<{
         skipped++;
       } else {
         failed++;
+        const errorMessage = (err instanceof Error ? err.message : String(err)).slice(0, 500);
         logger.warn(
           { err, templateId: template.id, period },
           "Recurring invoice generation failed",
         );
+        // Record the failure in the generation log so it surfaces on the template detail page
+        try {
+          await db.insert(recurringInvoiceGenerationsTable).values({
+            templateId: template.id,
+            invoiceId: null,
+            period,
+            errorMessage,
+          });
+        } catch (insertErr) {
+          logger.warn(
+            { insertErr, templateId: template.id, period },
+            "Failed to record recurring generation error",
+          );
+        }
       }
     }
   }
@@ -327,7 +343,8 @@ async function generateFromTemplate(
       sql`SELECT pg_advisory_xact_lock(${template.id})`,
     );
 
-    // Dedupe: abort if a draft for this period already exists
+    // Dedupe: abort if a successful draft for this period already exists.
+    // Failure records (invoice_id IS NULL) are informational and don't block retries.
     const [existing] = await tx
       .select({ id: recurringInvoiceGenerationsTable.id })
       .from(recurringInvoiceGenerationsTable)
@@ -335,6 +352,7 @@ async function generateFromTemplate(
         and(
           eq(recurringInvoiceGenerationsTable.templateId, template.id),
           eq(recurringInvoiceGenerationsTable.period, period),
+          isNotNull(recurringInvoiceGenerationsTable.invoiceId),
         ),
       );
     if (existing) {

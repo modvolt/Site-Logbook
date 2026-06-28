@@ -7995,8 +7995,9 @@ export const GetRecurringTemplateResponse = zod.object({
   "generations": zod.array(zod.object({
   "id": zod.number(),
   "templateId": zod.number(),
-  "invoiceId": zod.number(),
+  "invoiceId": zod.number().nullish(),
   "period": zod.string(),
+  "errorMessage": zod.string().nullish(),
   "createdAt": zod.string(),
   "invoiceNumber": zod.string().nullish(),
   "invoiceStatus": zod.string().nullish(),
@@ -8060,8 +8061,9 @@ export const UpdateRecurringTemplateResponse = zod.object({
   "generations": zod.array(zod.object({
   "id": zod.number(),
   "templateId": zod.number(),
-  "invoiceId": zod.number(),
+  "invoiceId": zod.number().nullish(),
   "period": zod.string(),
+  "errorMessage": zod.string().nullish(),
   "createdAt": zod.string(),
   "invoiceNumber": zod.string().nullish(),
   "invoiceStatus": zod.string().nullish(),

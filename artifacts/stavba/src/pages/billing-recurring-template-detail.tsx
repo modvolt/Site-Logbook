@@ -47,6 +47,7 @@ import {
   CalendarClock,
   FileText,
   Zap,
+  XCircle,
 } from "lucide-react";
 import { fmtDate, fmtKc } from "@/lib/billing-format";
 import { InvoiceStatusBadge } from "@/components/badges";
@@ -476,35 +477,55 @@ export default function BillingRecurringTemplateDetail() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {template.generations.map((gen) => (
-                    <button
-                      key={gen.id}
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => setLocation(`/billing/invoices/${gen.invoiceId}`)}
-                    >
-                      <div className="flex items-center justify-between py-2 border-b last:border-0 hover:opacity-80 transition-opacity">
-                        <div className="flex items-center gap-3">
-                          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium">
-                              {gen.invoiceNumber ?? "Koncept"} <span className="text-muted-foreground font-normal">· období {gen.period}</span>
-                            </p>
-                            <p className="text-xs text-muted-foreground">{fmtDate(String(gen.createdAt).split("T")[0] ?? "")}</p>
+                  {template.generations.map((gen) => {
+                    if (gen.invoiceId == null) {
+                      return (
+                        <div key={gen.id} className="flex items-start justify-between py-2 border-b last:border-0">
+                          <div className="flex items-start gap-3">
+                            <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-medium text-destructive">
+                                Generování selhalo <span className="text-muted-foreground font-normal">· období {gen.period}</span>
+                              </p>
+                              {gen.errorMessage && (
+                                <p className="text-xs text-muted-foreground mt-0.5">{gen.errorMessage}</p>
+                              )}
+                              <p className="text-xs text-muted-foreground">{fmtDate(String(gen.createdAt).split("T")[0] ?? "")}</p>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {gen.invoiceStatus && (
-                            <InvoiceStatusBadge status={gen.invoiceStatus} />
-                          )}
-                          {gen.totalWithVat != null && (
-                            <span className="text-sm font-semibold">{fmtKc(Number(gen.totalWithVat))}</span>
-                          )}
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      );
+                    }
+                    return (
+                      <button
+                        key={gen.id}
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => setLocation(`/billing/invoices/${gen.invoiceId}`)}
+                      >
+                        <div className="flex items-center justify-between py-2 border-b last:border-0 hover:opacity-80 transition-opacity">
+                          <div className="flex items-center gap-3">
+                            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <div>
+                              <p className="text-sm font-medium">
+                                {gen.invoiceNumber ?? "Koncept"} <span className="text-muted-foreground font-normal">· období {gen.period}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">{fmtDate(String(gen.createdAt).split("T")[0] ?? "")}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {gen.invoiceStatus && (
+                              <InvoiceStatusBadge status={gen.invoiceStatus} />
+                            )}
+                            {gen.totalWithVat != null && (
+                              <span className="text-sm font-semibold">{fmtKc(Number(gen.totalWithVat))}</span>
+                            )}
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

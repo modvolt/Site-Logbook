@@ -13422,16 +13422,18 @@ components:
 
     RecurringInvoiceGeneration:
       type: object
-      required: [id, templateId, invoiceId, period, createdAt]
+      required: [id, templateId, period, createdAt]
       properties:
         id:
           type: integer
         templateId:
           type: integer
         invoiceId:
-          type: integer
+          type: ["integer", "null"]
         period:
           type: string
+        errorMessage:
+          type: ["string", "null"]
         createdAt:
           type: string
         invoiceNumber:

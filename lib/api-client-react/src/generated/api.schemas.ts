@@ -5023,8 +5023,11 @@ export interface CreateRecurringTemplateInput {
 export interface RecurringInvoiceGeneration {
   id: number;
   templateId: number;
-  invoiceId: number;
+  /** @nullable */
+  invoiceId?: number | null;
   period: string;
+  /** @nullable */
+  errorMessage?: string | null;
   createdAt: string;
   /** @nullable */
   invoiceNumber?: string | null;

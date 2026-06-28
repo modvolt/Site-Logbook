@@ -66,13 +66,13 @@ export const recurringInvoiceGenerationsTable = pgTable(
       .references(() => recurringInvoiceTemplatesTable.id, {
         onDelete: "cascade",
       }),
-    invoiceId: integer("invoice_id").notNull(),
+    invoiceId: integer("invoice_id"),
     period: text("period").notNull(),
+    errorMessage: text("error_message"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
     index("rig_template_id_idx").on(t.templateId),
-    uniqueIndex("rig_template_period_unique").on(t.templateId, t.period),
   ],
 );
 
