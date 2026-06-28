@@ -1,6 +1,6 @@
 {
-  "id": "d4f9a3b5-1e6c-4a7d-8e84-3c4d5f6a7b8c",
-  "prevId": "bbb601f2-7799-40ab-9f9a-f0bc70f4dbf8",
+  "id": "3d080107-ef45-48ca-b636-28708826fa91",
+  "prevId": "dd827aeb-295a-4990-9144-18f71a1be5d9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6588,6 +6588,55 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "signature_token": {
+          "name": "signature_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "signature_object_path": {
+          "name": "signature_object_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "confirm_token_expires_at": {
+          "name": "confirm_token_expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ppe_category_snapshot": {
+          "name": "ppe_category_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ppe_standard_snapshot": {
+          "name": "ppe_standard_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ppe_protection_class_snapshot": {
+          "name": "ppe_protection_class_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ppe_risk_description_snapshot": {
+          "name": "ppe_risk_description_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -6665,6 +6714,17 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ppe_assignments_signature_token_idx": {
+          "name": "ppe_assignments_signature_token_idx",
+          "columns": [
+            "signature_token"
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "\"signature_token\" IS NOT NULL",
+          "nullsNotDistinct": false
         }
       },
       "foreignKeys": {
@@ -6699,6 +6759,265 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "public.ppe_handover_documents": {
+      "name": "ppe_handover_documents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignment_id": {
+          "name": "assignment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "document_number": {
+          "name": "document_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "signatory_name": {
+          "name": "signatory_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "signed_at": {
+          "name": "signed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "confirmation_text": {
+          "name": "confirmation_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "png_object_path": {
+          "name": "png_object_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "png_sha256": {
+          "name": "png_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pdf_object_path": {
+          "name": "pdf_object_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pdf_sha256": {
+          "name": "pdf_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "issuer_snapshot": {
+          "name": "issuer_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ppe_handover_documents_assignment_id_idx": {
+          "name": "ppe_handover_documents_assignment_id_idx",
+          "columns": [
+            "assignment_id"
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "where": null,
+          "nullsNotDistinct": false
+        },
+        "ppe_handover_documents_assignment_version_uniq": {
+          "name": "ppe_handover_documents_assignment_version_uniq",
+          "columns": [
+            "assignment_id",
+            "version"
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": null,
+          "nullsNotDistinct": false
+        }
+      },
+      "foreignKeys": {
+        "ppe_handover_documents_assignment_id_ppe_assignments_id_fk": {
+          "name": "ppe_handover_documents_assignment_id_ppe_assignments_id_fk",
+          "tableFrom": "ppe_handover_documents",
+          "tableTo": "ppe_assignments",
+          "columnsFrom": [
+            "assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false,
+      "checkConstraints": {}
+    },
+    "public.ppe_handover_events": {
+      "name": "ppe_handover_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignment_id": {
+          "name": "assignment_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "handover_document_id": {
+          "name": "handover_document_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor_name": {
+          "name": "actor_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ppe_handover_events_assignment_id_idx": {
+          "name": "ppe_handover_events_assignment_id_idx",
+          "columns": [
+            "assignment_id"
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "where": null,
+          "nullsNotDistinct": false
+        }
+      },
+      "foreignKeys": {
+        "ppe_handover_events_assignment_id_ppe_assignments_id_fk": {
+          "name": "ppe_handover_events_assignment_id_ppe_assignments_id_fk",
+          "tableFrom": "ppe_handover_events",
+          "tableTo": "ppe_assignments",
+          "columnsFrom": [
+            "assignment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ppe_handover_events_handover_document_id_fk": {
+          "name": "ppe_handover_events_handover_document_id_fk",
+          "tableFrom": "ppe_handover_events",
+          "tableTo": "ppe_handover_documents",
+          "columnsFrom": [
+            "handover_document_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "ppe_handover_events_actor_user_id_users_id_fk": {
+          "name": "ppe_handover_events_actor_user_id_users_id_fk",
+          "tableFrom": "ppe_handover_events",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "isRLSEnabled": false,
       "checkConstraints": {}
     }
   },

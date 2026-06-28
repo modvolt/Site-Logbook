@@ -1,6 +1,6 @@
 {
-  "id": "d4f9a3b5-1e6c-4a7d-8e84-3c4d5f6a7b8c",
-  "prevId": "bbb601f2-7799-40ab-9f9a-f0bc70f4dbf8",
+  "id": "b8a374ec-efec-4333-8fd6-89bde4e1b00e",
+  "prevId": "d4f9a3b5-1e6c-4a7d-8e84-3c4d5f6a7b8c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6588,6 +6588,20 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "signature_token": {
+          "name": "signature_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "signature_object_path": {
+          "name": "signature_object_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -6665,6 +6679,17 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ppe_assignments_signature_token_idx": {
+          "name": "ppe_assignments_signature_token_idx",
+          "columns": [
+            "signature_token"
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "\"signature_token\" IS NOT NULL",
+          "nullsNotDistinct": false
         }
       },
       "foreignKeys": {

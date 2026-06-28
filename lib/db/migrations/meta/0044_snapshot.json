@@ -1,6 +1,6 @@
 {
   "id": "dd827aeb-295a-4990-9144-18f71a1be5d9",
-  "prevId": "d4f9a3b5-1e6c-4a7d-8e84-3c4d5f6a7b8c",
+  "prevId": "b8a374ec-efec-4333-8fd6-89bde4e1b00e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6418,6 +6418,74 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.ppe_items": {
+      "name": "ppe_items",
+      "schema": "public",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ostatni'"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_replacement_months": {
+          "name": "default_replacement_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "default_inspection_months": {
+          "name": "default_inspection_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "public.ppe_assignments": {
       "name": "ppe_assignments",
       "schema": "public",
@@ -6521,8 +6589,15 @@
           "notNull": true,
           "default": "now()"
         },
-        "confirm_token": {
-          "name": "confirm_token",
+        "signature_token": {
+          "name": "signature_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "signature_object_path": {
+          "name": "signature_object_path",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -6611,6 +6686,17 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ppe_assignments_signature_token_idx": {
+          "name": "ppe_assignments_signature_token_idx",
+          "columns": [
+            "signature_token"
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "where": "\"signature_token\" IS NOT NULL",
+          "nullsNotDistinct": false
         }
       },
       "foreignKeys": {
@@ -6643,82 +6729,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ppe_assignments_confirm_token_unique": {
-          "name": "ppe_assignments_confirm_token_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "confirm_token"
-          ]
-        }
-      },
-      "checkConstraints": {}
-    },
-    "public.ppe_items": {
-      "name": "ppe_items",
-      "schema": "public",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ostatni'"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_replacement_months": {
-          "name": "default_replacement_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_inspection_months": {
-          "name": "default_inspection_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
