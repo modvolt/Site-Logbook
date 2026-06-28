@@ -4,8 +4,8 @@ import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { format } from "date-fns";
 import { 
   useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
-  useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites,
-  getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey 
+  useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites, useListLeaves,
+  getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey, getListLeavesQueryKey
 } from "@workspace/api-client-react";
 import type { JobInputStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -18,7 +18,7 @@ import { TimePicker } from "@/components/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_TYPES, JOB_STATUSES } from "@/components/badges";
-import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed, MapPin, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, CheckSquare, Building2, Phone, Navigation, ShoppingCart, RefreshCw, LocateFixed, MapPin, Loader2, AlertTriangle } from "lucide-react";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import { useToast } from "@/hooks/use-toast";
 
@@ -66,6 +66,13 @@ export default function JobForm() {
   const { data: customerSites } = useListCustomerSites(formData.customerId ?? 0, {
     query: { queryKey: getListCustomerSitesQueryKey(formData.customerId ?? 0), enabled: !!formData.customerId },
   });
+
+  const assignedPersonIdNum = formData.assignedPersonId !== "none" ? parseInt(formData.assignedPersonId) : null;
+  const leaveParams = { personId: assignedPersonIdNum ?? undefined, from: formData.date, to: formData.date };
+  const { data: personLeaves } = useListLeaves(
+    leaveParams,
+    { query: { queryKey: getListLeavesQueryKey(leaveParams), enabled: assignedPersonIdNum !== null && !!formData.date } },
+  );
 
   const [titleError, setTitleError] = useState<string | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
@@ -507,6 +514,14 @@ export default function JobForm() {
                   ))}
                 </SelectContent>
               </Select>
+              {personLeaves && personLeaves.length > 0 && (
+                <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>
+                    Pracovník má v tento den absenci ({personLeaves.map(l => l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná").join(", ")})
+                  </span>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label className="text-base">Stav</Label>

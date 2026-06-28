@@ -22,6 +22,7 @@ import {
   useListJobVisits, getListJobVisitsQueryKey,
   useCreateJobVisit, useUpdateJobVisit, useDeleteJobVisit,
   useAnalyzeJobDocuments,
+  useListLeaves, getListLeavesQueryKey,
 } from "@workspace/api-client-react";
 import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
@@ -1108,6 +1109,13 @@ function VisitForm({
   const [note, setNote] = useState(initial.note);
   const [status, setStatus] = useState(initial.status);
 
+  const personIdNum = personId !== "none" ? parseInt(personId) : null;
+  const visitLeaveParams = { personId: personIdNum ?? undefined, from: date, to: date };
+  const { data: personLeaves } = useListLeaves(
+    visitLeaveParams,
+    { query: { queryKey: getListLeavesQueryKey(visitLeaveParams), enabled: personIdNum !== null && !!date } },
+  );
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!date) return;
@@ -1126,7 +1134,7 @@ function VisitForm({
           <Label className="text-xs">Datum</Label>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-11 bg-background" />
         </div>
-        <div>
+        <div className="space-y-1.5">
           <Label className="text-xs">Technik</Label>
           <Select value={personId} onValueChange={setPersonId}>
             <SelectTrigger className="h-11 bg-background">
@@ -1139,6 +1147,14 @@ function VisitForm({
               ))}
             </SelectContent>
           </Select>
+          {personLeaves && personLeaves.length > 0 && (
+            <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Technik má v tento den absenci ({personLeaves.map(l => l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná").join(", ")})
+              </span>
+            </div>
+          )}
         </div>
       </div>
       <div>
