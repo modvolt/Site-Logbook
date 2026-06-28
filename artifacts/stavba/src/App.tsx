@@ -10,6 +10,8 @@ import { Layout } from "@/components/layout";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { QuickAddDateProvider } from "@/hooks/use-quick-add-date";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
+import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
+import { OfflineBanner } from "@/components/offline-banner";
 import OoppSign from "@/pages/oopp-sign";
 
 import Dashboard from "@/pages/dashboard";
@@ -174,8 +176,10 @@ function AuthenticatedApp() {
   // Only active while authenticated, so the stream is never opened on /login.
   useLiveUpdates();
   return (
+    <OfflineQueueProvider>
     <QuickAddDateProvider>
       <Layout>
+        <OfflineBanner />
         <PageErrorBoundary>
         <Switch>
         <Route path="/" component={Dashboard} />
@@ -227,6 +231,7 @@ function AuthenticatedApp() {
         </PageErrorBoundary>
       </Layout>
     </QuickAddDateProvider>
+    </OfflineQueueProvider>
   );
 }
 

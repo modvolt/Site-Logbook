@@ -39,6 +39,12 @@ export default defineConfig(async ({ command }) => {
       react(),
       tailwindcss(),
       VitePWA({
+        // Use injectManifest so we can ship a custom service worker that handles
+        // the Background Sync API ("offline-flush" tag) in addition to the
+        // standard Workbox precaching and NetworkFirst API caching.
+        strategies: "injectManifest",
+        srcDir: "src",
+        filename: "sw.ts",
         registerType: "prompt",
         includeAssets: ["favicon.svg", "apple-touch-icon.png", "robots.txt"],
         manifest: {
@@ -66,42 +72,14 @@ export default defineConfig(async ({ command }) => {
             },
           ],
         },
-        workbox: {
+        // injectManifest: file-matching options only; all Workbox runtime
+        // logic (NetworkFirst, navigation fallback, sync handler) lives in sw.ts.
+        injectManifest: {
           // Precache the static app shell (HTML/JS/CSS/fonts/bundled images).
           globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
           // The main JS bundle is >2 MiB; raise the precache limit so the full
           // offline app shell is cached (default is 2 MiB, which fails the build).
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-          navigateFallback: `${basePath}index.html`,
-          navigateFallbackDenylist: [/^\/api\//],
-          cleanupOutdatedCaches: true,
-          clientsClaim: true,
-          runtimeCaching: [
-            {
-              // Read-only API data. NetworkFirst means online users always get
-              // fresh data (the network is tried first, with a 5s timeout); the
-              // cache only serves as a fallback on a flaky/offline
-              // construction-site connection. The app is cookie-authenticated
-              // and phones are shared between crew members, so this "stavba-api"
-              // cache is explicitly purged on logout (see src/lib/pwa.ts) to
-              // avoid serving one user's data to the next. Writes
-              // (POST/PATCH/DELETE) are never cached.
-              urlPattern: ({ url, request }) =>
-                url.pathname.startsWith("/api/") &&
-                // The SSE stream (/api/events) is a long-lived response that
-                // must never be cached/cloned by the service worker, or the
-                // real-time channel breaks. Let it pass straight to the network.
-                url.pathname !== "/api/events" &&
-                request.method === "GET",
-              handler: "NetworkFirst",
-              options: {
-                cacheName: "stavba-api",
-                networkTimeoutSeconds: 5,
-                expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 },
-                cacheableResponse: { statuses: [0, 200] },
-              },
-            },
-          ],
         },
         devOptions: {
           enabled: false,

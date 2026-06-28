@@ -74,6 +74,8 @@ import {
   clearTimerNotification,
 } from "@/lib/timer-notification";
 import { invalidateData } from "@/lib/query-invalidation";
+import { useOfflineQueue } from "@/hooks/use-offline-queue";
+import { saveBlob } from "@/lib/offline-queue";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -1509,6 +1511,7 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
 function JobTimeEntries({ jobId }: { jobId: number }) {
   const { can } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const listKey = getListJobTimeEntriesQueryKey(jobId);
   const { data: entries } = useListJobTimeEntries(jobId, {
     query: { queryKey: listKey, enabled: Number.isFinite(jobId) },
@@ -1521,24 +1524,147 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   const setHours = useUpdateJobTimeEntry();
   const removeEntry = useDeleteJobTimeEntry();
 
+  const { isOnline, enqueue, pendingOps, discardOp } = useOfflineQueue();
+
+  // Local state: personId → local start timestamp (ms) for timers started offline.
+  // Used for instant optimistic display without waiting for IndexedDB reads.
+  const [offlineTimers, setOfflineTimers] = useState<Record<number, number>>({});
+
   const invalidate = () => {
     invalidateData(queryClient, "jobs");
+  };
+
+  // All pending timer-related ops for this job
+  const pendingTimerOps = pendingOps.filter(
+    (op) => op.jobId === jobId && (op.type === "start_timer" || op.type === "stop_timer" || op.type === "set_hours"),
+  );
+
+  // Merge pending start_timer ops into entries so the UI shows the timer as
+  // running and exposes the Stop button while offline.
+  const entriesWithPending = useMemo(() => {
+    const base = entries ?? [];
+    if (pendingTimerOps.length === 0 && Object.keys(offlineTimers).length === 0) return base;
+    return base.map((entry) => {
+      if (entry.timerStartedAt) return entry; // server already has it running
+      // Check both in-memory state (fastest) and the persisted pending op
+      const localTs = offlineTimers[entry.personId];
+      if (localTs) {
+        return { ...entry, timerStartedAt: new Date(localTs).toISOString() };
+      }
+      const pendingStart = pendingTimerOps.find(
+        (op) =>
+          op.type === "start_timer" &&
+          (op.payload as { personId: number }).personId === entry.personId,
+      );
+      if (pendingStart) {
+        const payloadTs = (pendingStart.payload as { localStartedAt?: number }).localStartedAt;
+        return {
+          ...entry,
+          timerStartedAt: new Date(payloadTs ?? pendingStart.createdAt).toISOString(),
+        };
+      }
+      return entry;
+    });
+  }, [entries, pendingTimerOps, offlineTimers]);
+
+  const handleStart = (personId: number) => {
+    if (!isOnline) {
+      const localStartedAt = Date.now();
+      // Record in both local state (for instant UI) and the queue (for persistence)
+      setOfflineTimers((prev) => ({ ...prev, [personId]: localStartedAt }));
+      void enqueue({
+        id: crypto.randomUUID(),
+        type: "start_timer",
+        jobId,
+        payload: { personId, localStartedAt },
+      });
+      toast({ title: "Časovač spuštěn (offline) — odešle se po obnovení připojení" });
+      return;
+    }
+    startTimer.mutate({ jobId, personId }, { onSuccess: invalidate });
+  };
+
+  const handleStop = (personId: number) => {
+    if (!isOnline) {
+      // Determine when the timer actually started
+      const pendingStart = pendingTimerOps.find(
+        (op) =>
+          op.type === "start_timer" &&
+          (op.payload as { personId: number }).personId === personId,
+      );
+      const localStartedAt =
+        offlineTimers[personId] ??
+        (pendingStart
+          ? ((pendingStart.payload as { localStartedAt?: number }).localStartedAt ??
+            pendingStart.createdAt)
+          : null);
+
+      if (localStartedAt !== null) {
+        // Convert elapsed time to hours and add to the person's existing hours.
+        // This gives accurate worked time even when both start and stop happen offline,
+        // avoiding the near-zero duration that would result from replaying API calls.
+        const elapsedHours = (Date.now() - localStartedAt) / 3_600_000;
+        const existingEntry = (entries ?? []).find((e) => e.personId === personId);
+        const totalHours = Math.round(((existingEntry?.hours ?? 0) + elapsedHours) * 100) / 100;
+
+        // Discard the pending start_timer — it's now resolved into set_hours
+        if (pendingStart) void discardOp(pendingStart.id);
+        setOfflineTimers((prev) => {
+          const next = { ...prev };
+          delete next[personId];
+          return next;
+        });
+        void enqueue({
+          id: crypto.randomUUID(),
+          type: "set_hours",
+          jobId,
+          payload: { personId, hours: totalHours },
+        });
+        toast({
+          title: `Časovač zastaven (offline) — ${totalHours.toFixed(2)} h bude odesláno po obnovení připojení`,
+        });
+      } else {
+        // Fallback: timer was started online, server holds timerStartedAt.
+        // Queue a stop API call; the server will compute the correct duration.
+        void enqueue({ id: crypto.randomUUID(), type: "stop_timer", jobId, payload: { personId } });
+        toast({ title: "Zastavení časovače čeká na obnovení připojení" });
+      }
+      return;
+    }
+    stopTimer.mutate({ jobId, personId }, { onSuccess: invalidate });
+  };
+
+  const handleSetHours = (personId: number, hours: number) => {
+    if (!isOnline) {
+      void enqueue({ id: crypto.randomUUID(), type: "set_hours", jobId, payload: { personId, hours } });
+      toast({ title: "Hodiny budou uloženy po obnovení připojení" });
+      return;
+    }
+    setHours.mutate({ jobId, personId, data: { hours } }, { onSuccess: invalidate });
   };
 
   const busy = addPerson.isPending || startTimer.isPending || stopTimer.isPending || setHours.isPending || removeEntry.isPending;
 
   return (
-    <TimeEntriesSection
-      entries={entries ?? []}
-      people={people ?? []}
-      canWrite={can("write")}
-      busy={busy}
-      onAddPerson={(personId) => addPerson.mutate({ jobId, data: { personId } }, { onSuccess: invalidate })}
-      onStart={(personId) => startTimer.mutate({ jobId, personId }, { onSuccess: invalidate })}
-      onStop={(personId) => stopTimer.mutate({ jobId, personId }, { onSuccess: invalidate })}
-      onSetHours={(personId, hours) => setHours.mutate({ jobId, personId, data: { hours } }, { onSuccess: invalidate })}
-      onRemove={(personId) => removeEntry.mutate({ jobId, personId }, { onSuccess: invalidate })}
-    />
+    <>
+      {pendingTimerOps.length > 0 && (
+        <div className="mx-4 mb-2 flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+          <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          {pendingTimerOps.length === 1 ? "1 offline akce čeká" : `${pendingTimerOps.length} offline akcí čeká`} na odeslání
+        </div>
+      )}
+      <TimeEntriesSection
+        entries={entriesWithPending}
+        people={people ?? []}
+        canWrite={can("write")}
+        busy={busy}
+        onAddPerson={(personId) => addPerson.mutate({ jobId, data: { personId } }, { onSuccess: invalidate })}
+        onStart={handleStart}
+        onStop={handleStop}
+        onSetHours={handleSetHours}
+        onRemove={(personId) => removeEntry.mutate({ jobId, personId }, { onSuccess: invalidate })}
+      />
+    </>
   );
 }
 
@@ -1844,12 +1970,28 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const newMatNamePending = !!newName.trim();
   useEffect(() => { onUnsavedChange?.(newMatNamePending); }, [newMatNamePending, onUnsavedChange]);
 
+  const { isOnline, enqueue, pendingOps } = useOfflineQueue();
+
+  // Pending material ops for this job — shown as optimistic items in the list
+  const pendingMaterials = pendingOps.filter(
+    (op) => op.jobId === jobId && op.type === "add_material",
+  );
+
   const totalCost = materials?.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0) || 0;
-  const summary = materials?.length ? `${materials.length} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
+  const totalCount = (materials?.length ?? 0);
+  const summaryBase = totalCount > 0 ? `${totalCount} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
+  const summary = pendingMaterials.length > 0 ? `${summaryBase} + ${pendingMaterials.length} čeká` : summaryBase;
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
+    if (!isOnline) {
+      const data = { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice) };
+      void enqueue({ id: crypto.randomUUID(), type: "add_material", jobId, payload: data });
+      setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
+      toast({ title: "Materiál uložen — odešle se po obnovení připojení" });
+      return;
+    }
     createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice) } }, {
       onSuccess: () => {
         setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
@@ -2019,6 +2161,34 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
           </div>
         ) : (
           <div className="text-center py-6 text-muted-foreground text-sm">Zatím žádný materiál.</div>
+        )}
+
+        {/* Pending (offline) materials — optimistic display */}
+        {pendingMaterials.length > 0 && (
+          <div className="space-y-1.5 border-t pt-2">
+            <p className="text-xs text-muted-foreground px-1 flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              Čeká na odeslání
+            </p>
+            {pendingMaterials.map((op) => {
+              const p = op.payload as { name: string; quantity?: number | null; unit?: string | null; pricePerUnit?: number | null };
+              return (
+                <div key={op.id} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/10 px-3 py-2 opacity-70">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{p.name}</p>
+                    {(p.quantity || p.unit) && (
+                      <p className="text-xs text-muted-foreground">{p.quantity} {p.unit}</p>
+                    )}
+                  </div>
+                  {p.pricePerUnit != null && (
+                    <span className="text-sm font-semibold text-emerald-600 shrink-0">
+                      {p.quantity ? `${(p.pricePerUnit * (p.quantity ?? 1)).toLocaleString("cs-CZ")} Kč` : `${p.pricePerUnit} Kč/ks`}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {warehouseMargin && warehouseMargin.totalQtyOut > 0 && (
@@ -2444,6 +2614,13 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const { isOnline, enqueue, pendingOps } = useOfflineQueue();
+
+  // Pending photo ops for this job — shown as optimistic placeholders
+  const pendingPhotos = pendingOps.filter(
+    (op) => op.jobId === jobId && op.type === "add_photo",
+  );
+
   const {
     uploadFile: uploadPhoto,
     uploadFiles: uploadPhotos,
@@ -2454,6 +2631,32 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
 
   const uploadPhotoFiles = async (files: File[]) => {
     if (files.length === 0) return;
+
+    // When offline: save blobs to IndexedDB and queue for later upload
+    if (!isOnline) {
+      let saved = 0;
+      for (const file of files) {
+        try {
+          const prepared = await prepareImageFile(file);
+          const blobKey = crypto.randomUUID();
+          await saveBlob(blobKey, prepared, prepared.name);
+          await enqueue({
+            id: crypto.randomUUID(),
+            type: "add_photo",
+            jobId,
+            payload: { blobKey, fileName: prepared.name, contentType: prepared.type },
+          });
+          saved++;
+        } catch (err) {
+          debugLog("upload", "offline photo save failed", err);
+          toast({ title: "Nepodařilo se uložit fotku offline", description: err instanceof Error ? err.message : "Neznámá chyba", variant: "destructive" });
+        }
+      }
+      if (saved > 0) {
+        toast({ title: saved === 1 ? "Fotka uložena offline" : `${saved} fotek uloženo offline`, description: "Odešlou se po obnovení připojení" });
+      }
+      return;
+    }
 
     const { succeeded, failed, errors } = await uploadPhotos(files, async (file) => {
       const prepared = await prepareImageFile(file);
@@ -2493,6 +2696,10 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
 
   const photos = attachments?.filter(a => a.type === "photo") || [];
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
+  const photoSummaryCount = photos.length + pendingPhotos.length;
+  const photoSummary = photoSummaryCount > 0
+    ? `${photos.length} fotek${pendingPhotos.length > 0 ? ` + ${pendingPhotos.length} čeká` : ""}`
+    : "Žádné fotky";
   
   return (
     <SectionCard 
@@ -2500,7 +2707,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
       icon={Camera} 
       isExpanded={isExpanded} 
       onToggle={onToggle}
-      summary={photos.length > 0 ? `${photos.length} fotek` : "Žádné fotky"}
+      summary={photoSummary}
     >
       <div className="p-4 space-y-6">
         <div className="flex gap-3">
@@ -2536,7 +2743,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
         />
         <UploadProgressBar isUploading={isUploadingPhoto} progress={photoProgress} />
 
-        {photos.length > 0 && (
+        {(photos.length > 0 || pendingPhotos.length > 0) && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {photos.map(photo => {
               const src = getAttachmentUrl(photo.url);
@@ -2560,6 +2767,15 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
                 </div>
               );
             })}
+            {/* Pending offline photos — show placeholder tiles */}
+            {pendingPhotos.map((op) => (
+              <div key={op.id} className="relative aspect-square rounded-xl overflow-hidden border border-amber-200 bg-amber-50 dark:bg-amber-950/20 flex flex-col items-center justify-center gap-1 opacity-70">
+                <Camera className="w-8 h-8 text-amber-500 opacity-60" />
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 text-center px-1 leading-tight">
+                  Čeká na<br />odeslání
+                </span>
+              </div>
+            ))}
           </div>
         )}
         
