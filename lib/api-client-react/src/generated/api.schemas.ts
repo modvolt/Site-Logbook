@@ -1001,6 +1001,8 @@ export interface StatsTrendMonth {
   paid: number;
   /** Number of jobs with status done in this month */
   doneJobsCount: number;
+  /** Done job counts broken down by job type for this month (customer filter applies; type filter does not) */
+  byType: StatsJobTypeCount[];
 }
 
 export interface StatsTopCustomer {

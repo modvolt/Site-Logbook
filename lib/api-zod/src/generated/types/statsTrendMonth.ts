@@ -5,6 +5,7 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+import type { StatsJobTypeCount } from './statsJobTypeCount';
 
 export interface StatsTrendMonth {
   /** YYYY-MM */
@@ -15,4 +16,6 @@ export interface StatsTrendMonth {
   paid: number;
   /** Number of jobs with status done in this month */
   doneJobsCount: number;
+  /** Done job counts broken down by job type for this month (customer filter applies; type filter does not) */
+  byType: StatsJobTypeCount[];
 }

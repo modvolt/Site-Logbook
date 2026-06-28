@@ -46,6 +46,8 @@ import {
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -328,6 +330,34 @@ export default function Statistika() {
     "Hotové zakázky": m.doneJobsCount,
   })) ?? [];
 
+  // Type-breakdown stacked bar chart data
+  const TYPE_COLORS: Record<string, string> = {
+    site_visit:    "#f97316",
+    consultation:  "#a855f7",
+    planned_work:  "#14b8a6",
+    service_call:  "#ef4444",
+    change:        "#6366f1",
+    revize:        "#06b6d4",
+    other:         "#6b7280",
+  };
+  // Collect all types that appear across all months (stable order: known types first, then unknown)
+  const KNOWN_TYPES = Object.keys(TYPE_COLORS);
+  const allTypesSet = new Set<string>();
+  for (const m of stats?.trend ?? []) {
+    for (const bt of m.byType) allTypesSet.add(bt.type);
+  }
+  const allTypes = [
+    ...KNOWN_TYPES.filter((t) => allTypesSet.has(t)),
+    ...[...allTypesSet].filter((t) => !KNOWN_TYPES.includes(t)),
+  ];
+  const typeBarData = stats?.trend.map((m) => {
+    const byTypeMap = new Map(m.byType.map((bt) => [bt.type, bt.count]));
+    const row: Record<string, string | number> = { name: monthLabel(m.month) };
+    for (const t of allTypes) row[t] = byTypeMap.get(t) ?? 0;
+    return row;
+  }) ?? [];
+  const hasTypeData = typeBarData.some((row) => allTypes.some((t) => (row[t] as number) > 0));
+
   return (
     <div className="min-h-[100dvh] bg-neutral-200 dark:bg-neutral-800 pb-16">
       <style>{PRINT_CSS}</style>
@@ -544,6 +574,47 @@ export default function Statistika() {
                         dot={false}
                       />
                     </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Job-type stacked bar chart */}
+            {hasTypeData && (
+              <div className="rounded-xl border bg-card p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex-1">
+                    Hotové zakázky podle typu — posledních 6 měsíců
+                    {trendCustomerId != null && (
+                      <span className="ml-1 normal-case font-medium text-foreground">
+                        · {customers?.find((c) => c.id === trendCustomerId)?.companyName ?? "Zákazník"}
+                      </span>
+                    )}
+                  </h2>
+                </div>
+                <div className="h-48 sm:h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={typeBarData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip
+                        formatter={(value: number, name: string) => [value, typeLabel(name)]}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 11 }}
+                        formatter={(value: string) => typeLabel(value)}
+                      />
+                      {allTypes.map((type) => (
+                        <Bar
+                          key={type}
+                          dataKey={type}
+                          stackId="types"
+                          fill={TYPE_COLORS[type] ?? "#94a3b8"}
+                          radius={0}
+                        />
+                      ))}
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>

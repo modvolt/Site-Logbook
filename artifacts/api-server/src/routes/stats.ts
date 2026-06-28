@@ -352,7 +352,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     trendJobType != null ? eq(jobsTable.type, trendJobType) : undefined,
   );
   // One query: aggregate by month using to_char on issueDate / paidDate
-  const [trendIssued, trendPaid, trendJobs] = await Promise.all([
+  const [trendIssued, trendPaid, trendJobs, trendJobsByType] = await Promise.all([
     db
       .select({
         month: sql<string>`to_char(${invoicesTable.issueDate}::date, 'YYYY-MM')`,
@@ -393,17 +393,41 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
         trendJobExtra,
       ))
       .groupBy(sql`to_char(${jobsTable.date}::date, 'YYYY-MM')`),
+
+    // By-type breakdown: customer filter applies, job-type filter does NOT (we always want all types stacked)
+    db
+      .select({
+        month: sql<string>`to_char(${jobsTable.date}::date, 'YYYY-MM')`,
+        type: jobsTable.type,
+        doneCount: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(jobsTable)
+      .where(and(
+        gte(jobsTable.date, months[0] + "-01"),
+        lte(jobsTable.date, to),
+        eq(jobsTable.status, "done"),
+        trendCustomerId != null ? eq(jobsTable.customerId, trendCustomerId) : undefined,
+      ))
+      .groupBy(sql`to_char(${jobsTable.date}::date, 'YYYY-MM')`, jobsTable.type),
   ]);
 
   const issuedByMonth = new Map(trendIssued.map((r) => [r.month, num(r.issuedWithVat)]));
   const paidByMonth = new Map(trendPaid.map((r) => [r.month, num(r.paidAmount)]));
   const doneByMonth = new Map(trendJobs.map((r) => [r.month, num(r.doneCount)]));
 
+  // Build month→type→count lookup
+  const doneByMonthByType = new Map<string, Map<string, number>>();
+  for (const r of trendJobsByType) {
+    if (!doneByMonthByType.has(r.month)) doneByMonthByType.set(r.month, new Map());
+    doneByMonthByType.get(r.month)!.set(r.type ?? "other", num(r.doneCount));
+  }
+
   const trend = months.map((m) => ({
     month: m,
     issuedWithVat: issuedByMonth.get(m) ?? 0,
     paid: paidByMonth.get(m) ?? 0,
     doneJobsCount: doneByMonth.get(m) ?? 0,
+    byType: Array.from(doneByMonthByType.get(m)?.entries() ?? []).map(([type, count]) => ({ type, count })),
   }));
 
   // ─── Activities: billable (ready-to-bill) snapshot ───────────────────────

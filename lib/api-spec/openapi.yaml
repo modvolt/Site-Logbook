@@ -6853,7 +6853,7 @@ components:
 
     StatsTrendMonth:
       type: object
-      required: [month, issuedWithVat, paid, doneJobsCount]
+      required: [month, issuedWithVat, paid, doneJobsCount, byType]
       properties:
         month:
           type: string
@@ -6867,6 +6867,11 @@ components:
         doneJobsCount:
           type: integer
           description: Number of jobs with status done in this month
+        byType:
+          type: array
+          description: Done job counts broken down by job type for this month (customer filter applies; type filter does not)
+          items:
+            $ref: "#/components/schemas/StatsJobTypeCount"
 
     StatsTopCustomer:
       type: object

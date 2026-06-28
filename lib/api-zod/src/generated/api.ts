@@ -1180,7 +1180,11 @@ export const GetStatsOverviewResponse = zod.object({
   "month": zod.string().describe('YYYY-MM'),
   "issuedWithVat": zod.number().describe('Sum of invoice totalWithVat issued in this month'),
   "paid": zod.number().describe('Sum of payments received in this month'),
-  "doneJobsCount": zod.number().describe('Number of jobs with status done in this month')
+  "doneJobsCount": zod.number().describe('Number of jobs with status done in this month'),
+  "byType": zod.array(zod.object({
+  "type": zod.string(),
+  "count": zod.number()
+})).describe('Done job counts broken down by job type for this month (customer filter applies; type filter does not)')
 })).describe('Monthly time series for the 6 months ending in the period\'s month'),
   "topCustomers": zod.array(zod.object({
   "customerId": zod.number().nullable(),
