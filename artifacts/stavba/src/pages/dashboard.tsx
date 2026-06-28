@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { format } from "date-fns";
+import { format, startOfMonth, endOfMonth } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
   useGetDashboardSummary, useGetTodayJobs, useUpdateJob, useUpdateJobStatus,
@@ -8,6 +8,7 @@ import {
   useListPeople, getListPeopleQueryKey, useListJobs, getListJobsQueryKey,
   useReorderJobs, useGetRisksSummary, getGetRisksSummaryQueryKey,
   useGetWarehouseJobsMarginSummary,
+  useGetStatsOverview, getGetStatsOverviewQueryKey,
 } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
 import { useQueryClient, useIsFetching } from "@tanstack/react-query";
@@ -24,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { LowMarginBadge } from "@/components/job-card";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw, AlertTriangle, Banknote, FileSearch, PackageMinus, UserX, Tag, FileMinus, Wrench } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw, AlertTriangle, Banknote, FileSearch, PackageMinus, UserX, Tag, FileMinus, Wrench, TrendingUp, ShoppingCart, ArrowRight, BarChart2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import {
@@ -196,6 +197,110 @@ function RiskPanel() {
             />
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function fmtKcShort(n: number): string {
+  if (Math.abs(n) >= 1_000_000) {
+    return `${(n / 1_000_000).toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M Kč`;
+  }
+  if (Math.abs(n) >= 1_000) {
+    return `${(n / 1_000).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} k Kč`;
+  }
+  return `${Math.round(n).toLocaleString("cs-CZ")} Kč`;
+}
+
+type MgmtKpiCardProps = {
+  label: string;
+  value: string;
+  sub?: string;
+  href?: string;
+  urgent?: boolean;
+  icon?: React.ReactNode;
+};
+
+function MgmtKpiCard({ label, value, sub, href, urgent, icon }: MgmtKpiCardProps) {
+  const [, setLocation] = useLocation();
+  const inner = (
+    <div
+      className={`rounded-xl border bg-card p-4 flex flex-col gap-1 transition-colors ${href ? "hover:bg-accent/50 cursor-pointer" : ""} ${urgent ? "border-red-300 bg-red-50 dark:bg-red-950/30" : ""}`}
+      onClick={href ? () => setLocation(href) : undefined}
+      role={href ? "button" : undefined}
+      tabIndex={href ? 0 : undefined}
+      onKeyDown={href ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation(href); } } : undefined}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground leading-tight">{label}</span>
+        {icon && <span className={urgent ? "text-red-400" : "text-muted-foreground"}>{icon}</span>}
+      </div>
+      <div className={`text-2xl font-bold tracking-tight leading-none ${urgent ? "text-red-600 dark:text-red-400" : ""}`}>{value}</div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+  return inner;
+}
+
+function ManagementKpiPanel() {
+  const now = new Date();
+  const from = format(startOfMonth(now), "yyyy-MM-dd");
+  const to = format(endOfMonth(now), "yyyy-MM-dd");
+
+  const { data: stats, isLoading } = useGetStatsOverview(
+    { from, to },
+    { query: { queryKey: getGetStatsOverviewQueryKey({ from, to }), retry: false } },
+  );
+
+  return (
+    <Card className="mb-6 border-primary/20 bg-primary/5 dark:bg-primary/10">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-primary shrink-0" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-primary">Vedení – přehled měsíce</h2>
+          </div>
+          <Link href="/statistika" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
+            Statistika <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        {isLoading ? (
+          <div className="grid grid-cols-2 gap-2">
+            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+          </div>
+        ) : stats ? (
+          <div className="grid grid-cols-2 gap-2">
+            <MgmtKpiCard
+              label="Vystaveno s DPH"
+              value={fmtKcShort(stats.billing.issuedWithVat)}
+              sub={`${stats.billing.issuedCount} faktur`}
+              href="/billing"
+              icon={<Banknote className="w-4 h-4" />}
+            />
+            <MgmtKpiCard
+              label="Zaplaceno"
+              value={fmtKcShort(stats.billing.paidAmount)}
+              sub={`${stats.billing.paidCount} plateb`}
+              icon={<TrendingUp className="w-4 h-4" />}
+            />
+            <MgmtKpiCard
+              label="Po splatnosti"
+              value={fmtKcShort(stats.billing.overdueAmount)}
+              sub={`${stats.billing.overdueCount} faktur`}
+              href="/billing/invoices?overdue=true"
+              urgent={stats.billing.overdueCount > 0}
+              icon={<AlertTriangle className="w-4 h-4" />}
+            />
+            <MgmtKpiCard
+              label="K fakturaci bez DPH"
+              value={fmtKcShort(stats.readyToBill.amount)}
+              sub={`${stats.readyToBill.count} zakázek/akcí`}
+              href="/billing/unbilled"
+              urgent={stats.readyToBill.count > 0}
+              icon={<ShoppingCart className="w-4 h-4" />}
+            />
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -498,7 +603,7 @@ function WeekEmployeeRow({ person, weekFrom, weekTo }: { person: any; weekFrom: 
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
-  const { can } = useAuth();
+  const { can, role } = useAuth();
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() }
   });
@@ -582,6 +687,8 @@ export default function Dashboard() {
       </div>
 
       {jobs && <ActiveTimerBanner jobs={jobs} />}
+
+      {role === "admin" && <ManagementKpiPanel />}
 
       {can("write") && <RiskPanel />}
 
