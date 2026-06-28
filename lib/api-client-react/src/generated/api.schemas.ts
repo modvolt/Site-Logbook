@@ -5,8 +5,40 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+export type HealthStatusDbStatus = typeof HealthStatusDbStatus[keyof typeof HealthStatusDbStatus];
+
+
+export const HealthStatusDbStatus = {
+  ok: 'ok',
+  error: 'error',
+} as const;
+
+export type HealthStatusStorageStatus = typeof HealthStatusStorageStatus[keyof typeof HealthStatusStorageStatus];
+
+
+export const HealthStatusStorageStatus = {
+  ok: 'ok',
+  error: 'error',
+  not_configured: 'not_configured',
+} as const;
+
+export type HealthStatusSmtpStatus = typeof HealthStatusSmtpStatus[keyof typeof HealthStatusSmtpStatus];
+
+
+export const HealthStatusSmtpStatus = {
+  configured: 'configured',
+  not_configured: 'not_configured',
+} as const;
+
 export interface HealthStatus {
   status: string;
+  version?: string;
+  uptimeSeconds?: number;
+  dbStatus?: HealthStatusDbStatus;
+  /** @nullable */
+  dbLatencyMs?: number | null;
+  storageStatus?: HealthStatusStorageStatus;
+  smtpStatus?: HealthStatusSmtpStatus;
 }
 
 export type AdminHealthStatusDbStatus = typeof AdminHealthStatusDbStatus[keyof typeof AdminHealthStatusDbStatus];
@@ -114,6 +146,41 @@ export interface AdminHealthStatus {
   backendErrorCount24h: number;
   lastSuccessfulBackup?: AdminHealthLastBackup | null;
   lastBackupError?: AdminHealthLastBackup | null;
+}
+
+export type WatchdogStatusOverallStatus = typeof WatchdogStatusOverallStatus[keyof typeof WatchdogStatusOverallStatus];
+
+
+export const WatchdogStatusOverallStatus = {
+  ok: 'ok',
+  degraded: 'degraded',
+  unknown: 'unknown',
+} as const;
+
+export interface WatchdogStatus {
+  overallStatus: WatchdogStatusOverallStatus;
+  /** @nullable */
+  lastAlertAt?: string | null;
+  consecutiveFailures: number;
+}
+
+export type HealthLogEntryOverallStatus = typeof HealthLogEntryOverallStatus[keyof typeof HealthLogEntryOverallStatus];
+
+
+export const HealthLogEntryOverallStatus = {
+  ok: 'ok',
+  degraded: 'degraded',
+} as const;
+
+export interface HealthLogEntry {
+  id: number;
+  checkedAt: string;
+  dbOk: boolean;
+  /** @nullable */
+  dbLatencyMs?: number | null;
+  s3Ok: boolean;
+  smtpOk: boolean;
+  overallStatus: HealthLogEntryOverallStatus;
 }
 
 /**

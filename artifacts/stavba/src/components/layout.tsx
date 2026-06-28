@@ -4,7 +4,7 @@ import { Briefcase, Plus, LogOut, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuickAddDate } from "@/hooks/use-quick-add-date";
-import { useLogout, useListClientErrors, getListClientErrorsQueryKey } from "@workspace/api-client-react";
+import { useLogout, useListClientErrors, getListClientErrorsQueryKey, useGetWatchdogStatus, getGetWatchdogStatusQueryKey } from "@workspace/api-client-react";
 import { clearApiCache } from "@/lib/pwa";
 import { clearTimerNotification } from "@/lib/timer-notification";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import { mainNavItems, adminNavItems, type NavItem } from "@/components/nav-item
 
 const CLIENT_ERRORS_SEEN_KEY = "stavba.clientErrorsLastSeen";
 const CLIENT_ERRORS_PATH = "/admin/client-errors";
+const HEALTH_PATH = "/admin/health";
 const FALLBACK_HOURS = 24;
 
 function useCrashBadgeCount(enabled: boolean) {
@@ -57,6 +58,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const canSeeErrors = can("manageUsers");
   const { count: crashCount, markSeen } = useCrashBadgeCount(canSeeErrors);
+
+  const { data: watchdog } = useGetWatchdogStatus({
+    query: {
+      queryKey: getGetWatchdogStatusQueryKey(),
+      enabled: canSeeErrors,
+      refetchInterval: 60_000,
+      staleTime: 55_000,
+    },
+  });
+  const isDegraded = watchdog?.overallStatus === "degraded";
 
   useEffect(() => {
     if (location === CLIENT_ERRORS_PATH) markSeen();
@@ -126,6 +137,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 .map((item) => {
                   const active = isActive(item);
                   const showCrashBadge = item.href === CLIENT_ERRORS_PATH && crashCount > 0;
+                  const showHealthBadge = item.href === HEALTH_PATH && isDegraded;
                   return (
                     <Link
                       key={item.href}
@@ -140,6 +152,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         <span className={`ml-auto shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full text-[0.65rem] font-semibold flex items-center justify-center ${active ? "bg-white/25 text-white" : "bg-rose-500 text-white"}`}>
                           {crashCount > 99 ? "99+" : crashCount}
                         </span>
+                      )}
+                      {showHealthBadge && !showCrashBadge && (
+                        <span
+                          title="Systém je ve stavu selhání"
+                          className={`ml-auto shrink-0 w-2.5 h-2.5 rounded-full ${active ? "bg-white/80" : "bg-rose-500"} animate-pulse`}
+                        />
                       )}
                     </Link>
                   );

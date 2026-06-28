@@ -12,7 +12,13 @@ import * as zod from 'zod';
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
+  "status": zod.string(),
+  "version": zod.string().optional(),
+  "uptimeSeconds": zod.number().optional(),
+  "dbStatus": zod.enum(['ok', 'error']).optional(),
+  "dbLatencyMs": zod.number().nullish(),
+  "storageStatus": zod.enum(['ok', 'error', 'not_configured']).optional(),
+  "smtpStatus": zod.enum(['configured', 'not_configured']).optional()
 })
 
 
@@ -59,6 +65,31 @@ export const GetAdminHealthResponse = zod.object({
   "restoredAt": zod.string().nullish().describe('ISO timestamp of the last successful restore from this backup; null if never restored')
 }),zod.null()]).optional()
 })
+
+
+/**
+ * @summary Lightweight watchdog status for the nav indicator (admin only)
+ */
+export const GetWatchdogStatusResponse = zod.object({
+  "overallStatus": zod.enum(['ok', 'degraded', 'unknown']),
+  "lastAlertAt": zod.string().nullish(),
+  "consecutiveFailures": zod.number()
+})
+
+
+/**
+ * @summary Health check history for the last 24 hours (admin only)
+ */
+export const ListHealthLogResponseItem = zod.object({
+  "id": zod.number(),
+  "checkedAt": zod.string(),
+  "dbOk": zod.boolean(),
+  "dbLatencyMs": zod.number().nullish(),
+  "s3Ok": zod.boolean(),
+  "smtpOk": zod.boolean(),
+  "overallStatus": zod.enum(['ok', 'degraded'])
+})
+export const ListHealthLogResponse = zod.array(ListHealthLogResponseItem)
 
 
 /**

@@ -7,8 +7,10 @@ import {
   emailImportAccountsTable,
   emailImportLogTable,
   clientErrorsTable,
+  healthLogTable,
 } from "@workspace/db";
 import { desc, eq, sql, and, gte, or } from "drizzle-orm";
+import { getWatchdogState } from "../lib/health-watchdog";
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -295,8 +297,29 @@ async function getErrorCounts(): Promise<{
 
 const router: IRouter = Router();
 
-router.get("/healthz", (_req, res) => {
-  const data = HealthCheckResponse.parse({ status: "ok" });
+router.get("/healthz", async (_req, res) => {
+  const apiVersion =
+    process.env.BUILD_SHA ||
+    process.env.COMMIT_SHA ||
+    process.env.GIT_COMMIT ||
+    "dev";
+  const uptimeSeconds = process.uptime();
+
+  const [dbPing, storage, smtp] = await Promise.all([
+    checkDbLatency(),
+    checkStorage(),
+    checkSmtp(),
+  ]);
+
+  const data = HealthCheckResponse.parse({
+    status: dbPing.status === "ok" ? "ok" : "degraded",
+    version: apiVersion,
+    uptimeSeconds,
+    dbStatus: dbPing.status,
+    dbLatencyMs: dbPing.latencyMs,
+    storageStatus: storage.status,
+    smtpStatus: smtp.status,
+  });
   res.json(data);
 });
 
@@ -360,6 +383,41 @@ router.get(
       "admin health check",
     );
     res.json(payload);
+  },
+);
+
+router.get(
+  "/admin/health/watchdog",
+  requireAuth,
+  requireRole("master", "admin"),
+  (_req, res) => {
+    res.json(getWatchdogState());
+  },
+);
+
+router.get(
+  "/admin/health/log",
+  requireAuth,
+  requireRole("master", "admin"),
+  async (_req, res) => {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const rows = await db
+      .select()
+      .from(healthLogTable)
+      .where(gte(healthLogTable.checkedAt, since))
+      .orderBy(desc(healthLogTable.checkedAt))
+      .limit(300);
+
+    const data = rows.map((r) => ({
+      id: r.id,
+      checkedAt: r.checkedAt.toISOString(),
+      dbOk: r.dbOk,
+      dbLatencyMs: r.dbLatencyMs ?? null,
+      s3Ok: r.s3Ok,
+      smtpOk: r.smtpOk,
+      overallStatus: r.overallStatus as "ok" | "degraded",
+    }));
+    res.json(data);
   },
 );
 

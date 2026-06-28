@@ -2,8 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   useGetAdminHealth,
   getGetAdminHealthQueryKey,
+  useGetWatchdogStatus,
+  getGetWatchdogStatusQueryKey,
+  useListHealthLog,
+  getListHealthLogQueryKey,
 } from "@workspace/api-client-react";
-import type { AdminHealthStatus } from "@workspace/api-client-react";
+import type { AdminHealthStatus, HealthLogEntry } from "@workspace/api-client-react";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle,
   RefreshCw, Minus, Info,
@@ -64,11 +68,8 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 type SwInfo = {
-  /** Stable version token derived from the SW script URL query string. */
   version: string;
-  /** Human-readable lifecycle state of the active/installing/waiting SW. */
   stateLabel: string;
-  /** True when a new SW version is waiting to take over. */
   updatePending: boolean;
 };
 
@@ -85,8 +86,6 @@ function useSwInfo() {
         sw === reg.active ? "aktivní" :
         sw === reg.waiting ? "čeká na aktivaci" :
         "instaluje se";
-      // Pull a build token from the SW script URL query (?v=<hash> or ?t=<ts>).
-      // Falls back to the script URL basename so there's always something to display.
       const qs = sw.scriptURL.split("?")[1] ?? "";
       const version = qs.replace(/^[vt]=/, "") || sw.scriptURL.split("/").pop() || "neznáma";
       setInfo({ version, stateLabel, updatePending });
@@ -126,6 +125,115 @@ function BackupRow({ label, b }: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Sparkline — 24-hour availability bar
+// ---------------------------------------------------------------------------
+
+const SPARKLINE_BUCKETS = 48; // 30-minute buckets over 24h
+
+function buildSparkline(entries: HealthLogEntry[]): Array<"ok" | "degraded" | "empty"> {
+  const now = Date.now();
+  const bucketMs = (24 * 60 * 60 * 1000) / SPARKLINE_BUCKETS;
+  const buckets: Array<"ok" | "degraded" | "empty"> = Array(SPARKLINE_BUCKETS).fill("empty");
+
+  for (const entry of entries) {
+    const age = now - new Date(entry.checkedAt).getTime();
+    const bucketIdx = Math.floor(age / bucketMs);
+    if (bucketIdx < 0 || bucketIdx >= SPARKLINE_BUCKETS) continue;
+    const realIdx = SPARKLINE_BUCKETS - 1 - bucketIdx;
+    if (buckets[realIdx] !== "degraded") {
+      buckets[realIdx] = entry.overallStatus === "degraded" ? "degraded" : "ok";
+    }
+  }
+  return buckets;
+}
+
+function Sparkline({ entries }: { entries: HealthLogEntry[] }) {
+  const buckets = buildSparkline(entries);
+  const okCount = buckets.filter((b) => b === "ok").length;
+  const degradedCount = buckets.filter((b) => b === "degraded").length;
+  const total = okCount + degradedCount;
+  const pct = total === 0 ? 100 : Math.round((okCount / total) * 100);
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-muted-foreground">Posledních 24 h</span>
+        <span className={cn("text-xs font-semibold", pct === 100 ? "text-emerald-600 dark:text-emerald-400" : pct >= 90 ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400")}>
+          {pct} % dostupnost
+        </span>
+      </div>
+      <div className="flex gap-[1px] h-5 rounded overflow-hidden">
+        {buckets.map((b, i) => (
+          <div
+            key={i}
+            title={b === "empty" ? "Bez dat" : b === "ok" ? "OK" : "Selhání"}
+            className={cn(
+              "flex-1 rounded-[1px]",
+              b === "ok" ? "bg-emerald-500" :
+              b === "degraded" ? "bg-rose-500" :
+              "bg-muted"
+            )}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground/50 mt-0.5">
+        <span>−24 h</span>
+        <span>nyní</span>
+      </div>
+    </div>
+  );
+}
+
+function HealthLogSection() {
+  const { data: entries, isLoading } = useListHealthLog({
+    query: {
+      queryKey: getListHealthLogQueryKey(),
+      staleTime: 25_000,
+    },
+  });
+
+  if (isLoading) {
+    return <div className="rounded-xl border bg-muted/30 animate-pulse h-24" />;
+  }
+  if (!entries || entries.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-4 col-span-full">
+        <div className="flex items-center gap-2 mb-2">
+          <Activity className="w-5 h-5 text-muted-foreground shrink-0" />
+          <span className="font-semibold text-sm">Historie watchdog kontroly (24 h)</span>
+        </div>
+        <p className="text-xs text-muted-foreground">Watchdog ještě neprovedl žádnou kontrolu (první proběhne 30 s po startu serveru).</p>
+      </div>
+    );
+  }
+
+  const latest = entries[0];
+  const overallStatus: CardStatus =
+    latest.overallStatus === "degraded" ? "error" : "ok";
+
+  return (
+    <div className={cn("rounded-xl border p-4 col-span-full", statusBg(overallStatus))}>
+      <div className="flex items-center gap-2 mb-2">
+        <StatusIcon status={overallStatus} />
+        <span className="font-semibold text-sm">Historie watchdog kontroly (24 h)</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          Poslední: {formatDate(latest.checkedAt)}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1 text-sm mb-2">
+        <Row label="DB" value={latest.dbOk ? "OK" : "Chyba"} />
+        {latest.dbLatencyMs != null && (
+          <Row label="DB latence" value={`${latest.dbLatencyMs} ms`} />
+        )}
+        <Row label="S3" value={latest.s3Ok ? "OK" : "Chyba"} />
+        <Row label="SMTP" value={latest.smtpOk ? "Konfigurován" : "Nekonfigurován"} />
+      </div>
+      <Sparkline entries={entries} />
+    </div>
+  );
+}
+
 function HealthContent({ data }: { data: AdminHealthStatus }) {
   const swInfo = useSwInfo();
 
@@ -138,6 +246,9 @@ function HealthContent({ data }: { data: AdminHealthStatus }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+
+      {/* Health log sparkline — full width */}
+      <HealthLogSection />
 
       {/* Version & SHA */}
       <Card
@@ -334,6 +445,14 @@ export default function AdminHealth() {
     },
   });
 
+  const { data: watchdog } = useGetWatchdogStatus({
+    query: {
+      queryKey: getGetWatchdogStatusQueryKey(),
+      refetchInterval: 60_000,
+      staleTime: 55_000,
+    },
+  });
+
   const doRefresh = () => {
     void refetch();
     setLastRefreshed(new Date());
@@ -346,13 +465,20 @@ export default function AdminHealth() {
     };
   }, []);
 
+  const isDegraded = watchdog?.overallStatus === "degraded";
+
   return (
     <div className="p-4 md:p-6 w-full">
       <div className="max-w-[1200px] mx-auto">
         <div className="flex items-center justify-between mb-2 gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <Activity className="w-7 h-7 text-rose-600" />
+            <Activity className={cn("w-7 h-7", isDegraded ? "text-rose-600" : "text-emerald-600")} />
             <h1 className="text-2xl font-bold">Diagnostika systému</h1>
+            {isDegraded && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-semibold">
+                <XCircle className="w-3.5 h-3.5" /> Degradovaný stav
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
@@ -373,6 +499,21 @@ export default function AdminHealth() {
         <p className="text-sm text-muted-foreground mb-6">
           Přehled provozního zdraví aplikace. Automaticky se obnovuje každých 30 s. Pouze pro administrátory.
         </p>
+
+        {watchdog && watchdog.lastAlertAt && (
+          <div className={cn(
+            "rounded-lg border px-4 py-2 mb-4 text-sm flex items-center gap-2",
+            isDegraded
+              ? "border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/20 text-rose-800 dark:text-rose-200"
+              : "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200"
+          )}>
+            {isDegraded ? <AlertTriangle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
+            Poslední alert: {formatDate(watchdog.lastAlertAt)}
+            {watchdog.consecutiveFailures > 0 && (
+              <span className="ml-2 text-xs opacity-70">({watchdog.consecutiveFailures}× po sobě selhání)</span>
+            )}
+          </div>
+        )}
 
         {isLoading && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

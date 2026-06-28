@@ -93,6 +93,42 @@ paths:
         "403":
           description: Forbidden
 
+  /admin/health/watchdog:
+    get:
+      operationId: getWatchdogStatus
+      tags: [admin]
+      summary: Lightweight watchdog status for the nav indicator (admin only)
+      responses:
+        "200":
+          description: Watchdog status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchdogStatus"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+
+  /admin/health/log:
+    get:
+      operationId: listHealthLog
+      tags: [admin]
+      summary: Health check history for the last 24 hours (admin only)
+      responses:
+        "200":
+          description: List of health log entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HealthLogEntry"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+
   /jobs:
     get:
       operationId: listJobs
@@ -7284,8 +7320,55 @@ components:
       properties:
         status:
           type: string
+        version:
+          type: string
+        uptimeSeconds:
+          type: number
+        dbStatus:
+          type: string
+          enum: [ok, error]
+        dbLatencyMs:
+          type: ["number", "null"]
+        storageStatus:
+          type: string
+          enum: [ok, error, not_configured]
+        smtpStatus:
+          type: string
+          enum: [configured, not_configured]
       required:
         - status
+
+    WatchdogStatus:
+      type: object
+      required: [overallStatus, consecutiveFailures]
+      properties:
+        overallStatus:
+          type: string
+          enum: [ok, degraded, unknown]
+        lastAlertAt:
+          type: ["string", "null"]
+        consecutiveFailures:
+          type: integer
+
+    HealthLogEntry:
+      type: object
+      required: [id, checkedAt, dbOk, s3Ok, smtpOk, overallStatus]
+      properties:
+        id:
+          type: integer
+        checkedAt:
+          type: string
+        dbOk:
+          type: boolean
+        dbLatencyMs:
+          type: ["integer", "null"]
+        s3Ok:
+          type: boolean
+        smtpOk:
+          type: boolean
+        overallStatus:
+          type: string
+          enum: [ok, degraded]
 
     AdminHealthLastBackup:
       type: object

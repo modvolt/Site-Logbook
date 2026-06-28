@@ -136,6 +136,7 @@ import type {
   GetWarehouseActivityMarginTrendParams,
   GetWarehouseJobMarginSummaryParams,
   GetWarehouseJobMarginTrendParams,
+  HealthLogEntry,
   HealthStatus,
   Invoice,
   InvoiceCreateInput,
@@ -263,7 +264,8 @@ import type {
   WarehouseMovementPatch,
   WarehousePriceHistory,
   WarehousePriceUpdateResult,
-  WarehouseSummary
+  WarehouseSummary,
+  WatchdogStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -420,6 +422,160 @@ export function useGetAdminHealth<TData = Awaited<ReturnType<typeof getAdminHeal
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAdminHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetWatchdogStatusUrl = () => {
+
+
+
+
+  return `/api/admin/health/watchdog`
+}
+
+/**
+ * @summary Lightweight watchdog status for the nav indicator (admin only)
+ */
+export const getWatchdogStatus = async ( options?: RequestInit): Promise<WatchdogStatus> => {
+
+  return customFetch<WatchdogStatus>(getGetWatchdogStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWatchdogStatusQueryKey = () => {
+    return [
+    `/api/admin/health/watchdog`
+    ] as const;
+    }
+
+
+export const getGetWatchdogStatusQueryOptions = <TData = Awaited<ReturnType<typeof getWatchdogStatus>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatchdogStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWatchdogStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWatchdogStatus>>> = ({ signal }) => getWatchdogStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWatchdogStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWatchdogStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getWatchdogStatus>>>
+export type GetWatchdogStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary Lightweight watchdog status for the nav indicator (admin only)
+ */
+
+export function useGetWatchdogStatus<TData = Awaited<ReturnType<typeof getWatchdogStatus>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWatchdogStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWatchdogStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListHealthLogUrl = () => {
+
+
+
+
+  return `/api/admin/health/log`
+}
+
+/**
+ * @summary Health check history for the last 24 hours (admin only)
+ */
+export const listHealthLog = async ( options?: RequestInit): Promise<HealthLogEntry[]> => {
+
+  return customFetch<HealthLogEntry[]>(getListHealthLogUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListHealthLogQueryKey = () => {
+    return [
+    `/api/admin/health/log`
+    ] as const;
+    }
+
+
+export const getListHealthLogQueryOptions = <TData = Awaited<ReturnType<typeof listHealthLog>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listHealthLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListHealthLogQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listHealthLog>>> = ({ signal }) => listHealthLog({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listHealthLog>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListHealthLogQueryResult = NonNullable<Awaited<ReturnType<typeof listHealthLog>>>
+export type ListHealthLogQueryError = ErrorType<void>
+
+
+/**
+ * @summary Health check history for the last 24 hours (admin only)
+ */
+
+export function useListHealthLog<TData = Awaited<ReturnType<typeof listHealthLog>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listHealthLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListHealthLogQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
