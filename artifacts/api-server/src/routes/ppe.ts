@@ -1014,7 +1014,7 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
   const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, existing.personId));
   let emailSent = false;
 
-  if (person?.email) {
+  if (person?.email && !existing.confirmEmailSentAt) {
     try {
       await sendPlainEmail({
         to: person.email,

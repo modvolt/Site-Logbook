@@ -525,6 +525,8 @@ export default function Oopp() {
   const archiveItem = useArchivePpeItem();
   const createAssignment = useCreatePpeAssignment();
   const updateAssignment = useUpdatePpeAssignment();
+  const requestConfirm = useRequestPpeConfirm();
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const activeItems = useMemo(() => (items ?? []).filter((i) => i.active), [items]);
 
@@ -1036,6 +1038,27 @@ export default function Oopp() {
                             >
                               <QrCode className="h-3.5 w-3.5" />
                               <span className="hidden sm:inline">Podpis</span>
+                            </Button>
+                          )}
+                          {!a.employeeConfirmedAt && !a.handoverDocument && (
+                            <Button
+                              variant={a.confirmEmailSentAt ? "ghost" : "outline"}
+                              size="sm"
+                              className={`gap-1.5 ${a.confirmEmailSentAt ? "text-blue-600 dark:text-blue-400" : ""}`}
+                              disabled={requestConfirm.isPending && (requestConfirm.variables as any)?.id === a.id}
+                              onClick={() => handleCopyConfirmLink(a)}
+                            >
+                              {a.confirmEmailSentAt ? (
+                                <>
+                                  <Mail className="h-3.5 w-3.5" />
+                                  <span className="hidden sm:inline">E-mail odeslán</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Link2 className="h-3.5 w-3.5" />
+                                  <span className="hidden sm:inline">Odkaz</span>
+                                </>
+                              )}
                             </Button>
                           )}
                           <Button
