@@ -3265,7 +3265,7 @@ export const WebauthnRegisterCompleteBody = zod.object({
 
 
 export const WebauthnLoginBeginBody = zod.object({
-  "username": zod.string().min(1)
+  "username": zod.string().min(1).optional()
 })
 
 export const WebauthnLoginBeginResponse = zod.record(zod.string(), zod.unknown()).describe('PublicKeyCredentialCreationOptions or PublicKeyCredentialRequestOptions returned by @simplewebauthn\/server')

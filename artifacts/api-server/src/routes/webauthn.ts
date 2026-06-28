@@ -162,40 +162,51 @@ router.post("/auth/webauthn/register/complete", async (req, res): Promise<void> 
 
 router.post("/auth/webauthn/login/begin", webauthnLimiter, async (req, res): Promise<void> => {
   const { username } = req.body as { username?: string };
-  if (!username?.trim()) {
-    res.status(400).json({ error: "Username required" });
-    return;
-  }
+  const trimmedUsername = username?.trim() ?? "";
 
-  const [user] = await db
-    .select({ id: usersTable.id, username: usersTable.username, isActive: usersTable.isActive })
-    .from(usersTable)
-    .where(eq(usersTable.username, username.trim()));
+  if (trimmedUsername) {
+    const [user] = await db
+      .select({ id: usersTable.id, username: usersTable.username, isActive: usersTable.isActive })
+      .from(usersTable)
+      .where(eq(usersTable.username, trimmedUsername));
 
-  if (!user || !user.isActive) {
+    const creds =
+      user && user.isActive
+        ? await db
+            .select({ credentialId: webauthnCredentialsTable.credentialId })
+            .from(webauthnCredentialsTable)
+            .where(eq(webauthnCredentialsTable.userId, user.id))
+        : [];
+
     const options = await generateAuthenticationOptions({
       rpID: getRpId(req),
       userVerification: "required",
-      allowCredentials: [],
+      allowCredentials: creds.map((c) => ({ id: c.credentialId })),
     });
+
     req.session.webauthnChallenge = options.challenge;
+    req.session.webauthnUsername = trimmedUsername;
     res.json(options);
     return;
   }
 
-  const creds = await db
+  // Discoverable / resident-credential flow: no username supplied.
+  // Return allow-list from ALL active users so the authenticator can match
+  // the stored credential without needing the user to type a username first.
+  const allCreds = await db
     .select({ credentialId: webauthnCredentialsTable.credentialId })
     .from(webauthnCredentialsTable)
-    .where(eq(webauthnCredentialsTable.userId, user.id));
+    .innerJoin(usersTable, eq(webauthnCredentialsTable.userId, usersTable.id))
+    .where(eq(usersTable.isActive, true));
 
   const options = await generateAuthenticationOptions({
     rpID: getRpId(req),
     userVerification: "required",
-    allowCredentials: creds.map((c) => ({ id: c.credentialId })),
+    allowCredentials: allCreds.map((c) => ({ id: c.credentialId })),
   });
 
   req.session.webauthnChallenge = options.challenge;
-  req.session.webauthnUsername = username.trim();
+  // webauthnUsername intentionally not set — login/complete will resolve by credential id
   res.json(options);
 });
 
@@ -203,7 +214,7 @@ router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): 
   const challenge = req.session.webauthnChallenge;
   const username = req.session.webauthnUsername;
 
-  if (!challenge || !username) {
+  if (!challenge) {
     res.status(400).json({ error: "No pending challenge" });
     return;
   }
@@ -216,31 +227,67 @@ router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): 
     return;
   }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.username, username));
-
-  if (!user || !user.isActive) {
-    res.status(401).json({ error: "Neplatné přihlašovací údaje" });
-    return;
-  }
-
   const responseObj = response as { id?: string; rawId?: string };
   const credId = responseObj.id ?? responseObj.rawId ?? "";
 
-  const [cred] = await db
-    .select()
-    .from(webauthnCredentialsTable)
-    .where(
-      and(
-        eq(webauthnCredentialsTable.userId, user.id),
-        eq(webauthnCredentialsTable.credentialId, credId),
-      ),
-    );
+  let cred: typeof webauthnCredentialsTable.$inferSelect | undefined;
+  let user: typeof usersTable.$inferSelect | undefined;
 
-  if (!cred) {
-    res.status(401).json({ error: "Zařízení není registrováno" });
+  if (username) {
+    // Username-scoped flow: look up user first, then verify credential belongs to them
+    const [foundUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.username, username));
+
+    if (!foundUser || !foundUser.isActive) {
+      res.status(401).json({ error: "Neplatné přihlašovací údaje" });
+      return;
+    }
+    user = foundUser;
+
+    const [foundCred] = await db
+      .select()
+      .from(webauthnCredentialsTable)
+      .where(
+        and(
+          eq(webauthnCredentialsTable.userId, foundUser.id),
+          eq(webauthnCredentialsTable.credentialId, credId),
+        ),
+      );
+
+    if (!foundCred) {
+      res.status(401).json({ error: "Zařízení není registrováno" });
+      return;
+    }
+    cred = foundCred;
+  } else {
+    // Discoverable flow: look up credential by id, then resolve the owning user
+    const [foundCred] = await db
+      .select()
+      .from(webauthnCredentialsTable)
+      .where(eq(webauthnCredentialsTable.credentialId, credId));
+
+    if (!foundCred) {
+      res.status(401).json({ error: "Zařízení není registrováno" });
+      return;
+    }
+    cred = foundCred;
+
+    const [foundUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, foundCred.userId));
+
+    if (!foundUser || !foundUser.isActive) {
+      res.status(401).json({ error: "Neplatné přihlašovací údaje" });
+      return;
+    }
+    user = foundUser;
+  }
+
+  if (!cred || !user) {
+    res.status(401).json({ error: "Neplatné přihlašovací údaje" });
     return;
   }
 

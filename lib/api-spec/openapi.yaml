@@ -3207,7 +3207,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/WebAuthnOptions"
         "400":
-          description: Username required
+          description: Bad request
           content:
             application/json:
               schema:
@@ -9598,7 +9598,6 @@ components:
 
     WebAuthnLoginBeginInput:
       type: object
-      required: [username]
       properties:
         username:
           type: string

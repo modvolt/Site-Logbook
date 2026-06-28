@@ -192,13 +192,11 @@ export default function Login() {
 
   const handleBiometricLogin = async () => {
     const trimmedUsername = username.trim();
-    if (!trimmedUsername) {
-      setFieldErrors({ username: "Zadejte uživatelské jméno pro přihlášení biometrikou." });
-      return;
-    }
     setBiometricLoading(true);
     try {
-      const options = await webauthnBegin.mutateAsync({ data: { username: trimmedUsername } });
+      const options = await webauthnBegin.mutateAsync({
+        data: trimmedUsername ? { username: trimmedUsername } : {},
+      });
       let authResp;
       try {
         authResp = await startAuthentication({ optionsJSON: options as any });

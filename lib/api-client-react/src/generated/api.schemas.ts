@@ -2406,7 +2406,7 @@ export interface WebAuthnCredentialItem {
 
 export interface WebAuthnLoginBeginInput {
   /** @minLength 1 */
-  username: string;
+  username?: string;
 }
 
 /**
