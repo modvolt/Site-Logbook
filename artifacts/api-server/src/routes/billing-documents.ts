@@ -38,6 +38,11 @@ import {
   matchDocumentReferences,
   suggestDocumentMatches,
   updateWarehousePricesFromDocument,
+  listReviewQueue,
+  bulkConfirmReviewLines,
+  skipReviewLines,
+  returnReviewLines,
+  assignWarehouseItemToLine,
   type AppError,
   type Actor,
 } from "../lib/cost-document-service";
@@ -65,6 +70,7 @@ router.use("/billing/documents", requireRole("admin"));
 router.use("/billing/approved-lines", requireRole("admin"));
 router.use("/billing/ai-extraction", requireRole("admin"));
 router.use("/billing/document-linking", requireRole("admin"));
+router.use("/billing/review-queue", requireRole("admin"));
 
 // --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
 
@@ -716,6 +722,93 @@ router.get("/billing/approved-lines", async (req, res): Promise<void> => {
   }
   const lines = await getApprovedLinesForCustomer(customerId);
   res.json(lines);
+});
+
+// ---------------------------------------------------------------------------
+// Review Queue — line-level "K vyřízení" work queue
+// ---------------------------------------------------------------------------
+
+router.get("/billing/review-queue", async (req, res): Promise<void> => {
+  const page = optInt(req.query.page) ?? 1;
+  const pageSize = optInt(req.query.pageSize) ?? 50;
+  const reason = typeof req.query.reason === "string" && req.query.reason.length > 0
+    ? req.query.reason
+    : undefined;
+  try {
+    const result = await listReviewQueue({ page, pageSize, reason });
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Načtení fronty K vyřízení selhalo.", res);
+  }
+});
+
+router.post("/billing/review-queue/bulk-confirm", async (req, res): Promise<void> => {
+  const body = req.body;
+  const lineIds: unknown = body?.lineIds;
+  if (!Array.isArray(lineIds) || lineIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
+    res.status(400).json({ error: "Neplatný seznam ID řádků." });
+    return;
+  }
+  const dryRun = body?.dryRun === true;
+  try {
+    const diff = await bulkConfirmReviewLines(lineIds as number[], actorOf(req), dryRun);
+    res.json(diff);
+  } catch (err) {
+    handleError(err, "Hromadné potvrzení selhalo.", res);
+  }
+});
+
+router.post("/billing/review-queue/skip", async (req, res): Promise<void> => {
+  const body = req.body;
+  const lineIds: unknown = body?.lineIds;
+  if (!Array.isArray(lineIds) || lineIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
+    res.status(400).json({ error: "Neplatný seznam ID řádků." });
+    return;
+  }
+  const reason = typeof body?.reason === "string" && body.reason.trim().length > 0
+    ? body.reason.trim()
+    : "bez důvodu";
+  const dryRun = body?.dryRun === true;
+  try {
+    const result = await skipReviewLines(lineIds as number[], reason, actorOf(req), dryRun);
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Přeskočení řádků selhalo.", res);
+  }
+});
+
+router.post("/billing/review-queue/return", async (req, res): Promise<void> => {
+  const body = req.body;
+  const lineIds: unknown = body?.lineIds;
+  if (!Array.isArray(lineIds) || lineIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id <= 0)) {
+    res.status(400).json({ error: "Neplatný seznam ID řádků." });
+    return;
+  }
+  try {
+    const result = await returnReviewLines(lineIds as number[], actorOf(req));
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Vrácení řádků k opravě selhalo.", res);
+  }
+});
+
+router.post("/billing/review-queue/:lineId/assign-warehouse", async (req, res): Promise<void> => {
+  const lineId = parseId(req.params.lineId);
+  if (lineId == null) {
+    res.status(400).json({ error: "Neplatné ID řádku." });
+    return;
+  }
+  const warehouseItemId = typeof req.body?.warehouseItemId === "number" ? req.body.warehouseItemId : null;
+  if (!warehouseItemId || !Number.isInteger(warehouseItemId) || warehouseItemId <= 0) {
+    res.status(400).json({ error: "Chybí warehouseItemId." });
+    return;
+  }
+  try {
+    const result = await assignWarehouseItemToLine(lineId, warehouseItemId, actorOf(req));
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Přiřazení skladové položky selhalo.", res);
+  }
 });
 
 // ---------------------------------------------------------------------------

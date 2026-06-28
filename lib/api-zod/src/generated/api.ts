@@ -4248,6 +4248,120 @@ export const DownloadInvoicePdfParams = zod.object({
 
 
 /**
+ * @summary List document lines requiring manual review (admin only)
+ */
+export const ListBillingReviewQueueQueryParams = zod.object({
+  "page": zod.coerce.number().optional(),
+  "pageSize": zod.coerce.number().optional(),
+  "reason": zod.enum(['needs_review', 'low_confidence', 'missing_job', 'missing_warehouse_item', 'price_jump']).optional().describe('Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)')
+})
+
+export const ListBillingReviewQueueResponse = zod.object({
+  "items": zod.array(zod.object({
+  "lineId": zod.number(),
+  "documentId": zod.number(),
+  "lineType": zod.string(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "confidence": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "allocationType": zod.string(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.string(),
+  "docType": zod.string(),
+  "supplierName": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish()
+}),
+  "reasons": zod.array(zod.enum(['needs_review', 'low_confidence', 'missing_job', 'missing_warehouse_item', 'price_jump'])),
+  "suggestedWarehouseItemId": zod.number().nullish(),
+  "suggestedWarehouseItemName": zod.string().nullish(),
+  "previousPrice": zod.number().nullish(),
+  "priceChangePercent": zod.number().nullish(),
+  "suggestedJobId": zod.number().nullish(),
+  "suggestedJobTitle": zod.string().nullish()
+})),
+  "total": zod.number()
+})
+
+
+/**
+ * @summary Bulk-confirm (mark matchConfirmed) a list of review-queue lines (admin only)
+ */
+export const BulkConfirmReviewLinesBody = zod.object({
+  "lineIds": zod.array(zod.number()),
+  "dryRun": zod.boolean().optional().describe('If true, return the diff without committing changes.')
+})
+
+export const BulkConfirmReviewLinesResponse = zod.object({
+  "total": zod.number(),
+  "toConfirm": zod.number(),
+  "alreadyConfirmed": zod.number(),
+  "priceJumps": zod.number().describe('Lines with a price jump ≥20% vs warehouse purchase price (warning to verify before confirming).'),
+  "missingJobCount": zod.number().describe('Lines that have no job assigned (still needs attention after confirmation).'),
+  "missingWarehouseItemCount": zod.number().describe('Lines with no matching warehouse catalogue card.'),
+  "stillUnresolved": zod.number().describe('Lines that will still appear in the review queue after confirmation (have persisting reasons beyond missing_job).'),
+  "withJobAssigned": zod.number().describe('Lines with a job assigned — these will propagate materials to the job when the document is approved.'),
+  "affectedJobIds": zod.array(zod.number()).describe('IDs of jobs that will receive materials once the documents are approved (deduplicated).')
+})
+
+
+/**
+ * @summary Skip lines in the review queue with a reason (admin only)
+ */
+export const SkipReviewLinesBody = zod.object({
+  "lineIds": zod.array(zod.number()),
+  "reason": zod.string().optional().describe('Human-readable reason for skipping (stored in audit log).'),
+  "dryRun": zod.boolean().optional().describe('If true, return the result without committing changes.')
+})
+
+export const SkipReviewLinesResponse = zod.object({
+  "skipped": zod.number().describe('Lines that were newly skipped (allocationType set to not_rebilled, matchConfirmed set to true).'),
+  "alreadySkipped": zod.number().describe('Lines that were already skipped (no change).')
+})
+
+
+/**
+ * @summary Return confirmed lines back to the review queue for correction (admin only)
+ */
+export const ReturnReviewLinesBody = zod.object({
+  "lineIds": zod.array(zod.number())
+})
+
+export const ReturnReviewLinesResponse = zod.object({
+  "returned": zod.number().describe('Lines that were reset to unconfirmed (matchConfirmed set to false).'),
+  "alreadyUnconfirmed": zod.number().describe('Lines that were already unconfirmed (no change).')
+})
+
+
+/**
+ * @summary Assign an existing warehouse catalogue card to a review-queue line (admin only)
+ */
+export const AssignWarehouseItemToReviewLineParams = zod.object({
+  "lineId": zod.coerce.number()
+})
+
+export const AssignWarehouseItemToReviewLineBody = zod.object({
+  "warehouseItemId": zod.number().describe('ID of the warehouse catalogue card to assign to this review line.')
+})
+
+export const AssignWarehouseItemToReviewLineResponse = zod.object({
+  "lineId": zod.number(),
+  "warehouseItemId": zod.number(),
+  "warehouseItemName": zod.string()
+})
+
+
+/**
  * @summary List received cost documents (admin only)
  */
 export const ListCostDocumentsQueryParams = zod.object({

@@ -77,8 +77,8 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
   bankImport: [],
   // Import z e-mailu: stav připojení, zprávy a log.
   emailImport: ["/api/billing/email-import", "/api/email-import-log"],
-  // Fronta kontroly jen pracuje s přijatými doklady (viz kaskáda níže).
-  reviewQueue: [],
+  // Fronta K vyřízení — řádky dokladů čekající na ruční kontrolu.
+  reviewQueue: ["/api/billing/review-queue"],
 };
 
 /**

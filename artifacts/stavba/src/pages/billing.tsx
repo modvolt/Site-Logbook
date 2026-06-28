@@ -4,6 +4,8 @@ import {
   getGetBillingSummaryQueryKey,
   useListCostDocuments,
   getListCostDocumentsQueryKey,
+  useListBillingReviewQueue,
+  getListBillingReviewQueueQueryKey,
   type ListCostDocumentsParams,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,16 +23,14 @@ import {
   Settings as SettingsIcon,
   AlertTriangle,
   Banknote,
-  Sparkles,
+  ClipboardList,
   Mail,
   CheckCircle2,
 } from "lucide-react";
 
 const NEEDS_REVIEW_PARAMS: ListCostDocumentsParams = { status: "needs_review" };
-const AI_REVIEW_PARAMS: ListCostDocumentsParams = {
-  status: "needs_review",
-  aiOnly: true,
-};
+
+const REVIEW_QUEUE_PARAMS = { pageSize: 1 };
 
 export default function Billing() {
   const [, setLocation] = useLocation();
@@ -40,17 +40,17 @@ export default function Billing() {
   const { data: reviewDocs } = useListCostDocuments(NEEDS_REVIEW_PARAMS, {
     query: { queryKey: getListCostDocumentsQueryKey(NEEDS_REVIEW_PARAMS) },
   });
-  const { data: aiReviewDocs } = useListCostDocuments(AI_REVIEW_PARAMS, {
-    query: { queryKey: getListCostDocumentsQueryKey(AI_REVIEW_PARAMS) },
+  const { data: reviewQueueData } = useListBillingReviewQueue(REVIEW_QUEUE_PARAMS, {
+    query: { queryKey: getListBillingReviewQueueQueryKey(REVIEW_QUEUE_PARAMS) },
   });
 
   const reviewCount = reviewDocs?.length ?? 0;
-  const aiReviewCount = aiReviewDocs?.length ?? 0;
+  const reviewQueueCount = reviewQueueData?.total ?? 0;
   const unbilledCount = (data?.unbilledDoneJobs ?? 0) + (data?.unbilledActivities ?? 0);
   const overdueCount = data?.overdueCount ?? 0;
 
   const hasUrgentItems =
-    unbilledCount > 0 || reviewCount > 0 || overdueCount > 0 || aiReviewCount > 0;
+    unbilledCount > 0 || reviewCount > 0 || overdueCount > 0 || reviewQueueCount > 0;
 
   const queueItems = [
     {
@@ -81,12 +81,12 @@ export default function Billing() {
       onClick: () => setLocation("/billing/documents?status=needs_review"),
     },
     {
-      key: "ai",
-      icon: Sparkles,
-      label: "AI ke kontrole",
-      subtitle: "Doklady předvyplněné AI čekající na potvrzení",
-      count: aiReviewCount,
-      urgent: aiReviewCount > 0,
+      key: "reviewQueue",
+      icon: ClipboardList,
+      label: "K vyřízení",
+      subtitle: "Řádky dokladů čekající na ruční kontrolu",
+      count: reviewQueueCount,
+      urgent: reviewQueueCount > 0,
       urgentColor: "text-violet-700 dark:text-violet-400",
       urgentBg:
         "border-violet-200 bg-violet-50 dark:border-violet-900/50 dark:bg-violet-950/20",
@@ -214,11 +214,11 @@ export default function Billing() {
           onClick={() => setLocation("/billing/documents")}
         />
         <NavCard
-          icon={Sparkles}
+          icon={ClipboardList}
           color="text-violet-500"
-          title="AI kontrola dokladů"
-          subtitle="Doklady předvyplněné AI čekající na potvrzení"
-          badge={aiReviewCount}
+          title="K vyřízení"
+          subtitle="Řádky dokladů čekající na ruční kontrolu"
+          badge={reviewQueueCount}
           onClick={() => setLocation("/billing/documents/review")}
         />
         <NavCard

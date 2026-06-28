@@ -2970,6 +2970,135 @@ export interface InvoiceReminderPreview {
   daysOverdue: number;
 }
 
+export interface ReviewQueueDocumentInfo {
+  id: number;
+  status: string;
+  docType: string;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+}
+
+export type ReviewQueueItemReasonsItem = typeof ReviewQueueItemReasonsItem[keyof typeof ReviewQueueItemReasonsItem];
+
+
+export const ReviewQueueItemReasonsItem = {
+  needs_review: 'needs_review',
+  low_confidence: 'low_confidence',
+  missing_job: 'missing_job',
+  missing_warehouse_item: 'missing_warehouse_item',
+  price_jump: 'price_jump',
+} as const;
+
+export interface ReviewQueueItem {
+  lineId: number;
+  documentId: number;
+  lineType: string;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  confidence?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  allocationType: string;
+  matchConfirmed: boolean;
+  approved: boolean;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  feeType?: string | null;
+  document: ReviewQueueDocumentInfo;
+  reasons: ReviewQueueItemReasonsItem[];
+  /** @nullable */
+  suggestedWarehouseItemId?: number | null;
+  /** @nullable */
+  suggestedWarehouseItemName?: string | null;
+  /** @nullable */
+  previousPrice?: number | null;
+  /** @nullable */
+  priceChangePercent?: number | null;
+  /** @nullable */
+  suggestedJobId?: number | null;
+  /** @nullable */
+  suggestedJobTitle?: string | null;
+}
+
+export interface ReviewQueueListResult {
+  items: ReviewQueueItem[];
+  total: number;
+}
+
+export interface BulkConfirmReviewLinesInput {
+  lineIds: number[];
+  /** If true, return the diff without committing changes. */
+  dryRun?: boolean;
+}
+
+export interface BulkReviewDiff {
+  total: number;
+  toConfirm: number;
+  alreadyConfirmed: number;
+  /** Lines with a price jump ≥20% vs warehouse purchase price (warning to verify before confirming). */
+  priceJumps: number;
+  /** Lines that have no job assigned (still needs attention after confirmation). */
+  missingJobCount: number;
+  /** Lines with no matching warehouse catalogue card. */
+  missingWarehouseItemCount: number;
+  /** Lines that will still appear in the review queue after confirmation (have persisting reasons beyond missing_job). */
+  stillUnresolved: number;
+  /** Lines with a job assigned — these will propagate materials to the job when the document is approved. */
+  withJobAssigned: number;
+  /** IDs of jobs that will receive materials once the documents are approved (deduplicated). */
+  affectedJobIds: number[];
+}
+
+export interface ReviewQueueSkipInput {
+  lineIds: number[];
+  /** Human-readable reason for skipping (stored in audit log). */
+  reason?: string;
+  /** If true, return the result without committing changes. */
+  dryRun?: boolean;
+}
+
+export interface ReviewQueueSkipResult {
+  /** Lines that were newly skipped (allocationType set to not_rebilled, matchConfirmed set to true). */
+  skipped: number;
+  /** Lines that were already skipped (no change). */
+  alreadySkipped: number;
+}
+
+export interface ReviewQueueReturnInput {
+  lineIds: number[];
+}
+
+export interface ReviewQueueReturnResult {
+  /** Lines that were reset to unconfirmed (matchConfirmed set to false). */
+  returned: number;
+  /** Lines that were already unconfirmed (no change). */
+  alreadyUnconfirmed: number;
+}
+
+export interface AssignWarehouseInput {
+  /** ID of the warehouse catalogue card to assign to this review line. */
+  warehouseItemId: number;
+}
+
+export interface AssignWarehouseResult {
+  lineId: number;
+  warehouseItemId: number;
+  warehouseItemName: string;
+}
+
 export type CostDocumentStatus = typeof CostDocumentStatus[keyof typeof CostDocumentStatus];
 
 
@@ -3977,6 +4106,26 @@ status?: string;
  */
 customerId?: number | null;
 };
+
+export type ListBillingReviewQueueParams = {
+page?: number;
+pageSize?: number;
+/**
+ * Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)
+ */
+reason?: ListBillingReviewQueueReason;
+};
+
+export type ListBillingReviewQueueReason = typeof ListBillingReviewQueueReason[keyof typeof ListBillingReviewQueueReason];
+
+
+export const ListBillingReviewQueueReason = {
+  needs_review: 'needs_review',
+  low_confidence: 'low_confidence',
+  missing_job: 'missing_job',
+  missing_warehouse_item: 'missing_warehouse_item',
+  price_jump: 'price_jump',
+} as const;
 
 export type ListCostDocumentsParams = {
 status?: string;

@@ -38,6 +38,8 @@ import type {
   AdminHealthStatus,
   AnalyzeJobDocumentsResult,
   ApprovedCostLine,
+  AssignWarehouseInput,
+  AssignWarehouseResult,
   Attachment,
   AttachmentInput,
   AuditLogPage,
@@ -51,6 +53,8 @@ import type {
   BillingSettings,
   BillingSettingsInput,
   BillingSummary,
+  BulkConfirmReviewLinesInput,
+  BulkReviewDiff,
   BulkUpdateResult,
   CancelInvoiceInput,
   ClientErrorInput,
@@ -137,6 +141,7 @@ import type {
   ListActivitiesParams,
   ListApprovedCostLinesParams,
   ListAuditLogsParams,
+  ListBillingReviewQueueParams,
   ListClientErrorsParams,
   ListCostDocumentsParams,
   ListEmailImportMessagesParams,
@@ -165,6 +170,11 @@ import type {
   ResetPasswordWithAnswersInput,
   RestoreResult,
   RetryEmailImportLog200,
+  ReviewQueueListResult,
+  ReviewQueueReturnInput,
+  ReviewQueueReturnResult,
+  ReviewQueueSkipInput,
+  ReviewQueueSkipResult,
   RiskSummary,
   SaveJobSheetInput,
   SecurityQuestionsStatus,
@@ -13354,6 +13364,375 @@ export function useGetInvoiceReminderPreview<TData = Awaited<ReturnType<typeof g
 
 
 
+
+export const getListBillingReviewQueueUrl = (params?: ListBillingReviewQueueParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/review-queue?${stringifiedParams}` : `/api/billing/review-queue`
+}
+
+/**
+ * @summary List document lines requiring manual review (admin only)
+ */
+export const listBillingReviewQueue = async (params?: ListBillingReviewQueueParams, options?: RequestInit): Promise<ReviewQueueListResult> => {
+
+  return customFetch<ReviewQueueListResult>(getListBillingReviewQueueUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBillingReviewQueueQueryKey = (params?: ListBillingReviewQueueParams,) => {
+    return [
+    `/api/billing/review-queue`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListBillingReviewQueueQueryOptions = <TData = Awaited<ReturnType<typeof listBillingReviewQueue>>, TError = ErrorType<ErrorEnvelope>>(params?: ListBillingReviewQueueParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBillingReviewQueue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBillingReviewQueueQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBillingReviewQueue>>> = ({ signal }) => listBillingReviewQueue(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBillingReviewQueue>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBillingReviewQueueQueryResult = NonNullable<Awaited<ReturnType<typeof listBillingReviewQueue>>>
+export type ListBillingReviewQueueQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List document lines requiring manual review (admin only)
+ */
+
+export function useListBillingReviewQueue<TData = Awaited<ReturnType<typeof listBillingReviewQueue>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListBillingReviewQueueParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBillingReviewQueue>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBillingReviewQueueQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getBulkConfirmReviewLinesUrl = () => {
+
+
+
+
+  return `/api/billing/review-queue/bulk-confirm`
+}
+
+/**
+ * @summary Bulk-confirm (mark matchConfirmed) a list of review-queue lines (admin only)
+ */
+export const bulkConfirmReviewLines = async (bulkConfirmReviewLinesInput: BulkConfirmReviewLinesInput, options?: RequestInit): Promise<BulkReviewDiff> => {
+
+  return customFetch<BulkReviewDiff>(getBulkConfirmReviewLinesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      bulkConfirmReviewLinesInput,)
+  }
+);}
+
+
+
+
+export const getBulkConfirmReviewLinesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkConfirmReviewLines>>, TError,{data: BodyType<BulkConfirmReviewLinesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bulkConfirmReviewLines>>, TError,{data: BodyType<BulkConfirmReviewLinesInput>}, TContext> => {
+
+const mutationKey = ['bulkConfirmReviewLines'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bulkConfirmReviewLines>>, {data: BodyType<BulkConfirmReviewLinesInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  bulkConfirmReviewLines(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BulkConfirmReviewLinesMutationResult = NonNullable<Awaited<ReturnType<typeof bulkConfirmReviewLines>>>
+    export type BulkConfirmReviewLinesMutationBody = BodyType<BulkConfirmReviewLinesInput>
+    export type BulkConfirmReviewLinesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Bulk-confirm (mark matchConfirmed) a list of review-queue lines (admin only)
+ */
+export const useBulkConfirmReviewLines = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bulkConfirmReviewLines>>, TError,{data: BodyType<BulkConfirmReviewLinesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bulkConfirmReviewLines>>,
+        TError,
+        {data: BodyType<BulkConfirmReviewLinesInput>},
+        TContext
+      > => {
+      return useMutation(getBulkConfirmReviewLinesMutationOptions(options));
+    }
+
+export const getSkipReviewLinesUrl = () => {
+
+
+
+
+  return `/api/billing/review-queue/skip`
+}
+
+/**
+ * @summary Skip lines in the review queue with a reason (admin only)
+ */
+export const skipReviewLines = async (reviewQueueSkipInput: ReviewQueueSkipInput, options?: RequestInit): Promise<ReviewQueueSkipResult> => {
+
+  return customFetch<ReviewQueueSkipResult>(getSkipReviewLinesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      reviewQueueSkipInput,)
+  }
+);}
+
+
+
+
+export const getSkipReviewLinesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipReviewLines>>, TError,{data: BodyType<ReviewQueueSkipInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof skipReviewLines>>, TError,{data: BodyType<ReviewQueueSkipInput>}, TContext> => {
+
+const mutationKey = ['skipReviewLines'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof skipReviewLines>>, {data: BodyType<ReviewQueueSkipInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  skipReviewLines(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SkipReviewLinesMutationResult = NonNullable<Awaited<ReturnType<typeof skipReviewLines>>>
+    export type SkipReviewLinesMutationBody = BodyType<ReviewQueueSkipInput>
+    export type SkipReviewLinesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Skip lines in the review queue with a reason (admin only)
+ */
+export const useSkipReviewLines = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipReviewLines>>, TError,{data: BodyType<ReviewQueueSkipInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof skipReviewLines>>,
+        TError,
+        {data: BodyType<ReviewQueueSkipInput>},
+        TContext
+      > => {
+      return useMutation(getSkipReviewLinesMutationOptions(options));
+    }
+
+export const getReturnReviewLinesUrl = () => {
+
+
+
+
+  return `/api/billing/review-queue/return`
+}
+
+/**
+ * @summary Return confirmed lines back to the review queue for correction (admin only)
+ */
+export const returnReviewLines = async (reviewQueueReturnInput: ReviewQueueReturnInput, options?: RequestInit): Promise<ReviewQueueReturnResult> => {
+
+  return customFetch<ReviewQueueReturnResult>(getReturnReviewLinesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      reviewQueueReturnInput,)
+  }
+);}
+
+
+
+
+export const getReturnReviewLinesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof returnReviewLines>>, TError,{data: BodyType<ReviewQueueReturnInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof returnReviewLines>>, TError,{data: BodyType<ReviewQueueReturnInput>}, TContext> => {
+
+const mutationKey = ['returnReviewLines'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof returnReviewLines>>, {data: BodyType<ReviewQueueReturnInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  returnReviewLines(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReturnReviewLinesMutationResult = NonNullable<Awaited<ReturnType<typeof returnReviewLines>>>
+    export type ReturnReviewLinesMutationBody = BodyType<ReviewQueueReturnInput>
+    export type ReturnReviewLinesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Return confirmed lines back to the review queue for correction (admin only)
+ */
+export const useReturnReviewLines = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof returnReviewLines>>, TError,{data: BodyType<ReviewQueueReturnInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof returnReviewLines>>,
+        TError,
+        {data: BodyType<ReviewQueueReturnInput>},
+        TContext
+      > => {
+      return useMutation(getReturnReviewLinesMutationOptions(options));
+    }
+
+export const getAssignWarehouseItemToReviewLineUrl = (lineId: number,) => {
+
+
+
+
+  return `/api/billing/review-queue/${lineId}/assign-warehouse`
+}
+
+/**
+ * @summary Assign an existing warehouse catalogue card to a review-queue line (admin only)
+ */
+export const assignWarehouseItemToReviewLine = async (lineId: number,
+    assignWarehouseInput: AssignWarehouseInput, options?: RequestInit): Promise<AssignWarehouseResult> => {
+
+  return customFetch<AssignWarehouseResult>(getAssignWarehouseItemToReviewLineUrl(lineId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assignWarehouseInput,)
+  }
+);}
+
+
+
+
+export const getAssignWarehouseItemToReviewLineMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignWarehouseItemToReviewLine>>, TError,{lineId: number;data: BodyType<AssignWarehouseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof assignWarehouseItemToReviewLine>>, TError,{lineId: number;data: BodyType<AssignWarehouseInput>}, TContext> => {
+
+const mutationKey = ['assignWarehouseItemToReviewLine'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof assignWarehouseItemToReviewLine>>, {lineId: number;data: BodyType<AssignWarehouseInput>}> = (props) => {
+          const {lineId,data} = props ?? {};
+
+          return  assignWarehouseItemToReviewLine(lineId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AssignWarehouseItemToReviewLineMutationResult = NonNullable<Awaited<ReturnType<typeof assignWarehouseItemToReviewLine>>>
+    export type AssignWarehouseItemToReviewLineMutationBody = BodyType<AssignWarehouseInput>
+    export type AssignWarehouseItemToReviewLineMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Assign an existing warehouse catalogue card to a review-queue line (admin only)
+ */
+export const useAssignWarehouseItemToReviewLine = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignWarehouseItemToReviewLine>>, TError,{lineId: number;data: BodyType<AssignWarehouseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof assignWarehouseItemToReviewLine>>,
+        TError,
+        {lineId: number;data: BodyType<AssignWarehouseInput>},
+        TContext
+      > => {
+      return useMutation(getAssignWarehouseItemToReviewLineMutationOptions(options));
+    }
 
 export const getListCostDocumentsUrl = (params?: ListCostDocumentsParams,) => {
   const normalizedParams = new URLSearchParams();

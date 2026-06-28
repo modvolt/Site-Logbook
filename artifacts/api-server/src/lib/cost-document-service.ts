@@ -2891,6 +2891,611 @@ export async function applyAiSuggestion(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Review Queue — enriched line-level work queue for billing review
+// ---------------------------------------------------------------------------
+
+export type ReviewReason =
+  | "needs_review"
+  | "low_confidence"
+  | "missing_job"
+  | "missing_warehouse_item"
+  | "price_jump";
+
+export interface ReviewQueueItem {
+  lineId: number;
+  documentId: number;
+  lineType: string;
+  description: string;
+  quantity: number;
+  unit: string | null;
+  unitPriceWithoutVat: number;
+  confidence: number | null;
+  jobId: number | null;
+  allocationType: string;
+  matchConfirmed: boolean;
+  approved: boolean;
+  supplierSku: string | null;
+  ean: string | null;
+  feeType: string | null;
+  document: {
+    id: number;
+    status: string;
+    docType: string;
+    supplierName: string | null;
+    documentNumber: string | null;
+    variableSymbol: string | null;
+    issueDate: string | null;
+  };
+  reasons: ReviewReason[];
+  suggestedWarehouseItemId: number | null;
+  suggestedWarehouseItemName: string | null;
+  previousPrice: number | null;
+  priceChangePercent: number | null;
+  suggestedJobId: number | null;
+  suggestedJobTitle: string | null;
+}
+
+export interface ReviewQueueListResult {
+  items: ReviewQueueItem[];
+  total: number;
+}
+
+const REVIEW_CONFIDENCE_THRESHOLD = 0.7;
+const PRICE_JUMP_THRESHOLD_PERCENT = 20;
+
+// Statuses where a document is still open and worth reviewing.
+// 'approved', 'ignored', and 'duplicate' are terminal — skip them.
+const OPEN_DOC_STATUSES = ["uploaded", "needs_review", "reviewed"] as const;
+
+// ---------------------------------------------------------------------------
+// Shared helper: batch-load all warehouse items into lookup maps
+// ---------------------------------------------------------------------------
+
+type WarehouseLookupItem = { id: number; name: string; purchasePrice: string | null };
+
+async function loadWarehouseLookupMaps(): Promise<{
+  byEan: Map<string, WarehouseLookupItem>;
+  bySku: Map<string, WarehouseLookupItem>;
+  byNorm: Map<string, WarehouseLookupItem>;
+}> {
+  const items = await db
+    .select({
+      id: warehouseItemsTable.id,
+      name: warehouseItemsTable.name,
+      ean: warehouseItemsTable.ean,
+      supplierSku: warehouseItemsTable.supplierSku,
+      normalizedName: warehouseItemsTable.normalizedName,
+      purchasePrice: warehouseItemsTable.purchasePrice,
+    })
+    .from(warehouseItemsTable);
+
+  const byEan = new Map<string, WarehouseLookupItem>();
+  const bySku = new Map<string, WarehouseLookupItem>();
+  const byNorm = new Map<string, WarehouseLookupItem>();
+  for (const item of items) {
+    if (item.ean) byEan.set(item.ean, item);
+    if (item.supplierSku) bySku.set(item.supplierSku, item);
+    if (item.normalizedName) byNorm.set(item.normalizedName, item);
+  }
+  return { byEan, bySku, byNorm };
+}
+
+function matchLineToWarehouse(
+  line: {
+    ean: string | null;
+    supplierSku: string | null;
+    description: string;
+  },
+  maps: { byEan: Map<string, WarehouseLookupItem>; bySku: Map<string, WarehouseLookupItem>; byNorm: Map<string, WarehouseLookupItem> },
+): WarehouseLookupItem | null {
+  if (line.ean) {
+    const m = maps.byEan.get(line.ean);
+    if (m) return m;
+  }
+  if (line.supplierSku) {
+    const m = maps.bySku.get(line.supplierSku);
+    if (m) return m;
+  }
+  const norm = normalizeItemName(line.description);
+  if (norm) {
+    const m = maps.byNorm.get(norm);
+    if (m) return m;
+  }
+  return null;
+}
+
+function computeReasons(
+  line: {
+    lineType: string;
+    feeType: string | null;
+    allocationType: string;
+    jobId: number | null;
+    matchConfirmed: number;
+    confidence: string | null;
+  },
+  doc: { status: string },
+  warehouseMatch: WarehouseLookupItem | null,
+  unitPrice: number,
+): { reasons: ReviewReason[]; priceChangePercent: number | null; previousPrice: number | null } {
+  let previousPrice: number | null = null;
+  let priceChangePercent: number | null = null;
+  if (warehouseMatch?.purchasePrice != null) {
+    previousPrice = num(warehouseMatch.purchasePrice);
+    if (previousPrice > 0 && unitPrice > 0) {
+      priceChangePercent = round2(((unitPrice - previousPrice) / previousPrice) * 100);
+    }
+  }
+
+  const isMaterial = line.lineType === "material" && !line.feeType;
+
+  const reasons: ReviewReason[] = [];
+  if (doc.status === "needs_review") reasons.push("needs_review");
+  if (line.confidence != null && num(line.confidence) < REVIEW_CONFIDENCE_THRESHOLD) {
+    reasons.push("low_confidence");
+  }
+  if (isMaterial && line.allocationType === "rebill" && !line.jobId && !line.matchConfirmed) {
+    reasons.push("missing_job");
+  }
+  if (isMaterial && warehouseMatch === null) {
+    reasons.push("missing_warehouse_item");
+  }
+  if (priceChangePercent !== null && Math.abs(priceChangePercent) >= PRICE_JUMP_THRESHOLD_PERCENT) {
+    reasons.push("price_jump");
+  }
+
+  return { reasons, priceChangePercent, previousPrice };
+}
+
+export async function listReviewQueue(opts: {
+  page?: number;
+  pageSize?: number;
+  reason?: string;
+}): Promise<ReviewQueueListResult> {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50));
+
+  // Fetch ALL non-approved, non-invoiced lines from open documents.
+  // We intentionally widen the SQL filter here and compute reasons in-memory
+  // so every trigger (missing warehouse item, price jump, etc.) is covered —
+  // not just confidence and document status.
+  const allRows = await db
+    .select({
+      line: billingDocumentLinesTable,
+      doc: {
+        id: billingDocumentsTable.id,
+        status: billingDocumentsTable.status,
+        docType: billingDocumentsTable.docType,
+        supplierName: billingDocumentsTable.supplierName,
+        documentNumber: billingDocumentsTable.documentNumber,
+        variableSymbol: billingDocumentsTable.variableSymbol,
+        issueDate: billingDocumentsTable.issueDate,
+      },
+    })
+    .from(billingDocumentLinesTable)
+    .innerJoin(
+      billingDocumentsTable,
+      eq(billingDocumentLinesTable.documentId, billingDocumentsTable.id),
+    )
+    .where(
+      and(
+        eq(billingDocumentLinesTable.approved, 0),
+        isNull(billingDocumentLinesTable.invoicedInvoiceId),
+        inArray(billingDocumentsTable.status, [...OPEN_DOC_STATUSES]),
+      ),
+    )
+    .orderBy(asc(billingDocumentsTable.id), asc(billingDocumentLinesTable.sortOrder));
+
+  // Batch-load warehouse catalogue for matching
+  const warehouseMaps = await loadWarehouseLookupMaps();
+
+  // Batch-query confirmed/suggested jobs from document references
+  const allDocIds = [...new Set(allRows.map((r) => r.doc.id))];
+  const suggestedJobByDocId = new Map<number, { jobId: number; jobTitle: string }>();
+
+  if (allDocIds.length > 0) {
+    const refs = await db
+      .select({
+        documentId: billingDocumentReferencesTable.documentId,
+        matchedJobId: billingDocumentReferencesTable.matchedJobId,
+        matchConfirmed: billingDocumentReferencesTable.matchConfirmed,
+        matchConfidence: billingDocumentReferencesTable.matchConfidence,
+        jobTitle: jobsTable.title,
+      })
+      .from(billingDocumentReferencesTable)
+      .innerJoin(jobsTable, eq(billingDocumentReferencesTable.matchedJobId, jobsTable.id))
+      .where(
+        and(
+          inArray(billingDocumentReferencesTable.documentId, allDocIds),
+          isNotNull(billingDocumentReferencesTable.matchedJobId),
+          eq(billingDocumentReferencesTable.rejected, 0),
+        ),
+      )
+      .orderBy(
+        desc(billingDocumentReferencesTable.matchConfirmed),
+        desc(billingDocumentReferencesTable.matchConfidence),
+      );
+
+    for (const ref of refs) {
+      if (ref.matchedJobId && !suggestedJobByDocId.has(ref.documentId)) {
+        suggestedJobByDocId.set(ref.documentId, {
+          jobId: ref.matchedJobId,
+          jobTitle: ref.jobTitle,
+        });
+      }
+    }
+  }
+
+  // Build enriched items and filter to those with at least one review reason
+  const allItems: ReviewQueueItem[] = [];
+
+  for (const r of allRows) {
+    const line = r.line;
+    const doc = r.doc;
+    const unitPrice = num(line.unitPriceWithoutVat);
+    const warehouseMatch = matchLineToWarehouse(line, warehouseMaps);
+
+    const { reasons, priceChangePercent, previousPrice } = computeReasons(
+      line,
+      doc,
+      warehouseMatch,
+      unitPrice,
+    );
+
+    // Skip lines that don't need any attention
+    if (reasons.length === 0) continue;
+
+    const suggestedJob = suggestedJobByDocId.get(doc.id) ?? null;
+
+    allItems.push({
+      lineId: line.id,
+      documentId: line.documentId,
+      lineType: line.lineType,
+      description: line.description,
+      quantity: num(line.quantity),
+      unit: line.unit,
+      unitPriceWithoutVat: unitPrice,
+      confidence: line.confidence != null ? num(line.confidence) : null,
+      jobId: line.jobId,
+      allocationType: line.allocationType,
+      matchConfirmed: !!line.matchConfirmed,
+      approved: !!line.approved,
+      supplierSku: line.supplierSku,
+      ean: line.ean,
+      feeType: line.feeType,
+      document: {
+        id: doc.id,
+        status: doc.status,
+        docType: doc.docType,
+        supplierName: doc.supplierName,
+        documentNumber: doc.documentNumber,
+        variableSymbol: doc.variableSymbol,
+        issueDate: doc.issueDate,
+      },
+      reasons,
+      suggestedWarehouseItemId: warehouseMatch?.id ?? null,
+      suggestedWarehouseItemName: warehouseMatch?.name ?? null,
+      previousPrice,
+      priceChangePercent,
+      suggestedJobId: suggestedJob?.jobId ?? null,
+      suggestedJobTitle: suggestedJob?.jobTitle ?? null,
+    });
+  }
+
+  // Optional reason filter (after in-memory enrichment)
+  const filtered = opts.reason
+    ? allItems.filter((item) => item.reasons.includes(opts.reason as ReviewReason))
+    : allItems;
+
+  const total = filtered.length;
+  const offset = (page - 1) * pageSize;
+  const items = filtered.slice(offset, offset + pageSize);
+
+  return { items, total };
+}
+
+export interface BulkReviewDiff {
+  total: number;
+  toConfirm: number;
+  alreadyConfirmed: number;
+  priceJumps: number;
+  missingJobCount: number;
+  missingWarehouseItemCount: number;
+  /** Lines that will still appear in the review queue after confirmation (have reasons that persist regardless of matchConfirmed). */
+  stillUnresolved: number;
+  /** Lines with a job assigned — those will propagate materials to the job when the document is approved. */
+  withJobAssigned: number;
+  /** IDs of jobs that will receive materials once the document is approved (deduplicated). */
+  affectedJobIds: number[];
+}
+
+export async function bulkConfirmReviewLines(
+  lineIds: number[],
+  actor: Actor,
+  dryRun = false,
+): Promise<BulkReviewDiff> {
+  if (lineIds.length === 0) {
+    return {
+      total: 0,
+      toConfirm: 0,
+      alreadyConfirmed: 0,
+      priceJumps: 0,
+      missingJobCount: 0,
+      missingWarehouseItemCount: 0,
+      stillUnresolved: 0,
+      withJobAssigned: 0,
+      affectedJobIds: [],
+    };
+  }
+
+  const lines = await db
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(
+      and(
+        inArray(billingDocumentLinesTable.id, lineIds),
+        isNull(billingDocumentLinesTable.invoicedInvoiceId),
+      ),
+    );
+
+  // Batch-load doc statuses for lines (needed for needs_review reason)
+  const docIds = [...new Set(lines.map((l) => l.documentId))];
+  const docStatusMap = new Map<number, string>();
+  if (docIds.length > 0) {
+    const docs = await db
+      .select({ id: billingDocumentsTable.id, status: billingDocumentsTable.status })
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, docIds));
+    for (const d of docs) docStatusMap.set(d.id, d.status);
+  }
+
+  // Resolve warehouse matches to compute accurate diff fields
+  const warehouseMaps = await loadWarehouseLookupMaps();
+
+  let priceJumps = 0;
+  let missingWarehouseItemCount = 0;
+  let missingJobCount = 0;
+  let stillUnresolved = 0;
+  let withJobAssigned = 0;
+  const affectedJobIdSet = new Set<number>();
+
+  for (const l of lines) {
+    const unitPrice = num(l.unitPriceWithoutVat);
+    const warehouseMatch = matchLineToWarehouse(l, warehouseMaps);
+    const docStatus = docStatusMap.get(l.documentId) ?? "";
+    const { reasons } = computeReasons(l, { status: docStatus }, warehouseMatch, unitPrice);
+
+    if (reasons.includes("price_jump")) priceJumps++;
+    if (reasons.includes("missing_warehouse_item")) missingWarehouseItemCount++;
+    if (reasons.includes("missing_job")) missingJobCount++;
+    if (l.jobId != null) {
+      withJobAssigned++;
+      affectedJobIdSet.add(l.jobId);
+    }
+
+    // After confirmation matchConfirmed=1 so missing_job disappears.
+    // Any other remaining reasons mean the line still needs attention.
+    const persistingReasons = reasons.filter((r) => r !== "missing_job");
+    if (persistingReasons.length > 0) stillUnresolved++;
+  }
+
+  const alreadyConfirmed = lines.filter((l) => !!l.matchConfirmed).length;
+  const toConfirmLines = lines.filter((l) => !l.matchConfirmed);
+  const toConfirm = toConfirmLines.length;
+
+  if (!dryRun && toConfirm > 0) {
+    const toConfirmIds = toConfirmLines.map((l) => l.id);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(billingDocumentLinesTable)
+        .set({ matchConfirmed: 1, updatedAt: new Date() })
+        .where(inArray(billingDocumentLinesTable.id, toConfirmIds));
+
+      await tx.insert(auditLogTable).values({
+        action: "bulk_confirm_review_lines",
+        entityType: "billing_document_line",
+        entityId: null,
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        summary: `Hromadně potvrzeno ${toConfirmIds.length} řádků dokladu`,
+      });
+    });
+  }
+
+  return {
+    total: lineIds.length,
+    toConfirm,
+    alreadyConfirmed,
+    priceJumps,
+    missingJobCount,
+    missingWarehouseItemCount,
+    stillUnresolved,
+    withJobAssigned,
+    affectedJobIds: [...affectedJobIdSet],
+  };
+}
+
+export interface SkipReviewResult {
+  skipped: number;
+  alreadySkipped: number;
+}
+
+/**
+ * Skip lines in the review queue: marks them as reviewed but deliberately
+ * excluded from job/warehouse propagation (allocationType = not_rebilled).
+ * The skipReason is stored in the audit log for traceability.
+ */
+export async function skipReviewLines(
+  lineIds: number[],
+  skipReason: string,
+  actor: Actor,
+  dryRun = false,
+): Promise<SkipReviewResult> {
+  if (lineIds.length === 0) return { skipped: 0, alreadySkipped: 0 };
+
+  const lines = await db
+    .select({ id: billingDocumentLinesTable.id, allocationType: billingDocumentLinesTable.allocationType, matchConfirmed: billingDocumentLinesTable.matchConfirmed })
+    .from(billingDocumentLinesTable)
+    .where(
+      and(
+        inArray(billingDocumentLinesTable.id, lineIds),
+        isNull(billingDocumentLinesTable.invoicedInvoiceId),
+      ),
+    );
+
+  // A line is "already skipped" if it's already not_rebilled + confirmed
+  const alreadySkipped = lines.filter(
+    (l) => l.allocationType === "not_rebilled" && !!l.matchConfirmed,
+  ).length;
+  const toSkipLines = lines.filter(
+    (l) => !(l.allocationType === "not_rebilled" && !!l.matchConfirmed),
+  );
+  const skipped = toSkipLines.length;
+
+  if (!dryRun && skipped > 0) {
+    const toSkipIds = toSkipLines.map((l) => l.id);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(billingDocumentLinesTable)
+        .set({ allocationType: "not_rebilled", matchConfirmed: 1, updatedAt: new Date() })
+        .where(inArray(billingDocumentLinesTable.id, toSkipIds));
+
+      await tx.insert(auditLogTable).values({
+        action: "skip_review_lines",
+        entityType: "billing_document_line",
+        entityId: null,
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        summary: `Přeskočeno ${toSkipIds.length} řádků (důvod: ${skipReason})`,
+      });
+    });
+  }
+
+  return { skipped, alreadySkipped };
+}
+
+export interface ReturnReviewResult {
+  returned: number;
+  alreadyUnconfirmed: number;
+}
+
+/**
+ * Return lines for correction: resets matchConfirmed to 0 so they reappear in
+ * the review queue. If a line's allocationType was set to not_rebilled during
+ * a skip, it is also reset to 'internal' so it's visible again.
+ */
+export async function returnReviewLines(
+  lineIds: number[],
+  actor: Actor,
+): Promise<ReturnReviewResult> {
+  if (lineIds.length === 0) return { returned: 0, alreadyUnconfirmed: 0 };
+
+  const lines = await db
+    .select({ id: billingDocumentLinesTable.id, matchConfirmed: billingDocumentLinesTable.matchConfirmed, allocationType: billingDocumentLinesTable.allocationType })
+    .from(billingDocumentLinesTable)
+    .where(inArray(billingDocumentLinesTable.id, lineIds));
+
+  const alreadyUnconfirmed = lines.filter((l) => !l.matchConfirmed).length;
+  const toReturnLines = lines.filter((l) => !!l.matchConfirmed);
+  const returned = toReturnLines.length;
+
+  if (returned > 0) {
+    const toReturnIds = toReturnLines.map((l) => l.id);
+    await db.transaction(async (tx) => {
+      // Reset matchConfirmed; if the line was skipped (not_rebilled), restore to rebill so
+      // the missing_job reason fires again — that was the original allocation intent.
+      // Never reset to "internal" which would suppress the missing_job detection.
+      for (const l of toReturnLines) {
+        await tx
+          .update(billingDocumentLinesTable)
+          .set({
+            matchConfirmed: 0,
+            ...(l.allocationType === "not_rebilled" ? { allocationType: "rebill" } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(billingDocumentLinesTable.id, l.id));
+      }
+
+      await tx.insert(auditLogTable).values({
+        action: "return_review_lines",
+        entityType: "billing_document_line",
+        entityId: null,
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        summary: `Vráceno k opravě ${toReturnIds.length} řádků dokladu`,
+      });
+    });
+  }
+
+  return { returned, alreadyUnconfirmed };
+}
+
+export interface AssignWarehouseResult {
+  lineId: number;
+  warehouseItemId: number;
+  warehouseItemName: string;
+}
+
+/**
+ * Assign an existing warehouse catalogue card to a billing document line.
+ *
+ * Establishes the match by updating the line's EAN/SKU/description to ensure
+ * the next matchLineToWarehouse call resolves the correct item (priority: EAN → SKU → name).
+ * Idempotent: re-assigning the same item is a no-op for DB state but still audited.
+ */
+export async function assignWarehouseItemToLine(
+  lineId: number,
+  warehouseItemId: number,
+  actor: Actor,
+): Promise<AssignWarehouseResult> {
+  const [line] = await db
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.id, lineId));
+  if (!line) throw Object.assign(new Error("Řádek nenalezen."), { status: 404 });
+
+  const [item] = await db
+    .select()
+    .from(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, warehouseItemId));
+  if (!item) throw Object.assign(new Error("Skladová položka nenalezena."), { status: 404 });
+
+  // Determine the best linking field (EAN > SKU > name).
+  // This ensures future matchLineToWarehouse calls resolve the same item.
+  const updates: Partial<{
+    ean: string | null;
+    supplierSku: string | null;
+    description: string;
+    updatedAt: Date;
+  }> = { updatedAt: new Date() };
+
+  if (item.ean) {
+    updates.ean = item.ean;
+  } else if (item.supplierSku) {
+    updates.supplierSku = item.supplierSku;
+  } else {
+    updates.description = item.name;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(billingDocumentLinesTable)
+      .set(updates)
+      .where(eq(billingDocumentLinesTable.id, lineId));
+
+    await tx.insert(auditLogTable).values({
+      action: "assign_warehouse_item",
+      entityType: "billing_document_line",
+      entityId: lineId,
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      summary: `Přiřazena sklad. karta "${item.name}" (id=${warehouseItemId}) k řádku ${lineId}`,
+    });
+  });
+
+  return { lineId, warehouseItemId, warehouseItemName: item.name };
+}
+
 /** Fetch a document's stored file bytes (or null when it has no object). */
 export async function getDocumentFileBuffer(
   documentId: number,

@@ -4422,6 +4422,179 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/review-queue:
+    get:
+      operationId: listBillingReviewQueue
+      tags: [billing]
+      summary: List document lines requiring manual review (admin only)
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: reason
+          in: query
+          required: false
+          description: Filter by review reason (needs_review | low_confidence | missing_job | missing_warehouse_item | price_jump)
+          schema:
+            type: string
+            enum: [needs_review, low_confidence, missing_job, missing_warehouse_item, price_jump]
+      responses:
+        "200":
+          description: Paginated review queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueueListResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/review-queue/bulk-confirm:
+    post:
+      operationId: bulkConfirmReviewLines
+      tags: [billing]
+      summary: Bulk-confirm (mark matchConfirmed) a list of review-queue lines (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkConfirmReviewLinesInput"
+      responses:
+        "200":
+          description: Diff / result of the bulk confirm
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkReviewDiff"
+        "400":
+          description: Invalid line IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/review-queue/skip:
+    post:
+      operationId: skipReviewLines
+      tags: [billing]
+      summary: Skip lines in the review queue with a reason (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewQueueSkipInput"
+      responses:
+        "200":
+          description: Skip result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueueSkipResult"
+        "400":
+          description: Invalid line IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/review-queue/return:
+    post:
+      operationId: returnReviewLines
+      tags: [billing]
+      summary: Return confirmed lines back to the review queue for correction (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewQueueReturnInput"
+      responses:
+        "200":
+          description: Return result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueueReturnResult"
+        "400":
+          description: Invalid line IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/review-queue/{lineId}/assign-warehouse:
+    post:
+      operationId: assignWarehouseItemToReviewLine
+      tags: [billing]
+      summary: Assign an existing warehouse catalogue card to a review-queue line (admin only)
+      parameters:
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignWarehouseInput"
+      responses:
+        "200":
+          description: Assignment result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignWarehouseResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Line or warehouse item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/documents:
     get:
       operationId: listCostDocuments
@@ -9425,6 +9598,209 @@ components:
         autoConfirmMinScore:
           type: ["number", "null"]
           description: 0–1 threshold; null falls back to env/default.
+
+    ReviewQueueDocumentInfo:
+      type: object
+      required: [id, status, docType]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        docType:
+          type: string
+        supplierName:
+          type: ["string", "null"]
+        documentNumber:
+          type: ["string", "null"]
+        variableSymbol:
+          type: ["string", "null"]
+        issueDate:
+          type: ["string", "null"]
+
+    ReviewQueueItem:
+      type: object
+      required:
+        - lineId
+        - documentId
+        - lineType
+        - description
+        - quantity
+        - unitPriceWithoutVat
+        - allocationType
+        - matchConfirmed
+        - approved
+        - document
+        - reasons
+      properties:
+        lineId:
+          type: integer
+        documentId:
+          type: integer
+        lineType:
+          type: string
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPriceWithoutVat:
+          type: number
+        confidence:
+          type: ["number", "null"]
+        jobId:
+          type: ["integer", "null"]
+        allocationType:
+          type: string
+        matchConfirmed:
+          type: boolean
+        approved:
+          type: boolean
+        supplierSku:
+          type: ["string", "null"]
+        ean:
+          type: ["string", "null"]
+        feeType:
+          type: ["string", "null"]
+        document:
+          $ref: "#/components/schemas/ReviewQueueDocumentInfo"
+        reasons:
+          type: array
+          items:
+            type: string
+            enum: [needs_review, low_confidence, missing_job, missing_warehouse_item, price_jump]
+        suggestedWarehouseItemId:
+          type: ["integer", "null"]
+        suggestedWarehouseItemName:
+          type: ["string", "null"]
+        previousPrice:
+          type: ["number", "null"]
+        priceChangePercent:
+          type: ["number", "null"]
+        suggestedJobId:
+          type: ["integer", "null"]
+        suggestedJobTitle:
+          type: ["string", "null"]
+
+    ReviewQueueListResult:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewQueueItem"
+        total:
+          type: integer
+
+    BulkConfirmReviewLinesInput:
+      type: object
+      required: [lineIds]
+      properties:
+        lineIds:
+          type: array
+          items:
+            type: integer
+        dryRun:
+          type: boolean
+          description: If true, return the diff without committing changes.
+
+    BulkReviewDiff:
+      type: object
+      required: [total, toConfirm, alreadyConfirmed, priceJumps, missingJobCount, missingWarehouseItemCount, stillUnresolved, withJobAssigned, affectedJobIds]
+      properties:
+        total:
+          type: integer
+        toConfirm:
+          type: integer
+        alreadyConfirmed:
+          type: integer
+        priceJumps:
+          type: integer
+          description: Lines with a price jump ≥20% vs warehouse purchase price (warning to verify before confirming).
+        missingJobCount:
+          type: integer
+          description: Lines that have no job assigned (still needs attention after confirmation).
+        missingWarehouseItemCount:
+          type: integer
+          description: Lines with no matching warehouse catalogue card.
+        stillUnresolved:
+          type: integer
+          description: Lines that will still appear in the review queue after confirmation (have persisting reasons beyond missing_job).
+        withJobAssigned:
+          type: integer
+          description: Lines with a job assigned — these will propagate materials to the job when the document is approved.
+        affectedJobIds:
+          type: array
+          items:
+            type: integer
+          description: IDs of jobs that will receive materials once the documents are approved (deduplicated).
+
+    AssignWarehouseInput:
+      type: object
+      required: [warehouseItemId]
+      properties:
+        warehouseItemId:
+          type: integer
+          description: ID of the warehouse catalogue card to assign to this review line.
+
+    AssignWarehouseResult:
+      type: object
+      required: [lineId, warehouseItemId, warehouseItemName]
+      properties:
+        lineId:
+          type: integer
+        warehouseItemId:
+          type: integer
+        warehouseItemName:
+          type: string
+
+    ReviewQueueSkipInput:
+      type: object
+      required: [lineIds]
+      properties:
+        lineIds:
+          type: array
+          items:
+            type: integer
+        reason:
+          type: string
+          description: Human-readable reason for skipping (stored in audit log).
+        dryRun:
+          type: boolean
+          description: If true, return the result without committing changes.
+
+    ReviewQueueSkipResult:
+      type: object
+      required: [skipped, alreadySkipped]
+      properties:
+        skipped:
+          type: integer
+          description: Lines that were newly skipped (allocationType set to not_rebilled, matchConfirmed set to true).
+        alreadySkipped:
+          type: integer
+          description: Lines that were already skipped (no change).
+
+    ReviewQueueReturnInput:
+      type: object
+      required: [lineIds]
+      properties:
+        lineIds:
+          type: array
+          items:
+            type: integer
+
+    ReviewQueueReturnResult:
+      type: object
+      required: [returned, alreadyUnconfirmed]
+      properties:
+        returned:
+          type: integer
+          description: Lines that were reset to unconfirmed (matchConfirmed set to false).
+        alreadyUnconfirmed:
+          type: integer
+          description: Lines that were already unconfirmed (no change).
 
     CostDocumentLine:
       type: object
