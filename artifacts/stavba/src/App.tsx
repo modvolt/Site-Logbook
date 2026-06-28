@@ -1,5 +1,5 @@
 import { useEffect, Component, type ReactNode, type ErrorInfo } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { loadCompanySettings, applyTextColor, applyUiScale } from "@/lib/company-settings";
@@ -36,6 +36,7 @@ import SkladPohyby from "@/pages/sklad-pohyby";
 import Stroje from "@/pages/stroje";
 import StrojDetail from "@/pages/stroj-detail";
 import Oopp from "@/pages/oopp";
+import PpeConfirm from "@/pages/ppe-confirm";
 import PersonDetail from "@/pages/person-detail";
 import AuditLog from "@/pages/audit-log";
 import ClientErrors from "@/pages/client-errors";
@@ -226,6 +227,11 @@ function AuthenticatedApp() {
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [location] = useLocation();
+
+  if (location === "/oopp/potvrdit" || location.startsWith("/oopp/potvrdit?")) {
+    return <PpeConfirm />;
+  }
   if (isLoading) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center text-muted-foreground">

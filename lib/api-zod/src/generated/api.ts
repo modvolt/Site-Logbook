@@ -2330,6 +2330,7 @@ export const ListPpeAssignmentsResponseItem = zod.object({
   "returnedAt": zod.string().nullish(),
   "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
   "employeeConfirmedAt": zod.string().nullish(),
+  "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string()
 })
@@ -2404,8 +2405,81 @@ export const UpdatePpeAssignmentResponse = zod.object({
   "returnedAt": zod.string().nullish(),
   "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
   "employeeConfirmedAt": zod.string().nullish(),
+  "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
   "notes": zod.string().nullish(),
   "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+ */
+export const RequestPpeConfirmParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RequestPpeConfirmResponse = zod.object({
+  "confirmUrl": zod.string().describe('Full URL the employee opens to confirm receipt'),
+  "token": zod.string()
+})
+
+
+/**
+ * @summary Fetch assignment details by confirmation token (public)
+ */
+export const GetPpeConfirmDetailsQueryParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GetPpeConfirmDetailsResponse = zod.object({
+  "id": zod.number(),
+  "ppeItemId": zod.number(),
+  "personId": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "quantity": zod.number(),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "returnedAt": zod.string().nullish(),
+  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
+  "employeeConfirmedAt": zod.string().nullish(),
+  "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Confirm PPE receipt by token (public — no login required)
+ */
+export const ConfirmPpeAssignmentBody = zod.object({
+  "token": zod.string()
+})
+
+export const ConfirmPpeAssignmentResponse = zod.object({
+  "already": zod.boolean().describe('True if the assignment was already confirmed before this request'),
+  "assignment": zod.object({
+  "id": zod.number(),
+  "ppeItemId": zod.number(),
+  "personId": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "quantity": zod.number(),
+  "size": zod.string().nullish(),
+  "serialNumber": zod.string().nullish(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullish(),
+  "nextInspectionAt": zod.string().nullish(),
+  "returnedAt": zod.string().nullish(),
+  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
+  "employeeConfirmedAt": zod.string().nullish(),
+  "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string()
+})
 })
 
 

@@ -122,6 +122,7 @@ import type {
   GetLeavesSummaryParams,
   GetMyDoneJobsParams,
   GetMyVisitsParams,
+  GetPpeConfirmDetailsParams,
   GetRisksSummaryParams,
   GetStatsOverviewParams,
   GetWarehouseActivityMarginTrendParams,
@@ -184,6 +185,9 @@ import type {
   PpeAssignment,
   PpeAssignmentInput,
   PpeAssignmentUpdate,
+  PpeConfirmInput,
+  PpeConfirmLinkResponse,
+  PpeConfirmResult,
   PpeItem,
   PpeItemInput,
   PublicHoliday,
@@ -7676,6 +7680,231 @@ export const useUpdatePpeAssignment = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUpdatePpeAssignmentMutationOptions(options));
+    }
+
+export const getRequestPpeConfirmUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/request-confirm`
+}
+
+/**
+ * @summary Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+ */
+export const requestPpeConfirm = async (id: number, options?: RequestInit): Promise<PpeConfirmLinkResponse> => {
+
+  return customFetch<PpeConfirmLinkResponse>(getRequestPpeConfirmUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRequestPpeConfirmMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestPpeConfirm>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestPpeConfirm>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['requestPpeConfirm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestPpeConfirm>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  requestPpeConfirm(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestPpeConfirmMutationResult = NonNullable<Awaited<ReturnType<typeof requestPpeConfirm>>>
+
+    export type RequestPpeConfirmMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+ */
+export const useRequestPpeConfirm = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestPpeConfirm>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestPpeConfirm>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRequestPpeConfirmMutationOptions(options));
+    }
+
+export const getGetPpeConfirmDetailsUrl = (params: GetPpeConfirmDetailsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ppe/confirm?${stringifiedParams}` : `/api/ppe/confirm`
+}
+
+/**
+ * @summary Fetch assignment details by confirmation token (public)
+ */
+export const getPpeConfirmDetails = async (params: GetPpeConfirmDetailsParams, options?: RequestInit): Promise<PpeAssignment> => {
+
+  return customFetch<PpeAssignment>(getGetPpeConfirmDetailsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPpeConfirmDetailsQueryKey = (params?: GetPpeConfirmDetailsParams,) => {
+    return [
+    `/api/ppe/confirm`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetPpeConfirmDetailsQueryOptions = <TData = Awaited<ReturnType<typeof getPpeConfirmDetails>>, TError = ErrorType<void>>(params: GetPpeConfirmDetailsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPpeConfirmDetails>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPpeConfirmDetailsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPpeConfirmDetails>>> = ({ signal }) => getPpeConfirmDetails(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPpeConfirmDetails>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPpeConfirmDetailsQueryResult = NonNullable<Awaited<ReturnType<typeof getPpeConfirmDetails>>>
+export type GetPpeConfirmDetailsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Fetch assignment details by confirmation token (public)
+ */
+
+export function useGetPpeConfirmDetails<TData = Awaited<ReturnType<typeof getPpeConfirmDetails>>, TError = ErrorType<void>>(
+ params: GetPpeConfirmDetailsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPpeConfirmDetails>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPpeConfirmDetailsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getConfirmPpeAssignmentUrl = () => {
+
+
+
+
+  return `/api/ppe/confirm`
+}
+
+/**
+ * @summary Confirm PPE receipt by token (public — no login required)
+ */
+export const confirmPpeAssignment = async (ppeConfirmInput: PpeConfirmInput, options?: RequestInit): Promise<PpeConfirmResult> => {
+
+  return customFetch<PpeConfirmResult>(getConfirmPpeAssignmentUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      ppeConfirmInput,)
+  }
+);}
+
+
+
+
+export const getConfirmPpeAssignmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmPpeAssignment>>, TError,{data: BodyType<PpeConfirmInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmPpeAssignment>>, TError,{data: BodyType<PpeConfirmInput>}, TContext> => {
+
+const mutationKey = ['confirmPpeAssignment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmPpeAssignment>>, {data: BodyType<PpeConfirmInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  confirmPpeAssignment(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmPpeAssignmentMutationResult = NonNullable<Awaited<ReturnType<typeof confirmPpeAssignment>>>
+    export type ConfirmPpeAssignmentMutationBody = BodyType<PpeConfirmInput>
+    export type ConfirmPpeAssignmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Confirm PPE receipt by token (public — no login required)
+ */
+export const useConfirmPpeAssignment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmPpeAssignment>>, TError,{data: BodyType<PpeConfirmInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmPpeAssignment>>,
+        TError,
+        {data: BodyType<PpeConfirmInput>},
+        TContext
+      > => {
+      return useMutation(getConfirmPpeAssignmentMutationOptions(options));
     }
 
 export const getReportClientErrorUrl = () => {

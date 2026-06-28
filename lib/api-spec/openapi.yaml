@@ -2319,6 +2319,77 @@ paths:
         "403":
           description: Forbidden
 
+  /ppe/assignments/{id}/request-confirm:
+    post:
+      operationId: requestPpeConfirm
+      tags: [ppe]
+      summary: Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Confirmation URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeConfirmLinkResponse"
+        "404":
+          description: Not found
+        "409":
+          description: Assignment already confirmed or not in issued state
+        "403":
+          description: Forbidden
+
+  /ppe/confirm:
+    get:
+      operationId: getPpeConfirmDetails
+      tags: [ppe]
+      summary: Fetch assignment details by confirmation token (public)
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Assignment details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeAssignment"
+        "400":
+          description: Missing token
+        "404":
+          description: Invalid or expired token
+    post:
+      operationId: confirmPpeAssignment
+      tags: [ppe]
+      summary: Confirm PPE receipt by token (public — no login required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PpeConfirmInput"
+      responses:
+        "200":
+          description: Confirmed (or already confirmed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PpeConfirmResult"
+        "400":
+          description: Missing token
+        "404":
+          description: Invalid or expired token
+        "409":
+          description: Assignment is no longer active
+
   /client-errors:
     post:
       operationId: reportClientError
@@ -11392,7 +11463,7 @@ components:
 
     PpeAssignment:
       type: object
-      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt]
+      required: [id, ppeItemId, personId, ppeNameSnapshot, personNameSnapshot, quantity, issuedAt, status, createdAt, hasConfirmToken]
       properties:
         id:
           type: integer
@@ -11423,10 +11494,40 @@ components:
           enum: [issued, returned, damaged, lost, disposed]
         employeeConfirmedAt:
           type: ["string", "null"]
+        hasConfirmToken:
+          type: boolean
+          description: True when a confirmation link has been generated for this assignment
         notes:
           type: ["string", "null"]
         createdAt:
           type: string
+
+    PpeConfirmLinkResponse:
+      type: object
+      required: [confirmUrl, token]
+      properties:
+        confirmUrl:
+          type: string
+          description: Full URL the employee opens to confirm receipt
+        token:
+          type: string
+
+    PpeConfirmInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    PpeConfirmResult:
+      type: object
+      required: [already, assignment]
+      properties:
+        already:
+          type: boolean
+          description: True if the assignment was already confirmed before this request
+        assignment:
+          $ref: "#/components/schemas/PpeAssignment"
 
     PpeAssignmentInput:
       type: object

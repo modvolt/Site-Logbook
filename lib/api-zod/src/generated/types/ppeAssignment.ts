@@ -28,6 +28,8 @@ export interface PpeAssignment {
   status: PpeAssignmentStatus;
   /** @nullable */
   employeeConfirmedAt?: string | null;
+  /** True when a confirmation link has been generated for this assignment */
+  hasConfirmToken: boolean;
   /** @nullable */
   notes?: string | null;
   createdAt: string;

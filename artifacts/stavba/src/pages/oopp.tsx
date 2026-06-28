@@ -8,6 +8,7 @@ import {
   useListPpeAssignments,
   useCreatePpeAssignment,
   useUpdatePpeAssignment,
+  useRequestPpeConfirm,
   useListPeople,
   getListPpeItemsQueryKey,
   getListPpeAssignmentsQueryKey,
@@ -29,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download
+  ArrowLeft, Plus, ShieldCheck, AlertCircle, Clock, Archive, CheckCircle2, ChevronRight, User, Package, Download, Link2, Copy, Check
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -396,6 +397,8 @@ export default function Oopp() {
   const archiveItem = useArchivePpeItem();
   const createAssignment = useCreatePpeAssignment();
   const updateAssignment = useUpdatePpeAssignment();
+  const requestConfirm = useRequestPpeConfirm();
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const activeItems = useMemo(() => (items ?? []).filter((i) => i.active), [items]);
 
@@ -498,6 +501,25 @@ export default function Oopp() {
         toast({ title: "Výdej uzavřen" });
       },
       onError: () => toast({ title: "Nepodařilo se uložit", variant: "destructive" }),
+    });
+  };
+
+  const handleCopyConfirmLink = (a: PpeAssignment) => {
+    requestConfirm.mutate({ id: a.id }, {
+      onSuccess: (result) => {
+        navigator.clipboard.writeText(result.confirmUrl).then(() => {
+          setCopiedId(a.id);
+          toast({ title: "Odkaz zkopírován do schránky" });
+          setTimeout(() => setCopiedId((prev) => (prev === a.id ? null : prev)), 3000);
+        }).catch(() => {
+          toast({ title: result.confirmUrl, description: "Odkaz se nepodařilo zkopírovat automaticky" });
+        });
+        invalidateData(queryClient, "ppe");
+      },
+      onError: (err: any) => {
+        const msg = err?.response?.data?.error ?? "Nepodařilo se vygenerovat odkaz";
+        toast({ title: msg, variant: "destructive" });
+      },
     });
   };
 
@@ -751,6 +773,12 @@ export default function Oopp() {
                               Bez potvrzení
                             </span>
                           )}
+                          {a.employeeConfirmedAt && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 font-medium">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Potvrzeno {new Date(a.employeeConfirmedAt).toLocaleDateString("cs-CZ")}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 text-sm text-muted-foreground mb-1">
                           <User className="h-3.5 w-3.5 shrink-0" />
@@ -773,14 +801,32 @@ export default function Oopp() {
                         {a.notes && <p className="text-xs text-muted-foreground mt-1 italic">{a.notes}</p>}
                       </div>
                       {can("write") && a.status === "issued" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0"
-                          onClick={() => setReturningId(a.id)}
-                        >
-                          Vrátit
-                        </Button>
+                        <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+                          {!a.employeeConfirmedAt && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0 gap-1.5"
+                              onClick={() => handleCopyConfirmLink(a)}
+                              disabled={requestConfirm.isPending}
+                              title="Zkopírovat odkaz pro zaměstnance"
+                            >
+                              {copiedId === a.id ? (
+                                <><Check className="h-3.5 w-3.5 text-green-600" /> Zkopírováno</>
+                              ) : (
+                                <><Link2 className="h-3.5 w-3.5" /> Odkaz</>
+                              )}
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setReturningId(a.id)}
+                          >
+                            Vrátit
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </CardContent>

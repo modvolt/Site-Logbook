@@ -1632,6 +1632,8 @@ export interface PpeAssignment {
   status: PpeAssignmentStatus;
   /** @nullable */
   employeeConfirmedAt?: string | null;
+  /** True when a confirmation link has been generated for this assignment */
+  hasConfirmToken: boolean;
   /** @nullable */
   notes?: string | null;
   createdAt: string;
@@ -1682,6 +1684,22 @@ export interface PpeAssignmentUpdate {
   notes?: string | null;
   /** @minimum 1 */
   quantity?: number;
+}
+
+export interface PpeConfirmLinkResponse {
+  /** Full URL the employee opens to confirm receipt */
+  confirmUrl: string;
+  token: string;
+}
+
+export interface PpeConfirmInput {
+  token: string;
+}
+
+export interface PpeConfirmResult {
+  /** True if the assignment was already confirmed before this request */
+  already: boolean;
+  assignment: PpeAssignment;
 }
 
 export interface ClientErrorInput {
@@ -4488,6 +4506,10 @@ export const ExportPpeAssignmentsFormat = {
   pdf: 'pdf',
   csv: 'csv',
 } as const;
+
+export type GetPpeConfirmDetailsParams = {
+token: string;
+};
 
 export type ListClientErrorsParams = {
 limit?: number;
