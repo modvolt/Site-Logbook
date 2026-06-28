@@ -30,7 +30,8 @@ export type ServerInvalidationDomain =
   | "bankImport"
   | "emailImport"
   | "reviewQueue"
-  | "ppe";
+  | "ppe"
+  | "sessions";
 
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
@@ -94,6 +95,12 @@ export function domainsForPath(relPath: string): ServerInvalidationDomain[] {
     add("machines");
   } else if (p.startsWith("/ppe")) {
     add("ppe", "people");
+  } else if (p.startsWith("/sessions") || p.includes("/sessions")) {
+    // DELETE /sessions/:sid and DELETE /users/:id/sessions both end here.
+    add("sessions");
+  } else if (p.startsWith("/auth/login") || p.startsWith("/auth/setup")) {
+    // Successful login/first-admin-setup creates a new session.
+    add("sessions");
   }
 
   return [...domains];

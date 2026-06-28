@@ -39,7 +39,8 @@ export type InvalidationDomain =
   | "emailImport"
   | "reviewQueue"
   | "ppe"
-  | "quotes";
+  | "quotes"
+  | "sessions";
 
 /**
  * URL prefixy, které daná doména „vlastní". Invaliduje se každý dotaz, jehož
@@ -85,6 +86,8 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
   emailImport: ["/api/billing/email-import", "/api/email-import-log"],
   // Fronta K vyřízení — řádky dokladů čekající na ruční kontrolu.
   reviewQueue: ["/api/billing/review-queue"],
+  // Aktivní přihlášení — admin přehled i vlastní session uživatele.
+  sessions: ["/api/admin/sessions", "/api/sessions"],
 };
 
 /**

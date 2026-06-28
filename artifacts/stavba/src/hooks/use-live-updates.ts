@@ -20,6 +20,7 @@ const KNOWN_DOMAINS = new Set<InvalidationDomain>([
   "emailImport",
   "reviewQueue",
   "ppe",
+  "sessions",
 ]);
 
 // Same-origin SSE endpoint. The API is reverse-proxied at /api (nginx in prod,
