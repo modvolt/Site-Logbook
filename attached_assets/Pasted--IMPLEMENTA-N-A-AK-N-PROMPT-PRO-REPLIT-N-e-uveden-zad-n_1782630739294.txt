@@ -1,0 +1,897 @@
+# IMPLEMENTAČNÍ A AKČNÍ PROMPT PRO REPLIT
+
+Níže uvedené zadání proveď nad aplikací **Site-Logbook / Stavba pro Modvolt s.r.o.**
+
+Nejde o návrh ani obecný code review. Proveď změny v kódu, migracích, testech a deployment workflow, aplikaci spusť, používej ji přes skutečné UI a dolož PASS/FAIL výsledky.
+
+## 1. Role a pracovní režim
+
+Jsi senior full-stack vývojář, databázový inženýr, QA a produktový UX engineer.
+
+Při implementaci a testování se přepínej mezi těmito uživateli:
+
+1. Technik na stavbě:
+   - pracuje na mobilu;
+   - spěchá;
+   - potřebuje rychle najít zakázku;
+   - zapisuje krátké české poznámky;
+   - přidává materiál, čas a fotografie;
+   - nesmí přijít o rozepsaná data.
+2. Administrátor:
+   - spravuje zákazníky, zakázky, lidi, stroje, přístupy a oprávnění;
+   - potřebuje odlišit rozpracované, hotové, problémové a nevyfakturované;
+   - potřebuje bezpečné zálohy a srozumitelné technické zdraví aplikace.
+3. Fakturant:
+   - zpracovává hotové práce, dodavatelské faktury a dodací listy;
+   - kontroluje AI vytěžení;
+   - opravuje řádky a ceny;
+   - potřebuje jasně vidět, co čeká na ruční kontrolu.
+4. Majitel:
+   - potřebuje do několika sekund vidět rizika, nevyfakturovanou práci, marži a stav záloh;
+   - nesmí být uveden v omyl falešnou nulou nebo falešně prázdným seznamem.
+
+## 2. Výslovně mimo rozsah
+
+Neimplementuj ani nenavrhuj:
+
+- **mobilní prioritizaci/přeskupení fakturačního rozcestníku**;
+- nový modul „Rychlý záznam technika“.
+
+Současnou strukturu mobilního fakturačního rozcestníku ponech. Oprav jeho funkčnost, chyby, překryvy a datovou spolehlivost, ale nepřeskupuj karty podle priorit.
+
+## 3. Ochrana dat a bezpečnostní pravidla
+
+Dodrž bez výjimky:
+
+- nemaž existující uživatelské přílohy, fotografie, doklady, faktury ani přístupové údaje;
+- nepoužívej `git reset --hard`, `push --force` ani `drizzle-kit push --force`;
+- nespouštěj produkční migraci bez čerstvé zálohy a ověření její čitelnosti;
+- nepřepisuj historii skladových pohybů;
+- sklad je append-only ledger, opravy se provádějí stornem/kompenzačním pohybem;
+- ceny již provedených výdejů musí zůstat historicky stabilní;
+- neukládej hesla, PINy, API klíče ani přihlašovací údaje do zdrojového kódu, testů nebo reportů;
+- všechny E2E testy musí používat proměnné prostředí;
+- testovací data označ prefixem `E2E_` nebo `AUDIT_` a po testu je bezpečně uklidit;
+- při blockeru migrace aplikaci raději nespouštěj, než aby běžela proti nekompatibilnímu schématu.
+
+## 4. Potvrzený výchozí problém
+
+Live development měl následující stav:
+
+| Kontrola | Výsledek |
+|---|---:|
+| `GET /api/activities` | 200 |
+| `GET /api/billing/ai-extraction` | 200 |
+| `GET /api/billing/document-linking` | 200 |
+| `GET /api/jobs` | 500 |
+| `POST /api/jobs` | 500 |
+| `GET /api/warehouse-movements` | 500 |
+| `POST /api/warehouse-items/:id/movements` | 500 |
+| `GET /api/billing/unbilled` | 500 |
+| `GET /api/billing/settings` | 500 |
+
+Kořenová příčina je drift databázového schématu:
+
+- aplikace očekává `jobs.short_name`;
+- sklad očekává `warehouse_movements.cost_price_at_time`;
+- fakturace očekává `billing_settings.margin_alert_threshold_percent`;
+- nová revize obsahuje migrace až do `0033`;
+- původní Replit `postMerge` používal chybný filtr `pnpm --filter db push`;
+- `push` je interaktivní dev operace a nesmí nahrazovat verzované migrace.
+
+## 5. Povinné pořadí implementace
+
+Pracuj po fázích. Po každé fázi spusť relevantní testy. Nepřeskakuj na kosmetiku, dokud nejsou P0 workflow funkční.
+
+---
+
+# FÁZE A - P0 STABILIZACE A MIGRACE
+
+## A1. Vynucení parity databáze
+
+### Problém
+
+API se může spustit proti starému schématu a až při práci uživatele vracet 500.
+
+### Proč to vadí
+
+Dashboard vypadá funkčně, ale technik nemůže založit zakázku, sklad nemůže zapsat pohyb a fakturant nevidí hotovou práci.
+
+### Implementace
+
+1. Zkontroluj:
+   - `scripts/post-merge.sh`;
+   - `.replit`;
+   - `artifacts/api-server/package.json`;
+   - `artifacts/api-server/src/migrate.ts`;
+   - `lib/db/src/migrate.ts`;
+   - `lib/db/migrations/meta/_journal.json`.
+2. Replit musí používat:
+
+```text
+pnpm --filter @workspace/db run migrate
+```
+
+3. API development start musí spustit migraci před build/start.
+4. Produkční API musí spustit `dist/migrate.mjs` před `dist/index.mjs`.
+5. Migrátor musí:
+   - použít pouze committed SQL migrace;
+   - ověřit všechny journal tagy;
+   - při chybějícím tagu skončit nenulovým kódem;
+   - zalogovat expected/applied/latest/missing;
+   - zabránit startu API.
+6. `postMerge` timeout nastav minimálně na 120 sekund.
+7. Nepoužívej interaktivní `push`.
+
+### Migrace, které musí být zahrnuté
+
+- `0025_tan_cobalt_man`;
+- `0026_tidy_steel_serpent`;
+- `0027_flashy_nicolaos`;
+- `0028_backfill_cost_price_at_time`;
+- `0029_backfill_purchase_price_history`;
+- `0030_old_rafael_vega`;
+- `0031_margin_alert_threshold`;
+- `0032_job_visits`;
+- `0033_block_legacy_billed_activities`.
+
+### Acceptance
+
+- API proti DB s chybějící migrací odmítne start;
+- API proti aktuální DB startuje;
+- log obsahuje úplnou migration parity;
+- žádná stávající data nejsou smazána.
+
+## A2. Zprovoznění zakázek
+
+### Problém
+
+Seznam i vytvoření zakázky vracejí 500.
+
+### Implementace
+
+- oprav schéma/migraci, neobcházej chybějící sloupec v UI;
+- zachovej `short_name` kompatibilní se starými řádky;
+- ověř seznam, filtry, detail, vytvoření, aktualizaci a smazání testovacího záznamu;
+- dvojklik na `Uložit` nesmí založit dvě zakázky;
+- pending stav musí deaktivovat obě save akce;
+- chyba musí zachovat obsah formuláře.
+
+### Acceptance
+
+- `GET /api/jobs` = 200;
+- `POST /api/jobs` = 201;
+- dlouhý český název a poznámka přežijí reload;
+- množství `5,5` a cena `42,90` se uloží správně;
+- dvojklik nevytvoří duplicitu.
+
+## A3. Zprovoznění skladu a cen v čase
+
+### Problém
+
+Položka jde vytvořit, ale příjem/výdej a kniha pohybů selhávají.
+
+### Implementace
+
+- aplikuj `cost_price_at_time` migrace a backfill;
+- zachovej append-only ledger;
+- výdej musí uložit nákupní cenu platnou v okamžiku pohybu;
+- pozdější změna ceny nesmí přepsat historickou marži;
+- přidej bezpečné storno posledního povoleného pohybu;
+- prázdná nebo chybová kniha nesmí zůstat v nekonečném skeletonu;
+- při chybě zobraz `Zkusit znovu`.
+
+### Acceptance
+
+- `GET /api/warehouse-movements` = 200;
+- příjem = 201;
+- výdej na zakázku = 201;
+- storno vytvoří korekční záznam;
+- skladová hodnota, stav a marže se přepočítají;
+- historie původního pohybu zůstane neměnná.
+
+## A4. Spolehlivá fronta nevyfakturovaných prací
+
+### Problém
+
+Fakturant nevidí hotové práce a může přijít o peníze.
+
+### Implementace
+
+- `GET /api/billing/unbilled` musí vracet zakázky i dokončené dlouhodobé akce;
+- fakturovanost určuj podle `invoice_source_links` a necanceled faktury;
+- kosmetický `billing_status` nesmí být autoritativní;
+- zákazník s pouze dokončenou akcí se musí objevit;
+- ukaž důvody, proč položku nelze fakturovat:
+  - chybí zákazník;
+  - chybí cena;
+  - chybí povinné fakturační údaje;
+  - již je propojena s konceptem/fakturou.
+- návrh faktury nesmí stejnou práci zahrnout dvakrát.
+
+### Acceptance
+
+- `GET /api/billing/unbilled` = 200;
+- dokončená akce se zákazníkem a materiálem je viditelná;
+- vytvoření konceptu ji odstraní z volné fronty;
+- zrušení faktury obnoví správný stav podle pravidel;
+- součty zakázek a akcí sedí s detailem.
+
+## A5. Validace dokladů
+
+### Problém
+
+Live server přijal `.txt` jako účetní doklad, přestože UI deklaruje PDF/foto/ISDOC/XML/ZIP.
+
+### Implementace
+
+- sjednoť allowlist klienta a serveru;
+- povol:
+  - PDF;
+  - JPEG/JPG;
+  - PNG;
+  - WEBP;
+  - GIF;
+  - HEIC/HEIF;
+  - XML/ISDOC;
+  - ISDOCX;
+  - ZIP obsahující podporované typy.
+- odmítni TXT, CSV, Word, Excel a jiný balast;
+- kontroluj příponu, MIME i skutečnou signaturu;
+- ZIP rozbal bezpečně bez path traversal a bez rekurzivních archivů;
+- nepodporovaný přímý soubor odmítni ještě před requestem;
+- server musí přesto nezávisle vrátit 415 při obejití klienta;
+- MIME pro HEIC/ZIP odvoď z přípony, pokud ho telefon neposkytne.
+
+### Acceptance
+
+- `.txt` nevyvolá upload request;
+- přímý API upload `.txt` = 415;
+- falešný `.jpg` s textovým obsahem = 415;
+- legitimní PDF, HEIC a ISDOCX projdou;
+- duplicitní dokument vyvolá kontrolovaný 409 workflow.
+
+## A6. Zálohy databáze a příloh
+
+### Problém
+
+Existence endpointu záloh není důkaz obnovitelnosti.
+
+### Implementace
+
+- vytvoř automatické DB zálohy;
+- zahrň objektové úložiště nebo pro něj definuj samostatnou snapshot politiku;
+- zobraz:
+  - poslední úspěšnou zálohu;
+  - velikost;
+  - checksum;
+  - poslední chybu;
+  - poslední úspěšný restore test.
+- vytvoř dokumentovaný restore postup pro izolované prostředí;
+- nikdy nespouštěj restore nad živou DB bez explicitního potvrzení.
+
+### Acceptance
+
+- ruční záloha je vytvořena a stažitelná;
+- checksum sedí;
+- izolovaný restore obnoví zákazníky, zakázky, faktury a vazby na přílohy;
+- výsledek restore testu je auditovaný.
+
+---
+
+# FÁZE B - POTVRZENÉ ÚZKÉ OPRAVY UI A API
+
+Pokud tyto změny v aktuálním branchi již existují, nereimplementuj je duplicitně. Zkontroluj je, zachovej a doplň testy.
+
+## B1. Jednotné API chyby
+
+- přidej poslední Express error middleware;
+- nezachycená chyba vrátí JSON, ne HTML;
+- odpověď obsahuje bezpečnou českou hlášku a request ID;
+- SQL dotaz, stack ani tajné hodnoty neposílej klientovi;
+- server zaloguje request ID, method, path a plnou interní chybu.
+
+Dotčený modul:
+
+- `artifacts/api-server/src/app.ts`.
+
+## B2. Jednotný opravitelný chybový stav
+
+Vytvoř/reuse komponentu typu `QueryErrorState`:
+
+- co se nepodařilo načíst;
+- že data nebyla smazána;
+- tlačítko `Zkusit znovu`;
+- volitelně request ID;
+- nesmí se vydávat za prázdný stav.
+
+Použij minimálně na:
+
+- zakázky;
+- kalendář;
+- knihu pohybů;
+- nevyfakturované práce;
+- nastavení fakturace;
+- statistiky.
+
+## B3. Kalendář nesmí zobrazit falešně prázdný den
+
+- loading = skeleton;
+- chyba = error state;
+- pouze úspěšná prázdná odpověď = `Žádné zakázky na tento den`;
+- query retry maximálně jeden automatický pokus, potom akce uživatele.
+
+## B4. Neuložená zakázka
+
+- varuj před kliknutím na interní navigaci;
+- varuj před reloadem/zavřením;
+- externí odkaz do nové karty neblokuj;
+- po úspěšném uložení neukazuj falešné varování;
+- při chybě serveru zachovej celý formulář.
+
+Dotčené moduly:
+
+- `job-form.tsx`;
+- reusable hook `use-unsaved-changes.ts`.
+
+## B5. Mobilní překryv ukládání
+
+- na `/jobs/new` nezobrazuj globální FAB pro novou zakázku;
+- spodní `Uložit zakázku` musí být celé klikatelné;
+- bottom nav ani safe area nesmí tlačítko překrývat;
+- zachovej stabilní rozměry při pending/loading stavu.
+
+Toto není mobilní přeskupení fakturace. Fakturační rozcestník neměň.
+
+## B6. Globální versus lokální `+`
+
+### Problém
+
+Na skladu, akcích nebo strojích může stejná ikona `+` znamenat jinou entitu než globální nová zakázka.
+
+### Implementace
+
+- globální FAB zobrazuj jen na dashboardu, kalendáři a seznamu zakázek;
+- na skladu používej lokální `Přidat položku`;
+- u akcí `Přidat dlouhodobou akci`;
+- u strojů `Přidat stroj`;
+- na desktopu i mobilu používej přístupné názvy/`aria-label`;
+- neměň pořadí ani prioritu fakturačních karet.
+
+---
+
+# FÁZE C - P1 PRODUKTOVÁ FUNKČNOST
+
+## C1. Dlouhodobá akce jako větší stavba s více výjezdy
+
+### Cíl
+
+Dlouhodobá akce představuje stavbu/projekt, na který se jede vícekrát. Nesmí být jen dlouhou poznámkou s jedním časovačem.
+
+### Datový model
+
+Implementuj `activity_visits` nebo bezpečně zobecni stávající `job_visits`.
+
+Každý výjezd musí mít:
+
+- ID akce;
+- datum;
+- volitelný čas od/do;
+- přiřazeného technika;
+- stav `planned | in_progress | completed | cancelled`;
+- krátkou poznámku „co se dělalo“;
+- volitelný další krok;
+- datum vytvoření a autora;
+- audit změn.
+
+Podle existující architektury umožni vazbu výjezdu na:
+
+- časové záznamy;
+- fotografie;
+- spotřebovaný materiál;
+- vícepráce;
+- doklady.
+
+Pokud přímá vazba všech položek v první bezpečné iteraci výrazně zvyšuje riziko, přidej alespoň `visit_id` jako nullable a zachovej zpětnou kompatibilitu.
+
+### UI akce
+
+Detail dlouhodobé akce musí ukázat:
+
+- aktuální fázi/etapu;
+- další plánovaný výjezd;
+- odpovědnou osobu;
+- počet dokončených a plánovaných výjezdů;
+- chronologii návštěv;
+- rychlé `Přidat výjezd`;
+- dokončení výjezdu bez dokončení celé stavby;
+- dokončení celé akce pouze samostatnou akcí.
+
+Seznam dlouhodobých akcí musí ukázat:
+
+- zákazníka;
+- stav/fázi;
+- poslední návštěvu;
+- další výjezd;
+- odpovědného člověka;
+- fakturační stav;
+- varování bez zákazníka nebo bez dalšího termínu.
+
+### Fakturace
+
+- dokončení jednotlivého výjezdu nesmí automaticky označit celou akci jako hotovou;
+- akce může být fakturována průběžně pouze s jednoznačnými source links;
+- stejný materiál/práce nesmí vstoupit do dvou faktur;
+- zvaž milníky/etapy pro dílčí fakturaci;
+- zachovej autoritativní vazbu přes `invoice_source_links`.
+
+### Acceptance
+
+1. Založ akci „Rekonstrukce RD“.
+2. Přidej tři výjezdy pro dva techniky.
+3. Dokonči první výjezd s poznámkou, časem, fotkou a materiálem.
+4. Ověř, že celá akce zůstala rozpracovaná.
+5. Naplánuj další výjezd.
+6. Dokonči celou akci.
+7. Ověř vstup do nevyfakturovaných prací.
+8. Reload nesmí změnit stav ani pořadí.
+
+## C2. Jedna pracovní fronta pro doklady a ceny
+
+### Problém
+
+Fakturant přechází mezi seznamem dokladů, detailem, řádky, skladem, zakázkou a nastavením přirážek.
+
+### Implementace
+
+Vytvoř pracovní tabulku `K vyřízení`, která pro každý problematický řádek zobrazí:
+
+- doklad a dodavatele;
+- číslo/variabilní symbol;
+- název vytěžené položky;
+- množství a jednotku;
+- vytěženou nákupní cenu;
+- confidence;
+- navrženou skladovou položku;
+- navrženou zakázku nebo akci;
+- starou cenu;
+- novou cenu;
+- procentní změnu;
+- konkrétní důvod ruční kontroly.
+
+Akce:
+
+- upravit řádek inline;
+- vybrat existující skladovou položku;
+- založit novou skladovou položku;
+- propojit se zakázkou/akcí;
+- potvrdit jeden řádek;
+- hromadně potvrdit bezpečné řádky;
+- přeskočit s důvodem;
+- vrátit k opravě.
+
+Před hromadným potvrzením zobraz diff:
+
+- kolik cen se změní;
+- kolik skladových položek vznikne;
+- které zakázky/akce dostanou materiál;
+- které řádky zůstanou nevyřešené.
+
+Každý propis musí být idempotentní a auditovaný.
+
+### Dotčené moduly
+
+- billing review queue;
+- billing document detail;
+- cost document service;
+- material propagation;
+- warehouse price history;
+- audit log.
+
+### Acceptance
+
+- opakované potvrzení stejného řádku nevytvoří duplicitu;
+- chybnou AI položku lze opravit přímo ve frontě;
+- uživatel vidí starou a novou cenu před uložením;
+- potvrzení jasně oznámí, co bylo změněno;
+- nevyřešené řádky zůstanou viditelné.
+
+## C3. Zdroj a historie ceny ve skladu
+
+U každé položky ukaž:
+
+- aktuální nákupní cenu;
+- datum ceny;
+- zdroj `doklad | ruční zadání | import | počáteční stav`;
+- dodavatele a proklik na doklad, pokud existuje;
+- předchozí cenu;
+- trend změny;
+- počet výdejů bez historické ceny.
+
+Pravidla:
+
+- změna aktuální ceny nemění cenu starých pohybů;
+- doklad vytváří price-history záznam;
+- ruční změna vyžaduje poznámku;
+- výrazná změna ceny nad konfigurovaný práh vyžaduje potvrzení;
+- položka bez ceny má konkrétní opravnou akci, ne jen červený rámeček.
+
+## C4. Provozní zdraví aplikace pro admina
+
+Vytvoř admin stránku bez tajných údajů:
+
+- build SHA/verze frontendu;
+- build SHA/verze API;
+- očekávaná a aplikovaná DB migrace;
+- stav migration parity;
+- DB dostupnost;
+- object storage dostupnost;
+- poslední úspěšná záloha;
+- poslední restore test;
+- SMTP/IMAP/Gmail stav;
+- AI configured/enabled/ready;
+- service worker verze;
+- počet posledních frontend a backend chyb.
+
+Nezobrazuj connection string, token, heslo, API key ani bucket secret.
+
+## C5. PWA verze a deploy drift
+
+- frontend i API musí mít stejný release identifier;
+- health/admin stránka musí odhalit rozdíl;
+- update prompt se zobrazí jen při skutečně novém buildu;
+- po aktualizaci se nesmí vracet ve smyčce;
+- při kritické nekompatibilitě UI/API zobraz blokující provozní hlášku místo falešných dat.
+
+---
+
+# FÁZE D - P2 KOMFORT A VÝKON
+
+## D1. Rozdělení nastavení
+
+Rozděl dlouhou stránku nastavení do záložek:
+
+- Vzhled;
+- Firma a dokumenty;
+- E-mail;
+- Import dokladů;
+- Zálohy;
+- Bezpečnost;
+- Diagnostika/PWA.
+
+Pravidla:
+
+- každá záložka má vlastní save/pending/success/error stav;
+- odchod s neuloženými změnami zobrazí varování;
+- deep link do záložky je možný;
+- technický text zobraz jen adminovi;
+- nepoužívej karty uvnitř karet.
+
+## D2. Zhutnění mobilního skladu
+
+Na šířce 390 px:
+
+- název maximálně dva řádky;
+- stav skladu a cena mají stabilní místo;
+- hlavní akce je příjem/výdej;
+- editace, historie a smazání jsou v menu;
+- význam ikon má tooltip/aria-label;
+- nedochází k horizontálnímu overflow;
+- globální FAB nekoliduje s lokální akcí.
+
+Zachovej na desktopu rychlé skenování:
+
+- název/SKU;
+- stav;
+- nákupní/prodejní cena;
+- zdroj ceny;
+- minimum;
+- poslední pohyb.
+
+## D3. Výkon prvního načtení
+
+Aktuální build měl přibližně:
+
+- hlavní JS přes 3 MB před gzip;
+- HEIC chunk přes 1,3 MB.
+
+Implementuj route-level lazy loading pro:
+
+- fakturaci;
+- PDF;
+- XLSX;
+- grafy;
+- HEIC;
+- admin diagnostiku.
+
+Zkontroluj:
+
+- PWA precache nepřednačítá vše bez potřeby;
+- technik nemusí stahovat fakturační knihovny při otevření dnešní práce;
+- loading stav nemění rozložení stránky;
+- žádný lazy chunk nekončí blank screenem offline.
+
+Změř a reportuj:
+
+- velikosti chunků;
+- první načtení;
+- LCP/INP na mobilním viewportu;
+- počet requestů.
+
+## D4. Uložené filtry a poslední kontext
+
+Zapamatuj per uživatel:
+
+- poslední segment zakázek;
+- filtry skladu;
+- stavový filtr dokladů;
+- období statistik;
+- rozbalené/aktivní záložky.
+
+Přidej pojmenované pohledy:
+
+- Moje dnešní;
+- Rozpracované;
+- Hotové bez faktury;
+- Bez zákazníka;
+- Materiál bez ceny;
+- Doklady k ruční kontrole.
+
+Filtry musí zůstat sdílené přes URL a nesmí skrýt aktivní problém bez viditelného indikátoru.
+
+---
+
+# FÁZE E - P3 DALŠÍ PRODUKTOVÝ ROZVOJ
+
+P3 implementuj až po PASS všech P0 a P1 acceptance testů. Nové funkce nasazuj za feature flag, pokud mohou ovlivnit živá data.
+
+## E1. Offline pracovní fronta technika
+
+Implementuj:
+
+- lokální draft formuláře;
+- IndexedDB frontu mutací;
+- frontu fotografií;
+- stav `Čeká na odeslání`;
+- ruční retry;
+- ochranu proti duplicitě pomocí idempotency key;
+- konfliktovou obrazovku při změně serverových dat;
+- jasné rozlišení `uloženo v telefonu` versus `uloženo na serveru`.
+
+Nesmí dojít k tichému označení serverového uložení při offline stavu.
+
+## E2. Průběžná ekonomika dlouhodobé stavby
+
+U akce zobraz plán versus skutečnost:
+
+- plánované a odpracované hodiny;
+- plánovaný a spotřebovaný materiál;
+- subdodávky/vícepráce;
+- dosud fakturováno;
+- zbývá fakturovat;
+- očekávaná marže;
+- odchylka;
+- forecast dokončení.
+
+Výpočty musí mít dokumentované definice a nesmí míchat částky s/bez DPH.
+
+## E3. Automatické provozní alarmy
+
+Přidej konfigurovatelné notifikace:
+
+- vysoká hotová nevyfakturovaná částka;
+- práce hotová déle než N dní;
+- materiál bez ceny;
+- záporná marže;
+- propadlá revize stroje;
+- neúspěšný e-mail import;
+- neúspěšná záloha;
+- neověřená obnova;
+- migration parity chyba.
+
+Zajisti:
+
+- digest místo spamu;
+- vlastní preference;
+- audit odeslání;
+- proklik přímo na problém;
+- žádná tajná data v e-mailu.
+
+---
+
+# FÁZE F - TESTOVÁNÍ JAKO REÁLNÝ ČLOVĚK
+
+Nestačí unit testy ani HTTP 200. Proveď skutečné klikání přes UI na desktopu a mobilu.
+
+## Povinné chaotické scénáře
+
+- prázdné povinné pole;
+- dlouhý název zákazníka;
+- diakritika;
+- desetinná čárka;
+- dvojklik na uložení;
+- odchod z rozepsané stránky;
+- reload;
+- výpadek API;
+- offline během rozepsání;
+- špatný soubor;
+- poškozený ZIP;
+- duplicitní doklad;
+- ruční oprava AI položky;
+- opakovaný import e-mailu;
+- dokončená akce bez zákazníka;
+- skladová položka bez ceny;
+- změna ceny po historickém výdeji;
+- zrušení faktury;
+- stará PWA verze.
+
+## Povinné viewporty
+
+- desktop 1440 x 900;
+- mobil 390 x 844;
+- alespoň jeden fyzický Android nebo iOS test pro foto/HEIC/offline.
+
+## Povinná role matice
+
+Ověř samostatnými účty:
+
+- admin;
+- master;
+- guest/readonly;
+- technik, pokud je modelovaný samostatně.
+
+Guest nesmí zapisovat přes UI ani přímým API requestem.
+
+---
+
+# FÁZE G - AUTOMATIZOVANÉ TESTY
+
+Zachovej a doplň:
+
+- `e2e/global.setup.ts` s `E2E_USERNAME` a `E2E_PASSWORD`;
+- absolutní auth state cestu;
+- `fixed-ui-regressions.spec.ts`;
+- `billing-nav-keyboard.spec.ts`;
+- `billing-upload-validation.spec.ts`;
+- širší testy zakázek, materiálů, času, skladu a timerů.
+
+Povinné regrese:
+
+1. rozepsaná zakázka varuje před odchodem;
+2. mobilní save není překrytý;
+3. billing settings při 500 ukáže retry;
+4. seznam zakázek při 500 ukáže retry;
+5. kalendář při 500 neukáže falešně prázdný den;
+6. statistiky při 500 neukážou falešné nuly;
+7. `.txt` se neodešle;
+8. skladová cena v čase zůstane stabilní;
+9. dokončená dlouhodobá akce je ve fakturaci;
+10. tři výjezdy akce přežijí reload;
+11. dokončení výjezdu nedokončí celou akci;
+12. opakované schválení dokladu nevytvoří duplicitní materiál/cenu;
+13. migrace odmítne start proti neaktuální DB;
+14. API 500 neobsahuje SQL ani stack.
+
+Spusť:
+
+```text
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm --filter @workspace/stavba run build
+pnpm --filter @workspace/api-server run build
+pnpm test
+pnpm exec playwright test --config=e2e/playwright.config.ts
+```
+
+Neoznačuj test jako PASS, pokud nebyl skutečně spuštěn.
+
+---
+
+# FÁZE H - POST-DEPLOY ACCEPTANCE
+
+Po deployi ověř přes živé UI a API:
+
+| Kontrola | Požadavek |
+|---|---:|
+| `GET /api/jobs` | 200 |
+| vytvoření zakázky | 201 + viditelný detail |
+| `GET /api/warehouse-movements` | 200 |
+| příjem a výdej | 201 |
+| `GET /api/billing/unbilled` | 200 |
+| dokončená akce ve fakturaci | PASS |
+| `GET /api/billing/settings` | 200 |
+| `.txt` upload | žádný klientský request / API 415 |
+| DB migration parity | úplná |
+| PWA UI/API verze | shodná |
+| mobilní overflow | 0 |
+| mobilní save overlap | 0 |
+
+Potom proveď:
+
+- screenshot každého P0 workflow;
+- hard reload;
+- PWA update;
+- opakování smoke testů;
+- kontrolu serverových logů;
+- kontrolu, že testovací data byla uklizena.
+
+---
+
+# FÁZE I - POVINNÝ VÝSTUP REPLITU
+
+Na konci vytvoř `REPLIT_IMPLEMENTATION_REPORT.md` se strukturou:
+
+## 1. Implementované změny
+
+Pro každou položku:
+
+- ID fáze;
+- problém;
+- proč vadil;
+- řešení;
+- změněné soubory;
+- migrace;
+- riziko.
+
+## 2. Neimplementované položky
+
+Uveď konkrétní blocker. Nepoužívej neurčité „časově náročné“.
+
+## 3. Migrace
+
+- záloha před migrací;
+- applied tags;
+- parity výsledek;
+- počet ovlivněných řádků;
+- rollback postup.
+
+## 4. PASS/FAIL
+
+Samostatné tabulky:
+
+- technik;
+- admin;
+- fakturace;
+- majitel;
+- desktop;
+- mobil;
+- API;
+- E2E.
+
+## 5. Důkazy
+
+- screenshoty;
+- přesné testovací příkazy;
+- počty PASS/FAIL/SKIP;
+- build výsledky;
+- známá omezení.
+
+## 6. Bezpečnost dat
+
+Potvrď:
+
+- žádné existující přílohy nebyly smazány;
+- žádné tajné hodnoty nebyly zveřejněny;
+- testovací záznamy byly uklizeny;
+- záloha a restore test byly ověřeny.
+
+---
+
+# DEFINICE HOTOVO
+
+Práce není hotová, dokud:
+
+- databázová parita není PASS;
+- zakázka jde založit přes UI;
+- skladový příjem a výdej fungují;
+- nevyfakturované zakázky i akce jsou viditelné;
+- špatný doklad je odmítnut;
+- dlouhodobá akce má více výjezdů;
+- ceny z dokladů mají bezpečný kontrolní workflow;
+- chyby nejsou zaměněny za prázdná data;
+- typecheck a produkční buildy jsou PASS;
+- celá relevantní E2E sada je spuštěná;
+- existují desktopové i mobilní důkazy;
+- je vytvořen implementační report.
+
+Neukončuj práci pouze seznamem doporučení. Implementuj, spusť, klikni, oprav a ověř.
