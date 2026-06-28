@@ -36,7 +36,9 @@ const STATUS_OPTIONS = [
 
 function initialStatus(): string {
   if (typeof window === "undefined") return "all";
-  const param = new URLSearchParams(window.location.search).get("status");
+  const sp = new URLSearchParams(window.location.search);
+  // Accept both ?status=overdue and ?overdue=true (deep-link from dashboard)
+  const param = sp.get("status") ?? (sp.get("overdue") === "true" ? "overdue" : null);
   return param && STATUS_OPTIONS.some((o) => o.value === param) ? param : "all";
 }
 

@@ -6720,9 +6720,39 @@ components:
         grossProfit:
           type: number
 
+    StatsTrendMonth:
+      type: object
+      required: [month, issuedWithVat, paid, doneJobsCount]
+      properties:
+        month:
+          type: string
+          description: "YYYY-MM"
+        issuedWithVat:
+          type: number
+          description: Sum of invoice totalWithVat issued in this month
+        paid:
+          type: number
+          description: Sum of payments received in this month
+        doneJobsCount:
+          type: integer
+          description: Number of jobs with status done in this month
+
+    StatsTopCustomer:
+      type: object
+      required: [customerId, customerName, totalWithVat, invoiceCount]
+      properties:
+        customerId:
+          type: ["integer", "null"]
+        customerName:
+          type: string
+        totalWithVat:
+          type: number
+        invoiceCount:
+          type: integer
+
     StatsOverview:
       type: object
-      required: [from, to, jobs, revenue, employees, materials, warehouse]
+      required: [from, to, jobs, revenue, employees, materials, warehouse, billing, activities, readyToBill, comparison, trend, topCustomers, ppe]
       properties:
         from:
           type: string
@@ -6806,6 +6836,111 @@ components:
             incompleteMovementsShare:
               type: number
               description: Fraction of OUT movements missing a cost price (0–1)
+        billing:
+          type: object
+          required: [issuedCount, issuedWithVat, paidCount, paidAmount, toCollectCount, toCollectAmount, overdueCount, overdueAmount]
+          description: Invoice/billing statistics. Issued/paid are period-bound; toCollect/overdue are current snapshots.
+          properties:
+            issuedCount:
+              type: integer
+              description: Number of invoices issued in the period
+            issuedWithVat:
+              type: number
+              description: Sum of totalWithVat for invoices issued in the period
+            paidCount:
+              type: integer
+              description: Number of invoices paid in the period
+            paidAmount:
+              type: number
+              description: Sum of paid amounts for invoices paid in the period
+            toCollectCount:
+              type: integer
+              description: Current number of issued/sent (unpaid) invoices
+            toCollectAmount:
+              type: number
+              description: Current sum of unpaid invoice totals
+            overdueCount:
+              type: integer
+              description: Current number of overdue invoices (past due date, still unpaid)
+            overdueAmount:
+              type: number
+              description: Current sum of overdue invoice totals
+        comparison:
+          type: object
+          required: [prevFrom, prevTo, revenueTotal, issuedWithVat, paid, doneJobsCount]
+          description: Same metrics computed for the immediately preceding period of equal length (for KPI delta).
+          properties:
+            prevFrom:
+              type: string
+            prevTo:
+              type: string
+            revenueTotal:
+              type: number
+              description: Previous-period job work + materials value (excl. VAT)
+            issuedWithVat:
+              type: number
+              description: Previous-period invoiced amount with VAT
+            paid:
+              type: number
+              description: Previous-period paid amount
+            doneJobsCount:
+              type: integer
+              description: Previous-period count of done jobs
+        activities:
+          type: object
+          required: [readyToBillCount, readyToBillAmount]
+          description: Snapshot of billable activities ready for invoicing
+          properties:
+            readyToBillCount:
+              type: integer
+              description: Count of completed activities with billingStatus=billable
+            readyToBillAmount:
+              type: number
+              description: Total value without VAT (materials + extra works) for billable completed activities
+        readyToBill:
+          type: object
+          required: [jobsCount, activitiesCount, count, amount]
+          description: Combined ready-to-bill snapshot (done jobs + billable completed activities)
+          properties:
+            jobsCount:
+              type: integer
+              description: Count of done jobs (status=done, not yet vyfakturovano)
+            activitiesCount:
+              type: integer
+              description: Count of billable completed activities
+            count:
+              type: integer
+              description: Total combined count (jobs + activities)
+            amount:
+              type: number
+              description: Total combined value without VAT (job price/transport/parking + activity materials + extra works)
+        trend:
+          type: array
+          description: Monthly time series for the 6 months ending in the period's month
+          items:
+            $ref: "#/components/schemas/StatsTrendMonth"
+        topCustomers:
+          type: array
+          description: Top customers by invoiced amount in the period
+          items:
+            $ref: "#/components/schemas/StatsTopCustomer"
+        ppe:
+          type: object
+          required: [issued, signed, unsigned, overdue]
+          description: Current PPE (OOPP) assignment snapshot
+          properties:
+            issued:
+              type: integer
+              description: Total active (issued) PPE assignments
+            signed:
+              type: integer
+              description: Active assignments with employee confirmation
+            unsigned:
+              type: integer
+              description: Active assignments without employee confirmation
+            overdue:
+              type: integer
+              description: Active assignments past their replacement date
 
     CustomerInput:
       type: object

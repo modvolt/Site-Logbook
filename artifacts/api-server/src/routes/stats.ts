@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { gte, lte, and, eq, isNotNull, sql, count } from "drizzle-orm";
+import { gte, lte, and, eq, isNotNull, sql, count, inArray, isNull, lt } from "drizzle-orm";
 import {
   db,
   jobsTable,
@@ -8,9 +8,15 @@ import {
   timeEntriesTable,
   warehouseItemsTable,
   warehouseMovementsTable,
+  invoicesTable,
+  ppeAssignmentsTable,
+  activitiesTable,
+  activityMaterialsTable,
+  activityExtraWorksTable,
 } from "@workspace/db";
 import { GetStatsOverviewQueryParams } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
+import { round2 } from "../lib/invoice-calc";
 
 const router: IRouter = Router();
 
@@ -21,6 +27,35 @@ function num(v: string | number | null | undefined): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 }
+
+/** Shift a YYYY-MM-DD string back by `days` days */
+function shiftDate(iso: string, days: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Number of calendar days in [from, to] inclusive */
+function periodDays(from: string, to: string): number {
+  const f = new Date(`${from}T12:00:00Z`);
+  const t = new Date(`${to}T12:00:00Z`);
+  return Math.round((t.getTime() - f.getTime()) / 86400000) + 1;
+}
+
+/** Generate last N month labels (YYYY-MM) ending at month of `to` */
+function last6Months(to: string): string[] {
+  const [y, m] = to.split("-").map(Number);
+  const months: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    let mo = m - i;
+    let yr = y;
+    while (mo < 1) { mo += 12; yr--; }
+    months.push(`${yr}-${String(mo).padStart(2, "0")}`);
+  }
+  return months;
+}
+
+const BILLABLE_STATUSES = ["issued", "sent", "paid"] as const;
 
 router.get("/stats/overview", async (req, res): Promise<void> => {
   const parsed = GetStatsOverviewQueryParams.safeParse(req.query);
@@ -34,9 +69,16 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid date range" });
     return;
   }
-  const inPeriod = and(gte(jobsTable.date, from), lte(jobsTable.date, to));
 
-  // --- Jobs: counts by status and aggregate sums ---
+  // Previous period (same length, immediately preceding)
+  const days = periodDays(from, to);
+  const prevTo = shiftDate(from, 1);
+  const prevFrom = shiftDate(prevTo, days - 1);
+
+  const inPeriod = and(gte(jobsTable.date, from), lte(jobsTable.date, to));
+  const inPrevPeriod = and(gte(jobsTable.date, prevFrom), lte(jobsTable.date, prevTo));
+
+  // ─── Jobs: counts by status and aggregate sums ───────────────────────────
   const [jobAgg] = await db
     .select({
       total: count(),
@@ -60,7 +102,19 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     .groupBy(jobsTable.type)
     .orderBy(sql`count(*) desc`);
 
-  // --- Employees: jobs assigned + hours worked (from time entries on jobs in period) ---
+  // ─── Jobs: previous period revenue for comparison ────────────────────────
+  const [prevJobAgg] = await db
+    .select({
+      price: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
+      parking: sql<number>`coalesce(sum(${jobsTable.parking}), 0)`.mapWith(Number),
+      fines: sql<number>`coalesce(sum(${jobsTable.fines}), 0)`.mapWith(Number),
+      transport: sql<number>`coalesce(sum(${jobsTable.transportCost}), 0)`.mapWith(Number),
+      done: sql<number>`sum(case when ${jobsTable.status} = 'done' then 1 else 0 end)`.mapWith(Number),
+    })
+    .from(jobsTable)
+    .where(inPrevPeriod);
+
+  // ─── Employees ────────────────────────────────────────────────────────────
   const assignedRows = await db
     .select({ personId: jobsTable.assignedPersonId, c: count() })
     .from(jobsTable)
@@ -98,7 +152,16 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     .filter((e) => e.jobs > 0 || e.hours > 0)
     .sort((a, b) => b.hours - a.hours || b.jobs - a.jobs);
 
-  // --- Materials: total cost + top items (materials on jobs in period) ---
+  // ─── Previous period materials for comparison ─────────────────────────────
+  const [prevMaterialAgg] = await db
+    .select({
+      totalCost: sql<number>`coalesce(sum(${materialsTable.quantity} * ${materialsTable.pricePerUnit}), 0)`.mapWith(Number),
+    })
+    .from(materialsTable)
+    .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
+    .where(inPrevPeriod);
+
+  // ─── Materials ────────────────────────────────────────────────────────────
   const [materialAgg] = await db
     .select({
       totalCost: sql<number>`coalesce(sum(${materialsTable.quantity} * ${materialsTable.pricePerUnit}), 0)`.mapWith(Number),
@@ -120,7 +183,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     .orderBy(sql`sum(${materialsTable.quantity} * ${materialsTable.pricePerUnit}) desc nulls last`)
     .limit(10);
 
-  // --- Warehouse: current snapshot (not period-bound) ---
+  // ─── Warehouse snapshot ───────────────────────────────────────────────────
   const [warehouseAgg] = await db
     .select({
       itemCount: count(),
@@ -129,9 +192,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     })
     .from(warehouseItemsTable);
 
-  // --- Warehouse profit: period-bound OUT movements via sale vs purchase price ---
-  // unitPrice = prodejní cena za ks (what the customer pays)
-  // costPriceAtTime = nákupní cena za ks captured at the moment of issue
+  // ─── Warehouse profit in period ───────────────────────────────────────────
   const periodOutFilter = and(
     eq(warehouseMovementsTable.direction, "out"),
     gte(warehouseMovementsTable.createdAt, new Date(`${from}T00:00:00`)),
@@ -182,6 +243,227 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
 
   const work = num(jobAgg?.price) + num(jobAgg?.parking) + num(jobAgg?.fines) + num(jobAgg?.transport);
   const material = num(materialAgg?.totalCost);
+  const prevWork = num(prevJobAgg?.price) + num(prevJobAgg?.parking) + num(prevJobAgg?.fines) + num(prevJobAgg?.transport);
+
+  // ─── Billing (invoices) ───────────────────────────────────────────────────
+  // Vystaveno: invoices whose issueDate falls in period with a billing status
+  const [billingPeriodAgg] = await db
+    .select({
+      issuedCount: sql<number>`count(*)`.mapWith(Number),
+      issuedWithVat: sql<number>`coalesce(sum(${invoicesTable.totalWithVat}), 0)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(and(
+      gte(invoicesTable.issueDate, from),
+      lte(invoicesTable.issueDate, to),
+      inArray(invoicesTable.status, [...BILLABLE_STATUSES]),
+    ));
+
+  // Zaplaceno: paid invoices where paidDate is in period
+  const [paidPeriodAgg] = await db
+    .select({
+      paidCount: sql<number>`count(*)`.mapWith(Number),
+      paidAmount: sql<number>`coalesce(sum(coalesce(${invoicesTable.paidAmount}, ${invoicesTable.totalWithVat})), 0)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(and(
+      gte(invoicesTable.paidDate, from),
+      lte(invoicesTable.paidDate, to),
+      eq(invoicesTable.status, "paid"),
+    ));
+
+  // K inkasu: issued/sent, current snapshot (not period-bound)
+  const [toCollectAgg] = await db
+    .select({
+      count: sql<number>`count(*)`.mapWith(Number),
+      amount: sql<number>`coalesce(sum(${invoicesTable.totalWithVat}), 0)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(inArray(invoicesTable.status, ["issued", "sent"]));
+
+  // Po splatnosti: issued/sent AND dueDate < today
+  const today = new Date().toISOString().slice(0, 10);
+  const [overdueAgg] = await db
+    .select({
+      count: sql<number>`count(*)`.mapWith(Number),
+      amount: sql<number>`coalesce(sum(${invoicesTable.totalWithVat}), 0)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(and(
+      inArray(invoicesTable.status, ["issued", "sent"]),
+      isNotNull(invoicesTable.dueDate),
+      lt(invoicesTable.dueDate, today),
+    ));
+
+  // Previous period billing for comparison – issued uses issueDate, paid uses paidDate (like-for-like)
+  const [prevIssuedAgg] = await db
+    .select({
+      issuedWithVat: sql<number>`coalesce(sum(${invoicesTable.totalWithVat}), 0)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(and(
+      gte(invoicesTable.issueDate, prevFrom),
+      lte(invoicesTable.issueDate, prevTo),
+      inArray(invoicesTable.status, [...BILLABLE_STATUSES]),
+    ));
+
+  const [prevPaidAgg] = await db
+    .select({
+      paidAmount: sql<number>`coalesce(sum(coalesce(${invoicesTable.paidAmount}, ${invoicesTable.totalWithVat})), 0)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(and(
+      gte(invoicesTable.paidDate, prevFrom),
+      lte(invoicesTable.paidDate, prevTo),
+      eq(invoicesTable.status, "paid"),
+    ));
+
+  // ─── Top customers by invoiced amount (in period) ─────────────────────────
+  const topCustomersRaw = await db
+    .select({
+      customerId: invoicesTable.customerId,
+      customerName: invoicesTable.customerName,
+      totalWithVat: sql<number>`coalesce(sum(${invoicesTable.totalWithVat}), 0)`.mapWith(Number),
+      invoiceCount: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(invoicesTable)
+    .where(and(
+      gte(invoicesTable.issueDate, from),
+      lte(invoicesTable.issueDate, to),
+      inArray(invoicesTable.status, [...BILLABLE_STATUSES]),
+    ))
+    .groupBy(invoicesTable.customerId, invoicesTable.customerName)
+    .orderBy(sql`sum(${invoicesTable.totalWithVat}) desc nulls last`)
+    .limit(10);
+
+  const topCustomers = topCustomersRaw.map((r) => ({
+    customerId: r.customerId,
+    customerName: r.customerName ?? "—",
+    totalWithVat: num(r.totalWithVat),
+    invoiceCount: num(r.invoiceCount),
+  }));
+
+  // ─── 6-month trend ────────────────────────────────────────────────────────
+  const months = last6Months(to);
+  // One query: aggregate by month using to_char on issueDate / paidDate
+  const [trendIssued, trendPaid, trendJobs] = await Promise.all([
+    db
+      .select({
+        month: sql<string>`to_char(${invoicesTable.issueDate}::date, 'YYYY-MM')`,
+        issuedWithVat: sql<number>`coalesce(sum(${invoicesTable.totalWithVat}), 0)`.mapWith(Number),
+      })
+      .from(invoicesTable)
+      .where(and(
+        gte(invoicesTable.issueDate, months[0] + "-01"),
+        lte(invoicesTable.issueDate, to),
+        inArray(invoicesTable.status, [...BILLABLE_STATUSES]),
+      ))
+      .groupBy(sql`to_char(${invoicesTable.issueDate}::date, 'YYYY-MM')`),
+
+    db
+      .select({
+        month: sql<string>`to_char(${invoicesTable.paidDate}::date, 'YYYY-MM')`,
+        paidAmount: sql<number>`coalesce(sum(coalesce(${invoicesTable.paidAmount}, ${invoicesTable.totalWithVat})), 0)`.mapWith(Number),
+      })
+      .from(invoicesTable)
+      .where(and(
+        gte(invoicesTable.paidDate, months[0] + "-01"),
+        lte(invoicesTable.paidDate, to),
+        eq(invoicesTable.status, "paid"),
+      ))
+      .groupBy(sql`to_char(${invoicesTable.paidDate}::date, 'YYYY-MM')`),
+
+    db
+      .select({
+        month: sql<string>`to_char(${jobsTable.date}::date, 'YYYY-MM')`,
+        doneCount: sql<number>`sum(case when ${jobsTable.status} = 'done' then 1 else 0 end)`.mapWith(Number),
+      })
+      .from(jobsTable)
+      .where(and(
+        gte(jobsTable.date, months[0] + "-01"),
+        lte(jobsTable.date, to),
+      ))
+      .groupBy(sql`to_char(${jobsTable.date}::date, 'YYYY-MM')`),
+  ]);
+
+  const issuedByMonth = new Map(trendIssued.map((r) => [r.month, num(r.issuedWithVat)]));
+  const paidByMonth = new Map(trendPaid.map((r) => [r.month, num(r.paidAmount)]));
+  const doneByMonth = new Map(trendJobs.map((r) => [r.month, num(r.doneCount)]));
+
+  const trend = months.map((m) => ({
+    month: m,
+    issuedWithVat: issuedByMonth.get(m) ?? 0,
+    paid: paidByMonth.get(m) ?? 0,
+    doneJobsCount: doneByMonth.get(m) ?? 0,
+  }));
+
+  // ─── Activities: billable (ready-to-bill) snapshot ───────────────────────
+  // Run all three activity queries in parallel
+  const [activitiesCountAgg, activityMaterialsValueAgg, activityExtraWorksValueAgg] = await Promise.all([
+    // Count billable completed activities
+    db
+      .select({ readyToBillCount: sql<number>`count(*)`.mapWith(Number) })
+      .from(activitiesTable)
+      .where(and(
+        eq(activitiesTable.billingStatus, "billable"),
+        isNotNull(activitiesTable.completedAt),
+      ))
+      .then(([r]) => r),
+
+    // Value: sum of materials (quantity * pricePerUnit) for billable completed activities
+    db
+      .select({
+        totalValue: sql<number>`coalesce(sum(
+          coalesce(${activityMaterialsTable.quantity}::numeric, 0) *
+          coalesce(${activityMaterialsTable.pricePerUnit}::numeric, 0)
+        ), 0)`.mapWith(Number),
+      })
+      .from(activityMaterialsTable)
+      .innerJoin(activitiesTable, eq(activityMaterialsTable.activityId, activitiesTable.id))
+      .where(and(
+        eq(activitiesTable.billingStatus, "billable"),
+        isNotNull(activitiesTable.completedAt),
+      ))
+      .then(([r]) => r),
+
+    // Value: sum of extra works amounts for billable completed activities
+    db
+      .select({
+        totalValue: sql<number>`coalesce(sum(coalesce(${activityExtraWorksTable.amount}::numeric, 0)), 0)`.mapWith(Number),
+      })
+      .from(activityExtraWorksTable)
+      .innerJoin(activitiesTable, eq(activityExtraWorksTable.activityId, activitiesTable.id))
+      .where(and(
+        eq(activitiesTable.billingStatus, "billable"),
+        isNotNull(activitiesTable.completedAt),
+      ))
+      .then(([r]) => r),
+  ]);
+
+  // ─── Done jobs ready to bill (status='done', not yet vyfakturovano) ───────
+  // Used for combined readyToBill KPI (jobs + activities)
+  const [readyToBillJobsAgg] = await db
+    .select({
+      count: sql<number>`count(*)`.mapWith(Number),
+      amount: sql<number>`coalesce(sum(
+        coalesce(${jobsTable.price}::numeric, 0) +
+        coalesce(${jobsTable.transportCost}::numeric, 0) +
+        coalesce(${jobsTable.parking}::numeric, 0)
+      ), 0)`.mapWith(Number),
+    })
+    .from(jobsTable)
+    .where(eq(jobsTable.status, "done"));
+
+  // ─── PPE snapshot ─────────────────────────────────────────────────────────
+  const [ppeAgg] = await db
+    .select({
+      issued: sql<number>`count(*)`.mapWith(Number),
+      signed: sql<number>`sum(case when ${ppeAssignmentsTable.employeeConfirmedAt} is not null then 1 else 0 end)`.mapWith(Number),
+      unsigned: sql<number>`sum(case when ${ppeAssignmentsTable.employeeConfirmedAt} is null then 1 else 0 end)`.mapWith(Number),
+      overdue: sql<number>`sum(case when ${ppeAssignmentsTable.replaceBy} is not null and ${ppeAssignmentsTable.replaceBy} < ${today} then 1 else 0 end)`.mapWith(Number),
+    })
+    .from(ppeAssignmentsTable)
+    .where(eq(ppeAssignmentsTable.status, "issued"));
 
   res.json({
     from,
@@ -223,6 +505,48 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       topProfitItems,
       incompleteMovements,
       incompleteMovementsShare,
+    },
+    billing: {
+      issuedCount: num(billingPeriodAgg?.issuedCount),
+      issuedWithVat: num(billingPeriodAgg?.issuedWithVat),
+      paidCount: num(paidPeriodAgg?.paidCount),
+      paidAmount: num(paidPeriodAgg?.paidAmount),
+      toCollectCount: num(toCollectAgg?.count),
+      toCollectAmount: num(toCollectAgg?.amount),
+      overdueCount: num(overdueAgg?.count),
+      overdueAmount: num(overdueAgg?.amount),
+    },
+    activities: {
+      readyToBillCount: num(activitiesCountAgg?.readyToBillCount),
+      readyToBillAmount: round2(
+        num(activityMaterialsValueAgg?.totalValue) + num(activityExtraWorksValueAgg?.totalValue),
+      ),
+    },
+    readyToBill: {
+      jobsCount: num(readyToBillJobsAgg?.count),
+      activitiesCount: num(activitiesCountAgg?.readyToBillCount),
+      count: num(readyToBillJobsAgg?.count) + num(activitiesCountAgg?.readyToBillCount),
+      amount: round2(
+        num(readyToBillJobsAgg?.amount) +
+        num(activityMaterialsValueAgg?.totalValue) +
+        num(activityExtraWorksValueAgg?.totalValue),
+      ),
+    },
+    comparison: {
+      prevFrom,
+      prevTo,
+      revenueTotal: prevWork + num(prevMaterialAgg?.totalCost),
+      issuedWithVat: num(prevIssuedAgg?.issuedWithVat),
+      paid: num(prevPaidAgg?.paidAmount),
+      doneJobsCount: num(prevJobAgg?.done),
+    },
+    trend,
+    topCustomers,
+    ppe: {
+      issued: num(ppeAgg?.issued),
+      signed: num(ppeAgg?.signed),
+      unsigned: num(ppeAgg?.unsigned),
+      overdue: num(ppeAgg?.overdue),
     },
   });
 });

@@ -1,9 +1,56 @@
 import { useState } from "react";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addWeeks, addMonths, addYears } from "date-fns";
 import { cs } from "date-fns/locale";
-import { useGetStatsOverview, getGetStatsOverviewQueryKey, useGetRisksSummary, getGetRisksSummaryQueryKey } from "@workspace/api-client-react";
+import {
+  useGetStatsOverview,
+  getGetStatsOverviewQueryKey,
+  useGetRisksSummary,
+  getGetRisksSummaryQueryKey,
+} from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
-import { ArrowLeft, Printer, Download, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown, Search, Loader2, Briefcase, Users, Package, Warehouse, Banknote, AlertTriangle, FileSearch, PackageMinus, UserX, Tag, FileMinus, Clock, Wrench, TrendingUp, ShieldOff } from "lucide-react";
+import {
+  ArrowLeft,
+  Printer,
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Search,
+  Loader2,
+  Briefcase,
+  Users,
+  Package,
+  Warehouse,
+  Banknote,
+  AlertTriangle,
+  FileSearch,
+  PackageMinus,
+  UserX,
+  Tag,
+  FileMinus,
+  Clock,
+  Wrench,
+  TrendingUp,
+  ShieldOff,
+  TrendingDown,
+  Minus,
+  ArrowRight,
+  HardHat,
+  ShoppingCart,
+  Activity,
+} from "lucide-react";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 import { QueryErrorState } from "@/components/query-error-state";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -41,6 +88,16 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 function fmtKc(n: number): string {
   return `${Math.round(n).toLocaleString("cs-CZ")} Kč`;
+}
+
+function fmtKcShort(n: number): string {
+  if (Math.abs(n) >= 1_000_000) {
+    return `${(n / 1_000_000).toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M Kč`;
+  }
+  if (Math.abs(n) >= 1_000) {
+    return `${(n / 1_000).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} k Kč`;
+  }
+  return fmtKc(n);
 }
 
 const SCREEN_TO_HREF: Record<string, string> = {
@@ -91,6 +148,63 @@ function rangeLabel(period: Period, from: Date, to: Date): string {
     case "year":
       return format(from, "yyyy");
   }
+}
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1, 1);
+  return format(d, "LLL", { locale: cs });
+}
+
+// KPI delta helpers
+function delta(current: number, previous: number): { pct: number | null; isNew: boolean } {
+  if (previous === 0) return { pct: null, isNew: current > 0 };
+  return { pct: ((current - previous) / previous) * 100, isNew: false };
+}
+
+type DeltaInfo = { pct: number | null; isNew: boolean };
+
+function DeltaBadge({ info }: { info: DeltaInfo }) {
+  if (info.isNew) {
+    return <span className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-600">nově v období</span>;
+  }
+  if (info.pct === null) return null;
+  const up = info.pct >= 0;
+  const Icon = info.pct === 0 ? Minus : up ? TrendingUp : TrendingDown;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${up ? "text-emerald-600" : "text-red-500"}`}>
+      <Icon className="h-3 w-3" />
+      {Math.abs(info.pct).toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %
+    </span>
+  );
+}
+
+type KpiCardProps = {
+  label: string;
+  value: string;
+  sub?: string;
+  delta?: DeltaInfo;
+  href?: string;
+  urgent?: boolean;
+  icon?: React.ReactNode;
+};
+
+function KpiCard({ label, value, sub, delta: d, href, urgent, icon }: KpiCardProps) {
+  const inner = (
+    <div
+      className={`rounded-xl border bg-card p-4 flex flex-col gap-1 transition-colors ${href ? "hover:bg-accent/50 cursor-pointer" : ""} ${urgent ? "border-red-300 bg-red-50 dark:bg-red-950/30" : ""}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground leading-tight">{label}</span>
+        {icon && <span className="text-muted-foreground">{icon}</span>}
+      </div>
+      <div className={`text-2xl font-bold tracking-tight leading-none ${urgent ? "text-red-600 dark:text-red-400" : ""}`}>{value}</div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+      {d && <DeltaBadge info={d} />}
+    </div>
+  );
+  if (href) return <Link href={href}>{inner}</Link>;
+  return inner;
 }
 
 export default function Statistika() {
@@ -186,13 +300,21 @@ export default function Statistika() {
     );
   }
 
+  // Chart data
+  const chartData = stats?.trend.map((m) => ({
+    name: monthLabel(m.month),
+    "Vystaveno": Math.round(m.issuedWithVat),
+    "Zaplaceno": Math.round(m.paid),
+    "Hotové zakázky": m.doneJobsCount,
+  })) ?? [];
+
   return (
     <div className="min-h-[100dvh] bg-neutral-200 dark:bg-neutral-800 pb-16">
       <style>{PRINT_CSS}</style>
 
       {/* Toolbar */}
       <div className="no-print sticky top-0 z-20 bg-card border-b shadow-sm">
-        <div className="p-3 max-w-3xl mx-auto w-full flex flex-col gap-3">
+        <div className="p-3 max-w-5xl mx-auto w-full flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={() => window.history.back()} className="shrink-0">
               <ArrowLeft className="h-6 w-6" />
@@ -234,19 +356,229 @@ export default function Statistika() {
         </div>
       </div>
 
-      {/* Document */}
-      <div className="max-w-3xl mx-auto w-full p-4 md:p-8">
+      {/* ── Screen Dashboard (no-print) ─────────────────────────────────────── */}
+      <div className="no-print max-w-5xl mx-auto w-full px-4 pt-5 pb-4 space-y-5">
+        {isLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 rounded-xl" />
+            ))}
+          </div>
+        ) : statsError ? (
+          <QueryErrorState title="Nepodařilo se načíst statistiku" onRetry={() => refetchStats()} />
+        ) : stats ? (
+          <>
+            {/* KPI Cards */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">KPI přehled — {label}</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <KpiCard
+                  label="Hodnota evidované práce"
+                  value={fmtKcShort(stats.revenue.total)}
+                  sub="bez DPH – zakázky v období"
+                  delta={delta(stats.revenue.total, stats.comparison.revenueTotal)}
+                  icon={<Briefcase className="h-4 w-4" />}
+                />
+                <KpiCard
+                  label="Vystaveno s DPH"
+                  value={fmtKcShort(stats.billing.issuedWithVat)}
+                  sub={`${stats.billing.issuedCount} faktur v období`}
+                  delta={delta(stats.billing.issuedWithVat, stats.comparison.issuedWithVat)}
+                  href="/billing"
+                  icon={<Banknote className="h-4 w-4" />}
+                />
+                <KpiCard
+                  label="Zaplaceno"
+                  value={fmtKcShort(stats.billing.paidAmount)}
+                  sub={`${stats.billing.paidCount} plateb v období`}
+                  delta={delta(stats.billing.paidAmount, stats.comparison.paid)}
+                  icon={<TrendingUp className="h-4 w-4" />}
+                />
+                <KpiCard
+                  label="K inkasu"
+                  value={fmtKcShort(stats.billing.toCollectAmount)}
+                  sub={`${stats.billing.toCollectCount} faktur čeká na platbu`}
+                  href="/billing?status=issued"
+                  icon={<ShoppingCart className="h-4 w-4" />}
+                />
+                <KpiCard
+                  label="Po splatnosti"
+                  value={fmtKcShort(stats.billing.overdueAmount)}
+                  sub={`${stats.billing.overdueCount} faktur po splatnosti`}
+                  href="/billing/invoices?overdue=true"
+                  urgent={stats.billing.overdueCount > 0}
+                  icon={<AlertTriangle className="h-4 w-4" />}
+                />
+                <KpiCard
+                  label="K fakturaci bez DPH"
+                  value={fmtKcShort(stats.readyToBill.amount)}
+                  sub={`${stats.readyToBill.jobsCount} zakázek · ${stats.readyToBill.activitiesCount} akcí`}
+                  href="/billing/unbilled"
+                  urgent={stats.readyToBill.count > 0}
+                  icon={<FileMinus className="h-4 w-4" />}
+                />
+              </div>
+            </div>
+
+            {/* 6-month chart */}
+            {chartData.length > 0 && (
+              <div className="rounded-xl border bg-card p-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Vývoj posledních 6 měsíců</h2>
+                <div className="h-48 sm:h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gradIssued" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradPaid" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+                        yAxisId="left"
+                      />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} />
+                      <Tooltip
+                        formatter={(value: number, name: string) =>
+                          name === "Hotové zakázky"
+                            ? [value, name]
+                            : [fmtKc(value), name]
+                        }
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="Vystaveno"
+                        stroke="#6366f1"
+                        fill="url(#gradIssued)"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Area
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="Zaplaceno"
+                        stroke="#10b981"
+                        fill="url(#gradPaid)"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                      <Area
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="Hotové zakázky"
+                        stroke="#f59e0b"
+                        fill="none"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 2"
+                        dot={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Operational quick-links */}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Provoz</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "Zakázky", sub: `${stats.jobs.total} v období`, href: "/jobs", icon: <Briefcase className="h-5 w-5" /> },
+                  { label: "Dlouhodobé akce", sub: "přehled akcí", href: "/activities", icon: <Activity className="h-5 w-5" /> },
+                  { label: "OOPP", sub: `${stats.ppe.issued} vydáno`, href: "/stroje/oopp", icon: <HardHat className="h-5 w-5" /> },
+                  { label: "Sklad", sub: `${stats.warehouse.itemCount} položek`, href: "/sklad", icon: <Warehouse className="h-5 w-5" /> },
+                ].map((item) => (
+                  <Link key={item.href} href={item.href}>
+                    <div className="rounded-xl border bg-card p-3 flex items-center gap-3 hover:bg-accent/50 transition-colors cursor-pointer">
+                      <span className="text-muted-foreground shrink-0">{item.icon}</span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold leading-tight">{item.label}</div>
+                        <div className="text-xs text-muted-foreground">{item.sub}</div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+
+            {/* Top customers */}
+            {stats.topCustomers.length > 0 && (
+              <div className="rounded-xl border bg-card p-4">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Největší zákazníci dle fakturace — {label}</h2>
+                <div className="divide-y">
+                  {stats.topCustomers.map((c, idx) => (
+                    <div key={idx} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                      <span className="text-sm text-muted-foreground font-mono w-5 text-right shrink-0">{idx + 1}</span>
+                      {c.customerId ? (
+                        <Link href={`/customers/${c.customerId}`} className="flex-1 min-w-0 text-sm font-medium hover:underline truncate">
+                          {c.customerName}
+                        </Link>
+                      ) : (
+                        <span className="flex-1 min-w-0 text-sm font-medium truncate">{c.customerName}</span>
+                      )}
+                      <span className="text-xs text-muted-foreground shrink-0">{c.invoiceCount} fakt.</span>
+                      <span className="text-sm font-semibold shrink-0">{fmtKcShort(c.totalWithVat)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* PPE block */}
+            <div className="rounded-xl border bg-card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">OOPP – osobní ochranné pracovní prostředky</h2>
+                <Link href="/stroje/oopp">
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+                    Přehled <ArrowRight className="h-3 w-3" />
+                  </Button>
+                </Link>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="text-center">
+                  <div className="text-2xl font-bold">{stats.ppe.issued}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Vydáno (aktivní)</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-emerald-600">{stats.ppe.signed}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Podepsáno</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${stats.ppe.unsigned > 0 ? "text-amber-600" : ""}`}>
+                    {stats.ppe.unsigned}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Bez podpisu</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-2xl font-bold ${stats.ppe.overdue > 0 ? "text-red-600" : ""}`}>
+                    {stats.ppe.overdue}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Po termínu výměny</div>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {/* ── Detailed Report (printable) ─────────────────────────────────────── */}
+      <div className="max-w-3xl mx-auto w-full px-4 md:px-8">
         {isLoading ? (
           <div className="space-y-4">
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-96 w-full" />
           </div>
-        ) : statsError ? (
-          <QueryErrorState
-            title="Nepodařilo se načíst statistiku"
-            onRetry={() => refetchStats()}
-          />
-        ) : !stats ? (
+        ) : statsError ? null : !stats ? (
           <div className="p-8 text-center text-muted-foreground">Žádná data pro zvolené období.</div>
         ) : (
           <div id="statistika-list" className="bg-white text-neutral-900 shadow-lg mx-auto p-8 md:p-10" style={{ maxWidth: "210mm" }}>
@@ -294,8 +626,11 @@ export default function Statistika() {
               )}
             </Section>
 
-            {/* Revenue */}
-            <Section title="Tržby" icon={<Banknote className="w-4 h-4" />}>
+            {/* Revenue — renamed from "Tržby" with explanation */}
+            <Section title="Hodnota evidované práce" icon={<Banknote className="w-4 h-4" />}>
+              <p className="text-xs text-neutral-500 mb-3">
+                Interní hodnota bez DPH (zakázky v daném období) — <em>nejedná se o fakturované tržby</em>.
+              </p>
               <div className="text-sm space-y-1 max-w-sm">
                 <PriceRow label="Práce a doprava" value={fmtKc(stats.revenue.work)} />
                 <PriceRow label="Materiál" value={fmtKc(stats.revenue.material)} />
@@ -492,9 +827,8 @@ export default function Statistika() {
                       label="Zákazníci s fakturou >7 dní"
                       count={risks.overdueUnbilledCustomers.count}
                       href={buildRiskUrl(risks.overdueUnbilledCustomers.filter)}
-                      urgent={risks.overdueUnbilledCustomers.count > 0}
                     />
-                    {risks.machinesInspectionExpired.count > 0 && (
+                    {risks.machinesInspectionExpired && risks.machinesInspectionExpired.count > 0 && (
                       <RiskStatRow
                         icon={<Wrench className="w-3.5 h-3.5" />}
                         label="Stroje — prošlá revize"
@@ -503,7 +837,7 @@ export default function Statistika() {
                         urgent
                       />
                     )}
-                    {risks.machinesInspectionSoon.count > 0 && (
+                    {risks.machinesInspectionSoon && risks.machinesInspectionSoon.count > 0 && (
                       <RiskStatRow
                         icon={<Wrench className="w-3.5 h-3.5" />}
                         label="Stroje — revize do 30 dní"

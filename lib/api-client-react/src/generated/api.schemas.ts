@@ -899,11 +899,106 @@ export type StatsOverviewWarehouse = {
   incompleteMovementsShare: number;
 };
 
+/**
+ * Invoice/billing statistics. Issued/paid are period-bound; toCollect/overdue are current snapshots.
+ */
+export type StatsOverviewBilling = {
+  /** Number of invoices issued in the period */
+  issuedCount: number;
+  /** Sum of totalWithVat for invoices issued in the period */
+  issuedWithVat: number;
+  /** Number of invoices paid in the period */
+  paidCount: number;
+  /** Sum of paid amounts for invoices paid in the period */
+  paidAmount: number;
+  /** Current number of issued/sent (unpaid) invoices */
+  toCollectCount: number;
+  /** Current sum of unpaid invoice totals */
+  toCollectAmount: number;
+  /** Current number of overdue invoices (past due date, still unpaid) */
+  overdueCount: number;
+  /** Current sum of overdue invoice totals */
+  overdueAmount: number;
+};
+
+/**
+ * Same metrics computed for the immediately preceding period of equal length (for KPI delta).
+ */
+export type StatsOverviewComparison = {
+  prevFrom: string;
+  prevTo: string;
+  /** Previous-period job work + materials value (excl. VAT) */
+  revenueTotal: number;
+  /** Previous-period invoiced amount with VAT */
+  issuedWithVat: number;
+  /** Previous-period paid amount */
+  paid: number;
+  /** Previous-period count of done jobs */
+  doneJobsCount: number;
+};
+
+/**
+ * Snapshot of billable activities ready for invoicing
+ */
+export type StatsOverviewActivities = {
+  /** Count of completed activities with billingStatus=billable */
+  readyToBillCount: number;
+  /** Total value without VAT (materials + extra works) for billable completed activities */
+  readyToBillAmount: number;
+};
+
+/**
+ * Combined ready-to-bill snapshot (done jobs + billable completed activities)
+ */
+export type StatsOverviewReadyToBill = {
+  /** Count of done jobs (status=done, not yet vyfakturovano) */
+  jobsCount: number;
+  /** Count of billable completed activities */
+  activitiesCount: number;
+  /** Total combined count (jobs + activities) */
+  count: number;
+  /** Total combined value without VAT (job price/transport/parking + activity materials + extra works) */
+  amount: number;
+};
+
+/**
+ * Current PPE (OOPP) assignment snapshot
+ */
+export type StatsOverviewPpe = {
+  /** Total active (issued) PPE assignments */
+  issued: number;
+  /** Active assignments with employee confirmation */
+  signed: number;
+  /** Active assignments without employee confirmation */
+  unsigned: number;
+  /** Active assignments past their replacement date */
+  overdue: number;
+};
+
 export interface StatsEmployee {
   personId: number;
   name: string;
   jobs: number;
   hours: number;
+}
+
+export interface StatsTrendMonth {
+  /** YYYY-MM */
+  month: string;
+  /** Sum of invoice totalWithVat issued in this month */
+  issuedWithVat: number;
+  /** Sum of payments received in this month */
+  paid: number;
+  /** Number of jobs with status done in this month */
+  doneJobsCount: number;
+}
+
+export interface StatsTopCustomer {
+  /** @nullable */
+  customerId: number | null;
+  customerName: string;
+  totalWithVat: number;
+  invoiceCount: number;
 }
 
 export interface StatsOverview {
@@ -914,6 +1009,20 @@ export interface StatsOverview {
   employees: StatsEmployee[];
   materials: StatsOverviewMaterials;
   warehouse: StatsOverviewWarehouse;
+  /** Invoice/billing statistics. Issued/paid are period-bound; toCollect/overdue are current snapshots. */
+  billing: StatsOverviewBilling;
+  /** Same metrics computed for the immediately preceding period of equal length (for KPI delta). */
+  comparison: StatsOverviewComparison;
+  /** Snapshot of billable activities ready for invoicing */
+  activities: StatsOverviewActivities;
+  /** Combined ready-to-bill snapshot (done jobs + billable completed activities) */
+  readyToBill: StatsOverviewReadyToBill;
+  /** Monthly time series for the 6 months ending in the period's month */
+  trend: StatsTrendMonth[];
+  /** Top customers by invoiced amount in the period */
+  topCustomers: StatsTopCustomer[];
+  /** Current PPE (OOPP) assignment snapshot */
+  ppe: StatsOverviewPpe;
 }
 
 export interface CustomerContact {

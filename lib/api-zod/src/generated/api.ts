@@ -1140,7 +1140,53 @@ export const GetStatsOverviewResponse = zod.object({
 })),
   "incompleteMovements": zod.number().describe('Number of OUT movements in the period with no cost_price_at_time (excluded from profit calculation)'),
   "incompleteMovementsShare": zod.number().describe('Fraction of OUT movements missing a cost price (0–1)')
-})
+}),
+  "billing": zod.object({
+  "issuedCount": zod.number().describe('Number of invoices issued in the period'),
+  "issuedWithVat": zod.number().describe('Sum of totalWithVat for invoices issued in the period'),
+  "paidCount": zod.number().describe('Number of invoices paid in the period'),
+  "paidAmount": zod.number().describe('Sum of paid amounts for invoices paid in the period'),
+  "toCollectCount": zod.number().describe('Current number of issued\/sent (unpaid) invoices'),
+  "toCollectAmount": zod.number().describe('Current sum of unpaid invoice totals'),
+  "overdueCount": zod.number().describe('Current number of overdue invoices (past due date, still unpaid)'),
+  "overdueAmount": zod.number().describe('Current sum of overdue invoice totals')
+}).describe('Invoice\/billing statistics. Issued\/paid are period-bound; toCollect\/overdue are current snapshots.'),
+  "comparison": zod.object({
+  "prevFrom": zod.string(),
+  "prevTo": zod.string(),
+  "revenueTotal": zod.number().describe('Previous-period job work + materials value (excl. VAT)'),
+  "issuedWithVat": zod.number().describe('Previous-period invoiced amount with VAT'),
+  "paid": zod.number().describe('Previous-period paid amount'),
+  "doneJobsCount": zod.number().describe('Previous-period count of done jobs')
+}).describe('Same metrics computed for the immediately preceding period of equal length (for KPI delta).'),
+  "activities": zod.object({
+  "readyToBillCount": zod.number().describe('Count of completed activities with billingStatus=billable'),
+  "readyToBillAmount": zod.number().describe('Total value without VAT (materials + extra works) for billable completed activities')
+}).describe('Snapshot of billable activities ready for invoicing'),
+  "readyToBill": zod.object({
+  "jobsCount": zod.number().describe('Count of done jobs (status=done, not yet vyfakturovano)'),
+  "activitiesCount": zod.number().describe('Count of billable completed activities'),
+  "count": zod.number().describe('Total combined count (jobs + activities)'),
+  "amount": zod.number().describe('Total combined value without VAT (job price\/transport\/parking + activity materials + extra works)')
+}).describe('Combined ready-to-bill snapshot (done jobs + billable completed activities)'),
+  "trend": zod.array(zod.object({
+  "month": zod.string().describe('YYYY-MM'),
+  "issuedWithVat": zod.number().describe('Sum of invoice totalWithVat issued in this month'),
+  "paid": zod.number().describe('Sum of payments received in this month'),
+  "doneJobsCount": zod.number().describe('Number of jobs with status done in this month')
+})).describe('Monthly time series for the 6 months ending in the period\'s month'),
+  "topCustomers": zod.array(zod.object({
+  "customerId": zod.number().nullable(),
+  "customerName": zod.string(),
+  "totalWithVat": zod.number(),
+  "invoiceCount": zod.number()
+})).describe('Top customers by invoiced amount in the period'),
+  "ppe": zod.object({
+  "issued": zod.number().describe('Total active (issued) PPE assignments'),
+  "signed": zod.number().describe('Active assignments with employee confirmation'),
+  "unsigned": zod.number().describe('Active assignments without employee confirmation'),
+  "overdue": zod.number().describe('Active assignments past their replacement date')
+}).describe('Current PPE (OOPP) assignment snapshot')
 })
 
 
