@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, count, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   db,
   ppeItemsTable,
@@ -718,7 +718,7 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
   let pdfUploaded = false;
 
   try {
-    await objectStorageService.putPrivateObject(pngObjectPath, pngBuffer, "image/png");
+    await objectStorage.putPrivateObject(pngObjectPath, pngBuffer, "image/png");
     pngUploaded = true;
 
     // Fetch company/person info for PDF
@@ -749,7 +749,7 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
       nextInspectionAt: assignment.nextInspectionAt,
     });
 
-    await objectStorageService.putPrivateObject(pdfObjectPath, pdfBuffer, "application/pdf");
+    await objectStorage.putPrivateObject(pdfObjectPath, pdfBuffer, "application/pdf");
     pdfUploaded = true;
 
     const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex");
@@ -818,7 +818,7 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
       const realPdfSha256 = createHash("sha256").update(realPdfBuffer).digest("hex");
 
       // Upload final PDF (overwrite the same path)
-      await objectStorageService.putPrivateObject(pdfObjectPath, realPdfBuffer, "application/pdf");
+      await objectStorage.putPrivateObject(pdfObjectPath, realPdfBuffer, "application/pdf");
 
       // Update PDF SHA
       const [docWithRealSha] = await tx
@@ -849,10 +849,10 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
   } catch (err) {
     // Clean up uploaded objects if transaction failed
     if (pngUploaded) {
-      objectStorageService.deletePrivateObject(pngObjectPath).catch(() => undefined);
+      objectStorage.deletePrivateObject(pngObjectPath).catch(() => undefined);
     }
     if (pdfUploaded) {
-      objectStorageService.deletePrivateObject(pdfObjectPath).catch(() => undefined);
+      objectStorage.deletePrivateObject(pdfObjectPath).catch(() => undefined);
     }
 
     if (err instanceof Error && err.message === "ALREADY_SIGNED") {
@@ -906,7 +906,7 @@ router.get("/ppe/assignments/:id/handover-pdf", async (req, res): Promise<void> 
     `attachment; filename="protokol-oopp-${doc.documentNumber}.pdf"`,
   );
   try {
-    await objectStorageService.servePrivateObject(doc.pdfObjectPath, res);
+    await objectStorage.servePrivateObject(doc.pdfObjectPath, res);
   } catch {
     if (!res.headersSent) {
       res.status(404).json({ error: "Soubor nenalezen" });
@@ -948,7 +948,7 @@ router.get("/ppe/assignments/:id/signature", async (req, res): Promise<void> => 
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Content-Disposition", `inline; filename="podpis-${doc.documentNumber}.png"`);
   try {
-    await objectStorageService.servePrivateObject(doc.pngObjectPath, res);
+    await objectStorage.servePrivateObject(doc.pngObjectPath, res);
   } catch {
     if (!res.headersSent) {
       res.status(404).json({ error: "Soubor nenalezen" });
@@ -1003,7 +1003,7 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
   expiresAt.setDate(expiresAt.getDate() + expiryDays);
 
   const isExpired = existing.confirmTokenExpiresAt && existing.confirmTokenExpiresAt < new Date();
-  const token = (!existing.confirmToken || isExpired) ? crypto.randomBytes(32).toString("hex") : existing.confirmToken;
+  const token = (!existing.confirmToken || isExpired) ? randomBytes(32).toString("hex") : existing.confirmToken;
   await db.update(ppeAssignmentsTable)
     .set({ confirmToken: token, confirmTokenExpiresAt: expiresAt })
     .where(eq(ppeAssignmentsTable.id, params.data.id));
