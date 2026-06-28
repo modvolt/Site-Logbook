@@ -561,10 +561,87 @@ function parseTimeDecimal(t: string): number {
   return Number(parts[0]) + Number(parts[1] ?? 0) / 60;
 }
 
+function decimalToTime(h: number): string {
+  const clamped = Math.max(0, Math.min(23.75, h));
+  const snapped = Math.round(clamped * 4) / 4;
+  const hours = Math.floor(snapped);
+  const minutes = Math.round((snapped - hours) * 60);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 function nowOffsetPx(): number | null {
   const now = new Date();
   const decimal = now.getHours() + now.getMinutes() / 60;
   return decimal * HOUR_HEIGHT;
+}
+
+interface DraggableDayJobCardProps {
+  job: CalendarJob;
+  onNavigate: (path: string) => void;
+}
+
+function DraggableDayJobCard({ job, onNavigate }: DraggableDayJobCardProps) {
+  const startH = parseTimeDecimal(job.startTime!);
+  const endH = job.endTime ? parseTimeDecimal(job.endTime) : startH + 1;
+  const duration = Math.max(0.5, endH - startH);
+  const top = startH * HOUR_HEIGHT;
+  const height = duration * HOUR_HEIGHT - 2;
+
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `dayjob-${job.id}`,
+    data: { job },
+  });
+
+  const style: React.CSSProperties = {
+    top: `${top}px`,
+    height: `${height}px`,
+    minHeight: "24px",
+    ...(transform ? { transform: CSS.Translate.toString(transform), zIndex: 50 } : {}),
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      className={`absolute left-1 right-2 rounded-md px-2 py-1 pointer-events-auto border border-white/20 hover:brightness-95 transition-all touch-none select-none cursor-grab active:cursor-grabbing ${statusChip(job.status)} ${isDragging ? "opacity-40" : ""}`}
+      title={`${job.title} · ${job.startTime}${job.endTime ? ` – ${job.endTime}` : ""}`}
+      onClick={(e) => { if (!isDragging) { e.stopPropagation(); onNavigate(`/jobs/${job.id}`); } }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/${job.id}`); }}
+      role="button"
+      tabIndex={0}
+    >
+      <p className="text-[11px] font-semibold leading-tight truncate">{job.title}</p>
+      {height > 36 && job.assignedPersonName && (
+        <p className="text-[9px] opacity-70 truncate">{job.assignedPersonName}</p>
+      )}
+      {height > 24 && (
+        <p className="text-[9px] opacity-60">{job.startTime}{job.endTime ? ` – ${job.endTime}` : ""}</p>
+      )}
+    </div>
+  );
+}
+
+interface DroppableTimeSlotProps {
+  hour: number;
+  dateStr: string;
+  onNavigate: (path: string) => void;
+}
+
+function DroppableTimeSlot({ hour, dateStr, onNavigate }: DroppableTimeSlotProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: `timeslot-${hour}` });
+  return (
+    <div
+      ref={setNodeRef}
+      role="button"
+      tabIndex={0}
+      className={`flex-1 transition-colors cursor-pointer ${isOver ? "bg-primary/10" : "hover:bg-muted/30"}`}
+      onClick={() => onNavigate(`/jobs/new?date=${dateStr}&startTime=${String(hour).padStart(2, "0")}:00`)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/new?date=${dateStr}&startTime=${String(hour).padStart(2, "0")}:00`); }}
+      aria-label={`Přidat zakázku v ${String(hour).padStart(2, "0")}:00`}
+    />
+  );
 }
 
 interface DayViewProps {
@@ -579,153 +656,231 @@ function DayView({ jobs, leaves, holidays, date, onNavigate }: DayViewProps) {
   const ds = format(date, "yyyy-MM-dd");
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const isToday = ds === todayStr;
-  const dayJobs = jobsForDay(jobs, ds);
+
+  const updateJob = useUpdateJob();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const [optimisticOverrides, setOptimisticOverrides] = useState<
+    Map<number, { startTime: string; endTime: string | null }>
+  >(new Map());
+  const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  );
+
+  const effectiveJobs = useMemo(() => {
+    if (optimisticOverrides.size === 0) return jobs;
+    return jobs.map((j) => {
+      const override = optimisticOverrides.get(j.id);
+      if (!override) return j;
+      return { ...j, ...override };
+    });
+  }, [jobs, optimisticOverrides]);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const job = event.active.data.current?.job as CalendarJob | undefined;
+    if (job) setDraggingJobId(job.id);
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setDraggingJobId(null);
+    const { active, delta } = event;
+
+    const job = active.data.current?.job as CalendarJob | undefined;
+    if (!job || !job.startTime) return;
+
+    const startH = parseTimeDecimal(job.startTime);
+    const deltaH = delta.y / HOUR_HEIGHT;
+    const newStartH = startH + deltaH;
+    const newStartTime = decimalToTime(newStartH);
+
+    if (newStartTime === job.startTime) return;
+
+    let newEndTime: string | null = null;
+    if (job.endTime) {
+      const endH = parseTimeDecimal(job.endTime);
+      const duration = endH - startH;
+      const snappedStartH = parseTimeDecimal(newStartTime);
+      newEndTime = decimalToTime(snappedStartH + duration);
+    }
+
+    setOptimisticOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(job.id, { startTime: newStartTime, endTime: newEndTime });
+      return next;
+    });
+
+    updateJob.mutate(
+      {
+        id: job.id,
+        data: {
+          startTime: newStartTime,
+          ...(newEndTime !== null ? { endTime: newEndTime } : {}),
+        },
+      },
+      {
+        onSuccess: () => {
+          setOptimisticOverrides((prev) => {
+            const next = new Map(prev);
+            next.delete(job.id);
+            return next;
+          });
+          invalidateData(queryClient, "jobs");
+          toast({ title: "Čas zakázky upraven" });
+        },
+        onError: () => {
+          setOptimisticOverrides((prev) => {
+            const next = new Map(prev);
+            next.delete(job.id);
+            return next;
+          });
+          toast({
+            title: "Přesun selhal",
+            description: "Zkuste to prosím znovu.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  }, [updateJob, queryClient, toast]);
+
+  const dayJobs = jobsForDay(effectiveJobs, ds);
   const timedJobs = dayJobs.filter((j) => j.startTime);
   const untimedJobs = dayJobs.filter((j) => !j.startTime);
   const dayLeaves = leaves.filter((l) => l.startDate <= ds && l.endDate >= ds);
   const holiday = holidays.get(ds);
 
+  const draggingJob = draggingJobId != null
+    ? (jobs.find((j) => j.id === draggingJobId) ?? null)
+    : null;
+
   const nowPx = isToday ? nowOffsetPx() : null;
   const hours = Array.from({ length: TIMELINE_HOURS }, (_, i) => i);
 
   return (
-    <div className="pb-24 md:pb-8">
-      {(holiday || dayLeaves.length > 0) && (
-        <div className="px-4 pt-3 space-y-2">
-          {holiday && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-300 font-medium">
-              🎉 {holiday}
-            </div>
-          )}
-          {dayLeaves.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                <Palmtree className="w-3.5 h-3.5" /> Dovolené / absence
-              </p>
-              {dayLeaves.map((lv) => (
-                <div
-                  key={lv.id}
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white ${leaveBgClass(lv.type)}`}
-                >
-                  <span>{leaveIcon(lv.type)}</span>
-                  <div className="flex-1 min-w-0">
-                    <span className="font-semibold">{lv.personName ?? "—"}</span>
-                    <span className="ml-1 opacity-80">{leaveLabel(lv.type)}</span>
-                    {lv.note && <span className="ml-1 opacity-70">· {lv.note}</span>}
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="pb-24 md:pb-8">
+        {(holiday || dayLeaves.length > 0) && (
+          <div className="px-4 pt-3 space-y-2">
+            {holiday && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-300 font-medium">
+                🎉 {holiday}
+              </div>
+            )}
+            {dayLeaves.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                  <Palmtree className="w-3.5 h-3.5" /> Dovolené / absence
+                </p>
+                {dayLeaves.map((lv) => (
+                  <div
+                    key={lv.id}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white ${leaveBgClass(lv.type)}`}
+                  >
+                    <span>{leaveIcon(lv.type)}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-semibold">{lv.personName ?? "—"}</span>
+                      <span className="ml-1 opacity-80">{leaveLabel(lv.type)}</span>
+                      {lv.note && <span className="ml-1 opacity-70">· {lv.note}</span>}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-      {untimedJobs.length > 0 && (
-        <div className="px-4 pt-3 space-y-1.5">
-          <p className="text-xs font-semibold text-muted-foreground">Bez naplánovaného času</p>
-          {untimedJobs.map((job) => (
-            <div
-              key={job.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onNavigate(`/jobs/${job.id}`)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/${job.id}`); }}
-              className={`rounded-lg px-3 py-2 cursor-pointer border border-transparent hover:border-border/60 transition-colors ${statusChip(job.status)}`}
-            >
-              <p className="text-xs font-semibold leading-tight">{job.title}</p>
-              {job.assignedPersonName && (
-                <p className="text-[10px] opacity-70">{job.assignedPersonName}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="px-2 pt-3">
-        <div
-          className="relative bg-card border rounded-lg overflow-hidden"
-          style={{ height: `${TIMELINE_HOURS * HOUR_HEIGHT}px` }}
-        >
-          {hours.map((h) => (
-            <div
-              key={h}
-              className="absolute left-0 right-0 border-t border-border/30 flex"
-              style={{ top: `${h * HOUR_HEIGHT}px`, height: `${HOUR_HEIGHT}px` }}
-            >
-              <span className="text-[10px] text-muted-foreground w-10 pt-0.5 pl-1 shrink-0 select-none">
-                {String(h).padStart(2, "0")}:00
-              </span>
+        {untimedJobs.length > 0 && (
+          <div className="px-4 pt-3 space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground">Bez naplánovaného času</p>
+            {untimedJobs.map((job) => (
               <div
+                key={job.id}
                 role="button"
                 tabIndex={0}
-                className="flex-1 hover:bg-muted/30 transition-colors cursor-pointer"
-                onClick={() => onNavigate(`/jobs/new?date=${ds}`)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/new?date=${ds}`); }}
-                aria-label={`Přidat zakázku v ${String(h).padStart(2, "0")}:00`}
-              />
-            </div>
-          ))}
-
-          {nowPx !== null && (
-            <div
-              className="absolute left-0 right-0 z-20 pointer-events-none"
-              style={{ top: `${nowPx}px` }}
-            >
-              <div className="ml-10 h-0.5 bg-red-500/80 relative">
-                <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
+                onClick={() => onNavigate(`/jobs/${job.id}`)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/${job.id}`); }}
+                className={`rounded-lg px-3 py-2 cursor-pointer border border-transparent hover:border-border/60 transition-colors ${statusChip(job.status)}`}
+              >
+                <p className="text-xs font-semibold leading-tight">{job.title}</p>
+                {job.assignedPersonName && (
+                  <p className="text-[10px] opacity-70">{job.assignedPersonName}</p>
+                )}
               </div>
-            </div>
-          )}
+            ))}
+          </div>
+        )}
 
-          <div className="absolute inset-0 pointer-events-none" style={{ left: "40px" }}>
-            {timedJobs.map((job) => {
-              const startH = parseTimeDecimal(job.startTime!);
-              const endH = job.endTime ? parseTimeDecimal(job.endTime) : startH + 1;
-              const duration = Math.max(0.5, endH - startH);
-              const top = startH * HOUR_HEIGHT;
-              const height = duration * HOUR_HEIGHT - 2;
-              return (
-                <div
-                  key={job.id}
-                  role="button"
-                  tabIndex={0}
-                  className={`absolute left-1 right-2 rounded-md px-2 py-1 cursor-pointer pointer-events-auto border border-white/20 hover:brightness-95 transition-all ${statusChip(job.status)}`}
-                  style={{ top: `${top}px`, height: `${height}px`, minHeight: "24px" }}
-                  onClick={() => onNavigate(`/jobs/${job.id}`)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/${job.id}`); }}
-                  title={`${job.title} · ${job.startTime}${job.endTime ? ` – ${job.endTime}` : ""}`}
-                >
-                  <p className="text-[11px] font-semibold leading-tight truncate">{job.title}</p>
-                  {height > 36 && job.assignedPersonName && (
-                    <p className="text-[9px] opacity-70 truncate">{job.assignedPersonName}</p>
-                  )}
-                  {height > 24 && (
-                    <p className="text-[9px] opacity-60">{job.startTime}{job.endTime ? ` – ${job.endTime}` : ""}</p>
-                  )}
+        <div className="px-2 pt-3">
+          <div
+            className="relative bg-card border rounded-lg overflow-hidden"
+            style={{ height: `${TIMELINE_HOURS * HOUR_HEIGHT}px` }}
+          >
+            {hours.map((h) => (
+              <div
+                key={h}
+                className="absolute left-0 right-0 border-t border-border/30 flex"
+                style={{ top: `${h * HOUR_HEIGHT}px`, height: `${HOUR_HEIGHT}px` }}
+              >
+                <span className="text-[10px] text-muted-foreground w-10 pt-0.5 pl-1 shrink-0 select-none">
+                  {String(h).padStart(2, "0")}:00
+                </span>
+                <DroppableTimeSlot hour={h} dateStr={ds} onNavigate={onNavigate} />
+              </div>
+            ))}
+
+            {nowPx !== null && (
+              <div
+                className="absolute left-0 right-0 z-20 pointer-events-none"
+                style={{ top: `${nowPx}px` }}
+              >
+                <div className="ml-10 h-0.5 bg-red-500/80 relative">
+                  <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
                 </div>
-              );
-            })}
+              </div>
+            )}
+
+            <div className="absolute inset-0 pointer-events-none" style={{ left: "40px" }}>
+              {timedJobs.map((job) => (
+                <DraggableDayJobCard key={job.id} job={job} onNavigate={onNavigate} />
+              ))}
+            </div>
           </div>
+        </div>
+
+        {dayJobs.length === 0 && (
+          <div className="px-4 pt-4">
+            <div className="text-center py-8 border-2 border-dashed rounded-xl border-muted">
+              <p className="text-muted-foreground mb-4 text-sm">Žádné zakázky na tento den.</p>
+              <Button variant="outline" onClick={() => onNavigate(`/jobs/new?date=${ds}`)}>
+                <Plus className="mr-2 h-4 w-4" /> Přidat zakázku
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="px-4 pt-3">
+          <Button variant="outline" className="w-full" onClick={() => onNavigate(`/jobs/new?date=${ds}`)}>
+            <Plus className="mr-2 h-4 w-4" /> Přidat zakázku na tento den
+          </Button>
         </div>
       </div>
 
-      {dayJobs.length === 0 && (
-        <div className="px-4 pt-4">
-          <div className="text-center py-8 border-2 border-dashed rounded-xl border-muted">
-            <p className="text-muted-foreground mb-4 text-sm">Žádné zakázky na tento den.</p>
-            <Button variant="outline" onClick={() => onNavigate(`/jobs/new?date=${ds}`)}>
-              <Plus className="mr-2 h-4 w-4" /> Přidat zakázku
-            </Button>
+      <DragOverlay dropAnimation={null}>
+        {draggingJob ? (
+          <div
+            className={`rounded-md px-2 py-1 text-[11px] font-semibold leading-tight truncate shadow-lg ring-2 ring-primary/60 cursor-grabbing select-none ${statusChip(draggingJob.status)}`}
+            style={{ minWidth: "100px", maxWidth: "200px" }}
+          >
+            {truncate(draggingJob.title, 24)}
+            <div className="text-[9px] opacity-70 mt-0.5">{draggingJob.startTime}</div>
           </div>
-        </div>
-      )}
-
-      <div className="px-4 pt-3">
-        <Button variant="outline" className="w-full" onClick={() => onNavigate(`/jobs/new?date=${ds}`)}>
-          <Plus className="mr-2 h-4 w-4" /> Přidat zakázku na tento den
-        </Button>
-      </div>
-    </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
