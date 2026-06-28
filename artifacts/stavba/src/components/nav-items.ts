@@ -1,7 +1,7 @@
 import {
   Home, Calendar, Briefcase, Users, Settings, Building2, ShieldAlert,
   UserCog, Hammer, User as UserIcon, Package, Wrench, ScrollText,
-  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity,
+  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity, FileText,
 } from "lucide-react";
 
 export type NavItem = {
@@ -29,6 +29,7 @@ export const mainNavItems: NavItem[] = [
   { href: "/sklad", icon: Package, label: "Sklad", color: "text-cyan-500", activeBg: "bg-cyan-500 text-white", hoverBg: "hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-cyan-950/30" },
   { href: "/stroje", icon: Wrench, label: "Stroje", color: "text-slate-500", activeBg: "bg-slate-500 text-white", hoverBg: "hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800/40", match: (l) => l === "/stroje" || l.startsWith("/stroje/") },
   { href: "/me", icon: UserIcon, label: "Můj přehled", shortLabel: "Já", color: "text-indigo-500", activeBg: "bg-indigo-500 text-white", hoverBg: "hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/30" },
+  { href: "/quotes", icon: FileText, label: "Nabídky", color: "text-sky-500", activeBg: "bg-sky-500 text-white", hoverBg: "hover:bg-sky-50 hover:text-sky-600 dark:hover:bg-sky-950/30", requires: "manageUsers" as const, match: (l: string) => l === "/quotes" || l.startsWith("/quotes/") },
 ];
 
 /** Secondary / admin destinations — desktop footer section and mobile menu. */

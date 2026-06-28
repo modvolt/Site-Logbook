@@ -11,6 +11,7 @@ import {
   useGetCustomerFinancialSummary, getGetCustomerFinancialSummaryQueryKey,
   getListCustomersQueryKey, getListJobsQueryKey,
   getListCustomerContactsQueryKey, getListCustomerSitesQueryKey,
+  useListQuotes, getListQuotesQueryKey,
   useListCustomerDocuments, useGetCustomerDocumentsSummary,
   getListCustomerDocumentsQueryKey, getGetCustomerDocumentsSummaryQueryKey,
   useCreateCustomerDocument, useArchiveCustomerDocument, useDeleteCustomerDocument,
@@ -29,6 +30,7 @@ import {
   FolderOpen, ShieldAlert, Archive, Paperclip, Download,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/components/badges";
+import { QuoteStatusBadge } from "@/components/quote-status-badge";
 import { useToast } from "@/hooks/use-toast";
 
 type ContactForm = { name: string; role: string; phone: string; email: string };
@@ -64,6 +66,11 @@ export default function CustomerDetail() {
     { query: { queryKey: getListJobsQueryKey({}) } }
   );
   const jobs = allJobs?.filter((j) => j.customerId === id) ?? [];
+
+  const { data: customerQuotes, isLoading: loadingQuotes } = useListQuotes(
+    { customerId: id },
+    { query: { queryKey: getListQuotesQueryKey({ customerId: id }), enabled: id > 0 } }
+  );
 
   const { data: contacts, isLoading: loadingContacts } = useListCustomerContacts(id, {
     query: { queryKey: getListCustomerContactsQueryKey(id), enabled: id > 0 },
@@ -1433,6 +1440,62 @@ export default function CustomerDetail() {
           </div>
         )}
       </div>
+
+      {/* Quotes section - admin only */}
+      {isAdminRole && (
+        <div className="mt-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <FileText className="h-4 w-4" /> Nabídky ({customerQuotes?.length ?? 0})
+            </h2>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setLocation(`/quotes/new?customerId=${id}`)}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Nová nabídka
+            </Button>
+          </div>
+          {loadingQuotes ? (
+            <div className="space-y-2">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+            </div>
+          ) : !customerQuotes || customerQuotes.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
+              <FileText className="h-8 w-8 mx-auto mb-2 opacity-20" />
+              <p className="text-sm">Žádné nabídky pro tohoto zákazníka.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {customerQuotes.map((q) => (
+                <Card
+                  key={q.id}
+                  className="hover:bg-muted/30 transition-colors cursor-pointer"
+                  onClick={() => setLocation(`/quotes/${q.id}`)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold truncate">{q.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {q.quoteNumber && <span className="font-mono mr-2">{q.quoteNumber}</span>}
+                          {q.validUntil && `Platná do ${q.validUntil}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-sm font-medium">{q.totalWithVat != null ? `${Number(q.totalWithVat).toLocaleString("cs-CZ")} Kč` : ""}</span>
+                        <QuoteStatusBadge status={q.status} />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <ConfirmDialog {...dialogProps} />
     </div>
   );

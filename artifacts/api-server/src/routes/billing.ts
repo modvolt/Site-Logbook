@@ -139,6 +139,8 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
       reminderEnabled: d.reminderEnabled ?? undefined,
       // reminderDays nullable on input but normalized to a default if cleared.
       reminderDays: d.reminderDays ?? undefined,
+      quoteNumberPrefix: d.quoteNumberPrefix ?? undefined,
+      quoteNumberNextSeq: d.quoteNumberNextSeq ?? undefined,
     });
     res.json(serializeSettings(row));
   } catch (err) {

@@ -90,6 +90,8 @@ type Form = {
   numberNextSeq: string;
   reminderEnabled: boolean;
   reminderDays: string;
+  quoteNumberPrefix: string;
+  quoteNumberNextSeq: string;
 };
 
 function toForm(s: BillingSettings): Form {
@@ -116,6 +118,8 @@ function toForm(s: BillingSettings): Form {
     numberNextSeq: String(s.numberNextSeq ?? 1),
     reminderEnabled: s.reminderEnabled ?? false,
     reminderDays: s.reminderDays ?? "3,14,30",
+    quoteNumberPrefix: s.quoteNumberPrefix ?? "",
+    quoteNumberNextSeq: String(s.quoteNumberNextSeq ?? 1),
   };
 }
 
@@ -305,6 +309,8 @@ export default function BillingSettings() {
           numberNextSeq: parseDecimal(form.numberNextSeq),
           reminderEnabled: form.reminderEnabled,
           reminderDays: trimOrNull(form.reminderDays),
+          quoteNumberPrefix: trimOrNull(form.quoteNumberPrefix),
+          quoteNumberNextSeq: parseDecimal(form.quoteNumberNextSeq),
         },
       },
       {
@@ -344,6 +350,7 @@ export default function BillingSettings() {
     marginAlertThresholdPercent: decimalError(form.marginAlertThresholdPercent, { allowNegative: true }),
     numberYear: decimalError(form.numberYear, { positiveOnly: true }),
     numberNextSeq: decimalError(form.numberNextSeq, { positiveOnly: true }),
+    quoteNumberNextSeq: decimalError(form.quoteNumberNextSeq, { positiveOnly: true }),
   };
   const formHasErrors = Object.values(formErrors).some(Boolean);
 
@@ -694,6 +701,31 @@ export default function BillingSettings() {
               <p className="text-xs text-muted-foreground">
                 Číslo se přiřazuje až při vystavení faktury. Pořadové číslo se po
                 přechodu na nový rok automaticky resetuje.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Hash className="h-5 w-5" /> Číslování nabídek
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Field label="Prefix nabídek">
+                  <Input value={form.quoteNumberPrefix} onChange={(e) => set("quoteNumberPrefix", e.target.value)} placeholder="NAB-" />
+                </Field>
+                <Field label="Další pořadové číslo nabídky">
+                  <DecimalInput
+                    value={form.quoteNumberNextSeq}
+                    onChange={(v) => set("quoteNumberNextSeq", v)}
+                    error={formErrors.quoteNumberNextSeq}
+                  />
+                </Field>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Číslo nabídky se přiřazuje při odeslání zákazníkovi. Formát: {"{prefix}{rok}/{pořadí}"}.
               </p>
             </CardContent>
           </Card>

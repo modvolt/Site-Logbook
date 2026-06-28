@@ -4674,6 +4674,8 @@ export const GetBillingSettingsResponse = zod.object({
   "numberNextSeq": zod.number(),
   "reminderEnabled": zod.boolean().optional(),
   "reminderDays": zod.string().optional(),
+  "quoteNumberPrefix": zod.string().optional(),
+  "quoteNumberNextSeq": zod.number().optional(),
   "updatedAt": zod.string()
 })
 
@@ -4703,7 +4705,9 @@ export const UpdateBillingSettingsBody = zod.object({
   "numberYear": zod.number().nullish(),
   "numberNextSeq": zod.number().nullish(),
   "reminderEnabled": zod.boolean().nullish(),
-  "reminderDays": zod.string().nullish()
+  "reminderDays": zod.string().nullish(),
+  "quoteNumberPrefix": zod.string().nullish(),
+  "quoteNumberNextSeq": zod.number().nullish()
 })
 
 export const UpdateBillingSettingsResponse = zod.object({
@@ -4730,6 +4734,8 @@ export const UpdateBillingSettingsResponse = zod.object({
   "numberNextSeq": zod.number(),
   "reminderEnabled": zod.boolean().optional(),
   "reminderDays": zod.string().optional(),
+  "quoteNumberPrefix": zod.string().optional(),
+  "quoteNumberNextSeq": zod.number().optional(),
   "updatedAt": zod.string()
 })
 
@@ -7840,6 +7846,313 @@ export const AnalyzeJobDocumentsResponse = zod.object({
 })),
   "createdCount": zod.number(),
   "skipped": zod.number()
+})
+
+
+/**
+ * @summary List quotes, optionally filtered by customer or status
+ */
+export const ListQuotesQueryParams = zod.object({
+  "customerId": zod.coerce.number().optional(),
+  "status": zod.enum(['all', 'draft', 'sent', 'accepted', 'rejected', 'expired']).optional()
+})
+
+export const ListQuotesResponseItem = zod.object({
+  "id": zod.number(),
+  "quoteNumber": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "convertedToJobId": zod.number().nullish(),
+  "convertedToInvoiceId": zod.number().nullish(),
+  "itemCount": zod.number(),
+  "totalWithVat": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListQuotesResponse = zod.array(ListQuotesResponseItem)
+
+
+/**
+ * @summary Create a new quote
+ */
+
+
+
+
+export const CreateQuoteBody = zod.object({
+  "customerId": zod.number().nullish(),
+  "title": zod.string().min(1),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "items": zod.array(zod.object({
+  "description": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "position": zod.number().nullish()
+})).optional()
+})
+
+
+/**
+ * @summary Get quote detail
+ */
+export const GetQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetQuoteResponse = zod.object({
+  "id": zod.number(),
+  "quoteNumber": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "convertedToJobId": zod.number().nullish(),
+  "convertedToInvoiceId": zod.number().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish()
+})),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update a quote (draft only)
+ */
+export const UpdateQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const UpdateQuoteBody = zod.object({
+  "customerId": zod.number().nullish(),
+  "title": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "items": zod.array(zod.object({
+  "description": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "position": zod.number().nullish()
+})).optional()
+})
+
+export const UpdateQuoteResponse = zod.object({
+  "id": zod.number(),
+  "quoteNumber": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "convertedToJobId": zod.number().nullish(),
+  "convertedToInvoiceId": zod.number().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish()
+})),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a quote
+ */
+export const DeleteQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Generate PDF, send by email, set status to sent
+ */
+export const SendQuoteEmailParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SendQuoteEmailBody = zod.object({
+  "to": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "message": zod.string().nullish()
+})
+
+export const SendQuoteEmailResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string().nullish()
+})
+
+
+/**
+ * @summary Mark quote as accepted
+ */
+export const AcceptQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AcceptQuoteResponse = zod.object({
+  "id": zod.number(),
+  "quoteNumber": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "convertedToJobId": zod.number().nullish(),
+  "convertedToInvoiceId": zod.number().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish()
+})),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Mark quote as rejected
+ */
+export const RejectQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RejectQuoteResponse = zod.object({
+  "id": zod.number(),
+  "quoteNumber": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "convertedToJobId": zod.number().nullish(),
+  "convertedToInvoiceId": zod.number().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish()
+})),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Mark quote as expired
+ */
+export const ExpireQuoteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ExpireQuoteResponse = zod.object({
+  "id": zod.number(),
+  "quoteNumber": zod.string().nullish(),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "customerIc": zod.string().nullish(),
+  "customerDic": zod.string().nullish(),
+  "customerAddress": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "pdfObjectPath": zod.string().nullish(),
+  "convertedToJobId": zod.number().nullish(),
+  "convertedToInvoiceId": zod.number().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish()
+})),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Convert an accepted quote to a job
+ */
+export const ConvertQuoteToJobParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ConvertQuoteToJobResponse = zod.object({
+  "jobId": zod.number()
+})
+
+
+/**
+ * @summary Download the quote PDF
+ */
+export const DownloadQuotePdfParams = zod.object({
+  "id": zod.coerce.number()
 })
 
 

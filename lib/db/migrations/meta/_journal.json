@@ -358,6 +358,13 @@
       "when": 1784200100000,
       "tag": "0048_job_signature",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784400000000,
+      "tag": "0049_quotes",
+      "breakpoints": true
     }
   ]
 }

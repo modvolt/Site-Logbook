@@ -40,3 +40,4 @@ export * from "./employee-leaves";
 export * from "./ppe";
 export * from "./leave-settings";
 export * from "./user-sessions";
+export * from "./quotes";

@@ -55,6 +55,9 @@ export const billingSettingsTable = pgTable("billing_settings", {
   // protection lives in invoice_reminders).
   reminderEnabled: boolean("reminder_enabled").notNull().default(false),
   reminderDays: text("reminder_days").notNull().default("3,14,30"),
+  // Quote (cenová nabídka) number series — separate from invoice numbers.
+  quoteNumberPrefix: text("quote_number_prefix").notNull().default("NAB"),
+  quoteNumberNextSeq: integer("quote_number_next_seq").notNull().default(1),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

@@ -148,6 +148,8 @@ export function serializeSettings(row: BillingSettings) {
     numberNextSeq: row.numberNextSeq,
     reminderEnabled: row.reminderEnabled,
     reminderDays: row.reminderDays,
+    quoteNumberPrefix: row.quoteNumberPrefix,
+    quoteNumberNextSeq: row.quoteNumberNextSeq,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -175,6 +177,8 @@ export interface BillingSettingsInput {
   numberNextSeq?: number;
   reminderEnabled?: boolean;
   reminderDays?: string;
+  quoteNumberPrefix?: string;
+  quoteNumberNextSeq?: number;
 }
 
 export async function updateBillingSettings(
@@ -222,6 +226,11 @@ export async function updateBillingSettings(
   if (input.reminderDays !== undefined) {
     set.reminderDays = normalizeReminderDays(input.reminderDays);
   }
+  assign("quoteNumberPrefix", "quoteNumberPrefix");
+  if (input.quoteNumberNextSeq !== undefined && input.quoteNumberNextSeq < 1) {
+    throw appError(400, "Další číslo nabídky musí být alespoň 1.");
+  }
+  assign("quoteNumberNextSeq", "quoteNumberNextSeq");
   const [row] = await db
     .update(billingSettingsTable)
     .set(set)

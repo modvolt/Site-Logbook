@@ -59,6 +59,8 @@ tags:
     description: Personal protective equipment (OOPP) catalogue and issue tracking
   - name: sessions
     description: Active session management
+  - name: quotes
+    description: Customer quotes (cenové nabídky)
 
 paths:
   /healthz:
@@ -6934,6 +6936,257 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  # ---------------------------------------------------------------------------
+  # Quotes (cenové nabídky)
+  # ---------------------------------------------------------------------------
+
+  /quotes:
+    get:
+      operationId: listQuotes
+      tags: [quotes]
+      summary: List quotes, optionally filtered by customer or status
+      parameters:
+        - name: customerId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, draft, sent, accepted, rejected, expired]
+      responses:
+        "200":
+          description: List of quotes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Quote"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: createQuote
+      tags: [quotes]
+      summary: Create a new quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuoteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteDetail"
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+
+  /quotes/{id}:
+    get:
+      operationId: getQuote
+      tags: [quotes]
+      summary: Get quote detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quote detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteDetail"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateQuote
+      tags: [quotes]
+      summary: Update a quote (draft only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateQuoteInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteDetail"
+        "400":
+          description: Validation error
+        "409":
+          description: Quote is not in draft status
+    delete:
+      operationId: deleteQuote
+      tags: [quotes]
+      summary: Delete a quote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Cannot delete in current status
+
+  /quotes/{id}/send:
+    post:
+      operationId: sendQuoteEmail
+      tags: [quotes]
+      summary: Generate PDF, send by email, set status to sent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendQuoteEmailInput"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendInvoiceEmailResult"
+        "400":
+          description: Missing or invalid email address
+        "409":
+          description: Cannot send in current status
+
+  /quotes/{id}/accept:
+    post:
+      operationId: acceptQuote
+      tags: [quotes]
+      summary: Mark quote as accepted
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteDetail"
+        "409":
+          description: Cannot accept in current status
+
+  /quotes/{id}/reject:
+    post:
+      operationId: rejectQuote
+      tags: [quotes]
+      summary: Mark quote as rejected
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteDetail"
+        "409":
+          description: Cannot reject in current status
+
+  /quotes/{id}/expire:
+    post:
+      operationId: expireQuote
+      tags: [quotes]
+      summary: Mark quote as expired
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteDetail"
+        "409":
+          description: Cannot expire in current status
+
+  /quotes/{id}/convert-to-job:
+    post:
+      operationId: convertQuoteToJob
+      tags: [quotes]
+      summary: Convert an accepted quote to a job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConvertQuoteToJobResult"
+        "409":
+          description: Quote is not accepted or already converted
+
+  /quotes/{id}/pdf:
+    get:
+      operationId: downloadQuotePdf
+      tags: [quotes]
+      summary: Download the quote PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not found
+
 components:
   schemas:
     CalendarJob:
@@ -10237,6 +10490,10 @@ components:
           type: boolean
         reminderDays:
           type: string
+        quoteNumberPrefix:
+          type: string
+        quoteNumberNextSeq:
+          type: integer
         updatedAt:
           type: string
 
@@ -10289,6 +10546,10 @@ components:
           type: ["boolean", "null"]
         reminderDays:
           type: ["string", "null"]
+        quoteNumberPrefix:
+          type: ["string", "null"]
+        quoteNumberNextSeq:
+          type: ["integer", "null"]
 
     Invoice:
       type: object
@@ -12727,3 +12988,179 @@ components:
           type: string
         documentNumber:
           type: string
+
+    # -------------------------------------------------------------------------
+    # Quotes (cenové nabídky)
+    # -------------------------------------------------------------------------
+
+    QuoteItem:
+      type: object
+      required: [id, quoteId, position, description, quantity, unitPrice]
+      properties:
+        id:
+          type: integer
+        quoteId:
+          type: integer
+        position:
+          type: integer
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPrice:
+          type: number
+        vatRate:
+          type: ["number", "null"]
+
+    QuoteItemInput:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 1
+        quantity:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        unitPrice:
+          type: ["number", "null"]
+        vatRate:
+          type: ["number", "null"]
+        position:
+          type: ["integer", "null"]
+
+    Quote:
+      type: object
+      required: [id, title, status, itemCount, totalWithVat, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        quoteNumber:
+          type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+        customerCompanyName:
+          type: ["string", "null"]
+        customerEmail:
+          type: ["string", "null"]
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, sent, accepted, rejected, expired]
+        validUntil:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        pdfObjectPath:
+          type: ["string", "null"]
+        convertedToJobId:
+          type: ["integer", "null"]
+        convertedToInvoiceId:
+          type: ["integer", "null"]
+        itemCount:
+          type: integer
+        totalWithVat:
+          type: number
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    QuoteDetail:
+      type: object
+      required: [id, title, status, items, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        quoteNumber:
+          type: ["string", "null"]
+        customerId:
+          type: ["integer", "null"]
+        customerCompanyName:
+          type: ["string", "null"]
+        customerEmail:
+          type: ["string", "null"]
+        customerIc:
+          type: ["string", "null"]
+        customerDic:
+          type: ["string", "null"]
+        customerAddress:
+          type: ["string", "null"]
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, sent, accepted, rejected, expired]
+        validUntil:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        pdfObjectPath:
+          type: ["string", "null"]
+        convertedToJobId:
+          type: ["integer", "null"]
+        convertedToInvoiceId:
+          type: ["integer", "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteItem"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CreateQuoteInput:
+      type: object
+      required: [title]
+      properties:
+        customerId:
+          type: ["integer", "null"]
+        title:
+          type: string
+          minLength: 1
+        validUntil:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteItemInput"
+
+    UpdateQuoteInput:
+      type: object
+      properties:
+        customerId:
+          type: ["integer", "null"]
+        title:
+          type: ["string", "null"]
+        validUntil:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteItemInput"
+
+    SendQuoteEmailInput:
+      type: object
+      properties:
+        to:
+          type: ["string", "null"]
+        subject:
+          type: ["string", "null"]
+        message:
+          type: ["string", "null"]
+
+    ConvertQuoteToJobResult:
+      type: object
+      required: [jobId]
+      properties:
+        jobId:
+          type: integer

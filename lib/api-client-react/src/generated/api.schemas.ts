@@ -3227,6 +3227,8 @@ export interface BillingSettings {
   numberNextSeq: number;
   reminderEnabled?: boolean;
   reminderDays?: string;
+  quoteNumberPrefix?: string;
+  quoteNumberNextSeq?: number;
   updatedAt: string;
 }
 
@@ -3281,6 +3283,10 @@ export interface BillingSettingsInput {
   reminderEnabled?: boolean | null;
   /** @nullable */
   reminderDays?: string | null;
+  /** @nullable */
+  quoteNumberPrefix?: string | null;
+  /** @nullable */
+  quoteNumberNextSeq?: number | null;
 }
 
 export interface MaterialMarkupRule {
@@ -4788,6 +4794,154 @@ export interface AnalyzeJobDocumentsResult {
   skipped: number;
 }
 
+export type QuoteStatus = typeof QuoteStatus[keyof typeof QuoteStatus];
+
+
+export const QuoteStatus = {
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
+} as const;
+
+export interface Quote {
+  id: number;
+  /** @nullable */
+  quoteNumber?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
+  title: string;
+  status: QuoteStatus;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  pdfObjectPath?: string | null;
+  /** @nullable */
+  convertedToJobId?: number | null;
+  /** @nullable */
+  convertedToInvoiceId?: number | null;
+  itemCount: number;
+  totalWithVat: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuoteItemInput {
+  /** @minLength 1 */
+  description: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  unitPrice?: number | null;
+  /** @nullable */
+  vatRate?: number | null;
+  /** @nullable */
+  position?: number | null;
+}
+
+export interface CreateQuoteInput {
+  /** @nullable */
+  customerId?: number | null;
+  /** @minLength 1 */
+  title: string;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  items?: QuoteItemInput[];
+}
+
+export type QuoteDetailStatus = typeof QuoteDetailStatus[keyof typeof QuoteDetailStatus];
+
+
+export const QuoteDetailStatus = {
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
+} as const;
+
+export interface QuoteItem {
+  id: number;
+  quoteId: number;
+  position: number;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPrice: number;
+  /** @nullable */
+  vatRate?: number | null;
+}
+
+export interface QuoteDetail {
+  id: number;
+  /** @nullable */
+  quoteNumber?: string | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  title: string;
+  status: QuoteDetailStatus;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  pdfObjectPath?: string | null;
+  /** @nullable */
+  convertedToJobId?: number | null;
+  /** @nullable */
+  convertedToInvoiceId?: number | null;
+  items: QuoteItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateQuoteInput {
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  items?: QuoteItemInput[];
+}
+
+export interface SendQuoteEmailInput {
+  /** @nullable */
+  to?: string | null;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  message?: string | null;
+}
+
+export interface ConvertQuoteToJobResult {
+  jobId: number;
+}
+
 export type ListJobsParams = {
 /**
  * ISO date string (YYYY-MM-DD)
@@ -5185,5 +5339,22 @@ export const ListEmailImportMessagesStatus = {
   imported: 'imported',
   ignored: 'ignored',
   error: 'error',
+} as const;
+
+export type ListQuotesParams = {
+customerId?: number;
+status?: ListQuotesStatus;
+};
+
+export type ListQuotesStatus = typeof ListQuotesStatus[keyof typeof ListQuotesStatus];
+
+
+export const ListQuotesStatus = {
+  all: 'all',
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
 } as const;
 
