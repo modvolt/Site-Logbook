@@ -416,7 +416,14 @@ export default function BillingUnbilledDetail() {
                       <p className="font-semibold truncate">{job.title}</p>
                       {job.type && <TypeBadge type={job.type} />}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">{fmtDate(job.date)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {fmtDate(job.date)}
+                      {job.daysUnbilled != null && job.daysUnbilled > 0 && (
+                        <span className={`ml-2 font-medium ${job.daysUnbilled > 7 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                          · {job.daysUnbilled} {job.daysUnbilled === 1 ? "den" : job.daysUnbilled <= 4 ? "dny" : "dní"} čeká
+                        </span>
+                      )}
+                    </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 mt-2 text-sm">
                       <PriceItem label="Práce" value={job.price} />
                       <PriceItem label="Doprava" value={job.transportCost} />

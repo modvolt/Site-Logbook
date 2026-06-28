@@ -1,6 +1,8 @@
 import { Router, type IRouter } from "express";
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { db, customersTable, invoicesTable, auditLogTable } from "@workspace/db";
+import { getCustomerUnbilledValueSummary } from "../lib/invoice-service";
+import { round2 } from "../lib/invoice-calc";
 import {
   CreateCustomerBody,
   UpdateCustomerBody,
@@ -190,9 +192,16 @@ router.get("/customers/:id/financial-summary", requireRole("admin", "master"), a
     .from(invoicesTable)
     .where(eq(invoicesTable.customerId, id));
 
+  const { unbilledJobsValue, unbilledJobCount } = await getCustomerUnbilledValueSummary(id);
+  const openBalanceNum = Number(row?.openBalance ?? "0");
+  const totalSaldo = round2(openBalanceNum + unbilledJobsValue);
+
   res.json({
     openBalance: row?.openBalance ?? "0",
     lastPaymentDate: row?.lastPaymentDate ?? null,
+    unbilledJobsValue,
+    unbilledJobCount,
+    totalSaldo,
   });
 });
 

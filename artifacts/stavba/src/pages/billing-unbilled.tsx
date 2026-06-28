@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtKc } from "@/lib/billing-format";
-import { Building2, ChevronRight, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Building2, ChevronRight, ArrowLeft, CheckCircle2, AlertCircle } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 
 export default function BillingUnbilled() {
@@ -40,33 +40,47 @@ export default function BillingUnbilled() {
             onRetry={() => refetch()}
           />
         ) : data && data.length > 0 ? (
-          data.map((c) => (
-            <Card key={c.customerId} className="overflow-hidden">
-              <button
-                type="button"
-                className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                onClick={() => setLocation(`/billing/unbilled/${c.customerId}`)}
-                aria-label={`Otevřít zakázky zákazníka ${c.companyName}`}
+          data.map((c) => {
+            const isOverdue = c.daysUnbilled != null && c.daysUnbilled > 7;
+            return (
+              <Card
+                key={c.customerId}
+                className={`overflow-hidden${isOverdue ? " border-red-300 dark:border-red-800" : ""}`}
               >
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="bg-primary/10 p-2.5 rounded-full text-primary shrink-0">
-                    <Building2 className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-base truncate">{c.companyName}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {unbilledCountLabel(c.jobCount, c.activityCount)}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-bold">{fmtKc(c.orientationalTotal, 0)}</div>
-                    <div className="text-xs text-muted-foreground">orientačně bez DPH</div>
-                  </div>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 ml-1" />
-                </CardContent>
-              </button>
-            </Card>
-          ))
+                <button
+                  type="button"
+                  className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  onClick={() => setLocation(`/billing/unbilled/${c.customerId}`)}
+                  aria-label={`Otevřít zakázky zákazníka ${c.companyName}`}
+                >
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className={`p-2.5 rounded-full shrink-0 ${isOverdue ? "bg-red-100 dark:bg-red-950/40 text-red-600" : "bg-primary/10 text-primary"}`}>
+                      {isOverdue
+                        ? <AlertCircle className="h-5 w-5" />
+                        : <Building2 className="h-5 w-5" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-base truncate">{c.companyName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {unbilledCountLabel(c.jobCount, c.activityCount)}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-bold">{fmtKc(c.orientationalTotal, 0)}</div>
+                      {c.daysUnbilled != null && c.daysUnbilled > 0 ? (
+                        <div className={`text-xs font-medium ${isOverdue ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`}>
+                          Nejstarší: {c.daysUnbilled} {dniLabel(c.daysUnbilled)}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">orientačně bez DPH</div>
+                      )}
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 ml-1" />
+                  </CardContent>
+                </button>
+              </Card>
+            );
+          })
         ) : (
           <div className="text-center py-16 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <CheckCircle2 className="h-12 w-12 mx-auto mb-4 opacity-20" />
@@ -76,6 +90,12 @@ export default function BillingUnbilled() {
       </div>
     </div>
   );
+}
+
+function dniLabel(n: number): string {
+  if (n === 1) return "den";
+  if (n >= 2 && n <= 4) return "dny";
+  return "dní";
 }
 
 function jobCountLabel(n: number): string {

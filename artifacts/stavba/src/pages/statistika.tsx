@@ -487,6 +487,13 @@ export default function Statistika() {
                       count={risks.longInProgress.count}
                       href={buildRiskUrl(risks.longInProgress.filter)}
                     />
+                    <RiskStatRow
+                      icon={<Banknote className="w-3.5 h-3.5" />}
+                      label="Zákazníci s fakturou >7 dní"
+                      count={risks.overdueUnbilledCustomers.count}
+                      href={buildRiskUrl(risks.overdueUnbilledCustomers.filter)}
+                      urgent={risks.overdueUnbilledCustomers.count > 0}
+                    />
                     {risks.machinesInspectionExpired.count > 0 && (
                       <RiskStatRow
                         icon={<Wrench className="w-3.5 h-3.5" />}

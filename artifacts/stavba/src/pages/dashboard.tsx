@@ -638,16 +638,24 @@ export default function Dashboard() {
             <Card
               role="button"
               tabIndex={0}
-              onClick={() => setLocation("/jobs?segment=ready_to_bill")}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/jobs?segment=ready_to_bill"); } }}
-              className="bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800 cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              onClick={() => setLocation("/billing/unbilled")}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLocation("/billing/unbilled"); } }}
+              className={`cursor-pointer transition-transform hover:brightness-95 active:scale-95 focus-visible:outline-none focus-visible:ring-2 ${
+                summary.unbilledOldestDays != null && summary.unbilledOldestDays > 7
+                  ? "bg-red-50 text-red-900 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800 focus-visible:ring-red-500"
+                  : "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800 focus-visible:ring-emerald-500"
+              }`}
             >
               <CardContent className="p-2.5 flex flex-col items-center justify-center">
                 <div className="flex items-center gap-1 mb-0.5">
                   <Banknote className="w-3.5 h-3.5 opacity-70" />
                 </div>
                 <div className="text-base font-bold leading-none tabular-nums">{fmtKc(summary.unbilledValue, 0)}</div>
-                <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">Nevyfakturováno</div>
+                {summary.unbilledOldestDays != null && summary.unbilledOldestDays > 0 ? (
+                  <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">{summary.unbilledOldestDays} dní</div>
+                ) : (
+                  <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">Nevyfakturováno</div>
+                )}
               </CardContent>
             </Card>
             <Card

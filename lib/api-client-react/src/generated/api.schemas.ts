@@ -641,6 +641,12 @@ export interface CustomerFinancialSummary {
      * @nullable
      */
   lastPaymentDate: string | null;
+  /** Sum of job.price for done unbilled jobs for this customer */
+  unbilledJobsValue: number;
+  /** Count of done unbilled jobs for this customer */
+  unbilledJobCount: number;
+  /** openBalance + unbilledJobsValue (total exposure for this customer) */
+  totalSaldo: number;
 }
 
 export interface SendCredentialsEmailInput {
@@ -1287,6 +1293,13 @@ export interface DashboardSummary {
   hoursThisMonth: number;
   /** Count of active jobs that have no customer, no price, or are stale */
   problematicJobsCount: number;
+  /**
+     * Days since the oldest done unbilled job date; null if no unbilled done jobs exist
+     * @nullable
+     */
+  unbilledOldestDays?: number | null;
+  /** Count of distinct customers with at least one done unbilled job older than 7 days */
+  overdueUnbilledCustomers: number;
 }
 
 /**
@@ -1340,6 +1353,8 @@ export interface RiskSummary {
   machinesInspectionExpired: RiskMetric;
   /** Machines whose inspection date falls within the next 30 days. */
   machinesInspectionSoon: RiskMetric;
+  /** Customers with at least one done unbilled job older than 7 days. */
+  overdueUnbilledCustomers: RiskMetric;
   /** The staleness threshold (days) used for this response. */
   staleDays: number;
   /** ISO timestamp when this summary was computed. */
@@ -2223,6 +2238,8 @@ export interface BillingSummary {
   overdueCount: number;
   /** Sum with VAT of overdue unpaid invoices */
   overdueTotalWithVat: number;
+  /** Count of distinct customers with at least one done unbilled job older than 7 days */
+  overdueUnbilledCustomers: number;
 }
 
 export interface BankStatementParseInput {
@@ -2458,6 +2475,16 @@ export interface UnbilledCustomer {
   totalParking: number;
   totalFines: number;
   orientationalTotal: number;
+  /**
+     * ISO date of the oldest unbilled done job for this customer (null if only activities)
+     * @nullable
+     */
+  oldestDoneAt?: string | null;
+  /**
+     * Calendar days since the oldest unbilled done job date (null if only activities)
+     * @nullable
+     */
+  daysUnbilled?: number | null;
 }
 
 export interface UnbilledJobMaterial {
@@ -2494,6 +2521,11 @@ export interface UnbilledJob {
   parking?: number | null;
   /** @nullable */
   fines?: number | null;
+  /**
+     * Calendar days since the job date (null if date is missing)
+     * @nullable
+     */
+  daysUnbilled?: number | null;
   materials: UnbilledJobMaterial[];
 }
 

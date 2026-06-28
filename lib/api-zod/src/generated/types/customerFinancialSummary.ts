@@ -14,4 +14,10 @@ export interface CustomerFinancialSummary {
      * @nullable
      */
   lastPaymentDate: string | null;
+  /** Sum of job.price for done unbilled jobs for this customer */
+  unbilledJobsValue: number;
+  /** Count of done unbilled jobs for this customer */
+  unbilledJobCount: number;
+  /** openBalance + unbilledJobsValue (total exposure for this customer) */
+  totalSaldo: number;
 }

@@ -5994,7 +5994,7 @@ components:
 
     CustomerFinancialSummary:
       type: object
-      required: [openBalance, lastPaymentDate]
+      required: [openBalance, lastPaymentDate, unbilledJobsValue, unbilledJobCount, totalSaldo]
       properties:
         openBalance:
           type: string
@@ -6002,6 +6002,15 @@ components:
         lastPaymentDate:
           type: ["string", "null"]
           description: Most recent paidDate across all invoices for this customer
+        unbilledJobsValue:
+          type: number
+          description: Sum of job.price for done unbilled jobs for this customer
+        unbilledJobCount:
+          type: integer
+          description: Count of done unbilled jobs for this customer
+        totalSaldo:
+          type: number
+          description: openBalance + unbilledJobsValue (total exposure for this customer)
 
     SendJobEmailInput:
       type: object
@@ -6950,7 +6959,7 @@ components:
 
     DashboardSummary:
       type: object
-      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek, unbilledValue, hoursThisMonth, problematicJobsCount]
+      required: [todayCount, weekCount, plannedCount, inProgressCount, doneCount, totalHoursThisWeek, totalRevenueThisWeek, unbilledValue, hoursThisMonth, problematicJobsCount, overdueUnbilledCustomers]
       properties:
         todayCount:
           type: integer
@@ -6975,6 +6984,12 @@ components:
         problematicJobsCount:
           type: integer
           description: Count of active jobs that have no customer, no price, or are stale
+        unbilledOldestDays:
+          type: ["integer", "null"]
+          description: Days since the oldest done unbilled job date; null if no unbilled done jobs exist
+        overdueUnbilledCustomers:
+          type: integer
+          description: Count of distinct customers with at least one done unbilled job older than 7 days
 
     UploadUrlRequest:
       type: object
@@ -8473,6 +8488,7 @@ components:
         - unpaidTotalWithVat
         - overdueCount
         - overdueTotalWithVat
+        - overdueUnbilledCustomers
       properties:
         unbilledDoneJobs:
           type: integer
@@ -8507,6 +8523,9 @@ components:
         overdueTotalWithVat:
           type: number
           description: Sum with VAT of overdue unpaid invoices
+        overdueUnbilledCustomers:
+          type: integer
+          description: Count of distinct customers with at least one done unbilled job older than 7 days
 
     BillingSettings:
       type: object
@@ -9146,6 +9165,12 @@ components:
           type: number
         orientationalTotal:
           type: number
+        oldestDoneAt:
+          type: ["string", "null"]
+          description: ISO date of the oldest unbilled done job for this customer (null if only activities)
+        daysUnbilled:
+          type: ["integer", "null"]
+          description: Calendar days since the oldest unbilled done job date (null if only activities)
 
     UnbilledJobMaterial:
       type: object
@@ -9243,6 +9268,9 @@ components:
           type: ["number", "null"]
         fines:
           type: ["number", "null"]
+        daysUnbilled:
+          type: ["integer", "null"]
+          description: Calendar days since the job date (null if date is missing)
         materials:
           type: array
           items:
@@ -10566,6 +10594,7 @@ components:
         - documentsWithoutJob
         - machinesInspectionExpired
         - machinesInspectionSoon
+        - overdueUnbilledCustomers
         - staleDays
         - computedAt
       properties:
@@ -10596,6 +10625,9 @@ components:
         machinesInspectionSoon:
           $ref: "#/components/schemas/RiskMetric"
           description: Machines whose inspection date falls within the next 30 days.
+        overdueUnbilledCustomers:
+          $ref: "#/components/schemas/RiskMetric"
+          description: Customers with at least one done unbilled job older than 7 days.
         staleDays:
           type: integer
           description: The staleness threshold (days) used for this response.

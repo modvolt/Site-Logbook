@@ -25,5 +25,10 @@ export interface UnbilledJob {
   parking?: number | null;
   /** @nullable */
   fines?: number | null;
+  /**
+     * Calendar days since the job date (null if date is missing)
+     * @nullable
+     */
+  daysUnbilled?: number | null;
   materials: UnbilledJobMaterial[];
 }

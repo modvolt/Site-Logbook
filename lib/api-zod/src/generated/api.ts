@@ -798,7 +798,10 @@ export const GetCustomerFinancialSummaryParams = zod.object({
 
 export const GetCustomerFinancialSummaryResponse = zod.object({
   "openBalance": zod.string().describe('Sum of totalWithVat for non-cancelled unpaid invoices (CZK numeric string)'),
-  "lastPaymentDate": zod.string().nullable().describe('Most recent paidDate across all invoices for this customer')
+  "lastPaymentDate": zod.string().nullable().describe('Most recent paidDate across all invoices for this customer'),
+  "unbilledJobsValue": zod.number().describe('Sum of job.price for done unbilled jobs for this customer'),
+  "unbilledJobCount": zod.number().describe('Count of done unbilled jobs for this customer'),
+  "totalSaldo": zod.number().describe('openBalance + unbilledJobsValue (total exposure for this customer)')
 })
 
 
@@ -1809,7 +1812,9 @@ export const GetDashboardSummaryResponse = zod.object({
   "totalRevenueThisWeek": zod.number(),
   "unbilledValue": zod.number().describe('Sum of price on done jobs not yet linked to any non-cancelled invoice'),
   "hoursThisMonth": zod.number().describe('Total hours spent on all jobs this calendar month'),
-  "problematicJobsCount": zod.number().describe('Count of active jobs that have no customer, no price, or are stale')
+  "problematicJobsCount": zod.number().describe('Count of active jobs that have no customer, no price, or are stale'),
+  "unbilledOldestDays": zod.number().nullish().describe('Days since the oldest done unbilled job date; null if no unbilled done jobs exist'),
+  "overdueUnbilledCustomers": zod.number().describe('Count of distinct customers with at least one done unbilled job older than 7 days')
 })
 
 
@@ -1942,6 +1947,14 @@ export const GetRisksSummaryResponse = zod.object({
   "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
 }).describe('Describes how a UI should navigate to the items counted by this metric.')
 }).describe('Machines whose inspection date falls within the next 30 days.'),
+  "overdueUnbilledCustomers": zod.object({
+  "count": zod.number().describe('Number of items in this risk bucket.'),
+  "amount": zod.number().nullish().describe('Optional monetary aggregate (CZK) relevant for this metric.'),
+  "filter": zod.object({
+  "screen": zod.string().describe('Logical screen name (e.g. \"jobs\", \"billing\/documents\", \"warehouse\", \"machines\").'),
+  "params": zod.record(zod.string(), zod.string()).optional().describe('Query-parameter key\/value pairs to pre-apply when navigating.')
+}).describe('Describes how a UI should navigate to the items counted by this metric.')
+}).describe('Customers with at least one done unbilled job older than 7 days.'),
   "staleDays": zod.number().describe('The staleness threshold (days) used for this response.'),
   "computedAt": zod.string().describe('ISO timestamp when this summary was computed.')
 }).describe('All cross-domain risk metrics computed in one request.')
@@ -3419,7 +3432,8 @@ export const GetBillingSummaryResponse = zod.object({
   "unpaidCount": zod.number().describe('Count of issued\/sent (not paid, not cancelled) invoices'),
   "unpaidTotalWithVat": zod.number().describe('Sum with VAT of issued\/sent invoices not yet paid'),
   "overdueCount": zod.number().describe('Count of unpaid invoices whose dueDate is before today'),
-  "overdueTotalWithVat": zod.number().describe('Sum with VAT of overdue unpaid invoices')
+  "overdueTotalWithVat": zod.number().describe('Sum with VAT of overdue unpaid invoices'),
+  "overdueUnbilledCustomers": zod.number().describe('Count of distinct customers with at least one done unbilled job older than 7 days')
 })
 
 
@@ -3624,7 +3638,9 @@ export const ListUnbilledCustomersResponseItem = zod.object({
   "totalTransportCost": zod.number(),
   "totalParking": zod.number(),
   "totalFines": zod.number(),
-  "orientationalTotal": zod.number()
+  "orientationalTotal": zod.number(),
+  "oldestDoneAt": zod.string().nullish().describe('ISO date of the oldest unbilled done job for this customer (null if only activities)'),
+  "daysUnbilled": zod.number().nullish().describe('Calendar days since the oldest unbilled done job date (null if only activities)')
 })
 export const ListUnbilledCustomersResponse = zod.array(ListUnbilledCustomersResponseItem)
 
@@ -3654,6 +3670,7 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "transportCost": zod.number().nullish(),
   "parking": zod.number().nullish(),
   "fines": zod.number().nullish(),
+  "daysUnbilled": zod.number().nullish().describe('Calendar days since the job date (null if date is missing)'),
   "materials": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),

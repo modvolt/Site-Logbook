@@ -574,6 +574,23 @@ export async function getBillingSummary() {
     ),
   );
 
+  const billingSummaryToday = todayIso();
+  const overdueUnbilledThreshold = (() => {
+    const d = new Date(`${billingSummaryToday}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 7);
+    return d.toISOString().slice(0, 10);
+  })();
+  const overdueUnbilledCustomers = new Set(
+    unbilled
+      .filter(
+        (r) =>
+          r.job.customerId != null &&
+          r.job.date != null &&
+          r.job.date < overdueUnbilledThreshold,
+      )
+      .map((r) => r.job.customerId),
+  ).size;
+
   return {
     unbilledDoneJobs: unbilled.length,
     unbilledActivities: unbilledActivities.length,
@@ -587,6 +604,18 @@ export async function getBillingSummary() {
     unpaidTotalWithVat,
     overdueCount: overdueInvoices.length,
     overdueTotalWithVat,
+    overdueUnbilledCustomers,
+  };
+}
+
+export async function getCustomerUnbilledValueSummary(customerId: number): Promise<{
+  unbilledJobsValue: number;
+  unbilledJobCount: number;
+}> {
+  const rows = await getUnbilledDoneJobs(customerId);
+  return {
+    unbilledJobsValue: round2(rows.reduce((acc, { job }) => acc + num(job.price), 0)),
+    unbilledJobCount: rows.length,
   };
 }
 
@@ -604,6 +633,7 @@ export async function listUnbilledCustomers() {
       totalParking: number;
       totalFines: number;
       orientationalTotal: number;
+      oldestJobDate: string | null;
     }
   >();
   const emptyEntry = (customerId: number, companyName: string) => ({
@@ -616,6 +646,7 @@ export async function listUnbilledCustomers() {
     totalParking: 0,
     totalFines: 0,
     orientationalTotal: 0,
+    oldestJobDate: null as string | null,
   });
   for (const { job, customer } of rows) {
     if (job.customerId == null || !customer) continue;
@@ -627,6 +658,11 @@ export async function listUnbilledCustomers() {
     entry.totalParking += num(job.parking);
     entry.totalFines += num(job.fines);
     entry.orientationalTotal += jobOrientationalTotal(job);
+    if (job.date != null) {
+      if (entry.oldestJobDate == null || job.date < entry.oldestJobDate) {
+        entry.oldestJobDate = job.date;
+      }
+    }
     byCustomer.set(job.customerId, entry);
   }
 
@@ -647,18 +683,27 @@ export async function listUnbilledCustomers() {
     byCustomer.set(activity.customerId, entry);
   }
 
+  const todayStr = todayIso();
   return Array.from(byCustomer.values())
-    .map((e) => ({
-      customerId: e.customerId,
-      companyName: e.companyName,
-      jobCount: e.jobCount,
-      activityCount: e.activityCount,
-      totalPrice: round2(e.totalPrice),
-      totalTransportCost: round2(e.totalTransportCost),
-      totalParking: round2(e.totalParking),
-      totalFines: round2(e.totalFines),
-      orientationalTotal: round2(e.orientationalTotal),
-    }))
+    .map((e) => {
+      const daysUnbilled =
+        e.oldestJobDate != null
+          ? Math.max(0, daysOverdue(e.oldestJobDate, todayStr))
+          : null;
+      return {
+        customerId: e.customerId,
+        companyName: e.companyName,
+        jobCount: e.jobCount,
+        activityCount: e.activityCount,
+        totalPrice: round2(e.totalPrice),
+        totalTransportCost: round2(e.totalTransportCost),
+        totalParking: round2(e.totalParking),
+        totalFines: round2(e.totalFines),
+        orientationalTotal: round2(e.orientationalTotal),
+        oldestDoneAt: e.oldestJobDate ?? null,
+        daysUnbilled,
+      };
+    })
     .sort((a, b) => b.orientationalTotal - a.orientationalTotal);
 }
 
@@ -688,6 +733,7 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     .map((m) => m.name);
   const categoryMarkupByName = await getCategoryMarkupByName(billableMaterialNames);
 
+  const detailTodayStr = todayIso();
   const jobs = rows.map(({ job }) => ({
     id: job.id,
     title: job.title,
@@ -699,6 +745,7 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     transportCost: round2(num(job.transportCost)),
     parking: round2(num(job.parking)),
     fines: round2(num(job.fines)),
+    daysUnbilled: job.date != null ? Math.max(0, daysOverdue(job.date, detailTodayStr)) : null,
     materials: (materialsByJob.get(job.id) ?? [])
       .filter((m) => m.pricePerUnit != null && m.invoicedInvoiceId == null)
       .map((m) => ({

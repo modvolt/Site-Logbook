@@ -28,4 +28,6 @@ export interface BillingSummary {
   overdueCount: number;
   /** Sum with VAT of overdue unpaid invoices */
   overdueTotalWithVat: number;
+  /** Count of distinct customers with at least one done unbilled job older than 7 days */
+  overdueUnbilledCustomers: number;
 }

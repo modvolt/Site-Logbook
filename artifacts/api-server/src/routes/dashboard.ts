@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { gte, lte, and, eq, sql, isNull, or, ne } from "drizzle-orm";
+import { gte, lte, lt, and, eq, sql, isNull, or, ne, notInArray } from "drizzle-orm";
 import {
   db,
   jobsTable,
@@ -152,22 +152,47 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     .map((r) => r.jobId)
     .filter((x): x is number => x != null);
 
-  const [unbilledAgg] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
-    })
-    .from(jobsTable)
-    .where(
-      billedIds.length > 0
-        ? and(
-            eq(jobsTable.status, "done"),
-            sql`${jobsTable.id} not in (${sql.join(
-              billedIds.map((id) => sql`${id}`),
-              sql`, `
-            )})`
-          )
-        : eq(jobsTable.status, "done")
-    );
+  const unbilledWhere =
+    billedIds.length > 0
+      ? and(eq(jobsTable.status, "done"), notInArray(jobsTable.id, billedIds))
+      : eq(jobsTable.status, "done");
+
+  const OVERDUE_UNBILLED_DAYS = 7;
+  const overdueThreshold = subtractDaysIso(t, OVERDUE_UNBILLED_DAYS);
+
+  const [unbilledAgg, unbilledOldestRow, overdueUnbilledCustomersRow] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
+      })
+      .from(jobsTable)
+      .where(unbilledWhere),
+
+    db
+      .select({ oldest: sql<string | null>`MIN(${jobsTable.date})` })
+      .from(jobsTable)
+      .where(unbilledWhere),
+
+    db
+      .select({
+        c: sql<number>`COUNT(DISTINCT ${jobsTable.customerId})`.mapWith(Number),
+      })
+      .from(jobsTable)
+      .where(
+        billedIds.length > 0
+          ? and(
+              eq(jobsTable.status, "done"),
+              sql`${jobsTable.customerId} IS NOT NULL`,
+              lt(jobsTable.date, overdueThreshold),
+              notInArray(jobsTable.id, billedIds),
+            )
+          : and(
+              eq(jobsTable.status, "done"),
+              sql`${jobsTable.customerId} IS NOT NULL`,
+              lt(jobsTable.date, overdueThreshold),
+            ),
+      ),
+  ]);
 
   // --- Problematic jobs: active with no customer, no price, or stale ---
   const [problematicAgg] = await db
@@ -184,6 +209,15 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
       )
     );
 
+  const unbilledOldest = unbilledOldestRow[0]?.oldest ?? null;
+  let unbilledOldestDays: number | null = null;
+  if (unbilledOldest != null) {
+    const msPerDay = 86_400_000;
+    const due = new Date(`${unbilledOldest}T00:00:00Z`).getTime();
+    const now = new Date(`${t}T00:00:00Z`).getTime();
+    unbilledOldestDays = Math.max(0, Math.floor((now - due) / msPerDay));
+  }
+
   res.json({
     todayCount: todayCount?.c ?? 0,
     weekCount: weekCount?.c ?? 0,
@@ -193,7 +227,9 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     totalHoursThisWeek,
     totalRevenueThisWeek,
     hoursThisMonth: monthHoursAgg?.total ?? 0,
-    unbilledValue: unbilledAgg?.total ?? 0,
+    unbilledValue: unbilledAgg[0]?.total ?? 0,
+    unbilledOldestDays,
+    overdueUnbilledCustomers: overdueUnbilledCustomersRow[0]?.c ?? 0,
     problematicJobsCount: problematicAgg?.c ?? 0,
   });
 });

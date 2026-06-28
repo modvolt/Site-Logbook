@@ -71,6 +71,8 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
 
   const billedIds = await getBilledJobIds();
 
+  const overdueUnbilledThreshold = subtractDaysIso(today, 7);
+
   const [
     docForReviewRows,
     warehouseBelowMinRows,
@@ -80,6 +82,7 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
     machinesExpiredRows,
     machinesSoonRows,
     unbilledDoneRows,
+    overdueUnbilledCustomersRows,
   ] = await Promise.all([
     db
       .select({ c: count() })
@@ -170,6 +173,29 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
           })
           .from(jobsTable)
           .where(eq(jobsTable.status, "done")),
+
+    billedIds.length > 0
+      ? db
+          .select({ c: sql<number>`COUNT(DISTINCT ${jobsTable.customerId})`.mapWith(Number) })
+          .from(jobsTable)
+          .where(
+            and(
+              eq(jobsTable.status, "done"),
+              sql`${jobsTable.customerId} IS NOT NULL`,
+              lt(jobsTable.date, overdueUnbilledThreshold),
+              notInArray(jobsTable.id, billedIds),
+            ),
+          )
+      : db
+          .select({ c: sql<number>`COUNT(DISTINCT ${jobsTable.customerId})`.mapWith(Number) })
+          .from(jobsTable)
+          .where(
+            and(
+              eq(jobsTable.status, "done"),
+              sql`${jobsTable.customerId} IS NOT NULL`,
+              lt(jobsTable.date, overdueUnbilledThreshold),
+            ),
+          ),
   ]);
 
   const confirmedJobLinkedDocIds = await db
@@ -236,6 +262,10 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
     ),
     machinesInspectionExpired: metric(machinesExpiredRows[0]?.c ?? 0, "machines", { inspectionExpired: "true" }),
     machinesInspectionSoon: metric(machinesSoonRows[0]?.c ?? 0, "machines", { inspectionSoon: "true" }),
+    overdueUnbilledCustomers: metric(
+      overdueUnbilledCustomersRows[0]?.c ?? 0,
+      "billing/unbilled",
+    ),
     staleDays,
     computedAt: new Date().toISOString(),
   });

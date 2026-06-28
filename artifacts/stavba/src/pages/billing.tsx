@@ -48,6 +48,7 @@ export default function Billing() {
   const reviewQueueCount = reviewQueueData?.total ?? 0;
   const unbilledCount = (data?.unbilledDoneJobs ?? 0) + (data?.unbilledActivities ?? 0);
   const overdueCount = data?.overdueCount ?? 0;
+  const overdueUnbilledCustomers = data?.overdueUnbilledCustomers ?? 0;
 
   const hasUrgentItems =
     unbilledCount > 0 || reviewCount > 0 || overdueCount > 0 || reviewQueueCount > 0;
@@ -57,14 +58,18 @@ export default function Billing() {
       key: "unbilled",
       icon: Building2,
       label: "Hotové k fakturaci",
-      subtitle: "Zakázky čekající na vystavení faktury",
+      subtitle: overdueUnbilledCustomers > 0
+        ? `${overdueUnbilledCustomers} zákazník${overdueUnbilledCustomers === 1 ? "" : overdueUnbilledCustomers >= 2 && overdueUnbilledCustomers <= 4 ? "i" : "ů"} čeká >7 dní na fakturu`
+        : "Zakázky čekající na vystavení faktury",
       count: unbilledCount,
       amount: data?.totalToInvoiceWithoutVat,
       amountLabel: "orientačně bez DPH",
       urgent: unbilledCount > 0,
-      urgentColor: "text-amber-600 dark:text-amber-400",
-      urgentBg: "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20",
-      iconColor: "text-amber-500",
+      urgentColor: overdueUnbilledCustomers > 0 ? "text-red-700 dark:text-red-400" : "text-amber-600 dark:text-amber-400",
+      urgentBg: overdueUnbilledCustomers > 0
+        ? "border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20"
+        : "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20",
+      iconColor: overdueUnbilledCustomers > 0 ? "text-red-500" : "text-amber-500",
       onClick: () => setLocation("/billing/unbilled"),
     },
     {

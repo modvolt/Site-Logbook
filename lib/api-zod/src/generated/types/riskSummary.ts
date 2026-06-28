@@ -29,6 +29,8 @@ export interface RiskSummary {
   machinesInspectionExpired: RiskMetric;
   /** Machines whose inspection date falls within the next 30 days. */
   machinesInspectionSoon: RiskMetric;
+  /** Customers with at least one done unbilled job older than 7 days. */
+  overdueUnbilledCustomers: RiskMetric;
   /** The staleness threshold (days) used for this response. */
   staleDays: number;
   /** ISO timestamp when this summary was computed. */

@@ -671,6 +671,46 @@ export default function CustomerDetail() {
                 </div>
               )}
               {isAdmin && (
+                <button
+                  type="button"
+                  className="flex items-center gap-3 p-3 bg-card border rounded-xl text-left hover:bg-muted/30 transition-colors w-full"
+                  onClick={() => setLocation(`/billing/unbilled/${id}`)}
+                >
+                  <div className="bg-amber-100 dark:bg-amber-950/40 p-2 rounded-lg text-amber-600 shrink-0">
+                    <Receipt className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    {loadingFinancial ? (
+                      <Skeleton className="h-5 w-20 mb-0.5" />
+                    ) : (
+                      <p className="font-bold text-base leading-none">
+                        {(financialSummary?.unbilledJobsValue ?? 0).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Nevyfakturováno{financialSummary?.unbilledJobCount ? ` (${financialSummary.unbilledJobCount} zak.)` : ""}
+                    </p>
+                  </div>
+                </button>
+              )}
+              {isAdmin && (
+                <div className="flex items-center gap-3 p-3 bg-card border-2 rounded-xl text-left">
+                  <div className="bg-violet-100 dark:bg-violet-950/40 p-2 rounded-lg text-violet-600 shrink-0">
+                    <Banknote className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    {loadingFinancial ? (
+                      <Skeleton className="h-5 w-24 mb-0.5" />
+                    ) : (
+                      <p className="font-bold text-base leading-none">
+                        {(financialSummary?.totalSaldo ?? 0).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Celkové saldo</p>
+                  </div>
+                </div>
+              )}
+              {isAdmin && (
                 <div className="flex items-center gap-3 p-3 bg-card border rounded-xl text-left">
                   <div className="bg-green-100 dark:bg-green-950/40 p-2 rounded-lg text-green-600 shrink-0">
                     <CalendarCheck className="h-4 w-4" />

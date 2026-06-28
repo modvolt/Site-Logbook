@@ -20,4 +20,11 @@ export interface DashboardSummary {
   hoursThisMonth: number;
   /** Count of active jobs that have no customer, no price, or are stale */
   problematicJobsCount: number;
+  /**
+     * Days since the oldest done unbilled job date; null if no unbilled done jobs exist
+     * @nullable
+     */
+  unbilledOldestDays?: number | null;
+  /** Count of distinct customers with at least one done unbilled job older than 7 days */
+  overdueUnbilledCustomers: number;
 }

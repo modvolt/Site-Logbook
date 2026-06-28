@@ -17,4 +17,14 @@ export interface UnbilledCustomer {
   totalParking: number;
   totalFines: number;
   orientationalTotal: number;
+  /**
+     * ISO date of the oldest unbilled done job for this customer (null if only activities)
+     * @nullable
+     */
+  oldestDoneAt?: string | null;
+  /**
+     * Calendar days since the oldest unbilled done job date (null if only activities)
+     * @nullable
+     */
+  daysUnbilled?: number | null;
 }
