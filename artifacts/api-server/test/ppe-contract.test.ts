@@ -657,6 +657,198 @@ describe("snapshot immutability", () => {
   });
 });
 
+// ── CSV/PDF export ────────────────────────────────────────────────────────────
+
+describe("GET /api/ppe/assignments/export", () => {
+  let exportItem1Id: number;
+  let exportItem2Id: number;
+  let exportItem3Id: number;
+  let exportPerson2Id: number;
+
+  const PERSON1_NAME_SNAP = `ExportWorkerA ${TAG}`;
+  const PERSON2_NAME_SNAP = `ExportWorkerB ${TAG}`;
+  const ITEM_ISSUED_NAME = `ExportHelmaIssued ${TAG}`;
+  const ITEM_RETURNED_NAME = `ExportHelmaReturned ${TAG}`;
+  const ITEM_OVERDUE_NAME = `ExportHelmaOverdue ${TAG}`;
+
+  beforeAll(async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const [person2] = await db
+      .insert(peopleTable)
+      .values({ name: PERSON2_NAME_SNAP })
+      .returning();
+    exportPerson2Id = person2.id;
+    personIds.push(exportPerson2Id);
+
+    const [item1] = await db
+      .insert(ppeItemsTable)
+      .values({ name: ITEM_ISSUED_NAME, category: "hlava", active: true })
+      .returning();
+    exportItem1Id = item1.id;
+    itemIds.push(exportItem1Id);
+
+    const [item2] = await db
+      .insert(ppeItemsTable)
+      .values({ name: ITEM_RETURNED_NAME, category: "hlava", active: true })
+      .returning();
+    exportItem2Id = item2.id;
+    itemIds.push(exportItem2Id);
+
+    const [item3] = await db
+      .insert(ppeItemsTable)
+      .values({ name: ITEM_OVERDUE_NAME, category: "hlava", active: true })
+      .returning();
+    exportItem3Id = item3.id;
+    itemIds.push(exportItem3Id);
+
+    // Assignment for person1 (the shared personId) with status=issued
+    const [a1] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: exportItem1Id,
+        personId,
+        ppeNameSnapshot: ITEM_ISSUED_NAME,
+        personNameSnapshot: PERSON1_NAME_SNAP,
+        quantity: 1,
+        issuedAt: todayStr,
+        status: "issued",
+      })
+      .returning();
+    assignmentIds.push(a1.id);
+
+    // Assignment for person2 with status=returned
+    const [a2] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: exportItem2Id,
+        personId: exportPerson2Id,
+        ppeNameSnapshot: ITEM_RETURNED_NAME,
+        personNameSnapshot: PERSON2_NAME_SNAP,
+        quantity: 1,
+        issuedAt: todayStr,
+        returnedAt: todayStr,
+        status: "returned",
+      })
+      .returning();
+    assignmentIds.push(a2.id);
+
+    // Overdue assignment: status=issued, replaceBy in the past
+    const [a3] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: exportItem3Id,
+        personId,
+        ppeNameSnapshot: ITEM_OVERDUE_NAME,
+        personNameSnapshot: PERSON1_NAME_SNAP,
+        quantity: 1,
+        issuedAt: "2022-01-01",
+        replaceBy: "2022-06-01",
+        status: "issued",
+      })
+      .returning();
+    assignmentIds.push(a3.id);
+  });
+
+  it("GET /api/ppe/assignments/export?format=csv → 200 with text/csv content-type", async () => {
+    const res = await adminAgent.get("/api/ppe/assignments/export?format=csv");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/i);
+  });
+
+  it("unauthenticated GET /api/ppe/assignments/export → 401", async () => {
+    const res = await request(app).get("/api/ppe/assignments/export?format=csv");
+    expect(res.status).toBe(401);
+  });
+
+  it("CSV export includes all assignments when no filter is applied", async () => {
+    const res = await adminAgent.get("/api/ppe/assignments/export?format=csv");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(ITEM_ISSUED_NAME);
+    expect(res.text).toContain(ITEM_RETURNED_NAME);
+  });
+
+  it("personId filter: export only returns rows for the given person", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?format=csv&personId=${exportPerson2Id}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(PERSON2_NAME_SNAP);
+    expect(res.text).not.toContain(ITEM_ISSUED_NAME);
+  });
+
+  it("status filter: export with status=issued excludes returned assignments", async () => {
+    const res = await adminAgent.get(
+      "/api/ppe/assignments/export?format=csv&status=issued",
+    );
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(ITEM_ISSUED_NAME);
+    expect(res.text).not.toContain(ITEM_RETURNED_NAME);
+  });
+
+  it("status filter: export with status=returned excludes issued assignments", async () => {
+    const res = await adminAgent.get(
+      "/api/ppe/assignments/export?format=csv&status=returned",
+    );
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(ITEM_RETURNED_NAME);
+    expect(res.text).not.toContain(ITEM_ISSUED_NAME);
+  });
+
+  it("overdue filter: returns only assignments with replaceBy/nextInspectionAt in the past (status=issued)", async () => {
+    const res = await adminAgent.get(
+      "/api/ppe/assignments/export?format=csv&overdue=true",
+    );
+    expect(res.status).toBe(200);
+    expect(res.text).toContain(ITEM_OVERDUE_NAME);
+    // issued assignment without overdue dates should not appear
+    expect(res.text).not.toContain(ITEM_ISSUED_NAME);
+    // returned assignment should not appear (overdue filter requires status=issued)
+    expect(res.text).not.toContain(ITEM_RETURNED_NAME);
+  });
+
+  it("overdue filter: returned assignments with past replaceBy are excluded", async () => {
+    const [overdueReturnedItem] = await db
+      .insert(ppeItemsTable)
+      .values({ name: `OverdueReturnedItem ${TAG}`, category: "ruky", active: true })
+      .returning();
+    itemIds.push(overdueReturnedItem.id);
+
+    const [overdueReturned] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: overdueReturnedItem.id,
+        personId,
+        ppeNameSnapshot: overdueReturnedItem.name,
+        personNameSnapshot: PERSON1_NAME_SNAP,
+        quantity: 1,
+        issuedAt: "2021-01-01",
+        returnedAt: "2021-06-01",
+        replaceBy: "2021-03-01",
+        status: "returned",
+      })
+      .returning();
+    assignmentIds.push(overdueReturned.id);
+
+    const res = await adminAgent.get(
+      "/api/ppe/assignments/export?format=csv&overdue=true",
+    );
+    expect(res.status).toBe(200);
+    expect(res.text).not.toContain(overdueReturnedItem.name);
+  });
+
+  it("personId + status combined filter: only that person's issued assignments", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?format=csv&personId=${personId}&status=issued`,
+    );
+    expect(res.status).toBe(200);
+    // person1 has issued assignments
+    expect(res.text).toContain(PERSON1_NAME_SNAP);
+    // person2's returned assignment should not appear
+    expect(res.text).not.toContain(PERSON2_NAME_SNAP);
+  });
+});
+
 // ── /api/people/stats includes PPE counts ────────────────────────────────────
 
 describe("GET /api/people/stats includes PPE fields", () => {
