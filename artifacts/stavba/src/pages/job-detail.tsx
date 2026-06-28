@@ -249,20 +249,51 @@ export default function JobDetail() {
     });
   };
 
-  const handleDeleteJob = () => {
-    openConfirmJob({ title: `Opravdu smazat zakázku „${job?.title}"?`, description: "Tato akce je nevratná." }, () => {
-      deleteJob.mutate({ id }, {
-        onSuccess: () => {
+  const visitSuffix = (n: number) => (n === 1 ? "" : n < 5 ? "y" : "ů");
+
+  const doDeleteJob = (force: boolean) => {
+    const url = `/api/jobs/${id}${force ? "?force=true" : ""}`;
+    fetch(url, { method: "DELETE", credentials: "include" })
+      .then(async (res) => {
+        if (res.ok) {
           queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
           invalidateJobLists(queryClient);
           toast({ title: "Zakázka smazána" });
           setLocation("/jobs");
-        },
-        onError: () => {
-          toast({ title: "Nepodařilo se smazat zakázku", variant: "destructive" });
+        } else if (res.status === 409 && !force) {
+          const body: { visitCount?: number } = await res.json().catch(() => ({}));
+          const count = body.visitCount ?? 1;
+          openConfirmJob(
+            {
+              title: "Smazat včetně výjezdů?",
+              description: `Zakázka má ${count} výjezd${visitSuffix(count)}, které budou trvale smazány. Chcete pokračovat?`,
+              confirmLabel: "Smazat vše",
+              destructive: true,
+            },
+            () => doDeleteJob(true),
+          );
+        } else {
+          const body: { error?: string } = await res.json().catch(() => ({}));
+          toast({ title: body.error ?? "Nepodařilo se smazat zakázku", variant: "destructive" });
         }
+      })
+      .catch(() => {
+        toast({ title: "Nepodařilo se smazat zakázku", variant: "destructive" });
       });
-    });
+  };
+
+  const handleDeleteJob = () => {
+    const cachedVisits = queryClient.getQueryData<unknown[]>(getListJobVisitsQueryKey(id));
+    const cachedCount = cachedVisits?.length ?? 0;
+    const visitNote = cachedCount > 0 ? ` a ${cachedCount} výjezd${visitSuffix(cachedCount)}` : "";
+    openConfirmJob(
+      {
+        title: `Opravdu smazat zakázku „${job?.title}"?`,
+        description: `Tato akce je nevratná${visitNote ? ` (smažou se i${visitNote})` : ""}.`,
+        destructive: true,
+      },
+      () => doDeleteJob(cachedCount > 0),
+    );
   };
 
   const handleUsePresetTime = () => {

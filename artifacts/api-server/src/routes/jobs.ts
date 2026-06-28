@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, lte, sql, count, inArray, max, isNull, isNotNull, ne, or } from "drizzle-orm";
-import { db, jobsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable } from "@workspace/db";
+import { db, jobsTable, jobVisitsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
   CreateJobBody,
@@ -468,6 +468,22 @@ router.delete("/jobs/:id", async (req, res): Promise<void> => {
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
+  }
+
+  const force = req.query.force === "true";
+  if (!force) {
+    const [countRow] = await db
+      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+      .from(jobVisitsTable)
+      .where(eq(jobVisitsTable.jobId, params.data.id));
+    const visitCount = countRow?.count ?? 0;
+    if (visitCount > 0) {
+      res.status(409).json({
+        error: `Zakázka má ${visitCount} výjezd${visitCount === 1 ? "" : visitCount < 5 ? "y" : "ů"}. Smažte je nejprve, nebo potvrďte smazání včetně výjezdů.`,
+        visitCount,
+      });
+      return;
+    }
   }
 
   const [job] = await db.delete(jobsTable).where(eq(jobsTable.id, params.data.id)).returning();

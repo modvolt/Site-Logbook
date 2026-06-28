@@ -131,32 +131,55 @@ export default function Admin() {
     });
   };
 
-  const deleteOne = (id: number, title: string) => {
-    openConfirm({ title: `Smazat „${title}"?`, description: "Tato akce je nevratná." }, () => {
-      deleteJob.mutate({ id }, {
-        onSuccess: () => {
+  const visitSuffix = (n: number) => (n === 1 ? "" : n < 5 ? "y" : "ů");
+
+  const doDeleteOne = (id: number, title: string, force: boolean) => {
+    const url = `/api/jobs/${id}${force ? "?force=true" : ""}`;
+    fetch(url, { method: "DELETE", credentials: "include" })
+      .then(async (res) => {
+        if (res.ok) {
           invalidateData(queryClient, "jobs");
           toast({ title: "Zakázka smazána" });
           setSelected(s => { const n = new Set(s); n.delete(id); return n; });
-        },
-        onError: () => toast({ title: "Smazání selhalo", variant: "destructive" }),
-      });
+        } else if (res.status === 409 && !force) {
+          const body: { visitCount?: number } = await res.json().catch(() => ({}));
+          const count = body.visitCount ?? 1;
+          openConfirm(
+            {
+              title: "Smazat včetně výjezdů?",
+              description: `Zakázka „${title}" má ${count} výjezd${visitSuffix(count)}, které budou trvale smazány. Chcete pokračovat?`,
+              confirmLabel: "Smazat vše",
+              destructive: true,
+            },
+            () => doDeleteOne(id, title, true),
+          );
+        } else {
+          const body: { error?: string } = await res.json().catch(() => ({}));
+          toast({ title: body.error ?? "Smazání selhalo", variant: "destructive" });
+        }
+      })
+      .catch(() => toast({ title: "Smazání selhalo", variant: "destructive" }));
+  };
+
+  const deleteOne = (id: number, title: string) => {
+    openConfirm({ title: `Smazat „${title}"?`, description: "Tato akce je nevratná." }, () => {
+      doDeleteOne(id, title, false);
     });
   };
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    openConfirm({ title: `Smazat ${selected.size} zakázek?`, description: "Tato akce je nevratná." }, async () => {
-    let ok = 0, fail = 0;
-    for (const id of Array.from(selected)) {
-      try {
-        await deleteJob.mutateAsync({ id });
-        ok++;
-      } catch { fail++; }
-    }
-    invalidateData(queryClient, "jobs");
-    setSelected(new Set());
-    toast({ title: `Smazáno ${ok}, selhalo ${fail}` });
+    openConfirm({ title: `Smazat ${selected.size} zakázek?`, description: "Tato akce je nevratná (včetně výjezdů)." }, async () => {
+      let ok = 0, fail = 0;
+      for (const id of Array.from(selected)) {
+        try {
+          const res = await fetch(`/api/jobs/${id}?force=true`, { method: "DELETE", credentials: "include" });
+          if (res.ok) ok++; else fail++;
+        } catch { fail++; }
+      }
+      invalidateData(queryClient, "jobs");
+      setSelected(new Set());
+      toast({ title: `Smazáno ${ok}, selhalo ${fail}` });
     });
   };
 
