@@ -213,6 +213,8 @@ export * from './jobVisitInput';
 export * from './jobVisitInputStatus';
 export * from './jobVisitUpdate';
 export * from './jobVisitUpdateStatus';
+export * from './leaveSettings';
+export * from './leaveSettingsInput';
 export * from './leaveSummary';
 export * from './linkableBillingDocumentLine';
 export * from './listActivitiesParams';

@@ -18,4 +18,16 @@ export interface LeaveSummary {
   otherDays: number;
   /** Total business days (vacation + sick + other) */
   totalDays: number;
+  /** Configured annual cap for vacation days */
+  vacationYearlyCap: number;
+  /** Configured annual cap for sick days */
+  sickYearlyCap: number;
+  /** Configured annual cap for other leave days */
+  otherYearlyCap: number;
+  /** Remaining vacation days under the annual cap */
+  remainingVacationDays: number;
+  /** Remaining sick days under the annual cap */
+  remainingSickDays: number;
+  /** Remaining other leave days under the annual cap */
+  remainingOtherDays: number;
 }

@@ -924,6 +924,38 @@ paths:
                 items:
                   $ref: "#/components/schemas/LeaveSummary"
 
+  /leaves/settings:
+    get:
+      operationId: getLeaveSettings
+      tags: [people]
+      summary: Get configurable annual leave caps per type (admin/master)
+      responses:
+        "200":
+          description: Current leave settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveSettings"
+    put:
+      operationId: updateLeaveSettings
+      tags: [people]
+      summary: Update annual leave caps per type (admin/master)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaveSettingsInput"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaveSettings"
+        "400":
+          description: Validation error
+
   /public-holidays:
     get:
       operationId: listPublicHolidays
@@ -11229,7 +11261,7 @@ components:
 
     LeaveSummary:
       type: object
-      required: [personId, personName, year, vacationDays, sickDays, otherDays, totalDays]
+      required: [personId, personName, year, vacationDays, sickDays, otherDays, totalDays, vacationYearlyCap, sickYearlyCap, otherYearlyCap, remainingVacationDays, remainingSickDays, remainingOtherDays]
       properties:
         personId:
           type: integer
@@ -11249,6 +11281,59 @@ components:
         totalDays:
           type: integer
           description: Total business days (vacation + sick + other)
+        vacationYearlyCap:
+          type: integer
+          description: Configured annual cap for vacation days
+        sickYearlyCap:
+          type: integer
+          description: Configured annual cap for sick days
+        otherYearlyCap:
+          type: integer
+          description: Configured annual cap for other leave days
+        remainingVacationDays:
+          type: integer
+          description: Remaining vacation days under the annual cap
+        remainingSickDays:
+          type: integer
+          description: Remaining sick days under the annual cap
+        remainingOtherDays:
+          type: integer
+          description: Remaining other leave days under the annual cap
+
+    LeaveSettings:
+      type: object
+      required: [id, vacationYearlyCap, sickYearlyCap, otherYearlyCap, updatedAt]
+      properties:
+        id:
+          type: integer
+        vacationYearlyCap:
+          type: integer
+          description: Max vacation days per person per year
+        sickYearlyCap:
+          type: integer
+          description: Max sick days per person per year
+        otherYearlyCap:
+          type: integer
+          description: Max other leave days per person per year
+        updatedAt:
+          type: string
+
+    LeaveSettingsInput:
+      type: object
+      required: [vacationYearlyCap, sickYearlyCap, otherYearlyCap]
+      properties:
+        vacationYearlyCap:
+          type: integer
+          minimum: 1
+          description: Max vacation days per person per year
+        sickYearlyCap:
+          type: integer
+          minimum: 1
+          description: Max sick days per person per year
+        otherYearlyCap:
+          type: integer
+          minimum: 1
+          description: Max other leave days per person per year
 
     PublicHoliday:
       type: object

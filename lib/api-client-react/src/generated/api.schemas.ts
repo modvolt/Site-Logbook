@@ -703,6 +703,47 @@ export interface LeaveSummary {
   otherDays: number;
   /** Total business days (vacation + sick + other) */
   totalDays: number;
+  /** Configured annual cap for vacation days */
+  vacationYearlyCap: number;
+  /** Configured annual cap for sick days */
+  sickYearlyCap: number;
+  /** Configured annual cap for other leave days */
+  otherYearlyCap: number;
+  /** Remaining vacation days under the annual cap */
+  remainingVacationDays: number;
+  /** Remaining sick days under the annual cap */
+  remainingSickDays: number;
+  /** Remaining other leave days under the annual cap */
+  remainingOtherDays: number;
+}
+
+export interface LeaveSettings {
+  id: number;
+  /** Max vacation days per person per year */
+  vacationYearlyCap: number;
+  /** Max sick days per person per year */
+  sickYearlyCap: number;
+  /** Max other leave days per person per year */
+  otherYearlyCap: number;
+  updatedAt: string;
+}
+
+export interface LeaveSettingsInput {
+  /**
+     * Max vacation days per person per year
+     * @minimum 1
+     */
+  vacationYearlyCap: number;
+  /**
+     * Max sick days per person per year
+     * @minimum 1
+     */
+  sickYearlyCap: number;
+  /**
+     * Max other leave days per person per year
+     * @minimum 1
+     */
+  otherYearlyCap: number;
 }
 
 export interface PublicHoliday {

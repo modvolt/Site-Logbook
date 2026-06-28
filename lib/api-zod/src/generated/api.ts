@@ -885,9 +885,50 @@ export const GetLeavesSummaryResponseItem = zod.object({
   "vacationDays": zod.number().describe('Business days of vacation (Mon–Fri, excl. public holidays)'),
   "sickDays": zod.number().describe('Business days of sick leave'),
   "otherDays": zod.number().describe('Business days of other leave'),
-  "totalDays": zod.number().describe('Total business days (vacation + sick + other)')
+  "totalDays": zod.number().describe('Total business days (vacation + sick + other)'),
+  "vacationYearlyCap": zod.number().describe('Configured annual cap for vacation days'),
+  "sickYearlyCap": zod.number().describe('Configured annual cap for sick days'),
+  "otherYearlyCap": zod.number().describe('Configured annual cap for other leave days'),
+  "remainingVacationDays": zod.number().describe('Remaining vacation days under the annual cap'),
+  "remainingSickDays": zod.number().describe('Remaining sick days under the annual cap'),
+  "remainingOtherDays": zod.number().describe('Remaining other leave days under the annual cap')
 })
 export const GetLeavesSummaryResponse = zod.array(GetLeavesSummaryResponseItem)
+
+
+/**
+ * @summary Get configurable annual leave caps per type (admin/master)
+ */
+export const GetLeaveSettingsResponse = zod.object({
+  "id": zod.number(),
+  "vacationYearlyCap": zod.number().describe('Max vacation days per person per year'),
+  "sickYearlyCap": zod.number().describe('Max sick days per person per year'),
+  "otherYearlyCap": zod.number().describe('Max other leave days per person per year'),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update annual leave caps per type (admin/master)
+ */
+
+
+
+
+
+export const UpdateLeaveSettingsBody = zod.object({
+  "vacationYearlyCap": zod.number().min(1).describe('Max vacation days per person per year'),
+  "sickYearlyCap": zod.number().min(1).describe('Max sick days per person per year'),
+  "otherYearlyCap": zod.number().min(1).describe('Max other leave days per person per year')
+})
+
+export const UpdateLeaveSettingsResponse = zod.object({
+  "id": zod.number(),
+  "vacationYearlyCap": zod.number().describe('Max vacation days per person per year'),
+  "sickYearlyCap": zod.number().describe('Max sick days per person per year'),
+  "otherYearlyCap": zod.number().describe('Max other leave days per person per year'),
+  "updatedAt": zod.string()
+})
 
 
 /**

@@ -222,21 +222,36 @@ function PersonLeavesDialog({
 
           {summary && (
             <div className="grid grid-cols-3 gap-2 mb-2">
-              <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/20 p-3 text-center">
-                <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+              <div className={`rounded-lg p-3 text-center ${summary.remainingVacationDays === 0 ? "bg-red-50 dark:bg-red-950/20" : "bg-emerald-50 dark:bg-emerald-950/20"}`}>
+                <div className={`text-2xl font-bold ${summary.remainingVacationDays === 0 ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
                   {summary.vacationDays}
+                  <span className="text-sm font-normal text-muted-foreground">/{summary.vacationYearlyCap}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">Dovolená {CURRENT_YEAR}</div>
+                <div className={`text-xs mt-0.5 font-medium ${summary.remainingVacationDays === 0 ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                  zbývá {summary.remainingVacationDays} dní
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">Dovolená (prac. dny {CURRENT_YEAR})</div>
               </div>
-              <div className="rounded-lg bg-rose-50 dark:bg-rose-950/20 p-3 text-center">
-                <div className="text-2xl font-bold text-rose-700 dark:text-rose-400">
+              <div className={`rounded-lg p-3 text-center ${summary.remainingSickDays === 0 ? "bg-red-50 dark:bg-red-950/20" : "bg-rose-50 dark:bg-rose-950/20"}`}>
+                <div className={`text-2xl font-bold ${summary.remainingSickDays === 0 ? "text-red-700 dark:text-red-400" : "text-rose-700 dark:text-rose-400"}`}>
                   {summary.sickDays}
+                  <span className="text-sm font-normal text-muted-foreground">/{summary.sickYearlyCap}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">Nemoc {CURRENT_YEAR}</div>
+                <div className={`text-xs mt-0.5 font-medium ${summary.remainingSickDays === 0 ? "text-red-600 dark:text-red-400" : "text-rose-700 dark:text-rose-400"}`}>
+                  zbývá {summary.remainingSickDays} dní
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">Nemoc (prac. dny {CURRENT_YEAR})</div>
               </div>
-              <div className="rounded-lg bg-sky-50 dark:bg-sky-950/20 p-3 text-center">
-                <div className="text-2xl font-bold text-sky-700 dark:text-sky-400">
+              <div className={`rounded-lg p-3 text-center ${summary.remainingOtherDays === 0 ? "bg-red-50 dark:bg-red-950/20" : "bg-sky-50 dark:bg-sky-950/20"}`}>
+                <div className={`text-2xl font-bold ${summary.remainingOtherDays === 0 ? "text-red-700 dark:text-red-400" : "text-sky-700 dark:text-sky-400"}`}>
                   {summary.otherDays}
+                  <span className="text-sm font-normal text-muted-foreground">/{summary.otherYearlyCap}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">Jiné {CURRENT_YEAR}</div>
+                <div className={`text-xs mt-0.5 font-medium ${summary.remainingOtherDays === 0 ? "text-red-600 dark:text-red-400" : "text-sky-700 dark:text-sky-400"}`}>
+                  zbývá {summary.remainingOtherDays} dní
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">Jiné (prac. dny {CURRENT_YEAR})</div>
               </div>

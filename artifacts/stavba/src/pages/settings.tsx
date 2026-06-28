@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays } from "lucide-react";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,9 @@ import {
   useGetSecurityQuestionsStatus,
   useSetSecurityQuestions,
   getGetSecurityQuestionsStatusQueryKey,
+  useGetLeaveSettings,
+  useUpdateLeaveSettings,
+  getGetLeaveSettingsQueryKey,
 } from "@workspace/api-client-react";
 import {
   AlertDialog,
@@ -1176,6 +1179,107 @@ function SecurityQuestionsCard() {
   );
 }
 
+function LeaveSettingsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: settings } = useGetLeaveSettings({
+    query: { queryKey: getGetLeaveSettingsQueryKey() },
+  });
+  const update = useUpdateLeaveSettings();
+
+  const [vacation, setVacation] = useState("");
+  const [sick, setSick] = useState("");
+  const [other, setOther] = useState("");
+
+  useEffect(() => {
+    if (settings) {
+      setVacation(String(settings.vacationYearlyCap));
+      setSick(String(settings.sickYearlyCap));
+      setOther(String(settings.otherYearlyCap));
+    }
+  }, [settings]);
+
+  function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    const v = parseInt(vacation, 10);
+    const s = parseInt(sick, 10);
+    const o = parseInt(other, 10);
+    if (!v || !s || !o || v < 1 || s < 1 || o < 1) {
+      toast({ title: "Limity musí být celá kladná čísla", variant: "destructive" });
+      return;
+    }
+    update.mutate(
+      { data: { vacationYearlyCap: v, sickYearlyCap: s, otherYearlyCap: o } },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: getGetLeaveSettingsQueryKey() });
+          toast({ title: "Limity dovolených uloženy" });
+        },
+        onError: () => {
+          toast({ title: "Nepodařilo se uložit limity", variant: "destructive" });
+        },
+      },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CalendarDays className="h-4 w-4" /> Roční limity dovolených
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Maximální počet dní za rok na pracovníka pro každý typ nepřítomnosti.
+          Při překročení limitu API vrátí chybu a záznam nebude uložen.
+        </p>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-sm">🏖 Dovolená (dní/rok)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={vacation}
+                onChange={(e) => setVacation(e.target.value)}
+                placeholder="25"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">🤒 Nemoc (dní/rok)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={sick}
+                onChange={(e) => setSick(e.target.value)}
+                placeholder="60"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sm">📅 Jiné volno (dní/rok)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={other}
+                onChange={(e) => setOther(e.target.value)}
+                placeholder="30"
+              />
+            </div>
+          </div>
+          <Button type="submit" disabled={update.isPending} className="gap-2 h-11">
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Uložit limity
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { theme, setTheme } = useTheme();
   const { can } = useAuth();
@@ -1574,6 +1678,8 @@ export default function Settings() {
       {can("manageUsers") && <BackupCard />}
 
       {can("manageUsers") && <SecurityQuestionsCard />}
+
+      {can("manageUsers") && <LeaveSettingsCard />}
 
       <Card>
         <CardHeader>

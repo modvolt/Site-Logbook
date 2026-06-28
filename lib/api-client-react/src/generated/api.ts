@@ -143,6 +143,8 @@ import type {
   JobVisit,
   JobVisitInput,
   JobVisitUpdate,
+  LeaveSettings,
+  LeaveSettingsInput,
   LeaveSummary,
   LinkableBillingDocumentLine,
   ListActivitiesParams,
@@ -3086,6 +3088,154 @@ export function useGetLeavesSummary<TData = Awaited<ReturnType<typeof getLeavesS
 
 
 
+
+export const getGetLeaveSettingsUrl = () => {
+
+
+
+
+  return `/api/leaves/settings`
+}
+
+/**
+ * @summary Get configurable annual leave caps per type (admin/master)
+ */
+export const getLeaveSettings = async ( options?: RequestInit): Promise<LeaveSettings> => {
+
+  return customFetch<LeaveSettings>(getGetLeaveSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLeaveSettingsQueryKey = () => {
+    return [
+    `/api/leaves/settings`
+    ] as const;
+    }
+
+
+export const getGetLeaveSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getLeaveSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeaveSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLeaveSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLeaveSettings>>> = ({ signal }) => getLeaveSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLeaveSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLeaveSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getLeaveSettings>>>
+export type GetLeaveSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get configurable annual leave caps per type (admin/master)
+ */
+
+export function useGetLeaveSettings<TData = Awaited<ReturnType<typeof getLeaveSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeaveSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLeaveSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateLeaveSettingsUrl = () => {
+
+
+
+
+  return `/api/leaves/settings`
+}
+
+/**
+ * @summary Update annual leave caps per type (admin/master)
+ */
+export const updateLeaveSettings = async (leaveSettingsInput: LeaveSettingsInput, options?: RequestInit): Promise<LeaveSettings> => {
+
+  return customFetch<LeaveSettings>(getUpdateLeaveSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      leaveSettingsInput,)
+  }
+);}
+
+
+
+
+export const getUpdateLeaveSettingsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLeaveSettings>>, TError,{data: BodyType<LeaveSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLeaveSettings>>, TError,{data: BodyType<LeaveSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateLeaveSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLeaveSettings>>, {data: BodyType<LeaveSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateLeaveSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLeaveSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateLeaveSettings>>>
+    export type UpdateLeaveSettingsMutationBody = BodyType<LeaveSettingsInput>
+    export type UpdateLeaveSettingsMutationError = ErrorType<void>
+
+    /**
+ * @summary Update annual leave caps per type (admin/master)
+ */
+export const useUpdateLeaveSettings = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLeaveSettings>>, TError,{data: BodyType<LeaveSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLeaveSettings>>,
+        TError,
+        {data: BodyType<LeaveSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateLeaveSettingsMutationOptions(options));
+    }
 
 export const getListPublicHolidaysUrl = (params?: ListPublicHolidaysParams,) => {
   const normalizedParams = new URLSearchParams();

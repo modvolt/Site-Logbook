@@ -6353,7 +6353,11 @@
     },
     "public.ppe_items": {
       "name": "ppe_items",
+<<<<<<< HEAD
       "schema": "public",
+=======
+      "schema": "",
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
       "columns": {
         "id": {
           "name": "id",
@@ -6417,11 +6421,21 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+<<<<<<< HEAD
       "checkConstraints": {}
     },
     "public.ppe_assignments": {
       "name": "ppe_assignments",
       "schema": "public",
+=======
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ppe_assignments": {
+      "name": "ppe_assignments",
+      "schema": "",
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
       "columns": {
         "id": {
           "name": "id",
@@ -6537,7 +6551,11 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+<<<<<<< HEAD
           "with": {}
+=======
+          "where": null
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
         },
         "ppe_assignments_ppe_item_id_idx": {
           "name": "ppe_assignments_ppe_item_id_idx",
@@ -6552,7 +6570,11 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+<<<<<<< HEAD
           "with": {}
+=======
+          "where": null
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
         },
         "ppe_assignments_status_idx": {
           "name": "ppe_assignments_status_idx",
@@ -6567,7 +6589,11 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+<<<<<<< HEAD
           "with": {}
+=======
+          "where": null
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
         },
         "ppe_assignments_replace_by_idx": {
           "name": "ppe_assignments_replace_by_idx",
@@ -6582,7 +6608,11 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+<<<<<<< HEAD
           "with": {}
+=======
+          "where": null
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
         },
         "ppe_assignments_next_inspection_idx": {
           "name": "ppe_assignments_next_inspection_idx",
@@ -6597,18 +6627,29 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+<<<<<<< HEAD
           "with": {}
+=======
+          "where": null
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
         }
       },
       "foreignKeys": {
         "ppe_assignments_ppe_item_id_ppe_items_id_fk": {
+<<<<<<< HEAD
           "constraintName": "ppe_assignments_ppe_item_id_ppe_items_id_fk",
+=======
+          "name": "ppe_assignments_ppe_item_id_ppe_items_id_fk",
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
           "tableFrom": "ppe_assignments",
           "columnsFrom": [
             "ppe_item_id"
           ],
           "tableTo": "ppe_items",
+<<<<<<< HEAD
           "schemaTo": "public",
+=======
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
           "columnsTo": [
             "id"
           ],
@@ -6616,13 +6657,20 @@
           "onUpdate": "no action"
         },
         "ppe_assignments_person_id_people_id_fk": {
+<<<<<<< HEAD
           "constraintName": "ppe_assignments_person_id_people_id_fk",
+=======
+          "name": "ppe_assignments_person_id_people_id_fk",
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
           "tableFrom": "ppe_assignments",
           "columnsFrom": [
             "person_id"
           ],
           "tableTo": "people",
+<<<<<<< HEAD
           "schemaTo": "public",
+=======
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
           "columnsTo": [
             "id"
           ],
@@ -6632,7 +6680,13 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+<<<<<<< HEAD
       "checkConstraints": {}
+=======
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+>>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
     }
   },
   "enums": {},

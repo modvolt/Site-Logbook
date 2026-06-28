@@ -1,6 +1,6 @@
 {
-  "id": "fb6c1d3b-b206-4f55-83a1-7f5983964420",
-  "prevId": "43a31f73-fb11-4036-ba31-ca194651c77b",
+  "id": "d4f9a3b5-1e6c-4a7d-8e84-3c4d5f6a7b8c",
+  "prevId": "bbb601f2-7799-40ab-9f9a-f0bc70f4dbf8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -274,7 +274,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-<<<<<<< HEAD
         },
         "pricing_mode": {
           "name": "pricing_mode",
@@ -288,8 +287,6 @@
           "type": "numeric(12,2)",
           "primaryKey": false,
           "notNull": false
-=======
->>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
         }
       },
       "indexes": {},
@@ -607,6 +604,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "purchase_price_per_unit": {
+          "name": "purchase_price_per_unit",
+          "type": "numeric(10,2)",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6366,293 +6369,6 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
-<<<<<<< HEAD
-=======
-    },
-    "public.ppe_items": {
-      "name": "ppe_items",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ostatni'"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_replacement_months": {
-          "name": "default_replacement_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_inspection_months": {
-          "name": "default_inspection_months",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "active": {
-          "name": "active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.ppe_assignments": {
-      "name": "ppe_assignments",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "ppe_item_id": {
-          "name": "ppe_item_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "person_id": {
-          "name": "person_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ppe_name_snapshot": {
-          "name": "ppe_name_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "person_name_snapshot": {
-          "name": "person_name_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "quantity": {
-          "name": "quantity",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "size": {
-          "name": "size",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "serial_number": {
-          "name": "serial_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "issued_at": {
-          "name": "issued_at",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "replace_by": {
-          "name": "replace_by",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_inspection_at": {
-          "name": "next_inspection_at",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "returned_at": {
-          "name": "returned_at",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'issued'"
-        },
-        "employee_confirmed_at": {
-          "name": "employee_confirmed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "ppe_assignments_person_id_idx": {
-          "name": "ppe_assignments_person_id_idx",
-          "columns": [
-            {
-              "expression": "person_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "where": null
-        },
-        "ppe_assignments_ppe_item_id_idx": {
-          "name": "ppe_assignments_ppe_item_id_idx",
-          "columns": [
-            {
-              "expression": "ppe_item_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "where": null
-        },
-        "ppe_assignments_status_idx": {
-          "name": "ppe_assignments_status_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "where": null
-        },
-        "ppe_assignments_replace_by_idx": {
-          "name": "ppe_assignments_replace_by_idx",
-          "columns": [
-            {
-              "expression": "replace_by",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "where": null
-        },
-        "ppe_assignments_next_inspection_idx": {
-          "name": "ppe_assignments_next_inspection_idx",
-          "columns": [
-            {
-              "expression": "next_inspection_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "where": null
-        }
-      },
-      "foreignKeys": {
-        "ppe_assignments_ppe_item_id_ppe_items_id_fk": {
-          "name": "ppe_assignments_ppe_item_id_ppe_items_id_fk",
-          "tableFrom": "ppe_assignments",
-          "columnsFrom": [
-            "ppe_item_id"
-          ],
-          "tableTo": "ppe_items",
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "ppe_assignments_person_id_people_id_fk": {
-          "name": "ppe_assignments_person_id_people_id_fk",
-          "tableFrom": "ppe_assignments",
-          "columnsFrom": [
-            "person_id"
-          ],
-          "tableTo": "people",
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
     },
     "public.leave_settings": {
       "name": "leave_settings",
@@ -6701,7 +6417,6 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
->>>>>>> 06b85ad (feat: enforce annual leave caps per type with configurable limits)
     }
   },
   "enums": {},
