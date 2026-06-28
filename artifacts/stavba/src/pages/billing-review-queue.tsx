@@ -677,6 +677,8 @@ function LineRow({
   onAssignSuggestedJob,
   onOpenJobPicker,
   onOpenWarehousePicker,
+  onOpenWarehouseCard,
+  onAssignSuggestedWarehouse,
   onSkip,
   onReturn,
   onEditDescription,
@@ -695,6 +697,8 @@ function LineRow({
   onAssignSuggestedJob: () => void;
   onOpenJobPicker: () => void;
   onOpenWarehousePicker: () => void;
+  onOpenWarehouseCard: () => void;
+  onAssignSuggestedWarehouse: () => void;
   onSkip: () => void;
   onReturn: () => void;
   onEditDescription: (v: string) => Promise<void>;
@@ -735,20 +739,34 @@ function LineRow({
         </div>
       </td>
       {/* Warehouse match */}
-      <td className="px-2 py-2 text-xs text-muted-foreground max-w-[140px]">
+      <td className="px-2 py-2 text-xs text-muted-foreground max-w-[160px]">
         {item.suggestedWarehouseItemName ? (
-          <div className="flex items-center gap-1">
-            <span className="text-foreground font-medium line-clamp-1">
-              {item.suggestedWarehouseItemName}
-            </span>
+          <div className="flex items-start gap-1">
             <button
-              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-              onClick={onOpenWarehousePicker}
-              disabled={warehouseAssigning}
-              title="Změnit skladovou kartu"
+              className="text-foreground font-medium line-clamp-2 text-left hover:underline hover:text-primary transition-colors flex-1 min-w-0"
+              onClick={onOpenWarehouseCard}
+              title="Otevřít skladovou kartu"
             >
-              <Pencil className="h-3 w-3" />
+              {item.suggestedWarehouseItemName}
             </button>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <button
+                className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 transition-colors"
+                onClick={onAssignSuggestedWarehouse}
+                disabled={warehouseAssigning}
+                title="Přiřadit tuto kartu"
+              >
+                <Check className="h-3 w-3" />
+              </button>
+              <button
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                onClick={onOpenWarehousePicker}
+                disabled={warehouseAssigning}
+                title="Změnit skladovou kartu"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
           </div>
         ) : needsWarehouse ? (
           <Button
@@ -918,6 +936,8 @@ function DocGroupCard({
   onAssignSuggestedJob,
   onOpenJobPicker,
   onOpenWarehousePicker,
+  onOpenWarehouseCard,
+  onAssignSuggestedWarehouse,
   onSkipLine,
   onReturnLine,
   onEditDescription,
@@ -936,6 +956,8 @@ function DocGroupCard({
   onAssignSuggestedJob: (item: ReviewQueueItem) => void;
   onOpenJobPicker: (item: ReviewQueueItem) => void;
   onOpenWarehousePicker: (item: ReviewQueueItem) => void;
+  onOpenWarehouseCard: (item: ReviewQueueItem) => void;
+  onAssignSuggestedWarehouse: (item: ReviewQueueItem) => void;
   onSkipLine: (id: number) => void;
   onReturnLine: (id: number) => void;
   onEditDescription: (documentId: number, lineId: number, v: string) => Promise<void>;
@@ -1032,6 +1054,8 @@ function DocGroupCard({
                   onAssignSuggestedJob={() => onAssignSuggestedJob(item)}
                   onOpenJobPicker={() => onOpenJobPicker(item)}
                   onOpenWarehousePicker={() => onOpenWarehousePicker(item)}
+                  onOpenWarehouseCard={() => onOpenWarehouseCard(item)}
+                  onAssignSuggestedWarehouse={() => onAssignSuggestedWarehouse(item)}
                   onSkip={() => onSkipLine(item.lineId)}
                   onReturn={() => onReturnLine(item.lineId)}
                   onEditDescription={(v) => onEditDescription(item.documentId, item.lineId, v)}
@@ -1153,6 +1177,21 @@ export default function BillingReviewQueue() {
       toast({ title: "Chyba při potvrzování řádku.", variant: "destructive" });
     } finally {
       setConfirmingLine(null);
+    }
+  }
+
+  // --- Assign suggested warehouse card (inline one-click confirm) ---
+  async function handleAssignSuggestedWarehouse(item: ReviewQueueItem) {
+    if (!item.suggestedWarehouseItemId) return;
+    setWarehouseAssigningLine(item.lineId);
+    try {
+      await assignWarehouse({ lineId: item.lineId, data: { warehouseItemId: item.suggestedWarehouseItemId } });
+      await invalidateQueue();
+      toast({ title: `Karta „${item.suggestedWarehouseItemName}" přiřazena.` });
+    } catch {
+      toast({ title: "Přiřazení skladu selhalo.", variant: "destructive" });
+    } finally {
+      setWarehouseAssigningLine(null);
     }
   }
 
@@ -1434,6 +1473,12 @@ export default function BillingReviewQueue() {
               onAssignSuggestedJob={handleAssignSuggestedJob}
               onOpenJobPicker={(item) => setJobPickerTarget(item)}
               onOpenWarehousePicker={(item) => setWarehouseTarget(item)}
+              onOpenWarehouseCard={(item) => {
+                if (item.suggestedWarehouseItemId != null) {
+                  setLocation(`/sklad?open=${item.suggestedWarehouseItemId}`);
+                }
+              }}
+              onAssignSuggestedWarehouse={handleAssignSuggestedWarehouse}
               onSkipLine={handleSkipLine}
               onReturnLine={handleReturnLine}
               onEditDescription={handleEditDescription}

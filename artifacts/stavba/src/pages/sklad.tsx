@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useSearch, useLocation } from "wouter";
 import {
   useListWarehouseItems,
@@ -184,6 +184,15 @@ export default function Sklad() {
   const [editForm, setEditForm] = useState<FormState>(EMPTY);
   const [historyItem, setHistoryItem] = useState<WarehouseItem | null>(null);
 
+  // ?open=<id> — highlight and scroll to a specific warehouse card on load
+  const highlightId = useMemo(() => {
+    const p = new URLSearchParams(search_);
+    const v = p.get("open");
+    const n = v ? Number(v) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [search_]);
+  const highlightRef = useRef<HTMLDivElement | null>(null);
+
   // Filter state — initialized from URL, kept in sync with URL
   const [filterCategory, setFilterCategory] = useState(() => readFiltersFromUrl(search_).category);
   const [filterSupplier, setFilterSupplier] = useState(() => readFiltersFromUrl(search_).supplier);
@@ -256,6 +265,16 @@ export default function Sklad() {
   const { data: items, isLoading } = useListWarehouseItems(listParams, {
     query: { queryKey: getListWarehouseItemsQueryKey(listParams) },
   });
+
+  // Scroll to the highlighted card once items are loaded.
+  // Depend on `items` (not ref.current) so this fires after the async list
+  // renders; the ref is then already attached to the matching card element.
+  useEffect(() => {
+    if (highlightId == null || !items?.length) return;
+    const el = highlightRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightId, items]);
 
   const { data: summary } = useGetWarehouseSummary({
     query: { queryKey: getGetWarehouseSummaryQueryKey() },
@@ -616,8 +635,12 @@ export default function Sklad() {
             const mar = margin(item);
             const missingCost = (item.missingCostPriceCount ?? 0) > 0;
 
+            const isHighlighted = item.id === highlightId;
+
             // Card border style — red for truly unpriced, amber for no current price but has history, yellow for stale
-            const cardClass = noPriceAtAll
+            const cardClass = isHighlighted
+              ? "border-primary ring-2 ring-primary/40 bg-primary/5 dark:bg-primary/10"
+              : noPriceAtAll
               ? "border-red-400/70 bg-red-50/40 dark:bg-red-950/10"
               : noPrice
               ? "border-amber-400/60 bg-amber-50/40 dark:bg-amber-950/10"
@@ -628,7 +651,11 @@ export default function Sklad() {
               : "hover:bg-muted/50";
 
             return (
-              <Card key={item.id} className={`transition-colors ${cardClass}`}>
+              <Card
+                key={item.id}
+                ref={isHighlighted ? (el) => { highlightRef.current = el; } : undefined}
+                className={`transition-colors ${cardClass}`}
+              >
                 <CardContent className="p-4 flex justify-between items-start gap-3">
                   <div className="flex items-start gap-3 min-w-0">
                     <div className={`p-2 rounded-full shrink-0 mt-0.5 ${noPriceAtAll ? "bg-red-100 text-red-600 dark:bg-red-900/40" : noPrice ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40" : "bg-primary/10 text-primary"}`}>
