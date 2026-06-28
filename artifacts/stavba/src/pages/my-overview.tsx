@@ -132,26 +132,38 @@ export default function MyOverview() {
               <CalendarPlus className="h-4 w-4 text-violet-500" /> Moje plánované výjezdy
             </h2>
             <ul className="divide-y">
-              {myVisits.map((v) => (
-                <li key={v.id}>
-                  <Link
-                    href={`/jobs/${v.jobId}`}
-                    className="flex items-center justify-between gap-2 py-2 hover:bg-muted/40 -mx-2 px-2 rounded"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{v.jobTitle}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {format(new Date(v.date), "EEEE d. M. yyyy", { locale: cs })}
-                        {v.clientSite && ` · ${v.clientSite}`}
+              {myVisits.map((v) => {
+                const isActivity = v.kind === "activity";
+                const href = isActivity ? `/activities/${v.parentId}` : `/jobs/${v.parentId}`;
+                return (
+                  <li key={`${v.kind}-${v.id}`}>
+                    <Link
+                      href={href}
+                      className="flex items-center justify-between gap-2 py-2 hover:bg-muted/40 -mx-2 px-2 rounded"
+                    >
+                      <div className="min-w-0 flex items-start gap-2">
+                        <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${isActivity ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                          {isActivity ? "Akce" : "Zakázka"}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm truncate">{v.parentName ?? (isActivity ? "Akce" : "Zakázka")}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {format(new Date(v.date), "EEEE d. M. yyyy", { locale: cs })}
+                            {v.clientSite && ` · ${v.clientSite}`}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-medium capitalize">{v.status}</span>
+                          </div>
+                          {v.note && (
+                            <div className="text-xs text-muted-foreground truncate mt-0.5">{v.note}</div>
+                          )}
+                        </div>
                       </div>
-                      {v.note && (
-                        <div className="text-xs text-muted-foreground truncate mt-0.5">{v.note}</div>
-                      )}
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </Link>
-                </li>
-              ))}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </CardContent>
         </Card>
