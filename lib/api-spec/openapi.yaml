@@ -57,6 +57,8 @@ tags:
     description: Cross-domain risk metrics and work-queue summaries
   - name: ppe
     description: Personal protective equipment (OOPP) catalogue and issue tracking
+  - name: sessions
+    description: Active session management
 
 paths:
   /healthz:
@@ -3423,6 +3425,84 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /sessions:
+    get:
+      operationId: listMySessions
+      tags: [sessions]
+      summary: List the current user's active sessions
+      responses:
+        "200":
+          description: Active sessions for the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionEntry"
+
+  /sessions/{sid}:
+    delete:
+      operationId: deleteSession
+      tags: [sessions]
+      summary: Terminate a session (own, or any session if admin)
+      parameters:
+        - name: sid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session terminated
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/sessions:
+    get:
+      operationId: listAllSessions
+      tags: [sessions]
+      summary: List all active sessions (admin only)
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: All active sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionEntry"
+
+  /users/{id}/sessions:
+    delete:
+      operationId: deleteUserSessions
+      tags: [sessions]
+      summary: Terminate all sessions for a user (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: All user sessions terminated
 
   /audit-logs:
     get:
@@ -8492,6 +8572,35 @@ components:
           description: Normalized object path (e.g. `/objects/uploads/uuid`). Store this in your database.
         metadata:
           $ref: '#/components/schemas/UploadUrlRequest'
+    SessionEntry:
+      type: object
+      required: [sid, isCurrent, userAgentParsed]
+      properties:
+        sid:
+          type: string
+        userId:
+          type: ["integer", "null"]
+        username:
+          type: ["string", "null"]
+        name:
+          type: ["string", "null"]
+        ipAddress:
+          type: ["string", "null"]
+        userAgent:
+          type: ["string", "null"]
+        userAgentParsed:
+          type: string
+          description: Human-readable browser/device summary
+        lastActiveAt:
+          type: ["string", "null"]
+        createdAt:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+        isCurrent:
+          type: boolean
+          description: True when this session belongs to the current request
+
     AuthUser:
       type: object
       required: [id, username, name, role, isActive, createdAt]

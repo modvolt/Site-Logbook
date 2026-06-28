@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { cs } from "date-fns/locale";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays, Smartphone, Laptop, LogOut } from "lucide-react";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,6 +38,9 @@ import {
   useGetLeaveSettings,
   useUpdateLeaveSettings,
   getGetLeaveSettingsQueryKey,
+  useListMySessions,
+  getListMySessionsQueryKey,
+  useDeleteSession,
 } from "@workspace/api-client-react";
 import {
   AlertDialog,
@@ -1065,6 +1070,93 @@ function EmailImportCard() {
   );
 }
 
+function MySessionsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: sessions, isLoading } = useListMySessions({
+    query: { queryKey: getListMySessionsQueryKey() },
+  });
+  const deleteSession = useDeleteSession();
+
+  const handleRevoke = (sid: string) => {
+    deleteSession.mutate({ sid }, {
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: getListMySessionsQueryKey() });
+        toast({ title: "Přihlášení ukončeno" });
+      },
+      onError: (err: any) => toast({ title: "Chyba", description: err?.message, variant: "destructive" }),
+    });
+  };
+
+  function DeviceIcon({ ua }: { ua: string | null }) {
+    const s = ua ?? "";
+    if (/iPhone|iPad|Android/i.test(s)) return <Smartphone className="w-4 h-4 shrink-0" />;
+    if (/Macintosh|Mac/i.test(s)) return <Laptop className="w-4 h-4 shrink-0" />;
+    return <Monitor className="w-4 h-4 shrink-0" />;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Monitor className="h-4 w-4" /> Moje přihlášení
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-sm text-muted-foreground mb-3">
+          Aktivní session na všech vašich zařízeních. Jiná přihlášení můžete vzdáleně ukončit.
+        </p>
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map(i => <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />)}
+          </div>
+        ) : !sessions?.length ? (
+          <p className="text-sm text-muted-foreground">Žádné aktivní session.</p>
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((s) => (
+              <div
+                key={s.sid}
+                className={`flex items-center gap-3 p-3 rounded-lg border ${s.isCurrent ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-border bg-muted/20"}`}
+              >
+                <DeviceIcon ua={s.userAgent ?? null} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{s.userAgentParsed}</span>
+                    {s.isCurrent && (
+                      <span className="text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-medium">
+                        toto zařízení
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {s.ipAddress && <span>{s.ipAddress} · </span>}
+                    {s.lastActiveAt
+                      ? formatDistanceToNow(new Date(s.lastActiveAt), { addSuffix: true, locale: cs })
+                      : "Neznámá aktivita"}
+                  </div>
+                </div>
+                {!s.isCurrent && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleRevoke(s.sid)}
+                    disabled={deleteSession.isPending}
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    title="Ukončit tuto session"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SecurityQuestionsCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1676,6 +1768,8 @@ export default function Settings() {
       {can("manageUsers") && <EmailImportCard />}
 
       {can("manageUsers") && <BackupCard />}
+
+      <MySessionsCard />
 
       {can("manageUsers") && <SecurityQuestionsCard />}
 

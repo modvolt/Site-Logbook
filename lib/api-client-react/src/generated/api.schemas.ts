@@ -2464,6 +2464,30 @@ export interface UserUpdate {
   password?: string;
 }
 
+export interface SessionEntry {
+  sid: string;
+  /** @nullable */
+  userId?: number | null;
+  /** @nullable */
+  username?: string | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  ipAddress?: string | null;
+  /** @nullable */
+  userAgent?: string | null;
+  /** Human-readable browser/device summary */
+  userAgentParsed: string;
+  /** @nullable */
+  lastActiveAt?: string | null;
+  /** @nullable */
+  createdAt?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  /** True when this session belongs to the current request */
+  isCurrent: boolean;
+}
+
 export interface AuditLogEntry {
   id: number;
   /** @nullable */
@@ -5005,6 +5029,10 @@ olderThanDays?: number;
 
 export type RetryEmailImportLog200 = {
   ok: boolean;
+};
+
+export type ListAllSessionsParams = {
+userId?: number;
 };
 
 export type ListAuditLogsParams = {

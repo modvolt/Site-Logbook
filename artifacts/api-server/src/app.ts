@@ -9,6 +9,7 @@ import { logger } from "./lib/logger";
 import { attachAuth, requireAuth, requireWriteAccess } from "./middlewares/auth";
 import { auditMutations } from "./middlewares/audit";
 import { broadcastMutations } from "./middlewares/live-updates";
+import { trackSessionActivity } from "./middlewares/session-activity";
 
 const app: Express = express();
 
@@ -113,6 +114,7 @@ app.use(
 );
 
 app.use("/api", attachAuth);
+app.use("/api", trackSessionActivity);
 
 // Public endpoints: storage object proxy + auth endpoints + health
 const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/"];

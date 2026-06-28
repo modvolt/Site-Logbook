@@ -3424,6 +3424,64 @@ export const DeleteUserParams = zod.object({
 
 
 /**
+ * @summary List the current user's active sessions
+ */
+export const ListMySessionsResponseItem = zod.object({
+  "sid": zod.string(),
+  "userId": zod.number().nullish(),
+  "username": zod.string().nullish(),
+  "name": zod.string().nullish(),
+  "ipAddress": zod.string().nullish(),
+  "userAgent": zod.string().nullish(),
+  "userAgentParsed": zod.string().describe('Human-readable browser\/device summary'),
+  "lastActiveAt": zod.string().nullish(),
+  "createdAt": zod.string().nullish(),
+  "expiresAt": zod.string().nullish(),
+  "isCurrent": zod.boolean().describe('True when this session belongs to the current request')
+})
+export const ListMySessionsResponse = zod.array(ListMySessionsResponseItem)
+
+
+/**
+ * @summary Terminate a session (own, or any session if admin)
+ */
+export const DeleteSessionParams = zod.object({
+  "sid": zod.coerce.string()
+})
+
+
+/**
+ * @summary List all active sessions (admin only)
+ */
+export const ListAllSessionsQueryParams = zod.object({
+  "userId": zod.coerce.number().optional()
+})
+
+export const ListAllSessionsResponseItem = zod.object({
+  "sid": zod.string(),
+  "userId": zod.number().nullish(),
+  "username": zod.string().nullish(),
+  "name": zod.string().nullish(),
+  "ipAddress": zod.string().nullish(),
+  "userAgent": zod.string().nullish(),
+  "userAgentParsed": zod.string().describe('Human-readable browser\/device summary'),
+  "lastActiveAt": zod.string().nullish(),
+  "createdAt": zod.string().nullish(),
+  "expiresAt": zod.string().nullish(),
+  "isCurrent": zod.boolean().describe('True when this session belongs to the current request')
+})
+export const ListAllSessionsResponse = zod.array(ListAllSessionsResponseItem)
+
+
+/**
+ * @summary Terminate all sessions for a user (admin only)
+ */
+export const DeleteUserSessionsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary List audit log entries (admin only)
  */
 export const ListAuditLogsQueryParams = zod.object({

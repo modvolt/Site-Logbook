@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import {
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye } from "lucide-react";
+import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye, Monitor } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -116,9 +117,16 @@ export default function UsersAdmin() {
             <Users className="w-7 h-7 text-rose-600" />
             <h1 className="text-2xl font-bold">Správa uživatelů</h1>
           </div>
-          <Button onClick={() => setShowCreate(s => !s)}>
-            <Plus className="w-4 h-4 mr-1" /> Nový uživatel
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/sessions">
+              <Button variant="outline" size="sm" className="h-9">
+                <Monitor className="w-4 h-4 mr-1" /> Aktivní přihlášení
+              </Button>
+            </Link>
+            <Button onClick={() => setShowCreate(s => !s)}>
+              <Plus className="w-4 h-4 mr-1" /> Nový uživatel
+            </Button>
+          </div>
         </div>
         <p className="text-sm text-muted-foreground mb-6">
           Spravujte přístupy a role pro celou aplikaci.
