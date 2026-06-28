@@ -6,6 +6,7 @@ import { startExtractionWorker } from "./lib/extraction-worker";
 import { startEmailImportWorker } from "./lib/email-import";
 import { startClientErrorPurgeScheduler } from "./routes/client-errors";
 import { describeObjectStorageConfig } from "./lib/objectStorage";
+import { startPpeOverdueScheduler } from "./lib/ppe-overdue-notifier";
 
 const rawPort = process.env["PORT"];
 
@@ -34,4 +35,5 @@ app.listen(port, (err) => {
   startExtractionWorker();
   startEmailImportWorker();
   startClientErrorPurgeScheduler();
+  startPpeOverdueScheduler();
 });
