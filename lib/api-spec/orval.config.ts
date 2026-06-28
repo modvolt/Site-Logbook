@@ -29,7 +29,7 @@ export default defineConfig({
         // billing-pdf: binary PDF download streamed by the server; the frontend
         // opens it via a direct admin link, so no generated hook is needed.
         // The zod target (below) still generates schemas for both.
-        tags: ["StorageUpload", "CostDocumentUpload", "billing-pdf"],
+        tags: ["StorageUpload", "CostDocumentUpload", "billing-pdf", "customerDocumentsUpload"],
       },
       override: {
         transformer: titleTransformer,

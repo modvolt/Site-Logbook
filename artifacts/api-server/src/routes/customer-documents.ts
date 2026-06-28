@@ -1,4 +1,5 @@
-import { Router, type IRouter } from "express";
+import express, { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { createHash, randomUUID } from "node:crypto";
 import { and, count, eq, isNotNull, isNull, lt, lte, gte, inArray, ilike, or, min } from "drizzle-orm";
 import { db, customerSiteAttachmentsTable, customerSitesTable, customersTable, auditLogTable } from "@workspace/db";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { contentMatchesType } from "../lib/fileSignature";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -169,6 +171,116 @@ router.get("/customers/:customerId/documents", async (req, res): Promise<void> =
 
   res.json(results);
 });
+
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+const CUSTOMER_DOC_ALLOWED_MIME_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+router.post(
+  "/customers/:customerId/documents/upload",
+  (req: Request, res: Response, next: NextFunction) => {
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(req, res, (err) => {
+      if (err) {
+        const e = err as { type?: string; status?: number };
+        if (e.type === "entity.too.large" || e.status === 413) {
+          res.status(413).json({ error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).` });
+          return;
+        }
+        next(err);
+        return;
+      }
+      next();
+    });
+  },
+  async (req: Request, res: Response): Promise<void> => {
+    const pathParams = CreateCustomerDocumentParams.safeParse(req.params);
+    if (!pathParams.success) {
+      res.status(400).json({ error: pathParams.error.message });
+      return;
+    }
+    const { customerId } = pathParams.data;
+
+    const name = typeof req.query.name === "string" ? req.query.name : "";
+    const contentType = typeof req.query.contentType === "string" ? req.query.contentType : "";
+    const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
+    const docType = typeof req.query.type === "string" ? req.query.type : "ostatni";
+    const description = typeof req.query.description === "string" ? req.query.description : null;
+    const validUntil = typeof req.query.validUntil === "string" && req.query.validUntil ? req.query.validUntil : null;
+
+    if (!title) {
+      res.status(400).json({ error: "Název je povinný." });
+      return;
+    }
+    if (!contentType || !CUSTOMER_DOC_ALLOWED_MIME_TYPES.has(contentType)) {
+      res.status(415).json({ error: "Tento typ souboru není povolen." });
+      return;
+    }
+
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ error: "Chybí obsah souboru." });
+      return;
+    }
+    if (!contentMatchesType(contentType, body)) {
+      res.status(415).json({ error: "Obsah souboru neodpovídá jeho typu." });
+      return;
+    }
+
+    const [customer] = await db
+      .select({ id: customersTable.id })
+      .from(customersTable)
+      .where(eq(customersTable.id, customerId));
+    if (!customer) {
+      res.status(404).json({ error: "Customer not found" });
+      return;
+    }
+
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const objectPath = `/objects/customer-documents/${randomUUID()}`;
+
+    try {
+      await objectStorage.putPrivateObject(objectPath, body, contentType);
+    } catch (err) {
+      req.log.error({ err }, "customer-documents: upload to object storage failed");
+      res.status(500).json({ error: "Nepodařilo se uložit soubor do úložiště." });
+      return;
+    }
+
+    const [doc] = await db
+      .insert(customerSiteAttachmentsTable)
+      .values({
+        customerId,
+        type: docType,
+        title,
+        fileName: name || null,
+        url: objectPath,
+        description: description || null,
+        validUntil: validUntil || null,
+        mimeType: contentType,
+        fileSize: body.length,
+        sha256,
+        uploadedByUserId: req.auth?.userId ?? null,
+        uploadedByNameSnapshot: req.auth?.name ?? req.auth?.username ?? null,
+        docStatus: "current",
+      })
+      .returning();
+
+    const today = todayIso();
+    res.status(201).json(serializeDoc({ ...doc, siteName: null } as AttachmentRow & { siteName?: string | null }, today));
+  },
+);
 
 router.post("/customers/:customerId/documents", async (req, res): Promise<void> => {
   const pathParams = CreateCustomerDocumentParams.safeParse(req.params);

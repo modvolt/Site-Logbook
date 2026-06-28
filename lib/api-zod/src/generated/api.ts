@@ -1430,6 +1430,23 @@ export const DeleteCustomerSiteAttachmentParams = zod.object({
 
 
 /**
+ * @summary Upload a file and create a customer document record in one step
+ */
+export const UploadCustomerDocumentParams = zod.object({
+  "customerId": zod.coerce.number()
+})
+
+export const UploadCustomerDocumentQueryParams = zod.object({
+  "name": zod.coerce.string().describe('Original filename'),
+  "contentType": zod.coerce.string().describe('MIME type of the file'),
+  "title": zod.coerce.string().describe('Document title'),
+  "type": zod.coerce.string().optional().describe('Document type: ostatni | revize | certifikat | smlouva | projektova_dokumentace | …'),
+  "description": zod.coerce.string().optional(),
+  "validUntil": zod.coerce.string().optional().describe('YYYY-MM-DD')
+})
+
+
+/**
  * @summary List all documents across all sites of a customer
  */
 export const ListCustomerDocumentsParams = zod.object({

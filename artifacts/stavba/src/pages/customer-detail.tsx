@@ -26,7 +26,7 @@ import {
   ArrowLeft, Building2, Phone, User, Edit3, Save, X, Plus,
   Briefcase, ChevronRight, Trash2, Hash, FileText, MapPin, Mail, Users, Store,
   KeyRound, Receipt, FileCheck, Clock, ExternalLink, Banknote, CalendarCheck, RefreshCw,
-  FolderOpen, ShieldAlert, Archive,
+  FolderOpen, ShieldAlert, Archive, Paperclip, Download,
 } from "lucide-react";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { useToast } from "@/hooks/use-toast";
@@ -118,10 +118,17 @@ export default function CustomerDetail() {
   const [showAddDoc, setShowAddDoc] = useState(false);
   const [newDoc, setNewDoc] = useState({ type: "ostatni", title: "", description: "", validUntil: "" });
   const [newDocErrors, setNewDocErrors] = useState<Record<string, string>>({});
+  const [newDocFile, setNewDocFile] = useState<File | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
   const invalidateContacts = () => invalidateData(queryClient, "customers");
   const invalidateSites = () => invalidateData(queryClient, "customers");
   const invalidateDocs = () => invalidateData(queryClient, "customers");
+
+  function getAttachmentUrl(url: string | null | undefined): string | undefined {
+    if (!url) return undefined;
+    return `/api/storage${url}`;
+  }
 
   const startEdit = () => {
     if (!customer) return;
@@ -378,24 +385,61 @@ export default function CustomerDetail() {
     });
   };
 
-  const handleAddDoc = () => {
+  const handleAddDoc = async () => {
     const errors: Record<string, string> = {};
     if (!newDoc.title.trim()) errors.title = "Název je povinný";
     if (!newDoc.type.trim()) errors.type = "Typ je povinný";
     if (Object.keys(errors).length > 0) { setNewDocErrors(errors); return; }
     setNewDocErrors({});
-    createDoc.mutate(
-      { customerId: id, data: { type: newDoc.type, title: newDoc.title, description: newDoc.description || undefined, validUntil: newDoc.validUntil || undefined } },
-      {
-        onSuccess: () => {
-          invalidateDocs();
-          setShowAddDoc(false);
-          setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" });
-          toast({ title: "Dokument přidán" });
-        },
-        onError: () => toast({ title: "Nepodařilo se přidat dokument", variant: "destructive" }),
+
+    if (newDocFile) {
+      setIsUploadingDoc(true);
+      try {
+        const contentType = newDocFile.type || "application/octet-stream";
+        const query = new URLSearchParams({
+          name: newDocFile.name,
+          contentType,
+          title: newDoc.title,
+          type: newDoc.type,
+        });
+        if (newDoc.description) query.set("description", newDoc.description);
+        if (newDoc.validUntil) query.set("validUntil", newDoc.validUntil);
+        const res = await fetch(`/api/customers/${id}/documents/upload?${query.toString()}`, {
+          method: "POST",
+          headers: { "Content-Type": contentType },
+          body: newDocFile,
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const msg = (data as { error?: string }).error || "Nepodařilo se nahrát soubor";
+          toast({ title: msg, variant: "destructive" });
+          return;
+        }
+        invalidateDocs();
+        setShowAddDoc(false);
+        setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" });
+        setNewDocFile(null);
+        toast({ title: "Dokument přidán" });
+      } catch {
+        toast({ title: "Nepodařilo se nahrát soubor", variant: "destructive" });
+      } finally {
+        setIsUploadingDoc(false);
       }
-    );
+    } else {
+      createDoc.mutate(
+        { customerId: id, data: { type: newDoc.type, title: newDoc.title, description: newDoc.description || undefined, validUntil: newDoc.validUntil || undefined } },
+        {
+          onSuccess: () => {
+            invalidateDocs();
+            setShowAddDoc(false);
+            setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" });
+            toast({ title: "Dokument přidán" });
+          },
+          onError: () => toast({ title: "Nepodařilo se přidat dokument", variant: "destructive" }),
+        }
+      );
+    }
   };
 
   const handleArchiveDoc = (docId: number) => {
@@ -1226,11 +1270,39 @@ export default function CustomerDetail() {
                   className="h-11"
                 />
               </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1">
+                  <Paperclip className="h-3 w-3" /> Soubor (volitelné)
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm h-11 ${newDocFile ? "bg-primary/10 border-primary/40 text-primary" : "border-input bg-background text-muted-foreground hover:bg-accent"}`}>
+                    <Paperclip className="h-4 w-4 shrink-0" />
+                    {newDocFile ? newDocFile.name : "Vybrat soubor (PDF, foto, Word…)"}
+                  </span>
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx"
+                    onChange={(e) => setNewDocFile(e.target.files?.[0] ?? null)}
+                  />
+                  {newDocFile && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => setNewDocFile(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </label>
+              </div>
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleAddDoc} disabled={createDoc.isPending} className="h-9">
-                  <Save className="h-4 w-4 mr-1" /> Uložit
+                <Button size="sm" onClick={handleAddDoc} disabled={createDoc.isPending || isUploadingDoc} className="h-9">
+                  <Save className="h-4 w-4 mr-1" /> {isUploadingDoc ? "Nahrávám…" : "Uložit"}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setShowAddDoc(false); setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" }); setNewDocErrors({}); }} className="h-9">
+                <Button size="sm" variant="ghost" onClick={() => { setShowAddDoc(false); setNewDoc({ type: "ostatni", title: "", description: "", validUntil: "" }); setNewDocErrors({}); setNewDocFile(null); }} className="h-9">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -1262,21 +1334,37 @@ export default function CustomerDetail() {
                           {doc.siteName && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{doc.siteName}</span>}
                           {doc.validUntil && <span>Platnost do: {doc.validUntil}</span>}
                           {doc.documentNumber && <span>č. {doc.documentNumber}</span>}
+                          {doc.url && doc.fileName && <span className="flex items-center gap-0.5"><Paperclip className="h-3 w-3" />{doc.fileName}</span>}
                         </div>
                         {doc.description && <p className="text-sm text-muted-foreground mt-1 truncate">{doc.description}</p>}
                       </div>
-                      {!isArchived && (
-                        <div className="flex gap-1 shrink-0">
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Archivovat" onClick={() => handleArchiveDoc(doc.id)}>
-                            <Archive className="h-4 w-4" />
-                          </Button>
-                          {role === "master" && (
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" title="Smazat" onClick={() => handleDeleteDoc(doc.id)}>
-                              <Trash2 className="h-4 w-4" />
+                      <div className="flex gap-1 shrink-0">
+                        {doc.url && (
+                          <a
+                            href={getAttachmentUrl(doc.url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={doc.fileName || true}
+                            title="Stáhnout soubor"
+                          >
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                              <Download className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
-                      )}
+                          </a>
+                        )}
+                        {!isArchived && (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Archivovat" onClick={() => handleArchiveDoc(doc.id)}>
+                              <Archive className="h-4 w-4" />
+                            </Button>
+                            {role === "master" && (
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" title="Smazat" onClick={() => handleDeleteDoc(doc.id)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

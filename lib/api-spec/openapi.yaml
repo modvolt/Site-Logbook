@@ -1412,6 +1412,75 @@ paths:
         "404":
           description: Not found
 
+  /customers/{customerId}/documents/upload:
+    post:
+      operationId: uploadCustomerDocument
+      tags: [customers, customerDocumentsUpload]
+      summary: Upload a file and create a customer document record in one step
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Original filename
+        - name: contentType
+          in: query
+          required: true
+          schema:
+            type: string
+          description: MIME type of the file
+        - name: title
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Document title
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Document type: ostatni | revize | certifikat | smlouva | projektova_dokumentace | …"
+        - name: description
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: validUntil
+          in: query
+          required: false
+          schema:
+            type: string
+          description: YYYY-MM-DD
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Document created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDocument"
+        "400":
+          description: Missing title or invalid body
+        "404":
+          description: Customer not found
+        "413":
+          description: File too large
+        "415":
+          description: Unsupported or mismatched content type
+
   /customers/{customerId}/documents:
     get:
       operationId: listCustomerDocuments
