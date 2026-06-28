@@ -725,6 +725,15 @@ export default function Statistika() {
               <div>
                 <h2 className="text-2xl font-bold tracking-tight">Statistika</h2>
                 <p className="text-sm text-neutral-600 mt-1">{PERIOD_LABELS[period]}: {label}</p>
+                {(trendCustomerId != null || trendJobType != null) && (
+                  <p className="text-sm text-neutral-600 mt-0.5">
+                    Filtr:{" "}
+                    {[
+                      trendCustomerId != null ? (customers?.find((c) => c.id === trendCustomerId)?.companyName ?? "Zákazník") : null,
+                      trendJobType != null ? (JOB_TYPES[trendJobType as keyof typeof JOB_TYPES]?.label ?? trendJobType) : null,
+                    ].filter(Boolean).join(" · ")}
+                  </p>
+                )}
               </div>
               <div className="flex flex-col items-end text-right">
                 <img src={companyLogo} alt={companyName} crossOrigin="anonymous" className="h-16 w-auto object-contain" />
@@ -761,6 +770,42 @@ export default function Statistika() {
                     ))}
                   </tbody>
                 </table>
+              )}
+              {hasTypeData && typeBarData.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 mb-2">
+                    Hotové zakázky dle druhu — měsíční přehled
+                  </p>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-neutral-300 text-neutral-600">
+                        <th className="py-1 pr-2 font-semibold text-left">Měsíc</th>
+                        {allTypes.map((t) => (
+                          <th key={t} className="py-1 px-1 font-semibold text-right whitespace-nowrap">
+                            {typeLabel(t)}
+                          </th>
+                        ))}
+                        <th className="py-1 pl-2 font-semibold text-right">Celkem</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {typeBarData.map((row) => {
+                        const rowTotal = allTypes.reduce((s, t) => s + ((row[t] as number) || 0), 0);
+                        return (
+                          <tr key={row.name as string} className="border-b border-neutral-200">
+                            <td className="py-1 pr-2 font-medium">{row.name as string}</td>
+                            {allTypes.map((t) => (
+                              <td key={t} className="py-1 px-1 text-right text-neutral-600">
+                                {(row[t] as number) > 0 ? row[t] as number : "—"}
+                              </td>
+                            ))}
+                            <td className="py-1 pl-2 text-right font-medium">{rowTotal > 0 ? rowTotal : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </Section>
 
