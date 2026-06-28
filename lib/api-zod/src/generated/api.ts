@@ -2370,6 +2370,14 @@ export const ExportPpeAssignmentsQueryParams = zod.object({
 
 
 /**
+ * @summary Hard-delete a PPE assignment record (admin/master)
+ */
+export const DeletePpeAssignmentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
  * @summary Update a PPE assignment — return, status change, date edit (admin/master)
  */
 export const UpdatePpeAssignmentParams = zod.object({

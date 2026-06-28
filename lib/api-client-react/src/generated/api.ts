@@ -7610,6 +7610,76 @@ export function useExportPpeAssignments<TData = Awaited<ReturnType<typeof export
 
 
 
+export const getDeletePpeAssignmentUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}`
+}
+
+/**
+ * @summary Hard-delete a PPE assignment record (admin/master)
+ */
+export const deletePpeAssignment = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeletePpeAssignmentUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeletePpeAssignmentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePpeAssignment>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePpeAssignment>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deletePpeAssignment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePpeAssignment>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deletePpeAssignment(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePpeAssignmentMutationResult = NonNullable<Awaited<ReturnType<typeof deletePpeAssignment>>>
+
+    export type DeletePpeAssignmentMutationError = ErrorType<void>
+
+    /**
+ * @summary Hard-delete a PPE assignment record (admin/master)
+ */
+export const useDeletePpeAssignment = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePpeAssignment>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deletePpeAssignment>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeletePpeAssignmentMutationOptions(options));
+    }
+
 export const getUpdatePpeAssignmentUrl = (id: number,) => {
 
 

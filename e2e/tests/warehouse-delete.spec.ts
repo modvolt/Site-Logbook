@@ -1,23 +1,31 @@
 import { test, expect } from "@playwright/test";
+import { cleanupWarehouseItem } from "./helpers";
 
 test.describe("Warehouse delete guard", () => {
   test("returns 409 via API when item has warehouse movements", async ({ request }) => {
-    const createRes = await request.post("/api/warehouse-items", {
-      data: { name: "E2E_WH_WithMov_Guard" },
-    });
-    expect(createRes.status()).toBe(201);
-    const item = (await createRes.json()) as { id: number };
+    let itemId: number | undefined;
 
-    const movRes = await request.post(`/api/warehouse-items/${item.id}/movements`, {
-      data: { direction: "in", quantity: 3 },
-    });
-    expect(movRes.status()).toBe(201);
+    try {
+      const createRes = await request.post("/api/warehouse-items", {
+        data: { name: "E2E_WH_WithMov_Guard" },
+      });
+      expect(createRes.status()).toBe(201);
+      const item = (await createRes.json()) as { id: number };
+      itemId = item.id;
 
-    const deleteRes = await request.delete(`/api/warehouse-items/${item.id}`);
-    expect(deleteRes.status()).toBe(409);
+      const movRes = await request.post(`/api/warehouse-items/${item.id}/movements`, {
+        data: { direction: "in", quantity: 3 },
+      });
+      expect(movRes.status()).toBe(201);
 
-    const body = (await deleteRes.json()) as { error: string };
-    expect(body.error.toLowerCase()).toContain("nelze smazat");
+      const deleteRes = await request.delete(`/api/warehouse-items/${item.id}`);
+      expect(deleteRes.status()).toBe(409);
+
+      const body = (await deleteRes.json()) as { error: string };
+      expect(body.error.toLowerCase()).toContain("nelze smazat");
+    } finally {
+      if (itemId !== undefined) await cleanupWarehouseItem(request, itemId);
+    }
   });
 
   test("returns 204 via API when item has no movements", async ({ request }) => {
@@ -57,28 +65,33 @@ test.describe("Warehouse delete guard", () => {
     page,
   }) => {
     const uniqueName = `E2E_MovUI_${Date.now()}`;
-    const createRes = await page.request.post("/api/warehouse-items", {
-      data: { name: uniqueName },
-    });
-    expect(createRes.status()).toBe(201);
-    const item = (await createRes.json()) as { id: number };
+    let itemId: number | undefined;
 
-    await page.request.post(`/api/warehouse-items/${item.id}/movements`, {
-      data: { direction: "in", quantity: 2 },
-    });
+    try {
+      const createRes = await page.request.post("/api/warehouse-items", {
+        data: { name: uniqueName },
+      });
+      expect(createRes.status()).toBe(201);
+      const item = (await createRes.json()) as { id: number };
+      itemId = item.id;
 
-    await page.goto("/sklad");
-    await expect(page.getByRole("heading", { name: "Sklad" })).toBeVisible();
-    const itemText = page.getByText(uniqueName, { exact: true }).first();
-    await expect(itemText).toBeVisible();
+      await page.request.post(`/api/warehouse-items/${item.id}/movements`, {
+        data: { direction: "in", quantity: 2 },
+      });
 
-    page.once("dialog", (dialog) => dialog.accept());
-    const card = page.locator(".transition-colors").filter({ has: page.getByText(uniqueName, { exact: true }) });
-    await card.locator("button.text-destructive").click();
+      await page.goto("/sklad");
+      await expect(page.getByRole("heading", { name: "Sklad" })).toBeVisible();
+      const itemText = page.getByText(uniqueName, { exact: true }).first();
+      await expect(itemText).toBeVisible();
 
-    await expect(page.getByText("Nelze smazat", { exact: true })).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText(uniqueName, { exact: true }).first()).toBeVisible();
+      page.once("dialog", (dialog) => dialog.accept());
+      const card = page.locator(".transition-colors").filter({ has: page.getByText(uniqueName, { exact: true }) });
+      await card.locator("button.text-destructive").click();
 
-    await page.request.delete(`/api/warehouse-items/${item.id}`).catch(() => {});
+      await expect(page.getByText("Nelze smazat", { exact: true })).toBeVisible({ timeout: 8_000 });
+      await expect(page.getByText(uniqueName, { exact: true }).first()).toBeVisible();
+    } finally {
+      if (itemId !== undefined) await cleanupWarehouseItem(page.request, itemId);
+    }
   });
 });

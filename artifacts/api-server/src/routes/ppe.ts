@@ -296,6 +296,23 @@ router.post("/ppe/assignments", requireRole("admin", "master"), async (req, res)
   res.status(201).json(serializeAssignment(assignment));
 });
 
+router.delete("/ppe/assignments/:id", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Neplatné ID" });
+    return;
+  }
+  const [deleted] = await db
+    .delete(ppeAssignmentsTable)
+    .where(eq(ppeAssignmentsTable.id, params.data.id))
+    .returning();
+  if (!deleted) {
+    res.status(404).json({ error: "Výdej nenalezen" });
+    return;
+  }
+  res.status(204).end();
+});
+
 router.patch("/ppe/assignments/:id", requireRole("admin", "master"), async (req, res): Promise<void> => {
   const params = IdParamSchema.safeParse(req.params);
   if (!params.success) {

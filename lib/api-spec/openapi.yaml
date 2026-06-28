@@ -2289,6 +2289,23 @@ paths:
                 format: binary
 
   /ppe/assignments/{id}:
+    delete:
+      operationId: deletePpeAssignment
+      tags: [ppe]
+      summary: Hard-delete a PPE assignment record (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+        "403":
+          description: Forbidden
     patch:
       operationId: updatePpeAssignment
       tags: [ppe]
