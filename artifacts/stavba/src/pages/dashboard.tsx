@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addWeeks, addMonths, addYears } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
   useGetDashboardSummary, useGetTodayJobs, useUpdateJob, useUpdateJobStatus,
@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge, StatusBadge } from "@/components/badges";
 import { LowMarginBadge } from "@/components/job-card";
-import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronRight, Navigation, Timer, GripVertical, RefreshCw, AlertTriangle, Banknote, FileSearch, PackageMinus, UserX, Tag, FileMinus, Wrench, TrendingUp, ShoppingCart, ArrowRight, BarChart2 } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, PlayCircle, Play, Square, MapPin, User, ChevronLeft, ChevronRight, Navigation, Timer, GripVertical, RefreshCw, AlertTriangle, Banknote, FileSearch, PackageMinus, UserX, Tag, FileMinus, Wrench, TrendingUp, ShoppingCart, ArrowRight, BarChart2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PullToRefresh } from "@/components/pull-to-refresh";
 import {
@@ -256,23 +256,36 @@ const KPI_PERIOD_TITLE: Record<KpiPeriod, string> = {
   year: "Vedení – přehled roku",
 };
 
-function getKpiRange(period: KpiPeriod, now: Date): { from: string; to: string } {
+function getKpiRange(period: KpiPeriod, anchor: Date): { from: string; to: string; fromDate: Date; toDate: Date } {
+  switch (period) {
+    case "week": {
+      const fromDate = startOfWeek(anchor, { weekStartsOn: 1 });
+      const toDate = endOfWeek(anchor, { weekStartsOn: 1 });
+      return { from: format(fromDate, "yyyy-MM-dd"), to: format(toDate, "yyyy-MM-dd"), fromDate, toDate };
+    }
+    case "month": {
+      const fromDate = startOfMonth(anchor);
+      const toDate = endOfMonth(anchor);
+      return { from: format(fromDate, "yyyy-MM-dd"), to: format(toDate, "yyyy-MM-dd"), fromDate, toDate };
+    }
+    case "year": {
+      const fromDate = startOfYear(anchor);
+      const toDate = endOfYear(anchor);
+      return { from: format(fromDate, "yyyy-MM-dd"), to: format(toDate, "yyyy-MM-dd"), fromDate, toDate };
+    }
+  }
+}
+
+function kpiRangeLabel(period: KpiPeriod, fromDate: Date, toDate: Date): string {
   switch (period) {
     case "week":
-      return {
-        from: format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd"),
-        to: format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd"),
-      };
-    case "month":
-      return {
-        from: format(startOfMonth(now), "yyyy-MM-dd"),
-        to: format(endOfMonth(now), "yyyy-MM-dd"),
-      };
+      return `${format(fromDate, "d. M.")} – ${format(toDate, "d. M. yyyy")}`;
+    case "month": {
+      const s = format(fromDate, "LLLL yyyy", { locale: cs });
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
     case "year":
-      return {
-        from: format(startOfYear(now), "yyyy-MM-dd"),
-        to: format(endOfYear(now), "yyyy-MM-dd"),
-      };
+      return format(fromDate, "yyyy");
   }
 }
 
@@ -284,14 +297,24 @@ function ManagementKpiPanel() {
     } catch { }
     return "month";
   });
+  const [anchor, setAnchor] = useState<Date>(() => new Date());
 
   const setPeriod = (next: KpiPeriod) => {
     try { localStorage.setItem("dashboard.kpiPeriod", next); } catch { }
     setPeriodRaw(next);
+    setAnchor(new Date());
   };
 
-  const now = new Date();
-  const { from, to } = getKpiRange(period, now);
+  const shift = (dir: -1 | 1) => {
+    setAnchor((prev) => {
+      if (period === "week") return addWeeks(prev, dir);
+      if (period === "month") return addMonths(prev, dir);
+      return addYears(prev, dir);
+    });
+  };
+
+  const { from, to, fromDate, toDate } = getKpiRange(period, anchor);
+  const label = kpiRangeLabel(period, fromDate, toDate);
 
   const { data: stats, isLoading } = useGetStatsOverview(
     { from, to },
@@ -310,7 +333,7 @@ function ManagementKpiPanel() {
             Statistika <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
-        <div className="flex gap-1 mb-3">
+        <div className="flex gap-1 mb-2">
           {(["week", "month", "year"] as KpiPeriod[]).map((p) => (
             <button
               key={p}
@@ -325,6 +348,25 @@ function ManagementKpiPanel() {
               {KPI_PERIOD_LABELS[p]}
             </button>
           ))}
+        </div>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button
+            type="button"
+            onClick={() => shift(-1)}
+            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Předchozí období"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+          <button
+            type="button"
+            onClick={() => shift(1)}
+            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Následující období"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
         {isLoading ? (
           <div className="grid grid-cols-2 gap-2">
