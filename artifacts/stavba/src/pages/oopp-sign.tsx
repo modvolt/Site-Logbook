@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "wouter";
-import { ShieldCheck, CheckCircle2, PenLine, RotateCcw } from "lucide-react";
+import { ShieldCheck, CheckCircle2, PenLine, RotateCcw, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface AssignmentInfo {
@@ -12,6 +12,7 @@ interface AssignmentInfo {
   serialNumber: string | null;
   issuedAt: string;
   status: string;
+  closed: boolean;
   alreadySigned: boolean;
   employeeConfirmedAt: string | null;
 }
@@ -192,6 +193,20 @@ export default function OoppSign() {
           </div>
         )}
 
+        {!loading && info && info.closed && !done && (
+          <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 p-6 text-center space-y-3">
+            <Lock className="h-12 w-12 text-gray-400 mx-auto" />
+            <p className="text-lg font-semibold text-gray-700">Výdej byl uzavřen</p>
+            <p className="text-sm text-muted-foreground">
+              Tento odkaz pro podpis již není platný — výdej pomůcky{" "}
+              <strong>{info.ppeNameSnapshot}</strong> byl vrácen nebo jinak uzavřen.
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              V případě dotazů kontaktujte svého zaměstnavatele.
+            </p>
+          </div>
+        )}
+
         {!loading && info && done && (
           <div className="mt-8 rounded-xl border border-green-200 bg-green-50 p-6 text-center space-y-3">
             <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto" />
@@ -210,7 +225,7 @@ export default function OoppSign() {
           </div>
         )}
 
-        {!loading && info && !done && (
+        {!loading && info && !done && !info.closed && (
           <div className="space-y-6 mt-4">
             <div className="rounded-xl border bg-white p-4 shadow-sm space-y-2">
               <h2 className="font-semibold text-base">Předmět výdeje</h2>

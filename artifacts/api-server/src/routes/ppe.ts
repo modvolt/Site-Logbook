@@ -308,6 +308,7 @@ router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
     serialNumber: assignment.serialNumber,
     issuedAt: assignment.issuedAt,
     status: assignment.status,
+    closed: assignment.status !== "issued",
     alreadySigned: !!assignment.employeeConfirmedAt,
     employeeConfirmedAt: assignment.employeeConfirmedAt ? assignment.employeeConfirmedAt.toISOString() : null,
   });
@@ -337,6 +338,11 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
 
   if (!assignment) {
     res.status(404).json({ error: "Odkaz pro podpis nebyl nalezen" });
+    return;
+  }
+
+  if (assignment.status !== "issued") {
+    res.status(409).json({ error: "Výdej byl uzavřen a nelze ho již podepsat" });
     return;
   }
 
