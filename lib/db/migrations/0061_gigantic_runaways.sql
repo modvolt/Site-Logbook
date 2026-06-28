@@ -1,1 +1,1 @@
-ALTER TABLE "quotes" ADD COLUMN "share_token" text;
+ALTER TABLE "quotes" ADD COLUMN IF NOT EXISTS "share_token" text;

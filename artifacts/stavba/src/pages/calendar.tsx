@@ -183,6 +183,7 @@ function DroppableSlot({ id, children, className, onClick, onKeyDown }: Droppabl
       ref={setNodeRef}
       role="button"
       tabIndex={0}
+      data-slot={id}
       onClick={onClick}
       onKeyDown={onKeyDown}
       className={`${className ?? ""} ${isOver ? "ring-2 ring-primary/60 ring-inset bg-primary/5" : ""}`}
