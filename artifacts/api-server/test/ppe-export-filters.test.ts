@@ -473,6 +473,72 @@ describe("combined filters", () => {
   });
 });
 
+// ── Empty result set (personId=999999999 guarantees zero matches) ────────────
+
+// personId=999999999 is a positive integer that will never exist in the DB,
+// so the filter is applied (the route gates on `personId && isFinite`) and
+// returns zero data rows — exercising empty-result code paths in both generators.
+const NONEXISTENT_PERSON_ID = 999999999;
+
+describe("empty result set export", () => {
+  it("CSV with zero rows → 200, text/csv content-type", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?format=csv&personId=${NONEXISTENT_PERSON_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+  });
+
+  it("CSV with zero rows → non-empty body (header row still present, no data rows)", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?format=csv&personId=${NONEXISTENT_PERSON_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.text.length).toBeGreaterThan(0);
+    const clean = res.text.startsWith("\uFEFF") ? res.text.slice(1) : res.text;
+    const lines = clean.split(/\r\n|\n/).filter(Boolean);
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toContain("Zaměstnanec");
+  });
+
+  it("CSV with zero rows → attachment Content-Disposition with .csv extension", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?format=csv&personId=${NONEXISTENT_PERSON_ID}`,
+    );
+    expect(res.status).toBe(200);
+    const cd = res.headers["content-disposition"] ?? "";
+    expect(cd).toMatch(/attachment/);
+    expect(cd).toMatch(/\.csv/);
+  });
+
+  it("PDF with zero rows → 200, application/pdf content-type", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?personId=${NONEXISTENT_PERSON_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/application\/pdf/);
+  });
+
+  it("PDF with zero rows → non-empty body starting with PDF magic bytes", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?personId=${NONEXISTENT_PERSON_ID}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(res.body.toString("ascii", 0, 4)).toBe("%PDF");
+  });
+
+  it("PDF with zero rows → attachment Content-Disposition with .pdf extension", async () => {
+    const res = await adminAgent.get(
+      `/api/ppe/assignments/export?personId=${NONEXISTENT_PERSON_ID}`,
+    );
+    expect(res.status).toBe(200);
+    const cd = res.headers["content-disposition"] ?? "";
+    expect(cd).toMatch(/attachment/);
+    expect(cd).toMatch(/\.pdf/);
+  });
+});
+
 // ── Unauthenticated access ────────────────────────────────────────────────────
 
 describe("auth guard on export endpoint", () => {
