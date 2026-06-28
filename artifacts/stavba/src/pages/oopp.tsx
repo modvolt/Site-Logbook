@@ -368,6 +368,8 @@ export default function Oopp() {
   const [filterStatus, setFilterStatus] = useState("_all");
   const [filterOverdue, setFilterOverdue] = useState(false);
   const [filterUnconfirmed, setFilterUnconfirmed] = useState(false);
+  const [filterIssuedFrom, setFilterIssuedFrom] = useState("");
+  const [filterIssuedTo, setFilterIssuedTo] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [exportFormat, setExportFormat] = useState<"pdf" | "csv">("pdf");
   const [exporting, setExporting] = useState(false);
@@ -499,7 +501,7 @@ export default function Oopp() {
     });
   };
 
-  const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm;
+  const hasFilters = filterPerson !== "_all" || filterStatus !== "_all" || filterOverdue || filterUnconfirmed || !!searchTerm || !!filterIssuedFrom || !!filterIssuedTo;
 
   const handleExport = async (fmt: "pdf" | "csv") => {
     setExporting(true);
@@ -508,6 +510,8 @@ export default function Oopp() {
       if (filterPerson !== "_all") params.set("personId", filterPerson);
       if (filterStatus !== "_all") params.set("status", filterStatus);
       if (filterOverdue) params.set("overdue", "true");
+      if (filterIssuedFrom) params.set("issuedFrom", filterIssuedFrom);
+      if (filterIssuedTo) params.set("issuedTo", filterIssuedTo);
       const res = await fetch(`/api/ppe/assignments/export?${params.toString()}`);
       if (!res.ok) throw new Error("Export selhal");
       const blob = await res.blob();
@@ -677,12 +681,30 @@ export default function Oopp() {
                 ))}
               </SelectContent>
             </Select>
+            <div className="flex items-center gap-1">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">Vydáno od</label>
+              <Input
+                type="date"
+                value={filterIssuedFrom}
+                onChange={(e) => setFilterIssuedFrom(e.target.value)}
+                className="h-9 w-36 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">do</label>
+              <Input
+                type="date"
+                value={filterIssuedTo}
+                onChange={(e) => setFilterIssuedTo(e.target.value)}
+                className="h-9 w-36 text-sm"
+              />
+            </div>
             {hasFilters && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-9 text-muted-foreground"
-                onClick={() => { setFilterPerson("_all"); setFilterStatus("_all"); setFilterOverdue(false); setFilterUnconfirmed(false); setSearchTerm(""); }}
+                onClick={() => { setFilterPerson("_all"); setFilterStatus("_all"); setFilterOverdue(false); setFilterUnconfirmed(false); setFilterIssuedFrom(""); setFilterIssuedTo(""); setSearchTerm(""); }}
               >
                 Zrušit filtry
               </Button>
@@ -771,7 +793,7 @@ export default function Oopp() {
               {assignments && assignments.length > 0 ? (
                 <>
                   <p>Žádný výdej nevyhovuje filtrům.</p>
-                  <Button variant="link" className="mt-2" onClick={() => { setFilterPerson("_all"); setFilterStatus("_all"); setFilterOverdue(false); setSearchTerm(""); }}>
+                  <Button variant="link" className="mt-2" onClick={() => { setFilterPerson("_all"); setFilterStatus("_all"); setFilterOverdue(false); setFilterIssuedFrom(""); setFilterIssuedTo(""); setSearchTerm(""); }}>
                     Zrušit filtry
                   </Button>
                 </>
