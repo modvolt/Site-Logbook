@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
-import { format } from "date-fns";
+import { format, addDays, parseISO } from "date-fns";
+import { cs } from "date-fns/locale";
 import { 
   useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
   useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites, useListLeaves,
@@ -54,6 +55,7 @@ export default function JobForm() {
     clientSite: initialClientSite,
     address: "",
     date: initialDate,
+    endDate: "",
     startTime: "",
     endTime: "",
     assignedPersonId: "none",
@@ -68,7 +70,17 @@ export default function JobForm() {
   });
 
   const assignedPersonIdNum = formData.assignedPersonId !== "none" ? parseInt(formData.assignedPersonId) : null;
-  const leaveParams = { personId: assignedPersonIdNum ?? undefined, from: formData.date, to: formData.date };
+
+  const leaveEndDate = (() => {
+    if (formData.endDate) return formData.endDate;
+    const intervalDays = formData.type === "service_call" ? parseInt(formData.recurrenceIntervalDays) : NaN;
+    if (!isNaN(intervalDays) && intervalDays > 0 && formData.date) {
+      return format(addDays(parseISO(formData.date), intervalDays), "yyyy-MM-dd");
+    }
+    return formData.date;
+  })();
+
+  const leaveParams = { personId: assignedPersonIdNum ?? undefined, from: formData.date, to: leaveEndDate };
   const { data: personLeaves } = useListLeaves(
     leaveParams,
     { query: { queryKey: getListLeavesQueryKey(leaveParams), enabled: assignedPersonIdNum !== null && !!formData.date } },
@@ -485,11 +497,25 @@ export default function JobForm() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="date" className="text-base">Datum *</Label>
+              <Label htmlFor="date" className="text-base">Datum zahájení *</Label>
               <Input id="date" name="date" type="date" value={formData.date} onChange={handleChange} className="h-14 text-base block w-full" />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="endDate" className="text-base">Datum ukončení</Label>
+              <Input
+                id="endDate"
+                name="endDate"
+                type="date"
+                value={formData.endDate}
+                min={formData.date || undefined}
+                onChange={handleChange}
+                className="h-14 text-base block w-full"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="startTime" className="text-base">Začátek</Label>
               <TimePicker id="startTime" value={formData.startTime} onChange={(v) => { setFormData(prev => ({ ...prev, startTime: v })); markDirty(); }} className="h-14 text-base w-full" />
@@ -518,7 +544,19 @@ export default function JobForm() {
                 <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
-                    Pracovník má v tento den absenci ({personLeaves.map(l => l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná").join(", ")})
+                    Pracovník má absenci překrývající se s touto zakázkou:{" "}
+                    {personLeaves.map((l, i) => {
+                      const typeLabel = l.type === "vacation" ? "dovolená" : l.type === "sick" ? "nemoc" : "jiná";
+                      const start = format(parseISO(l.startDate), "d. M. yyyy", { locale: cs });
+                      const end = format(parseISO(l.endDate), "d. M. yyyy", { locale: cs });
+                      const dateRange = l.startDate === l.endDate ? start : `${start}–${end}`;
+                      return (
+                        <span key={l.id}>
+                          {i > 0 && ", "}
+                          {typeLabel} ({dateRange})
+                        </span>
+                      );
+                    })}
                   </span>
                 </div>
               )}
