@@ -950,6 +950,22 @@ export interface CustomerImportResult {
   skipped: number;
 }
 
+/**
+ * Aggregate of draft+sent quotes for this customer
+ */
+export type CustomerFinancialSummaryQuotesOpen = {
+  count: number;
+  totalWithVat: number;
+};
+
+/**
+ * Aggregate of accepted quotes for this customer
+ */
+export type CustomerFinancialSummaryQuotesAccepted = {
+  count: number;
+  totalWithVat: number;
+};
+
 export interface CustomerFinancialSummary {
   /** Sum of totalWithVat for non-cancelled unpaid invoices (CZK numeric string) */
   openBalance: string;
@@ -964,6 +980,10 @@ export interface CustomerFinancialSummary {
   unbilledJobCount: number;
   /** openBalance + unbilledJobsValue (total exposure for this customer) */
   totalSaldo: number;
+  /** Aggregate of draft+sent quotes for this customer */
+  quotesOpen: CustomerFinancialSummaryQuotesOpen;
+  /** Aggregate of accepted quotes for this customer */
+  quotesAccepted: CustomerFinancialSummaryQuotesAccepted;
 }
 
 export interface SendCredentialsEmailInput {

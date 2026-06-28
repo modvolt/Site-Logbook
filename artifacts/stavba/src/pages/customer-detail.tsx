@@ -842,6 +842,44 @@ export default function CustomerDetail() {
                   </div>
                 </div>
               )}
+              {isAdmin && (
+                <div className="flex items-center gap-3 p-3 bg-card border rounded-xl text-left">
+                  <div className="bg-orange-100 dark:bg-orange-950/40 p-2 rounded-lg text-orange-600 shrink-0">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    {loadingFinancial ? (
+                      <Skeleton className="h-5 w-20 mb-0.5" />
+                    ) : (
+                      <p className="font-bold text-base leading-none">
+                        {(financialSummary?.quotesOpen.totalWithVat ?? 0).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Nabídky otevřené{financialSummary?.quotesOpen.count ? ` (${financialSummary.quotesOpen.count})` : ""}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {isAdmin && (
+                <div className="flex items-center gap-3 p-3 bg-card border rounded-xl text-left">
+                  <div className="bg-teal-100 dark:bg-teal-950/40 p-2 rounded-lg text-teal-600 shrink-0">
+                    <FileCheck className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    {loadingFinancial ? (
+                      <Skeleton className="h-5 w-20 mb-0.5" />
+                    ) : (
+                      <p className="font-bold text-base leading-none">
+                        {(financialSummary?.quotesAccepted.totalWithVat ?? 0).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Nabídky přijaté{financialSummary?.quotesAccepted.count ? ` (${financialSummary.quotesAccepted.count})` : ""}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {recentJob && (

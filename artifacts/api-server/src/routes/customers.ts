@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
-import { db, customersTable, invoicesTable, auditLogTable } from "@workspace/db";
+import { and, eq, isNull, ne, sql, inArray } from "drizzle-orm";
+import { db, customersTable, invoicesTable, auditLogTable, quotesTable, quoteItemsTable } from "@workspace/db";
 import { getCustomerUnbilledValueSummary } from "../lib/invoice-service";
 import { round2 } from "../lib/invoice-calc";
 import {
@@ -196,12 +196,50 @@ router.get("/customers/:id/financial-summary", requireRole("admin", "master"), a
   const openBalanceNum = Number(row?.openBalance ?? "0");
   const totalSaldo = round2(openBalanceNum + unbilledJobsValue);
 
+  // Quote totals: sum line totals (quantity * unitPrice * (1 + vatRate/100)) per status group.
+  const quoteRows = await db
+    .select({
+      status: quotesTable.status,
+      count: sql<string>`COUNT(DISTINCT ${quotesTable.id})`,
+      totalWithVat: sql<string>`COALESCE(SUM(
+        ${quoteItemsTable.quantity}::numeric *
+        ${quoteItemsTable.unitPrice}::numeric *
+        (1 + COALESCE(${quoteItemsTable.vatRate}::numeric, 0) / 100)
+      ), 0)`,
+    })
+    .from(quotesTable)
+    .leftJoin(quoteItemsTable, eq(quoteItemsTable.quoteId, quotesTable.id))
+    .where(
+      and(
+        eq(quotesTable.customerId, id),
+        inArray(quotesTable.status, ["draft", "sent", "accepted"]),
+      ),
+    )
+    .groupBy(quotesTable.status);
+
+  let quotesOpenCount = 0;
+  let quotesOpenTotal = 0;
+  let quotesAcceptedCount = 0;
+  let quotesAcceptedTotal = 0;
+
+  for (const qr of quoteRows) {
+    if (qr.status === "draft" || qr.status === "sent") {
+      quotesOpenCount += Number(qr.count);
+      quotesOpenTotal = round2(quotesOpenTotal + Number(qr.totalWithVat));
+    } else if (qr.status === "accepted") {
+      quotesAcceptedCount += Number(qr.count);
+      quotesAcceptedTotal = round2(quotesAcceptedTotal + Number(qr.totalWithVat));
+    }
+  }
+
   res.json({
     openBalance: row?.openBalance ?? "0",
     lastPaymentDate: row?.lastPaymentDate ?? null,
     unbilledJobsValue,
     unbilledJobCount,
     totalSaldo,
+    quotesOpen: { count: quotesOpenCount, totalWithVat: quotesOpenTotal },
+    quotesAccepted: { count: quotesAcceptedCount, totalWithVat: quotesAcceptedTotal },
   });
 });
 

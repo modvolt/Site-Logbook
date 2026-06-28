@@ -7790,7 +7790,7 @@ components:
 
     CustomerFinancialSummary:
       type: object
-      required: [openBalance, lastPaymentDate, unbilledJobsValue, unbilledJobCount, totalSaldo]
+      required: [openBalance, lastPaymentDate, unbilledJobsValue, unbilledJobCount, totalSaldo, quotesOpen, quotesAccepted]
       properties:
         openBalance:
           type: string
@@ -7807,6 +7807,24 @@ components:
         totalSaldo:
           type: number
           description: openBalance + unbilledJobsValue (total exposure for this customer)
+        quotesOpen:
+          type: object
+          required: [count, totalWithVat]
+          description: Aggregate of draft+sent quotes for this customer
+          properties:
+            count:
+              type: integer
+            totalWithVat:
+              type: number
+        quotesAccepted:
+          type: object
+          required: [count, totalWithVat]
+          description: Aggregate of accepted quotes for this customer
+          properties:
+            count:
+              type: integer
+            totalWithVat:
+              type: number
 
     RequestJobSignatureInput:
       type: object

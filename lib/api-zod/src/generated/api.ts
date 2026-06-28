@@ -1146,7 +1146,15 @@ export const GetCustomerFinancialSummaryResponse = zod.object({
   "lastPaymentDate": zod.string().nullable().describe('Most recent paidDate across all invoices for this customer'),
   "unbilledJobsValue": zod.number().describe('Sum of job.price for done unbilled jobs for this customer'),
   "unbilledJobCount": zod.number().describe('Count of done unbilled jobs for this customer'),
-  "totalSaldo": zod.number().describe('openBalance + unbilledJobsValue (total exposure for this customer)')
+  "totalSaldo": zod.number().describe('openBalance + unbilledJobsValue (total exposure for this customer)'),
+  "quotesOpen": zod.object({
+  "count": zod.number(),
+  "totalWithVat": zod.number()
+}).describe('Aggregate of draft+sent quotes for this customer'),
+  "quotesAccepted": zod.object({
+  "count": zod.number(),
+  "totalWithVat": zod.number()
+}).describe('Aggregate of accepted quotes for this customer')
 })
 
 
