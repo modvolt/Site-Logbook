@@ -20,7 +20,6 @@ import { ensureBillingSettings } from "../lib/invoice-service";
 const objectStorage = new ObjectStorageService();
 
 const router: IRouter = Router();
-const objectStorageService = new ObjectStorageService();
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_SIGNATURE_BYTES = 500 * 1024;
@@ -58,8 +57,11 @@ function serializeAssignment(
 ) {
   return {
     ...a,
+    confirmToken: undefined,
+    confirmTokenExpiresAt: undefined,
     signatureToken: undefined,
     signatureObjectPath: undefined,
+    hasConfirmToken: !!a.confirmToken,
     hasSignature: !!a.signatureObjectPath,
     hasSignToken: !!a.signatureToken,
     employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
@@ -74,6 +76,7 @@ function serializeItem(item: typeof ppeItemsTable.$inferSelect) {
     createdAt: item.createdAt.toISOString(),
   };
 }
+
 const PpeItemInputSchema = z.object({
   name: z.string().min(1, "Název je povinný"),
   category: z.enum(PPE_CATEGORIES as unknown as [string, ...string[]]).default("ostatni"),

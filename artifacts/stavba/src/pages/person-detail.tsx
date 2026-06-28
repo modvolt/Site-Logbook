@@ -16,6 +16,7 @@ import {
   isPpeOverdue,
   formatPpeDate,
 } from "@/lib/ppe-format";
+import { PpeEventHistory } from "@/components/ppe-event-history";
 
 function PpeStatusBadge({ status }: { status: string }) {
   return (
@@ -170,6 +171,7 @@ export default function PersonDetail() {
                       {a.nextInspectionAt && <span>Kontrola: {formatPpeDate(a.nextInspectionAt)}</span>}
                       {a.size && <span>Vel.: {a.size}</span>}
                     </div>
+                    <PpeEventHistory assignmentId={a.id} />
                   </div>
                 </div>
               ))}

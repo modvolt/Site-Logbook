@@ -48,6 +48,7 @@ import {
   computeDefaultDates,
   formatPpeDate,
 } from "@/lib/ppe-format";
+import { PpeEventHistory } from "@/components/ppe-event-history";
 
 const PPE_CATEGORIES = ["hlava", "ruky", "telo", "nohy", "oci", "sluch", "dychaci", "ostatni"] as const;
 const PPE_STATUSES = ["issued", "returned", "damaged", "lost", "disposed"] as const;
@@ -970,6 +971,7 @@ export default function Oopp() {
                             </div>
                           </div>
                         )}
+                        <PpeEventHistory assignmentId={a.id} />
                       </div>
                       {can("write") && a.status === "issued" && (
                         <div className="flex flex-col gap-2 shrink-0">
