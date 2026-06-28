@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, eq, gte, lte, or, isNotNull } from "drizzle-orm";
+import { and, count, eq, gte, lte, or, isNotNull } from "drizzle-orm";
 import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
 import { PPE_CATEGORIES, PPE_STATUSES } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
@@ -109,6 +109,18 @@ router.delete("/ppe/items/:id", requireRole("admin", "master"), async (req, res)
     res.status(400).json({ error: "Neplatné ID" });
     return;
   }
+
+  const [{ activeCount }] = await db
+    .select({ activeCount: count() })
+    .from(ppeAssignmentsTable)
+    .where(and(eq(ppeAssignmentsTable.ppeItemId, params.data.id), eq(ppeAssignmentsTable.status, "issued")));
+  if (activeCount > 0) {
+    res.status(409).json({
+      error: `Pomůcka má ${activeCount} aktivní ${activeCount === 1 ? "výdej" : activeCount < 5 ? "výdeje" : "výdejů"} – nelze ji archivovat. Nejdříve vraťte všechny aktivní výdeje.`,
+    });
+    return;
+  }
+
   const [item] = await db
     .update(ppeItemsTable)
     .set({ active: false })

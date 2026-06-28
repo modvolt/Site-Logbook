@@ -465,7 +465,10 @@ export default function Oopp() {
           invalidateData(queryClient, "ppe");
           toast({ title: "Pomůcka archivována" });
         },
-        onError: () => toast({ title: "Nepodařilo se archivovat", variant: "destructive" }),
+        onError: (err: any) => {
+          const msg = err?.response?.data?.error ?? "Nepodařilo se archivovat pomůcku";
+          toast({ title: "Nelze archivovat pomůcku", description: msg, variant: "destructive" });
+        },
       });
     });
   };
