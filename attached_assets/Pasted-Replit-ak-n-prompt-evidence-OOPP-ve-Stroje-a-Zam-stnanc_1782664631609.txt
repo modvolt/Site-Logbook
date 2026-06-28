@@ -1,0 +1,187 @@
+Replit akční prompt: evidence OOPP ve Stroje a Zaměstnanci
+Jsi senior full-stack vývojář aplikace Site-Logbook / Stavba pro Modvolt s.r.o.
+Pracuj nad nejnovější verzí projektu v Replitu a implementuj kompletní evidenci
+osobních ochranných pracovních prostředků (OOPP). Nejde o textové pole u
+zaměstnance. Potřebujeme dohledatelný katalog OOPP a historii konkrétních výdejů,
+kontrol, výměn, vrácení, poškození, ztrát a vyřazení.
+Proč se změna dělá
+Modvolt potřebuje vidět, kdo má jaké OOPP, od kdy a v jakém stavu.
+U pomůcek musí být rychle vidět prošlá kontrola nebo termín výměny.
+Záznam musí být dostupný jak ze sekce Stroje, tak z konkrétního zaměstnance.
+Historie výdeje nesmí zmizet po přejmenování katalogové položky ani po odebrání
+zaměstnance.
+Evidence podporuje povinnosti BOZP, ale sama o sobě není právní garancí
+splnění všech povinností. Firemní seznam OOPP musí vycházet z vyhodnocení rizik.
+Důležitá bezpečnostní pravidla
+Nemaž žádné existující soubory, přílohy ani produkční databázová data.
+Nikdy neprováděj drizzle push --force, reset databáze ani drop tabulek.
+Výdeje OOPP se z UI nesmí fyzicky mazat. Chybné údaje lze opravit a výdej lze
+uzavřít stavem returned, damaged, lost nebo disposed.
+Katalogová položka se nemaže, pouze archivuje. Musí jít znovu aktivovat.
+Před migrací vytvoř zálohu databáze a ověř restore postup.
+Pokud je číslo migrace 0034 v aktuálním Replit projektu již obsazené,
+přiděl další volné číslo. Neupravuj ani nepřepisuj již aplikované migrace.
+Cílové workflow
+Ze sekce Stroje
+Na /stroje je jasně viditelné tlačítko OOPP.
+/stroje/oopp obsahuje záložky Výdeje a Katalog OOPP.
+Přehled ukazuje počty Aktuálně vydáno, Po termínu, Bez potvrzení.
+Kliknutí na souhrn skutečně zapne odpovídající filtr.
+Uživatel může hledat podle zaměstnance, názvu OOPP, velikosti nebo sériového
+čísla a filtrovat zaměstnance i stav.
+Tlačítko Vydat OOPP otevře krátký formulář. Povinné jsou zaměstnanec,
+pomůcka, počet a datum výdeje.
+Výchozí termín výměny a kontroly se dopočítá z katalogu, ale lze jej ručně
+upravit.
+U aktuálního výdeje lze jedním potvrzeným krokem provést vrácení.
+U každého výdeje lze opravit chybné údaje a nastavit stav.
+Jméno zaměstnance ve výdeji je proklik do /people/:id.
+Ze sekce Zaměstnanci
+Jméno i údaj OOPP: N na /people otevře /people/:id.
+Karta zaměstnance ukazuje přiřazené stroje/nářadí a aktuální OOPP.
+Stroje jsou prokliknutelné do /stroje/:id.
+OOPP jsou prokliknutelná do předfiltrované evidence
+/stroje/oopp?personId=:id.
+Tlačítko Vydat OOPP otevře výdej s již vybraným zaměstnancem.
+Pokud má zaměstnanec OOPP po termínu kontroly nebo výměny, detail i seznam
+zaměstnanců to zřetelně ukážou.
+Z detailu stroje musí jít otevřít kartu přiřazeného zaměstnance.
+Datový model
+Přidej samostatné tabulky, OOPP nevkládej do machines jako další druh stroje.
+ppe_items
+id
+name
+category: head | eye_face | hearing | respiratory | hand_arm | foot_leg | body | fall_protection | electrical | other
+manufacturer, model
+standard, protection_class
+risk_description
+default_lifetime_months
+default_inspection_interval_months
+notes
+active
+created_at, updated_at
+ppe_assignments
+id
+ppe_item_id nullable FK, ON DELETE SET NULL
+ppe_name_snapshot povinný historický otisk
+person_id nullable FK, ON DELETE SET NULL
+person_name_snapshot povinný historický otisk
+quantity, size, serial_number
+issued_at
+replace_by
+next_inspection_at
+returned_at
+status: issued | returned | damaged | lost | disposed
+condition, notes
+employee_confirmed_at
+issued_by_user_id, issued_by_name_snapshot
+created_at, updated_at
+Přidej indexy pro osobu, katalogovou položku, stav, výměnu a kontrolu. Snapshoty
+jsou zásadní: starý výdej musí zůstat čitelný i po odebrání navázané entity.
+API kontrakt
+Rozšiř lib/api-spec/openapi.yaml, následně spusť oficiální codegen projektu.
+GET /api/people/:id
+GET /api/ppe/items?includeInactive=...
+POST /api/ppe/items
+PATCH /api/ppe/items/:id
+DELETE /api/ppe/items/:id pouze archivuje
+GET /api/ppe/assignments?personId=&ppeItemId=&status=&attentionOnly=
+POST /api/ppe/assignments
+PATCH /api/ppe/assignments/:id
+Validuj povinná pole, kladný počet, povolené kategorie/stavy, ISO datum a
+timestamp potvrzení. API musí vracet české a srozumitelné chyby. Při výdeji
+načti zaměstnance i katalogovou položku ze serveru a vytvoř snapshoty na serveru;
+nevěř názvům poslaným klientem.
+Rozšiř GET /api/people/stats o:
+assignedPpeCount
+ppeAttentionCount
+Mutace /ppe zahrň do SSE invalidace. Klientská doména ppe invaliduje
+/api/ppe a související /api/people, aby se počty změnily na všech otevřených
+zařízeních bez ručního reloadu.
+Oprávnění a audit
+Čtení zachovej pro přihlášené uživatele stejně jako u zaměstnanců a strojů.
+Zápis smí provést jen role s existujícím oprávněním write
+(master, admin); guest nesmí měnit data.
+Použij existující audit middleware. V auditu musí být dohledatelný vznik a
+změna výdeje, archivace katalogu a uživatel, který změnu provedl.
+Potvrzení převzetí je evidenční checkbox s časem a auditovaným aktérem. V UI
+jej nevydávej za kvalifikovaný elektronický podpis.
+Dotčené soubory
+Lokální referenční implementace používá tyto soubory. Přenes stejné chování do
+nejnovější verze Replit projektu a respektuj případné novější změny:
+lib/db/src/schema/ppe.ts
+lib/db/src/schema/index.ts
+lib/db/migrations/0034_ppe_assignments.sql
+lib/db/migrations/meta/_journal.json
+lib/api-spec/openapi.yaml
+generované lib/api-client-react/src/generated/*
+generované lib/api-zod/src/generated/*
+artifacts/api-server/src/routes/ppe.ts
+artifacts/api-server/src/routes/people.ts
+artifacts/api-server/src/routes/index.ts
+artifacts/api-server/src/lib/live-updates.ts
+artifacts/stavba/src/lib/ppe-format.ts
+artifacts/stavba/src/lib/query-invalidation.ts
+artifacts/stavba/src/hooks/use-live-updates.ts
+artifacts/stavba/src/pages/oopp.tsx
+artifacts/stavba/src/pages/person-detail.tsx
+artifacts/stavba/src/pages/people.tsx
+artifacts/stavba/src/pages/stroje.tsx
+artifacts/stavba/src/pages/stroj-detail.tsx
+artifacts/stavba/src/App.tsx
+artifacts/api-server/test/ppe-contract.test.ts
+e2e/tests/ppe-ui.spec.ts
+e2e/tsconfig.json
+Pozor na migrace a codegen
+V analyzované kopii repozitáře měl Drizzle v existujících snapshot metadatech
+kolizi rodičů mezi snapshoty 0027/0029 a 0028/0030. Runtime migrace používá
+ručně připravený SQL soubor a journal, ale budoucí drizzle-kit generate může
+selhat, dokud nebude historie snapshotů bezpečně narovnána. Neopravuj to
+odhadováním a nemaž snapshoty. Nejdřív zjisti, zda stejný problém existuje i v
+aktuálním Replit projektu. Pokud ano, popiš jej samostatně a migraci OOPP aplikuj
+nedestruktivně z explicitního SQL.
+Po změně OpenAPI spusť:
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/stavba run build
+pnpm --filter @workspace/api-server run build
+Migraci spusť nejprve proti kopii databáze. Potom ověř počet existujících
+zákazníků, zakázek, příloh, faktur a skladových pohybů před/po migraci; musí být
+beze změny.
+Povinné PASS/FAIL testy
+Scénář	Očekávaný výsledek
+Otevření OOPP ze Stroje	PASS: do 1 kliknutí je vidět evidence
+Prázdný katalog	PASS: výdej je zakázán a UI jasně vede do katalogu
+Založení přilby EN 397	PASS: položka po refreshi zůstane
+Výdej zaměstnanci s velikostí a SN	PASS: záznam je v OOPP i na kartě zaměstnance
+Výdej bez zaměstnance/pomůcky	PASS: formulář se neodešle a označí problém
+Dvojklik na potvrzení výdeje	PASS: vznikne právě jeden výdej
+Výchozí termíny	PASS: podle měsíců v katalogu se dopočítají z data výdeje
+Ruční oprava termínu	PASS: změna se uloží a po refreshi zůstane
+Termín dnes nebo v minulosti	PASS: záznam i zaměstnanec jsou označeni ke kontrole
+Filtr Po termínu	PASS: ukáže jen skutečně problémové aktuální výdeje
+Filtr Bez potvrzení	PASS: ukáže jen aktuální nepotvrzené výdeje
+Vrácení	PASS: záznam zmizí z aktuálních, zůstane v historii
+Poškození/ztráta/vyřazení	PASS: stav lze nastavit bez smazání historie
+Archivace katalogu	PASS: nelze jej nově vydat, staré výdeje zůstanou čitelné
+Obnovení katalogu	PASS: položka je znovu dostupná pro nový výdej
+Odebrání zaměstnance	PASS: historický výdej zachová snapshot jména
+Host zkusí zápis	PASS: API vrátí 403 a data se nezmění
+Dvě otevřená zařízení	PASS: výdej na jednom obnoví OOPP a počty lidí na druhém
+Mobil 390 × 844	PASS: bez horizontálního scrollu, hlavní akce jsou dosažitelné
+Desktop	PASS: filtry a důležité termíny jsou vidět bez otevírání každého detailu
+
+Otestuj také diakritiku, dlouhý název OOPP, prázdné volitelné hodnoty, refresh
+uprostřed práce a krátkou ztrátu připojení. Neprováděj test jen přes endpointy:
+klikni celý tok jako administrátor BOZP a jako vedoucí, který z detailu
+zaměstnance rychle zjišťuje stav vybavení.
+Definice hotovo
+Práce je hotová pouze tehdy, když:
+migrace proběhne bez ztráty stávajících dat,
+codegen, typecheck, testy a oba produkční buildy projdou,
+existuje reálný UI důkaz pro desktop i mobil,
+všechny výše uvedené scénáře mají explicitní PASS/FAIL výsledek,
+Replit vypíše seznam změněných souborů, číslo migrace a případná zbývající
+omezení,
+nebyla odstraněna ani přepsána žádná existující firemní data nebo příloha.

@@ -1,0 +1,402 @@
+Replit akční prompt: evidence OOPP ve Stroje a Zaměstnanci
+Jsi senior full-stack vývojář aplikace Site-Logbook / Stavba pro Modvolt s.r.o.
+Pracuj nad nejnovější verzí projektu v Replitu a implementuj kompletní evidenci
+osobních ochranných pracovních prostředků (OOPP). Nejde o textové pole u
+zaměstnance. Potřebujeme dohledatelný katalog OOPP a historii konkrétních výdejů,
+kontrol, výměn, vrácení, poškození, ztrát a vyřazení.
+Proč se změna dělá
+Modvolt potřebuje vidět, kdo má jaké OOPP, od kdy a v jakém stavu.
+U pomůcek musí být rychle vidět prošlá kontrola nebo termín výměny.
+Záznam musí být dostupný jak ze sekce Stroje, tak z konkrétního zaměstnance.
+Historie výdeje nesmí zmizet po přejmenování katalogové položky ani po odebrání
+zaměstnance.
+Evidence podporuje povinnosti BOZP, ale sama o sobě není právní garancí
+splnění všech povinností. Firemní seznam OOPP musí vycházet z vyhodnocení rizik.
+Důležitá bezpečnostní pravidla
+Nemaž žádné existující soubory, přílohy ani produkční databázová data.
+Nikdy neprováděj drizzle push --force, reset databáze ani drop tabulek.
+Výdeje OOPP se z UI nesmí fyzicky mazat. Chybné údaje lze opravit a výdej lze
+uzavřít stavem returned, damaged, lost nebo disposed.
+Katalogová položka se nemaže, pouze archivuje. Musí jít znovu aktivovat.
+Před migrací vytvoř zálohu databáze a ověř restore postup.
+Pokud je číslo migrace 0034 v aktuálním Replit projektu již obsazené,
+přiděl další volné číslo. Neupravuj ani nepřepisuj již aplikované migrace.
+Cílové workflow
+Ze sekce Stroje
+Na /stroje je jasně viditelné tlačítko OOPP.
+/stroje/oopp obsahuje záložky Výdeje a Katalog OOPP.
+Přehled ukazuje počty Aktuálně vydáno, Po termínu, Bez potvrzení.
+Kliknutí na souhrn skutečně zapne odpovídající filtr.
+Uživatel může hledat podle zaměstnance, názvu OOPP, velikosti nebo sériového
+čísla a filtrovat zaměstnance i stav.
+Tlačítko Vydat OOPP otevře krátký formulář. Povinné jsou zaměstnanec,
+pomůcka, počet a datum výdeje.
+Výchozí termín výměny a kontroly se dopočítá z katalogu, ale lze jej ručně
+upravit.
+U aktuálního výdeje lze jedním potvrzeným krokem provést vrácení.
+U každého výdeje lze opravit chybné údaje a nastavit stav.
+Jméno zaměstnance ve výdeji je proklik do /people/:id.
+Ze sekce Zaměstnanci
+Jméno i údaj OOPP: N na /people otevře /people/:id.
+Karta zaměstnance ukazuje přiřazené stroje/nářadí a aktuální OOPP.
+Stroje jsou prokliknutelné do /stroje/:id.
+OOPP jsou prokliknutelná do předfiltrované evidence
+/stroje/oopp?personId=:id.
+Tlačítko Vydat OOPP otevře výdej s již vybraným zaměstnancem.
+Pokud má zaměstnanec OOPP po termínu kontroly nebo výměny, detail i seznam
+zaměstnanců to zřetelně ukážou.
+Z detailu stroje musí jít otevřít kartu přiřazeného zaměstnance.
+Datový model
+Přidej samostatné tabulky, OOPP nevkládej do machines jako další druh stroje.
+ppe_items
+id
+name
+category: head | eye_face | hearing | respiratory | hand_arm | foot_leg | body | fall_protection | electrical | other
+manufacturer, model
+standard, protection_class
+risk_description
+default_lifetime_months
+default_inspection_interval_months
+notes
+active
+created_at, updated_at
+ppe_assignments
+id
+ppe_item_id nullable FK, ON DELETE SET NULL
+ppe_name_snapshot povinný historický otisk
+person_id nullable FK, ON DELETE SET NULL
+person_name_snapshot povinný historický otisk
+quantity, size, serial_number
+issued_at
+replace_by
+next_inspection_at
+returned_at
+status: issued | returned | damaged | lost | disposed
+condition, notes
+employee_confirmed_at
+issued_by_user_id, issued_by_name_snapshot
+created_at, updated_at
+Přidej indexy pro osobu, katalogovou položku, stav, výměnu a kontrolu. Snapshoty
+jsou zásadní: starý výdej musí zůstat čitelný i po odebrání navázané entity.
+API kontrakt
+Rozšiř lib/api-spec/openapi.yaml, následně spusť oficiální codegen projektu.
+GET /api/people/:id
+GET /api/ppe/items?includeInactive=...
+POST /api/ppe/items
+PATCH /api/ppe/items/:id
+DELETE /api/ppe/items/:id pouze archivuje
+GET /api/ppe/assignments?personId=&ppeItemId=&status=&attentionOnly=
+POST /api/ppe/assignments
+PATCH /api/ppe/assignments/:id
+Validuj povinná pole, kladný počet, povolené kategorie/stavy, ISO datum a
+timestamp potvrzení. API musí vracet české a srozumitelné chyby. Při výdeji
+načti zaměstnance i katalogovou položku ze serveru a vytvoř snapshoty na serveru;
+nevěř názvům poslaným klientem.
+Rozšiř GET /api/people/stats o:
+assignedPpeCount
+ppeAttentionCount
+Mutace /ppe zahrň do SSE invalidace. Klientská doména ppe invaliduje
+/api/ppe a související /api/people, aby se počty změnily na všech otevřených
+zařízeních bez ručního reloadu.
+Oprávnění a audit
+Čtení zachovej pro přihlášené uživatele stejně jako u zaměstnanců a strojů.
+Zápis smí provést jen role s existujícím oprávněním write
+(master, admin); guest nesmí měnit data.
+Použij existující audit middleware. V auditu musí být dohledatelný vznik a
+změna výdeje, archivace katalogu a uživatel, který změnu provedl.
+Potvrzení převzetí je evidenční checkbox s časem a auditovaným aktérem. V UI
+jej nevydávej za kvalifikovaný elektronický podpis.
+Dotčené soubory
+Lokální referenční implementace používá tyto soubory. Přenes stejné chování do
+nejnovější verze Replit projektu a respektuj případné novější změny:
+lib/db/src/schema/ppe.ts
+lib/db/src/schema/index.ts
+lib/db/migrations/0034_ppe_assignments.sql
+lib/db/migrations/meta/_journal.json
+lib/api-spec/openapi.yaml
+generované lib/api-client-react/src/generated/*
+generované lib/api-zod/src/generated/*
+artifacts/api-server/src/routes/ppe.ts
+artifacts/api-server/src/routes/people.ts
+artifacts/api-server/src/routes/index.ts
+artifacts/api-server/src/lib/live-updates.ts
+artifacts/stavba/src/lib/ppe-format.ts
+artifacts/stavba/src/lib/query-invalidation.ts
+artifacts/stavba/src/hooks/use-live-updates.ts
+artifacts/stavba/src/pages/oopp.tsx
+artifacts/stavba/src/pages/person-detail.tsx
+artifacts/stavba/src/pages/people.tsx
+artifacts/stavba/src/pages/stroje.tsx
+artifacts/stavba/src/pages/stroj-detail.tsx
+artifacts/stavba/src/App.tsx
+artifacts/api-server/test/ppe-contract.test.ts
+e2e/tests/ppe-ui.spec.ts
+e2e/tsconfig.json
+Pozor na migrace a codegen
+V analyzované kopii repozitáře měl Drizzle v existujících snapshot metadatech
+kolizi rodičů mezi snapshoty 0027/0029 a 0028/0030. Runtime migrace používá
+ručně připravený SQL soubor a journal, ale budoucí drizzle-kit generate může
+selhat, dokud nebude historie snapshotů bezpečně narovnána. Neopravuj to
+odhadováním a nemaž snapshoty. Nejdřív zjisti, zda stejný problém existuje i v
+aktuálním Replit projektu. Pokud ano, popiš jej samostatně a migraci OOPP aplikuj
+nedestruktivně z explicitního SQL.
+Po změně OpenAPI spusť:
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck
+pnpm --filter @workspace/api-server run test
+pnpm --filter @workspace/stavba run build
+pnpm --filter @workspace/api-server run build
+Migraci spusť nejprve proti kopii databáze. Potom ověř počet existujících
+zákazníků, zakázek, příloh, faktur a skladových pohybů před/po migraci; musí být
+beze změny.
+Povinné PASS/FAIL testy
+Scénář	Očekávaný výsledek
+Otevření OOPP ze Stroje	PASS: do 1 kliknutí je vidět evidence
+Prázdný katalog	PASS: výdej je zakázán a UI jasně vede do katalogu
+Založení přilby EN 397	PASS: položka po refreshi zůstane
+Výdej zaměstnanci s velikostí a SN	PASS: záznam je v OOPP i na kartě zaměstnance
+Výdej bez zaměstnance/pomůcky	PASS: formulář se neodešle a označí problém
+Dvojklik na potvrzení výdeje	PASS: vznikne právě jeden výdej
+Výchozí termíny	PASS: podle měsíců v katalogu se dopočítají z data výdeje
+Ruční oprava termínu	PASS: změna se uloží a po refreshi zůstane
+Termín dnes nebo v minulosti	PASS: záznam i zaměstnanec jsou označeni ke kontrole
+Filtr Po termínu	PASS: ukáže jen skutečně problémové aktuální výdeje
+Filtr Bez potvrzení	PASS: ukáže jen aktuální nepotvrzené výdeje
+Vrácení	PASS: záznam zmizí z aktuálních, zůstane v historii
+Poškození/ztráta/vyřazení	PASS: stav lze nastavit bez smazání historie
+Archivace katalogu	PASS: nelze jej nově vydat, staré výdeje zůstanou čitelné
+Obnovení katalogu	PASS: položka je znovu dostupná pro nový výdej
+Odebrání zaměstnance	PASS: historický výdej zachová snapshot jména
+Host zkusí zápis	PASS: API vrátí 403 a data se nezmění
+Dvě otevřená zařízení	PASS: výdej na jednom obnoví OOPP a počty lidí na druhém
+Mobil 390 × 844	PASS: bez horizontálního scrollu, hlavní akce jsou dosažitelné
+Desktop	PASS: filtry a důležité termíny jsou vidět bez otevírání každého detailu
+
+Otestuj také diakritiku, dlouhý název OOPP, prázdné volitelné hodnoty, refresh
+uprostřed práce a krátkou ztrátu připojení. Neprováděj test jen přes endpointy:
+klikni celý tok jako administrátor BOZP a jako vedoucí, který z detailu
+zaměstnance rychle zjišťuje stav vybavení.
+Definice hotovo
+Práce je hotová pouze tehdy, když:
+migrace proběhne bez ztráty stávajících dat,
+codegen, typecheck, testy a oba produkční buildy projdou,
+existuje reálný UI důkaz pro desktop i mobil,
+všechny výše uvedené scénáře mají explicitní PASS/FAIL výsledek,
+Replit vypíše seznam změněných souborů, číslo migrace a případná zbývající
+omezení,
+nebyla odstraněna ani přepsána žádná existující firemní data nebo příloha.
+Závazný dodatek: podpis, PDF, Statistika a dokumentace zákazníků
+Tento dodatek má přednost před staršími částmi promptu, pokud si odporují.
+Zejména ruší návrh, že převzetí OOPP je pouze evidenční checkbox. Checkbox bez
+podpisu nesmí vytvořit stav potvrzeno.
+A. Podepsané předání OOPP a neměnný PDF protokol
+Cíl a důvod
+Při skutečném výdeji musí být dohledatelné, kdo přesně co převzal, kdy se
+podepsal, kdo výdej evidoval a jak vypadal dokument v okamžiku podpisu. Pozdější
+změna katalogu OOPP, jména osoby nebo firemních údajů nesmí změnit již podepsaný
+protokol.
+Datový model
+Do ppe_assignments přidej snapshoty:
+ppe_category_snapshot
+ppe_standard_snapshot
+ppe_protection_class_snapshot
+ppe_risk_description_snapshot
+Přidej tabulku ppe_handover_documents:
+vazba na výdej a verze;
+unikátní číslo protokolu;
+jméno podepisujícího a serverový čas podpisu;
+verze potvrzovacího textu;
+privátní cesta k PNG podpisu a jeho SHA-256;
+privátní cesta k PDF a jeho SHA-256;
+ID a snapshot jména uživatele, který podpis uložil;
+čas vytvoření;
+unikátní kombinace assignment_id + version.
+Přidej tabulku ppe_handover_events pro události signed, pdf_downloaded a
+signature_viewed, včetně aktéra a času. Použij novou nedestruktivní migraci,
+v referenční implementaci 0035_ppe_handover_documents.sql; pokud je číslo
+obsazené, použij další volné.
+API a ukládání
+POST /api/ppe/assignments/:id/sign
+GET /api/ppe/assignments/:id/handover-pdf
+GET /api/ppe/assignments/:id/signature
+GET /api/ppe/assignments/:id/events
+Podpis smí provést jen master nebo admin. Server přijme pouze PNG data URL,
+ověří PNG hlavičku a limit 500 kB. confirmationAccepted musí být doslova
+true; jméno podepisujícího je povinné.
+Server vytvoří PDF pomocí vloženého fontu s podporou češtiny. PDF obsahuje firmu,
+zaměstnance, snapshot OOPP, normu, počet, velikost, sériové číslo, data výdeje,
+kontroly a výměny, rizika, potvrzovací text, podpis, čas, vydávajícího a SHA-256
+podpisu. PNG i PDF ulož do privátního object storage a teprve potom v jedné DB
+transakci vytvoř dokument, nastav employee_confirmed_at a auditní událost.
+Při selhání transakce nově nahrané objekty odstraň.
+Cesty ppe-handovers/* přidej mezi chráněné prefixy obecného
+/api/storage/objects/*. PDF a podpis smějí být čitelné pouze přes výše uvedené
+role-gated endpointy.
+Po podpisu uzamkni původní údaje výdeje. Povolená zůstane pouze následná změna
+stavu a data vrácení. API už nesmí přijímat employeeConfirmedAt ve vstupu pro
+vytvoření ani běžnou editaci.
+UI
+Na nepodepsaném aktivním výdeji zobraz Podepsat převzetí.
+Nejprve ukaž přesný potvrzovací text, jméno a povinný souhlas, potom otevři
+existující SignaturePad.
+Po úspěchu ukaž Podepsáno, číslo dokumentu, jméno a čas.
+Přidej přímo dostupné akce Protokol PDF, Podpis a Historie.
+Podepsanému výdeji skryj obecnou editaci, ale ponech Vrátit.
+Stejný stav a číslo protokolu ukaž na /people/:id.
+Filtr Bez potvrzení počítá výdeje bez handoverDocument, nikoli ručně
+nastavený timestamp.
+Povinné testy
+Scénář	Očekávaný výsledek
+Podpis bez souhlasu	FAIL kontrolovaně, bez PDF a změny dat
+Neplatný nebo příliš velký podpis	400 se srozumitelnou českou chybou
+Platný podpis	právě jeden dokument, událost a neměnné PDF
+Dvojklik na podpis	právě jeden protokol, druhý pokus 409
+Reload po podpisu	stav, číslo a akce PDF zůstanou
+Otevření PDF	soubor začíná %PDF- a zapíše auditní událost
+Otevření podpisu	vrátí PNG a zapíše auditní událost
+Přímá obecná object URL	404 i pro přihlášeného hosta
+Editace podepsaných údajů	409; vrácení zůstane povolené
+Mobil 390 × 844	podpis jde provést prstem bez horizontálního scrollu
+
+Referenční soubory navíc:
+lib/db/migrations/0035_ppe_handover_documents.sql
+artifacts/api-server/src/lib/ppe-handover-pdf.ts
+artifacts/api-server/src/routes/storage.ts
+artifacts/stavba/src/components/signature-pad.tsx
+artifacts/api-server/test/ppe-handover-pdf.test.ts
+artifacts/api-server/test/storage-object-access.test.ts
+B. Statistika jako řídicí přehled firmy
+Problém
+Původní stránka je převážně tisková tabulka. Majitel z ní rychle nepozná, kolik
+se skutečně vystavilo, zaplatilo, čeká na inkaso, je po splatnosti nebo uniká
+v nevyfakturované práci. Interní cena zakázek je navíc matoucím způsobem nazvána
+Tržby.
+Požadované řešení
+Nad stávající tiskovou sestavu přidej obrazovkový přehled vedení:
+Hodnota evidované práce s porovnáním minulého období;
+Vystaveno s DPH s porovnáním;
+Zaplaceno;
+K inkasu s počtem a částkou;
+Po splatnosti s počtem a částkou;
+K fakturaci bez DPH, včetně hotových zakázek a akcí;
+šestiměsíční graf vystaveno, zaplaceno a počet hotových zakázek;
+provozní řádky Zakázky, Dlouhodobé akce, OOPP a Sklad s přímým proklikem;
+tabulku největších fakturovaných zákazníků s proklikem do detailu;
+OOPP: vydáno, podepsáno, bez podpisu, po termínu.
+Stávající detailní sestavu a PDF export zachovej. Sekci Tržby přejmenuj na
+Hodnota evidované práce a vysvětli, že jde o interní hodnotu bez DPH; skutečná
+fakturace a inkaso musí být samostatně. Výpočty nesmějí míchat částky s a bez
+DPH. Mobilní fakturace není prioritou tohoto dodatku; responzivita Statistiky
+ale nesmí být rozbitá.
+Rozšiř /api/stats/overview o activities, billing, comparison, trend,
+topCustomers a ppe. Dotčené soubory:
+artifacts/api-server/src/routes/stats.ts
+lib/api-spec/openapi.yaml
+generovaný API klient a validátory
+artifacts/stavba/src/pages/statistika.tsx
+Povinné PASS/FAIL
+Scénář	Očekávaný výsledek
+Změna období	všechny KPI i porovnání odpovídají zvolenému období
+Klik KPI po splatnosti	otevře skutečně filtrované faktury po splatnosti
+Klik K fakturaci	otevře frontu nefakturovaných prací
+Nulové minulé období	žádné dělení nulou, zobrazí se nově v období
+Graf bez dat	stránka zůstane stabilní a srozumitelná
+PDF/tisk	exportuje detailní sestavu, ne ovládací prvky dashboardu
+Terminologie	interní hodnota práce není vydávána za fakturované tržby
+
+C. Centrální dokumentace zákazníků a provozoven
+Problém
+Současná tabulka customer_site_attachments zná jen provozovnu, kategorii,
+název souboru, URL a volný popis. Chybí platnost revize, číslo dokumentu, verze,
+stav, odpovědnost, historie nahrazení i zákaznický souhrn. Běžný uživatel tak
+musí otevírat provozovny jednu po druhé a podle názvu souboru hádat, co je
+aktuální. Trvalé smazání z UI navíc není vhodný standardní workflow firemního
+archivu.
+Datový model bez ztráty současných dat
+Nemaž ani nepřejmenovávej stávající tabulku v této etapě. Rozšiř ji
+nedestruktivní migrací:
+customer_id FK, nejprve nullable, backfill přes customer_sites, potom
+NOT NULL;
+site_id změň na volitelný, aby dokument mohl patřit zákazníkovi obecně;
+title;
+document_number;
+revision;
+issued_at;
+valid_from;
+valid_until;
+status: current | expiring | expired | replaced | archived;
+replaces_attachment_id nullable self-reference;
+tags;
+mime_type, file_size, sha256;
+uploaded_by_user_id, uploaded_by_name_snapshot;
+updated_at, archived_at.
+Zachovej všechna existující ID, URL, popisy i vazby. Pro staré řádky nastav
+title = file_name, zákazníka dopočítej z provozovny a stav current.
+Migrační skript musí před změnou a po ní porovnat počet řádků a počet neprázdných
+URL. Nesmí přesouvat ani přepisovat fyzické soubory.
+API
+Zachovej stávající site endpointy kvůli kompatibilitě a přidej:
+GET /api/customers/:customerId/documents s filtry siteId, type, status,
+validity, search;
+POST /api/customers/:customerId/documents;
+PATCH /api/customer-documents/:id;
+POST /api/customer-documents/:id/archive;
+GET /api/customers/:customerId/documents/summary;
+volitelně auditní timeline dokumentu.
+Běžné tlačítko Archivovat pouze nastaví stav a čas. Fyzické smazání nepatří do
+běžného UI. Pokud zůstane administrátorský trvalý výmaz, musí být samostatně
+oprávněný, výrazně potvrzený, auditovaný a po DB změně musí odstranit i objekt
+z object storage. Stejně ošetři odstranění celé provozovny; nesmí po něm zůstat
+osiřelé objekty.
+Upload musí uložit MIME, velikost a SHA-256. Duplicitu stejného SHA v rámci
+zákazníka nabídni jako existující dokument, nevytvářej ji potichu znovu.
+UI a workflow
+Na detail zákazníka přidej výraznou sekci nebo záložku Dokumentace:
+souhrn Aktuální, Končí do 60 dnů, Prošlé, Bez platnosti;
+hledání přes název, číslo dokumentu, popis a štítky;
+filtry provozovna, typ, stav a platnost;
+přehled napříč všemi provozovnami;
+řádky s názvem, typem, provozovnou, číslem/verzí, platností a stavem;
+klik na provozovnu i dokument;
+rychlé Náhled, Stáhnout, Nahradit novou verzí, Archivovat.
+Detail provozovny zachovej jako předfiltrovaný pohled stejného registru, ne jako
+druhý nezávislý archiv. Upload musí před odesláním vyžádat alespoň název a typ;
+u revize nabídne číslo, datum vydání a platnost. Po uploadu jasně zobraz
+Uloženo k zákazníkovi X / provozovně Y. Při odchodu s rozpracovanými metadaty
+varuj uživatele.
+Doporučené typy: projektová dokumentace, revize elektro, revize hromosvodu,
+protokol měření, předávací protokol, návod, prohlášení o shodě, smlouva a ostatní.
+Nepoužívej jen technické kódy bez českého názvu.
+Na zákaznické kartě ukaž nejbližší končící platnosti. Do Statistiky nebo rizik
+přidej počet prošlých dokumentů a dokumentů končících do 60 dnů s proklikem do
+filtrovaného registru.
+Povinné PASS/FAIL
+Scénář	Očekávaný výsledek
+Migrace starých příloh	stejný počet řádků a URL, vše dohledatelné
+Dokument zákazníka bez provozovny	lze uložit a najít v zákaznickém souhrnu
+Revize provozovny s platností	stav se správně přepne na končící/prošlou
+Nová verze dokumentu	stará zůstane čitelná jako nahrazená
+Stejný soubor podruhé	UI upozorní na duplicitu
+Hledání podle čísla	dokument je nalezen do několika sekund
+Proklik zákazník → provozovna	zachová filtr a kontext
+Archivace	záznam ani soubor nezmizí z historie
+Trvalý administrátorský výmaz	odstraní DB záznam i objekt, zapíše audit
+Smazání provozovny	varuje na dokumenty; žádná tichá ztráta ani orphan soubor
+Mobil	náhled, stav a platnost jsou čitelné bez horizontálního scrollu
+
+Pořadí implementace a finální důkazy
+Nejprve migrace a API OOPP podpisu, potom jeho UI.
+Potom rozšíření Statistiky.
+Nakonec nedestruktivní migrace a sjednocené UI dokumentace.
+Po každém kroku codegen, typecheck a cílené testy.
+Před každou migrací záloha a ověřený restore.
+Na konci produkční build serveru i klienta a reálné klikání desktop + mobil.
+Výstup Replitu musí obsahovat:
+seznam změněných souborů a migrací;
+PASS/FAIL tabulky pro všechny tři balíky;
+snímky desktopu a mobilu;
+důkaz, že PDF vzniklo a po reloadu je dostupné;
+počty zákazníků, provozoven, dokumentů, příloh a faktur před/po migracích;
+explicitní potvrzení, že žádný stávající soubor ani databázový záznam nebyl
+ztracen;
+seznam zbývajících omezení a rollback postup.
