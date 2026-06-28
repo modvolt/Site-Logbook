@@ -412,8 +412,8 @@ router.get("/ppe/assignments/:id/signature", requireRole("admin", "master"), asy
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.send(buffer);
   } catch (err) {
-    req.log?.error({ err }, "PPE signature fetch failed");
-    res.status(500).json({ error: "Nepodařilo se načíst podpis" });
+    req.log?.warn({ err }, "PPE signature fetch failed — object missing or inaccessible");
+    res.status(404).json({ error: "Podpis nebyl nalezen" });
   }
 });
 
