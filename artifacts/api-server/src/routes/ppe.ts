@@ -718,14 +718,11 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
   let pdfUploaded = false;
 
   try {
-    await objectStorage.putPrivateObject(pngObjectPath, pngBuffer, "image/png");
-    pngUploaded = true;
-
-    // Fetch company/person info for PDF
+    // Fetch company/person info for PDF (outside the transaction to avoid holding the lock during I/O)
     const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, assignment.personId));
     const companyName = "Modvolt s.r.o.";
 
-    // Generate PDF (uses snapshot data from assignment)
+    // Generate placeholder PDF buffer before the transaction (pure computation — no storage I/O yet)
     const pdfBuffer = generatePpeHandoverPdf({
       documentNumber: "OOPP-PENDING",
       companyName,
@@ -749,12 +746,10 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
       nextInspectionAt: assignment.nextInspectionAt,
     });
 
-    await objectStorage.putPrivateObject(pdfObjectPath, pdfBuffer, "application/pdf");
-    pdfUploaded = true;
-
     const pdfSha256 = createHash("sha256").update(pdfBuffer).digest("hex");
 
-    // Atomic DB transaction
+    // Atomic DB transaction — uploads happen AFTER the FOR UPDATE re-check so that the
+    // loser of a concurrent race never writes to object storage at all.
     const handoverDoc = await db.transaction(async (tx) => {
       // Lock the assignment row to serialize concurrent sign attempts
       const [recheck] = await tx
@@ -765,6 +760,13 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
       if (recheck?.employeeConfirmedAt) {
         throw new Error("ALREADY_SIGNED");
       }
+
+      // Upload PNG and placeholder PDF only after the slot is confirmed free —
+      // the loser of a race never reaches this point.
+      await objectStorage.putPrivateObject(pngObjectPath, pngBuffer, "image/png");
+      pngUploaded = true;
+      await objectStorage.putPrivateObject(pdfObjectPath, pdfBuffer, "application/pdf");
+      pdfUploaded = true;
 
       // Insert handover document with placeholder number
       const [doc] = await tx
@@ -849,10 +851,14 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
   } catch (err) {
     // Clean up uploaded objects if transaction failed
     if (pngUploaded) {
-      objectStorage.deletePrivateObject(pngObjectPath).catch(() => undefined);
+      objectStorage.deletePrivateObject(pngObjectPath).catch((cleanupErr: unknown) => {
+        req.log.warn({ err: cleanupErr, path: pngObjectPath }, "Failed to delete orphaned PNG after sign rollback");
+      });
     }
     if (pdfUploaded) {
-      objectStorage.deletePrivateObject(pdfObjectPath).catch(() => undefined);
+      objectStorage.deletePrivateObject(pdfObjectPath).catch((cleanupErr: unknown) => {
+        req.log.warn({ err: cleanupErr, path: pdfObjectPath }, "Failed to delete orphaned PDF after sign rollback");
+      });
     }
 
     if (err instanceof Error && err.message === "ALREADY_SIGNED") {
