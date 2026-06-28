@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearch } from "wouter";
-import { ShieldCheck, CheckCircle2, AlertCircle, Loader2, ClipboardCheck } from "lucide-react";
+import { ShieldCheck, CheckCircle2, AlertCircle, Loader2, ClipboardCheck, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -19,6 +19,7 @@ interface AssignmentDetails {
 type PageState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
+  | { kind: "expired" }
   | { kind: "ready"; assignment: AssignmentDetails }
   | { kind: "confirming"; assignment: AssignmentDetails }
   | { kind: "done"; alreadyConfirmed: boolean; assignment: AssignmentDetails };
@@ -41,6 +42,10 @@ export default function PpeConfirm() {
     }
     fetch(`/api/ppe/confirm?token=${encodeURIComponent(token)}`)
       .then(async (r) => {
+        if (r.status === 410) {
+          setState({ kind: "expired" });
+          return null;
+        }
         if (!r.ok) {
           const body = await r.json().catch(() => ({ error: "Neznámá chyba" }));
           throw new Error(body.error ?? "Chyba při načítání");
@@ -48,6 +53,7 @@ export default function PpeConfirm() {
         return r.json() as Promise<AssignmentDetails>;
       })
       .then((assignment) => {
+        if (!assignment) return;
         if (assignment.employeeConfirmedAt) {
           setState({ kind: "done", alreadyConfirmed: true, assignment });
         } else {
@@ -66,6 +72,10 @@ export default function PpeConfirm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
+      if (r.status === 410) {
+        setState({ kind: "expired" });
+        return;
+      }
       if (!r.ok) {
         const body = await r.json().catch(() => ({ error: "Neznámá chyba" }));
         setState({ kind: "error", message: body.error ?? "Chyba při potvrzování" });
@@ -91,6 +101,18 @@ export default function PpeConfirm() {
             <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin" />
               <p>Načítám…</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {state.kind === "expired" && (
+          <Card className="border-amber-500/40">
+            <CardContent className="p-8 flex flex-col items-center gap-3 text-center">
+              <Clock className="h-10 w-10 text-amber-500" />
+              <p className="font-semibold text-amber-600">Odkaz vypršel</p>
+              <p className="text-sm text-muted-foreground">
+                Platnost tohoto potvrzovacího odkazu skončila. Kontaktujte prosím svého nadřízeného nebo správce systému a požádejte o zaslání nového odkazu.
+              </p>
             </CardContent>
           </Card>
         )}

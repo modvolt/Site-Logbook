@@ -25,6 +25,7 @@ function serializeAssignment(a: typeof ppeAssignmentsTable.$inferSelect) {
   return {
     ...a,
     confirmToken: undefined,
+    confirmTokenExpiresAt: undefined,
     hasConfirmToken: !!a.confirmToken,
     employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
     createdAt: a.createdAt.toISOString(),
@@ -371,10 +372,15 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     return;
   }
 
-  const token = existing.confirmToken ?? crypto.randomBytes(32).toString("hex");
-  if (!existing.confirmToken) {
-    await db.update(ppeAssignmentsTable).set({ confirmToken: token }).where(eq(ppeAssignmentsTable.id, params.data.id));
-  }
+  const expiryDays = parseInt(process.env.PPE_CONFIRM_EXPIRY_DAYS ?? "30", 10);
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + expiryDays);
+
+  const isExpired = existing.confirmTokenExpiresAt && existing.confirmTokenExpiresAt < new Date();
+  const token = (!existing.confirmToken || isExpired) ? crypto.randomBytes(32).toString("hex") : existing.confirmToken;
+  await db.update(ppeAssignmentsTable)
+    .set({ confirmToken: token, confirmTokenExpiresAt: expiresAt })
+    .where(eq(ppeAssignmentsTable.id, params.data.id));
 
   const baseUrl = `${req.protocol}://${req.get("host")}`;
   const confirmUrl = `${baseUrl}/oopp/potvrdit?token=${token}`;
@@ -396,6 +402,10 @@ router.post("/ppe/confirm", async (req, res): Promise<void> => {
 
   if (!assignment) {
     res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
+    return;
+  }
+  if (assignment.confirmTokenExpiresAt && assignment.confirmTokenExpiresAt < new Date()) {
+    res.status(410).json({ error: "Odkaz vypršel. Požádejte správce o nový potvrzovací odkaz." });
     return;
   }
   if (assignment.status !== "issued") {
@@ -430,6 +440,10 @@ router.get("/ppe/confirm", async (req, res): Promise<void> => {
 
   if (!assignment) {
     res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
+    return;
+  }
+  if (assignment.confirmTokenExpiresAt && assignment.confirmTokenExpiresAt < new Date()) {
+    res.status(410).json({ error: "Odkaz vypršel. Požádejte správce o nový potvrzovací odkaz." });
     return;
   }
 

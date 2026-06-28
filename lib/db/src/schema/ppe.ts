@@ -52,6 +52,7 @@ export const ppeAssignmentsTable = pgTable(
     status: text("status").notNull().default("issued"),
     employeeConfirmedAt: timestamp("employee_confirmed_at"),
     confirmToken: text("confirm_token").unique(),
+    confirmTokenExpiresAt: timestamp("confirm_token_expires_at"),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
