@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,11 +27,27 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon, Shield, AlertCircle } from "lucide-react";
+import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon, Shield, AlertCircle, Download, FileText, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+
+function triggerLeavesExport(params: { year: number; personId?: number; format: "csv" | "pdf" }) {
+  const qs = new URLSearchParams();
+  qs.set("year", String(params.year));
+  qs.set("format", params.format);
+  if (params.personId != null) qs.set("personId", String(params.personId));
+  const url = `/api/leaves/export?${qs.toString()}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
 
 function extractServerError(err: unknown): string | null {
   const msg =
@@ -96,11 +113,14 @@ function PersonLeavesDialog({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { openConfirm, dialogProps: confirmProps } = useConfirmDialog();
+  const { can } = useAuth();
+  const canWrite = can("write");
 
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState<LeaveFormData>({ type: "vacation", startDate: today, endDate: today, note: "" });
   const [editId, setEditId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [exportYear, setExportYear] = useState(CURRENT_YEAR);
 
   const { data: leaves, isLoading: leavesLoading } = useListLeaves(
     { personId: person.id },
@@ -220,6 +240,45 @@ function PersonLeavesDialog({
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">Jiné (dny {CURRENT_YEAR})</div>
               </div>
+            </div>
+          )}
+
+          {canWrite && (
+            <div className="flex items-center gap-2 mb-1">
+              <Label className="text-xs shrink-0 text-muted-foreground">Export za rok</Label>
+              <Input
+                type="number"
+                min={2000}
+                max={CURRENT_YEAR + 5}
+                value={exportYear}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (!isNaN(v) && v >= 2000 && v <= CURRENT_YEAR + 5) setExportYear(v);
+                }}
+                className="h-8 w-24 text-sm"
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5 ml-auto">
+                    <Download className="h-3.5 w-3.5" />
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => triggerLeavesExport({ year: exportYear, personId: person.id, format: "csv" })}
+                  >
+                    <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
+                    Stáhnout CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => triggerLeavesExport({ year: exportYear, personId: person.id, format: "pdf" })}
+                  >
+                    <FileText className="h-4 w-4 mr-2 text-rose-600" />
+                    Stáhnout PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
 
@@ -568,6 +627,9 @@ export default function People() {
   const { toast } = useToast();
   const { openConfirm, dialogProps } = useConfirmDialog();
   const [, setLocation] = useLocation();
+  const { can } = useAuth();
+  const canWrite = can("write");
+  const [allExportYear, setAllExportYear] = useState(CURRENT_YEAR);
 
   const { data: people, isLoading: loadingPeople } = useListPeople({
     query: { queryKey: getListPeopleQueryKey() },
@@ -630,13 +692,51 @@ export default function People() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         <h1 className="text-2xl font-bold flex-1">Tým</h1>
         {activeTimerCount > 0 && (
           <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50 dark:bg-amber-950/30 gap-1">
             <Timer className="h-3.5 w-3.5" />
             {activeTimerCount} {activeTimerCount === 1 ? "aktivní časovač" : "aktivní časovače"}
           </Badge>
+        )}
+        {canWrite && (
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={2000}
+              max={CURRENT_YEAR + 5}
+              value={allExportYear}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!isNaN(v) && v >= 2000 && v <= CURRENT_YEAR + 5) setAllExportYear(v);
+              }}
+              className="h-8 w-24 text-sm"
+              title="Rok exportu"
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                  <Download className="h-3.5 w-3.5" />
+                  Export dovolených
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => triggerLeavesExport({ year: allExportYear, format: "csv" })}
+                >
+                  <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
+                  Vši zaměstnanci – CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => triggerLeavesExport({ year: allExportYear, format: "pdf" })}
+                >
+                  <FileText className="h-4 w-4 mr-2 text-rose-600" />
+                  Všichni zaměstnanci – PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         )}
       </div>
 

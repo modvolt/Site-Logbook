@@ -811,6 +811,50 @@ paths:
         "404":
           description: Not found
 
+  /leaves/export:
+    get:
+      operationId: exportLeaves
+      tags: [people]
+      summary: Export yearly leave summary as CSV or PDF (admin/master)
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: Year (defaults to current year)
+        - name: personId
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: Filter to a single person
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [csv, pdf]
+            default: csv
+      responses:
+        "200":
+          description: File download (CSV or PDF)
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Validation error
+        "401":
+          description: Unauthorized
+        "404":
+          description: Person not found
+
   /leaves/summary:
     get:
       operationId: getLeavesSummary

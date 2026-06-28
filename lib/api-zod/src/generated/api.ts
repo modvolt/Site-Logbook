@@ -787,6 +787,18 @@ export const DeleteLeaveParams = zod.object({
 
 
 /**
+ * @summary Export yearly leave summary as CSV or PDF (admin/master)
+ */
+export const exportLeavesQueryFormatDefault = `csv`;
+
+export const ExportLeavesQueryParams = zod.object({
+  "year": zod.coerce.number().optional(),
+  "personId": zod.coerce.number().optional(),
+  "format": zod.enum(['csv', 'pdf']).default(exportLeavesQueryFormatDefault)
+})
+
+
+/**
  * @summary Aggregated leave days per person for a given year
  */
 export const GetLeavesSummaryQueryParams = zod.object({

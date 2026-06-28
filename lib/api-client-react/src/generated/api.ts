@@ -111,6 +111,7 @@ import type {
   EmployeeLeave,
   EmployeeLeaveInput,
   ErrorEnvelope,
+  ExportLeavesParams,
   ExportSubjectDataParams,
   ForgotPasswordQuestions,
   ForgotPasswordQuestionsInput,
@@ -2757,6 +2758,90 @@ export const useDeleteLeave = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteLeaveMutationOptions(options));
     }
+
+export const getExportLeavesUrl = (params?: ExportLeavesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/leaves/export?${stringifiedParams}` : `/api/leaves/export`
+}
+
+/**
+ * @summary Export yearly leave summary as CSV or PDF (admin/master)
+ */
+export const exportLeaves = async (params?: ExportLeavesParams, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportLeavesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportLeavesQueryKey = (params?: ExportLeavesParams,) => {
+    return [
+    `/api/leaves/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportLeavesQueryOptions = <TData = Awaited<ReturnType<typeof exportLeaves>>, TError = ErrorType<void>>(params?: ExportLeavesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportLeaves>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportLeavesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportLeaves>>> = ({ signal }) => exportLeaves(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportLeaves>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportLeavesQueryResult = NonNullable<Awaited<ReturnType<typeof exportLeaves>>>
+export type ExportLeavesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Export yearly leave summary as CSV or PDF (admin/master)
+ */
+
+export function useExportLeaves<TData = Awaited<ReturnType<typeof exportLeaves>>, TError = ErrorType<void>>(
+ params?: ExportLeavesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportLeaves>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportLeavesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getGetLeavesSummaryUrl = (params?: GetLeavesSummaryParams,) => {
   const normalizedParams = new URLSearchParams();

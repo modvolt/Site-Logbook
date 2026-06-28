@@ -4220,6 +4220,26 @@ export const ListLeavesType = {
   other: 'other',
 } as const;
 
+export type ExportLeavesParams = {
+/**
+ * Year (defaults to current year)
+ */
+year?: number;
+/**
+ * Filter to a single person
+ */
+personId?: number;
+format?: ExportLeavesFormat;
+};
+
+export type ExportLeavesFormat = typeof ExportLeavesFormat[keyof typeof ExportLeavesFormat];
+
+
+export const ExportLeavesFormat = {
+  csv: 'csv',
+  pdf: 'pdf',
+} as const;
+
 export type GetLeavesSummaryParams = {
 /**
  * Year (defaults to current year)

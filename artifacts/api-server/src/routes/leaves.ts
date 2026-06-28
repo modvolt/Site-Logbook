@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { db, employeeLeavesTable, peopleTable } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
 import { z } from "zod/v4";
+import { generateLeavesSummaryPdf, generateLeavesSummaryCsv, type LeaveSummaryRow } from "../lib/leaves-export";
 
 const router: IRouter = Router();
 
@@ -25,6 +26,12 @@ const SummaryQuerySchema = z.object({
   year: z.coerce.number().int().optional(),
 });
 
+const ExportQuerySchema = z.object({
+  year: z.coerce.number().int().optional(),
+  personId: z.coerce.number().int().positive().optional(),
+  format: z.enum(["csv", "pdf"]).default("csv"),
+});
+
 function serializeLeave(leave: typeof employeeLeavesTable.$inferSelect, personName?: string | null) {
   const start = new Date(leave.startDate + "T00:00:00Z");
   const end = new Date(leave.endDate + "T00:00:00Z");
@@ -37,6 +44,20 @@ function serializeLeave(leave: typeof employeeLeavesTable.$inferSelect, personNa
     createdAt: leave.createdAt.toISOString(),
     updatedAt: leave.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Count calendar days of a leave that fall within [yearFrom, yearTo].
+ * Clips the leave's start/end to the year window so cross-year entries
+ * are counted only for the days that actually fall in the target year.
+ */
+function countDaysInYear(startDate: string, endDate: string, yearFrom: string, yearTo: string): number {
+  const clippedStart = startDate < yearFrom ? yearFrom : startDate;
+  const clippedEnd = endDate > yearTo ? yearTo : endDate;
+  if (clippedStart > clippedEnd) return 0;
+  const s = new Date(clippedStart + "T00:00:00Z");
+  const e = new Date(clippedEnd + "T00:00:00Z");
+  return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
 }
 
 router.get("/leaves", async (req, res): Promise<void> => {
@@ -202,9 +223,7 @@ router.get("/leaves/summary", async (req, res): Promise<void> => {
     let otherDays = 0;
 
     for (const leave of personLeaves) {
-      const start = new Date(leave.startDate + "T00:00:00Z");
-      const end = new Date(leave.endDate + "T00:00:00Z");
-      const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+      const days = countDaysInYear(leave.startDate, leave.endDate, from, to);
       if (leave.type === "vacation") vacationDays += days;
       else if (leave.type === "sick") sickDays += days;
       else otherDays += days;
@@ -223,5 +242,85 @@ router.get("/leaves/summary", async (req, res): Promise<void> => {
 
   res.json(summary);
 });
+
+router.get(
+  "/leaves/export",
+  requireRole("admin", "master"),
+  async (req, res): Promise<void> => {
+    const parsed = ExportQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const { format, personId } = parsed.data;
+    const year = parsed.data.year ?? new Date().getFullYear();
+    const from = `${year}-01-01`;
+    const to = `${year}-12-31`;
+
+    const peopleQuery = db.select().from(peopleTable).orderBy(peopleTable.name);
+    const people = personId != null
+      ? (await peopleQuery).filter((p) => p.id === personId)
+      : await peopleQuery;
+
+    if (personId != null && people.length === 0) {
+      res.status(404).json({ error: "Pracovník nenalezen." });
+      return;
+    }
+
+    const leavesQuery = db
+      .select()
+      .from(employeeLeavesTable)
+      .where(
+        and(
+          gte(employeeLeavesTable.endDate, from),
+          lte(employeeLeavesTable.startDate, to),
+        ),
+      );
+    const leaves = await leavesQuery;
+
+    const summaryRows: LeaveSummaryRow[] = people.map((person) => {
+      const personLeaves = leaves.filter((l) => l.personId === person.id);
+      let vacationDays = 0;
+      let sickDays = 0;
+      let otherDays = 0;
+
+      for (const leave of personLeaves) {
+        const days = countDaysInYear(leave.startDate, leave.endDate, from, to);
+        if (leave.type === "vacation") vacationDays += days;
+        else if (leave.type === "sick") sickDays += days;
+        else otherDays += days;
+      }
+
+      return {
+        personId: person.id,
+        personName: person.name,
+        year,
+        vacationDays,
+        sickDays,
+        otherDays,
+        totalDays: vacationDays + sickDays + otherDays,
+      };
+    });
+
+    const personSlug = people.length === 1
+      ? `-${people[0].name.replace(/[^\w]+/g, "-").toLowerCase()}`
+      : "";
+    const filename = `dovolene-${year}${personSlug}`;
+
+    if (format === "pdf") {
+      const pdfBuffer = generateLeavesSummaryPdf(summaryRows, year);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}.pdf"`);
+      res.send(pdfBuffer);
+      return;
+    }
+
+    const csv = generateLeavesSummaryCsv(summaryRows, year);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
+    res.send(csv);
+  },
+);
 
 export default router;
