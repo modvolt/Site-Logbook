@@ -7697,6 +7697,73 @@ paths:
         "409":
           description: Quote is not accepted or already converted
 
+  /quotes/public/{token}:
+    get:
+      operationId: getPublicQuote
+      tags: [quotes]
+      summary: Get quote details via public share token (no auth required)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public quote detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicQuoteDetail"
+        "404":
+          description: Not found or invalid token
+
+  /quotes/public/{token}/accept:
+    post:
+      operationId: acceptPublicQuote
+      tags: [quotes]
+      summary: Customer accepts a quote via share token (no auth required)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quote accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotePublicActionResult"
+        "404":
+          description: Not found or invalid token
+        "409":
+          description: Cannot accept in current status
+
+  /quotes/public/{token}/reject:
+    post:
+      operationId: rejectPublicQuote
+      tags: [quotes]
+      summary: Customer rejects a quote via share token (no auth required)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quote rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotePublicActionResult"
+        "404":
+          description: Not found or invalid token
+        "409":
+          description: Cannot reject in current status
+
   /quotes/{id}/pdf:
     get:
       operationId: downloadQuotePdf
@@ -13925,6 +13992,8 @@ components:
           type: ["string", "null"]
         pdfObjectPath:
           type: ["string", "null"]
+        shareToken:
+          type: ["string", "null"]
         convertedToJobId:
           type: ["integer", "null"]
         convertedToInvoiceId:
@@ -13969,6 +14038,8 @@ components:
           type: ["string", "null"]
         pdfObjectPath:
           type: ["string", "null"]
+        shareToken:
+          type: ["string", "null"]
         convertedToJobId:
           type: ["integer", "null"]
         convertedToInvoiceId:
@@ -13981,6 +14052,79 @@ components:
           type: string
         updatedAt:
           type: string
+
+    PublicQuoteDetail:
+      type: object
+      required: [title, status, items, subtotalWithoutVat, totalVat, totalWithVat, vatPayer, createdAt]
+      properties:
+        quoteNumber:
+          type: ["string", "null"]
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, sent, accepted, rejected, expired]
+        validUntil:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        customerCompanyName:
+          type: ["string", "null"]
+        supplierName:
+          type: ["string", "null"]
+        supplierAddress:
+          type: ["string", "null"]
+        supplierEmail:
+          type: ["string", "null"]
+        supplierPhone:
+          type: ["string", "null"]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicQuoteItem"
+        subtotalWithoutVat:
+          type: number
+        totalVat:
+          type: number
+        totalWithVat:
+          type: number
+        vatPayer:
+          type: boolean
+        createdAt:
+          type: string
+
+    PublicQuoteItem:
+      type: object
+      required: [id, position, description, quantity, unitPrice, totalWithoutVat, totalVat, totalWithVat]
+      properties:
+        id:
+          type: integer
+        position:
+          type: integer
+        description:
+          type: string
+        quantity:
+          type: number
+        unit:
+          type: ["string", "null"]
+        unitPrice:
+          type: number
+        vatRate:
+          type: ["number", "null"]
+        totalWithoutVat:
+          type: number
+        totalVat:
+          type: number
+        totalWithVat:
+          type: number
+
+    QuotePublicActionResult:
+      type: object
+      properties:
+        accepted:
+          type: boolean
+        rejected:
+          type: boolean
 
     CreateQuoteInput:
       type: object

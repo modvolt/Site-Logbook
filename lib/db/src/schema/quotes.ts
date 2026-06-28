@@ -33,6 +33,7 @@ export const quotesTable = pgTable(
     validUntil: text("valid_until"),
     notes: text("notes"),
     pdfObjectPath: text("pdf_object_path"),
+    shareToken: text("share_token"),
     convertedToJobId: integer("converted_to_job_id").references(
       () => jobsTable.id,
       { onDelete: "set null" },

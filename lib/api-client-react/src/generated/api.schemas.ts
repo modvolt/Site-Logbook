@@ -5154,6 +5154,8 @@ export interface Quote {
   /** @nullable */
   pdfObjectPath?: string | null;
   /** @nullable */
+  shareToken?: string | null;
+  /** @nullable */
   convertedToJobId?: number | null;
   /** @nullable */
   convertedToInvoiceId?: number | null;
@@ -5239,6 +5241,8 @@ export interface QuoteDetail {
   /** @nullable */
   pdfObjectPath?: string | null;
   /** @nullable */
+  shareToken?: string | null;
+  /** @nullable */
   convertedToJobId?: number | null;
   /** @nullable */
   convertedToInvoiceId?: number | null;
@@ -5270,6 +5274,64 @@ export interface SendQuoteEmailInput {
 
 export interface ConvertQuoteToJobResult {
   jobId: number;
+}
+
+export type PublicQuoteDetailStatus = typeof PublicQuoteDetailStatus[keyof typeof PublicQuoteDetailStatus];
+
+
+export const PublicQuoteDetailStatus = {
+  draft: 'draft',
+  sent: 'sent',
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
+} as const;
+
+export interface PublicQuoteItem {
+  id: number;
+  position: number;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPrice: number;
+  /** @nullable */
+  vatRate?: number | null;
+  totalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+}
+
+export interface PublicQuoteDetail {
+  /** @nullable */
+  quoteNumber?: string | null;
+  title: string;
+  status: PublicQuoteDetailStatus;
+  /** @nullable */
+  validUntil?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierAddress?: string | null;
+  /** @nullable */
+  supplierEmail?: string | null;
+  /** @nullable */
+  supplierPhone?: string | null;
+  items: PublicQuoteItem[];
+  subtotalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  vatPayer: boolean;
+  createdAt: string;
+}
+
+export interface QuotePublicActionResult {
+  accepted?: boolean;
+  rejected?: boolean;
 }
 
 export type ListJobsParams = {

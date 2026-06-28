@@ -18,6 +18,10 @@ import {
   expireQuote,
   convertQuoteToJob,
   generateAndStorePdf,
+  getQuoteByShareToken,
+  acceptQuoteByToken,
+  rejectQuoteByToken,
+  isValidToken,
   appError,
 } from "../lib/quote-service";
 
@@ -41,7 +45,61 @@ function handleError(err: unknown, fallback: string, res: import("express").Resp
   res.status(500).json({ error: err instanceof Error ? err.message : fallback });
 }
 
-// All quotes routes require admin or manager (master) role.
+// ---------------------------------------------------------------------------
+// Public share-link routes (no auth — gated by token only)
+// These MUST be declared before the requireRole("admin") middleware below.
+// ---------------------------------------------------------------------------
+
+router.get("/quotes/public/:token", async (req, res): Promise<void> => {
+  const { token } = req.params;
+  if (!token || !isValidToken(token)) {
+    res.status(400).json({ error: "Neplatný token nabídky." });
+    return;
+  }
+  try {
+    const quote = await getQuoteByShareToken(token);
+    if (!quote) {
+      res.status(404).json({ error: "Nabídka nenalezena nebo odkaz vypršel." });
+      return;
+    }
+    res.json(quote);
+  } catch (err) {
+    handleError(err, "Načtení nabídky selhalo.", res);
+  }
+});
+
+router.post("/quotes/public/:token/accept", async (req, res): Promise<void> => {
+  const { token } = req.params;
+  if (!token || !isValidToken(token)) {
+    res.status(400).json({ error: "Neplatný token nabídky." });
+    return;
+  }
+  try {
+    const result = await acceptQuoteByToken(token);
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Přijetí nabídky selhalo.", res);
+  }
+});
+
+router.post("/quotes/public/:token/reject", async (req, res): Promise<void> => {
+  const { token } = req.params;
+  if (!token || !isValidToken(token)) {
+    res.status(400).json({ error: "Neplatný token nabídky." });
+    return;
+  }
+  try {
+    const result = await rejectQuoteByToken(token);
+    res.json(result);
+  } catch (err) {
+    handleError(err, "Odmítnutí nabídky selhalo.", res);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// All remaining quotes routes require admin or manager (master) role.
+// ---------------------------------------------------------------------------
+
 router.use("/quotes", requireRole("admin"));
 
 // ---------------------------------------------------------------------------
@@ -189,11 +247,13 @@ router.post("/quotes/:id/send", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
   try {
     const result = await sendQuote(id, {
       to: parsed.data.to ?? null,
       subject: parsed.data.subject ?? null,
       message: parsed.data.message ?? null,
+      shareBaseUrl: baseUrl,
     });
     res.json(result);
   } catch (err) {

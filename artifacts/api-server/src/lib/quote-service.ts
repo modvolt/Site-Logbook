@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   db,
   billingSettingsTable,
@@ -246,6 +246,116 @@ export async function getQuoteDetail(id: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Public share-token lookup (no auth — gated by token)
+// ---------------------------------------------------------------------------
+
+const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isValidToken(token: string): boolean {
+  return TOKEN_RE.test(token);
+}
+
+export async function getQuoteByShareToken(token: string) {
+  const [quote] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.shareToken, token))
+    .limit(1);
+  if (!quote) return null;
+
+  const settings = await ensureSettings();
+  const vatPayer = settings.vatPayer;
+
+  const items = await db
+    .select()
+    .from(quoteItemsTable)
+    .where(eq(quoteItemsTable.quoteId, quote.id))
+    .orderBy(asc(quoteItemsTable.position));
+
+  const itemData = items.map((item) => {
+    const qty = parseNum(item.quantity, 1);
+    const unitPrice = parseNum(item.unitPrice, 0);
+    const vatRate = item.vatRate != null ? parseNum(item.vatRate) : null;
+    const totals = computeItemTotals(unitPrice, qty, vatRate, vatPayer);
+    return {
+      id: item.id,
+      position: item.position,
+      description: item.description,
+      quantity: qty,
+      unit: item.unit ?? null,
+      unitPrice,
+      vatRate,
+      ...totals,
+    };
+  });
+
+  const subtotalWithoutVat = round2(itemData.reduce((s, i) => s + i.totalWithoutVat, 0));
+  const totalVat = round2(itemData.reduce((s, i) => s + i.totalVat, 0));
+  const totalWithVat = round2(itemData.reduce((s, i) => s + i.totalWithVat, 0));
+
+  let customerCompanyName: string | null = null;
+  if (quote.customerId != null) {
+    const [c] = await db
+      .select({ companyName: customersTable.companyName })
+      .from(customersTable)
+      .where(eq(customersTable.id, quote.customerId))
+      .limit(1);
+    customerCompanyName = c?.companyName ?? null;
+  }
+
+  return {
+    quoteNumber: quote.quoteNumber,
+    title: quote.title,
+    status: quote.status,
+    validUntil: quote.validUntil ?? null,
+    notes: quote.notes ?? null,
+    customerCompanyName,
+    supplierName: settings.supplierName ?? null,
+    supplierAddress: settings.supplierAddress ?? null,
+    supplierEmail: settings.supplierEmail ?? null,
+    supplierPhone: settings.supplierPhone ?? null,
+    items: itemData,
+    subtotalWithoutVat,
+    totalVat,
+    totalWithVat,
+    vatPayer,
+    createdAt: quote.createdAt.toISOString(),
+  };
+}
+
+export async function acceptQuoteByToken(token: string) {
+  const [quote] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.shareToken, token))
+    .limit(1);
+  if (!quote) throw appError(404, "Nabídka nenalezena.");
+  if (!["sent", "draft"].includes(quote.status))
+    throw appError(409, "Tuto nabídku již nelze přijmout.");
+  await db
+    .update(quotesTable)
+    .set({ status: "accepted", updatedAt: new Date() })
+    .where(eq(quotesTable.shareToken, token));
+  return { accepted: true };
+}
+
+export async function rejectQuoteByToken(token: string) {
+  const [quote] = await db
+    .select()
+    .from(quotesTable)
+    .where(eq(quotesTable.shareToken, token))
+    .limit(1);
+  if (!quote) throw appError(404, "Nabídka nenalezena.");
+  if (!["sent", "draft"].includes(quote.status))
+    throw appError(409, "Tuto nabídku již nelze odmítnout.");
+  await db
+    .update(quotesTable)
+    .set({ status: "rejected", updatedAt: new Date() })
+    .where(eq(quotesTable.shareToken, token));
+  return { rejected: true };
+}
+
+// ---------------------------------------------------------------------------
 // Create / update / delete
 // ---------------------------------------------------------------------------
 
@@ -381,7 +491,15 @@ export async function generateAndStorePdf(id: number) {
   return { objectPath, buffer };
 }
 
-export async function sendQuote(id: number, opts: { to?: string | null; subject?: string | null; message?: string | null }) {
+export async function sendQuote(
+  id: number,
+  opts: {
+    to?: string | null;
+    subject?: string | null;
+    message?: string | null;
+    shareBaseUrl?: string | null;
+  },
+) {
   const quote = await getQuoteDetail(id);
   if (!quote) throw appError(404, "Nabídka nenalezena.");
   if (!["draft", "sent"].includes(quote.status))
@@ -393,11 +511,31 @@ export async function sendQuote(id: number, opts: { to?: string | null; subject?
   const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
   if (!emailPattern.test(to)) throw appError(400, "Chybí platná e-mailová adresa příjemce.");
 
+  // Generate or reuse share token
+  const [existing] = await db
+    .select({ shareToken: quotesTable.shareToken })
+    .from(quotesTable)
+    .where(eq(quotesTable.id, id))
+    .limit(1);
+  const shareToken = existing?.shareToken ?? randomUUID();
+  if (!existing?.shareToken) {
+    await db
+      .update(quotesTable)
+      .set({ shareToken })
+      .where(eq(quotesTable.id, id));
+  }
+
   const number = quote.quoteNumber ?? `#${id}`;
   const subject = (opts.subject ?? "").trim() || `Cenová nabídka ${number}`;
+
+  // Build share link line
+  const shareLine = opts.shareBaseUrl
+    ? `\n\nPro zobrazení a potvrzení nabídky online klikněte zde:\n${opts.shareBaseUrl}/quote-share/${shareToken}`
+    : "";
+
   const message =
     (opts.message ?? "").trim() ||
-    `Dobrý den,\n\nv příloze zasíláme cenovou nabídku ${number}.\n\nS pozdravem`;
+    `Dobrý den,\n\nv příloze zasíláme cenovou nabídku ${number}.${shareLine}\n\nS pozdravem`;
 
   await sendEmailWithPdf({
     to,
@@ -409,10 +547,10 @@ export async function sendQuote(id: number, opts: { to?: string | null; subject?
 
   await db
     .update(quotesTable)
-    .set({ status: "sent", pdfObjectPath: objectPath, updatedAt: new Date() })
+    .set({ status: "sent", pdfObjectPath: objectPath, shareToken, updatedAt: new Date() })
     .where(eq(quotesTable.id, id));
 
-  return { sent: true, to };
+  return { sent: true, to, shareToken };
 }
 
 export async function acceptQuote(id: number) {

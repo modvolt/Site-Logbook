@@ -14,6 +14,7 @@ import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
 import { OfflineBanner } from "@/components/offline-banner";
 import OoppSign from "@/pages/oopp-sign";
 import JobSign from "@/pages/job-sign";
+import QuoteShare from "@/pages/quote-share";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -247,12 +248,15 @@ function AuthenticatedApp() {
 
 function Router() {
   const [path] = useLocation();
-  // Public sign pages — accessible without authentication
+  // Public pages — accessible without authentication
   if (path.startsWith("/sign/")) {
     return <JobSign />;
   }
   if (path.startsWith("/oopp/sign/")) {
     return <OoppSign />;
+  }
+  if (path.startsWith("/quote-share/")) {
+    return <QuoteShare />;
   }
   const { isAuthenticated, isLoading } = useAuth();
   const [location] = useLocation();

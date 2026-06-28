@@ -117,7 +117,7 @@ app.use("/api", attachAuth);
 app.use("/api", trackSessionActivity);
 
 // Public endpoints: storage object proxy + auth endpoints + health
-const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/"];
+const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/", "/api/quotes/public/"];
 
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   const url = req.originalUrl.split("?")[0];
@@ -132,6 +132,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (url.startsWith("/api/preferences")) return next();
   if (url.startsWith("/api/ppe/sign/")) return next();
   if (url.startsWith("/api/sign/")) return next();
+  if (url.startsWith("/api/quotes/public/")) return next();
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
   return requireWriteAccess(req, res, next);
 });

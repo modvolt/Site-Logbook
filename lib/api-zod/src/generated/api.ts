@@ -8263,6 +8263,7 @@ export const ListQuotesResponseItem = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
+  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "itemCount": zod.number(),
@@ -8317,6 +8318,7 @@ export const GetQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
+  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
@@ -8373,6 +8375,7 @@ export const UpdateQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
+  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
@@ -8438,6 +8441,7 @@ export const AcceptQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
+  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
@@ -8476,6 +8480,7 @@ export const RejectQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
+  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
@@ -8514,6 +8519,7 @@ export const ExpireQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
+  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
@@ -8540,6 +8546,70 @@ export const ConvertQuoteToJobParams = zod.object({
 
 export const ConvertQuoteToJobResponse = zod.object({
   "jobId": zod.number()
+})
+
+
+/**
+ * @summary Get quote details via public share token (no auth required)
+ */
+export const GetPublicQuoteParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GetPublicQuoteResponse = zod.object({
+  "quoteNumber": zod.string().nullish(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "supplierEmail": zod.string().nullish(),
+  "supplierPhone": zod.string().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number()
+})),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "vatPayer": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Customer accepts a quote via share token (no auth required)
+ */
+export const AcceptPublicQuoteParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const AcceptPublicQuoteResponse = zod.object({
+  "accepted": zod.boolean().optional(),
+  "rejected": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Customer rejects a quote via share token (no auth required)
+ */
+export const RejectPublicQuoteParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const RejectPublicQuoteResponse = zod.object({
+  "accepted": zod.boolean().optional(),
+  "rejected": zod.boolean().optional()
 })
 
 

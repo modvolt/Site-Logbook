@@ -71,6 +71,8 @@ import {
   Building2,
   Download,
   Briefcase,
+  Copy,
+  Link,
 } from "lucide-react";
 
 interface ItemForm {
@@ -367,6 +369,20 @@ export default function QuoteDetail() {
               <Download className="h-4 w-4 mr-1" /> PDF
             </Button>
           )}
+          {!isNew && quote?.shareToken && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const url = `${window.location.origin}/quote-share/${quote.shareToken}`;
+                navigator.clipboard.writeText(url).then(() =>
+                  toast({ title: "Odkaz zkopírován do schránky." }),
+                );
+              }}
+            >
+              <Copy className="h-4 w-4 mr-1" /> Kopírovat odkaz
+            </Button>
+          )}
           {!isNew && canSend && (
             <Button
               variant="outline"
@@ -621,6 +637,27 @@ export default function QuoteDetail() {
                 )}
                 {quote.notes && (
                   <p className="text-sm text-muted-foreground whitespace-pre-line">{quote.notes}</p>
+                )}
+                {quote.shareToken && (
+                  <div className="flex items-center gap-2 text-sm pt-1 border-t">
+                    <Link className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground shrink-0">Odkaz pro zákazníka:</span>
+                    <span className="font-mono text-xs truncate flex-1 text-foreground">
+                      {`${window.location.origin}/quote-share/${quote.shareToken}`}
+                    </span>
+                    <button
+                      className="text-muted-foreground hover:text-foreground shrink-0"
+                      title="Kopírovat odkaz"
+                      onClick={() => {
+                        const url = `${window.location.origin}/quote-share/${quote.shareToken}`;
+                        navigator.clipboard.writeText(url).then(() =>
+                          toast({ title: "Odkaz zkopírován do schránky." }),
+                        );
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  </div>
                 )}
               </CardContent>
             </Card>

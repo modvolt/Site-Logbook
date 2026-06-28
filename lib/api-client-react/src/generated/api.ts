@@ -214,10 +214,12 @@ import type {
   PpeItemInput,
   PpeSignHandoverInput,
   PublicHoliday,
+  PublicQuoteDetail,
   PurgeClientErrorsParams,
   PurgeExpiredSessions200,
   Quote,
   QuoteDetail,
+  QuotePublicActionResult,
   RecurringGenerationResult,
   RecurringInvoiceTemplate,
   RecurringInvoiceTemplateDetail,
@@ -21740,6 +21742,223 @@ export const useConvertQuoteToJob = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getConvertQuoteToJobMutationOptions(options));
+    }
+
+export const getGetPublicQuoteUrl = (token: string,) => {
+
+
+
+
+  return `/api/quotes/public/${token}`
+}
+
+/**
+ * @summary Get quote details via public share token (no auth required)
+ */
+export const getPublicQuote = async (token: string, options?: RequestInit): Promise<PublicQuoteDetail> => {
+
+  return customFetch<PublicQuoteDetail>(getGetPublicQuoteUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicQuoteQueryKey = (token: string,) => {
+    return [
+    `/api/quotes/public/${token}`
+    ] as const;
+    }
+
+
+export const getGetPublicQuoteQueryOptions = <TData = Awaited<ReturnType<typeof getPublicQuote>>, TError = ErrorType<void>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicQuote>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicQuoteQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicQuote>>> = ({ signal }) => getPublicQuote(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(token), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicQuote>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicQuoteQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicQuote>>>
+export type GetPublicQuoteQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get quote details via public share token (no auth required)
+ */
+
+export function useGetPublicQuote<TData = Awaited<ReturnType<typeof getPublicQuote>>, TError = ErrorType<void>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicQuote>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicQuoteQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getAcceptPublicQuoteUrl = (token: string,) => {
+
+
+
+
+  return `/api/quotes/public/${token}/accept`
+}
+
+/**
+ * @summary Customer accepts a quote via share token (no auth required)
+ */
+export const acceptPublicQuote = async (token: string, options?: RequestInit): Promise<QuotePublicActionResult> => {
+
+  return customFetch<QuotePublicActionResult>(getAcceptPublicQuoteUrl(token),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAcceptPublicQuoteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string}, TContext> => {
+
+const mutationKey = ['acceptPublicQuote'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptPublicQuote>>, {token: string}> = (props) => {
+          const {token} = props ?? {};
+
+          return  acceptPublicQuote(token,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcceptPublicQuoteMutationResult = NonNullable<Awaited<ReturnType<typeof acceptPublicQuote>>>
+
+    export type AcceptPublicQuoteMutationError = ErrorType<void>
+
+    /**
+ * @summary Customer accepts a quote via share token (no auth required)
+ */
+export const useAcceptPublicQuote = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof acceptPublicQuote>>,
+        TError,
+        {token: string},
+        TContext
+      > => {
+      return useMutation(getAcceptPublicQuoteMutationOptions(options));
+    }
+
+export const getRejectPublicQuoteUrl = (token: string,) => {
+
+
+
+
+  return `/api/quotes/public/${token}/reject`
+}
+
+/**
+ * @summary Customer rejects a quote via share token (no auth required)
+ */
+export const rejectPublicQuote = async (token: string, options?: RequestInit): Promise<QuotePublicActionResult> => {
+
+  return customFetch<QuotePublicActionResult>(getRejectPublicQuoteUrl(token),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRejectPublicQuoteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string}, TContext> => {
+
+const mutationKey = ['rejectPublicQuote'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectPublicQuote>>, {token: string}> = (props) => {
+          const {token} = props ?? {};
+
+          return  rejectPublicQuote(token,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectPublicQuoteMutationResult = NonNullable<Awaited<ReturnType<typeof rejectPublicQuote>>>
+
+    export type RejectPublicQuoteMutationError = ErrorType<void>
+
+    /**
+ * @summary Customer rejects a quote via share token (no auth required)
+ */
+export const useRejectPublicQuote = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectPublicQuote>>,
+        TError,
+        {token: string},
+        TContext
+      > => {
+      return useMutation(getRejectPublicQuoteMutationOptions(options));
     }
 
 export const getDownloadQuotePdfUrl = (id: number,) => {
