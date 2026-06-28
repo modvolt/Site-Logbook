@@ -112,7 +112,11 @@ export const ListJobsResponseItem = zod.object({
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
 })
 export const ListJobsResponse = zod.array(ListJobsResponseItem)
 
@@ -244,7 +248,11 @@ export const GetJobResponse = zod.object({
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
 })
 
 
@@ -326,7 +334,11 @@ export const UpdateJobResponse = zod.object({
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
 })
 
 
@@ -388,7 +400,11 @@ export const UpdateJobStatusResponse = zod.object({
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
 })
 
 
@@ -422,6 +438,24 @@ export const SaveJobSheetParams = zod.object({
 export const SaveJobSheetBody = zod.object({
   "pdfBase64": zod.string().describe('Base64-encoded PDF of the job sheet'),
   "signed": zod.boolean().nullish().describe('Whether the customer signature is included in the PDF')
+})
+
+
+/**
+ * @summary Send the customer a signature-request link via email
+ */
+export const RequestJobSignatureParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RequestJobSignatureBody = zod.object({
+  "to": zod.string().nullish().describe('Optional override recipient email; defaults to the customer\'s stored email')
+})
+
+export const RequestJobSignatureResponse = zod.object({
+  "sent": zod.boolean(),
+  "to": zod.string(),
+  "signUrl": zod.string().describe('The full sign URL that was emailed (for reference\/logging)')
 })
 
 
@@ -2439,7 +2473,11 @@ export const GetTodayJobsResponseItem = zod.object({
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
 })
 export const GetTodayJobsResponse = zod.array(GetTodayJobsResponseItem)
 

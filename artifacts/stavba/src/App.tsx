@@ -13,6 +13,7 @@ import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
 import { OfflineBanner } from "@/components/offline-banner";
 import OoppSign from "@/pages/oopp-sign";
+import JobSign from "@/pages/job-sign";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -237,7 +238,10 @@ function AuthenticatedApp() {
 
 function Router() {
   const [path] = useLocation();
-  // Public sign page — accessible without authentication
+  // Public sign pages — accessible without authentication
+  if (path.startsWith("/sign/")) {
+    return <JobSign />;
+  }
   if (path.startsWith("/oopp/sign/")) {
     return <OoppSign />;
   }

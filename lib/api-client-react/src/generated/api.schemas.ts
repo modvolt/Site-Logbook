@@ -226,6 +226,26 @@ export interface Job {
      */
   contractPrice?: number | null;
   createdAt: string;
+  /**
+     * ISO timestamp when a signature request email was last sent
+     * @nullable
+     */
+  signatureRequestedAt?: string | null;
+  /**
+     * ISO timestamp when the active signature token expires (7 days from request)
+     * @nullable
+     */
+  signatureTokenExpiresAt?: string | null;
+  /**
+     * ISO timestamp when the customer signed the handover protocol
+     * @nullable
+     */
+  signedAt?: string | null;
+  /**
+     * Object-storage path to the customer's signature PNG
+     * @nullable
+     */
+  signatureObjectPath?: string | null;
 }
 
 /**
@@ -496,6 +516,21 @@ export interface Attachment {
      */
   amount?: number | null;
   createdAt: string;
+}
+
+export interface RequestJobSignatureInput {
+  /**
+     * Optional override recipient email; defaults to the customer's stored email
+     * @nullable
+     */
+  to?: string | null;
+}
+
+export interface RequestJobSignatureResult {
+  sent: boolean;
+  to: string;
+  /** The full sign URL that was emailed (for reference/logging) */
+  signUrl: string;
 }
 
 export interface Task {

@@ -40,6 +40,7 @@ import leavesRouter from "./leaves";
 import publicHolidaysRouter from "./public-holidays";
 import ppeRouter from "./ppe";
 import sessionsRouter from "./sessions";
+import signRouter from "./sign";
 
 const router: IRouter = Router();
 
@@ -84,5 +85,6 @@ router.use(leavesRouter);
 router.use(publicHolidaysRouter);
 router.use(ppeRouter);
 router.use(sessionsRouter);
+router.use(signRouter);
 
 export default router;

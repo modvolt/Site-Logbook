@@ -374,6 +374,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/Attachment"
 
+  /jobs/{id}/request-signature:
+    post:
+      operationId: requestJobSignature
+      tags: [jobs]
+      summary: Send the customer a signature-request link via email
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestJobSignatureInput"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestJobSignatureResult"
+        "400":
+          description: Missing or invalid email address
+        "404":
+          description: Job not found
+        "502":
+          description: Email delivery failed
+
   /jobs/{jobId}/tasks:
     get:
       operationId: listTasks
@@ -7186,6 +7217,25 @@ components:
           type: number
           description: openBalance + unbilledJobsValue (total exposure for this customer)
 
+    RequestJobSignatureInput:
+      type: object
+      properties:
+        to:
+          type: ["string", "null"]
+          description: Optional override recipient email; defaults to the customer's stored email
+
+    RequestJobSignatureResult:
+      type: object
+      required: [sent, to, signUrl]
+      properties:
+        sent:
+          type: boolean
+        to:
+          type: string
+        signUrl:
+          type: string
+          description: The full sign URL that was emailed (for reference/logging)
+
     SendJobEmailInput:
       type: object
       required: [pdfBase64]
@@ -8063,6 +8113,18 @@ components:
           description: Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
         createdAt:
           type: string
+        signatureRequestedAt:
+          type: ["string", "null"]
+          description: ISO timestamp when a signature request email was last sent
+        signatureTokenExpiresAt:
+          type: ["string", "null"]
+          description: ISO timestamp when the active signature token expires (7 days from request)
+        signedAt:
+          type: ["string", "null"]
+          description: ISO timestamp when the customer signed the handover protocol
+        signatureObjectPath:
+          type: ["string", "null"]
+          description: Object-storage path to the customer's signature PNG
 
     JobReorderInput:
       type: object

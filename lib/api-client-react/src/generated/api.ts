@@ -206,6 +206,8 @@ import type {
   PpeSignHandoverInput,
   PublicHoliday,
   PurgeClientErrorsParams,
+  RequestJobSignatureInput,
+  RequestJobSignatureResult,
   ResetPasswordWithAnswersInput,
   RestoreResult,
   RetryEmailImportLog200,
@@ -1237,6 +1239,78 @@ export const useSaveJobSheet = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSaveJobSheetMutationOptions(options));
+    }
+
+export const getRequestJobSignatureUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/request-signature`
+}
+
+/**
+ * @summary Send the customer a signature-request link via email
+ */
+export const requestJobSignature = async (id: number,
+    requestJobSignatureInput?: RequestJobSignatureInput, options?: RequestInit): Promise<RequestJobSignatureResult> => {
+
+  return customFetch<RequestJobSignatureResult>(getRequestJobSignatureUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      requestJobSignatureInput,)
+  }
+);}
+
+
+
+
+export const getRequestJobSignatureMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestJobSignature>>, TError,{id: number;data?: BodyType<RequestJobSignatureInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestJobSignature>>, TError,{id: number;data?: BodyType<RequestJobSignatureInput>}, TContext> => {
+
+const mutationKey = ['requestJobSignature'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestJobSignature>>, {id: number;data?: BodyType<RequestJobSignatureInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  requestJobSignature(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestJobSignatureMutationResult = NonNullable<Awaited<ReturnType<typeof requestJobSignature>>>
+    export type RequestJobSignatureMutationBody = BodyType<RequestJobSignatureInput> | undefined
+    export type RequestJobSignatureMutationError = ErrorType<void>
+
+    /**
+ * @summary Send the customer a signature-request link via email
+ */
+export const useRequestJobSignature = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestJobSignature>>, TError,{id: number;data?: BodyType<RequestJobSignatureInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestJobSignature>>,
+        TError,
+        {id: number;data?: BodyType<RequestJobSignatureInput>},
+        TContext
+      > => {
+      return useMutation(getRequestJobSignatureMutationOptions(options));
     }
 
 export const getListTasksUrl = (jobId: number,) => {

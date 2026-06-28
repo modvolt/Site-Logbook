@@ -38,6 +38,12 @@ export const jobsTable = pgTable("jobs", {
   // The agreed-upon fixed price for the job (only used when pricingMode = 'fixed_price').
   contractPrice: numeric("contract_price", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Customer digital-signature handover protocol
+  signatureToken: text("signature_token"),
+  signatureTokenExpiresAt: timestamp("signature_token_expires_at"),
+  signatureRequestedAt: timestamp("signature_requested_at"),
+  signedAt: timestamp("signed_at"),
+  signatureObjectPath: text("signature_object_path"),
 }, (table) => [
   // Defense-in-depth: jobs.status is free-text, but only this known set is valid.
   // The client-facing lifecycle is planned/in_progress/done/cancelled; the

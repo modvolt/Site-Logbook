@@ -17,7 +17,7 @@ import {
   SaveJobSheetBody,
   BulkUpdateJobStatusBody,
 } from "@workspace/api-zod";
-import { sendEmailWithPdf } from "../lib/email";
+import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { randomUUID } from "node:crypto";
 
@@ -156,8 +156,10 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
   const rawCost = materialAgg?.totalCost;
   const materialTotalCost = rawCost != null ? Number(rawCost) : null;
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { signatureToken: _st, ...jobWithoutSecret } = job;
   return {
-    ...job,
+    ...jobWithoutSecret,
     hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
     hoursBeforePlan: job.hoursBeforePlan != null ? Number(job.hoursBeforePlan) : null,
     hoursVasek: job.hoursVasek != null ? Number(job.hoursVasek) : null,
@@ -180,6 +182,11 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     customerEmail,
     timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
     createdAt: job.createdAt.toISOString(),
+    signatureRequestedAt: job.signatureRequestedAt ? job.signatureRequestedAt.toISOString() : null,
+    signatureTokenExpiresAt: job.signatureTokenExpiresAt ? job.signatureTokenExpiresAt.toISOString() : null,
+    signedAt: job.signedAt ? job.signedAt.toISOString() : null,
+    signatureObjectPath: job.signatureObjectPath,
+    // signatureToken intentionally omitted — it is a secret bearer credential
   };
 }
 
@@ -775,6 +782,76 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   }
 
   res.json({ sent: true, to });
+});
+
+router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Neplatné ID zakázky" });
+    return;
+  }
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, id));
+  if (!job) {
+    res.status(404).json({ error: "Zakázka nenalezena" });
+    return;
+  }
+
+  let customerEmail: string | null = null;
+  let customerCompanyName: string | null = null;
+  if (job.customerId) {
+    const [customer] = await db
+      .select({ email: customersTable.email, companyName: customersTable.companyName })
+      .from(customersTable)
+      .where(eq(customersTable.id, job.customerId));
+    customerEmail = customer?.email ?? null;
+    customerCompanyName = customer?.companyName ?? null;
+  }
+
+  const to = ((req.body as Record<string, unknown>)?.to as string | undefined)?.trim() || customerEmail?.trim() || "";
+  if (!to) {
+    res.status(400).json({ error: "Zákazník nemá uložený e-mail. Doplňte e-mailovou adresu zákazníka nebo ji zadejte ručně." });
+    return;
+  }
+  const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+  if (!emailPattern.test(to)) {
+    res.status(400).json({ error: "Neplatná e-mailová adresa příjemce." });
+    return;
+  }
+
+  const token = randomUUID();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const requestedAt = new Date();
+
+  await db
+    .update(jobsTable)
+    .set({ signatureToken: token, signatureTokenExpiresAt: expiresAt, signatureRequestedAt: requestedAt })
+    .where(eq(jobsTable.id, id));
+
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const signUrl = `${baseUrl}/sign/${token}`;
+  const jobLabel = job.title ?? `Zakázka #${job.id}`;
+
+  const emailText =
+    `Dobrý den${customerCompanyName ? `, ${customerCompanyName}` : ""},\n\n` +
+    `zasíláme Vám odkaz k digitálnímu podpisu předávacího protokolu zakázky „${jobLabel}".\n\n` +
+    `Odkaz je platný 7 dní. Kliknutím níže si prohlédnete shrnutí zakázky a podepíšete protokol prstem nebo myší:\n\n` +
+    `${signUrl}\n\n` +
+    `S pozdravem,\nModvolt s.r.o.`;
+
+  try {
+    await sendPlainEmail({
+      to,
+      subject: `Podpis předávacího protokolu – ${jobLabel}`,
+      text: emailText,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Failed to send signature request email");
+    res.status(502).json({ error: err instanceof Error ? err.message : "Odeslání e-mailu selhalo." });
+    return;
+  }
+
+  res.json({ sent: true, to, signUrl });
 });
 
 router.post("/jobs/:id/job-sheet", async (req, res): Promise<void> => {

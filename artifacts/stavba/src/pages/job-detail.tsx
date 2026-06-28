@@ -25,6 +25,7 @@ import {
   useListLeaves, getListLeavesQueryKey,
   useListLinkableDocumentLines, getListLinkableDocumentLinesQueryKey,
   useLinkMaterialToDocument,
+  useRequestJobSignature,
 } from "@workspace/api-client-react";
 import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
@@ -36,7 +37,7 @@ import {
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
   AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw,
-  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle
+  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle, PenLine, Send
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -147,6 +148,9 @@ export default function JobDetail() {
   const updateJob = useUpdateJob();
   const deleteJob = useDeleteJob();
   const [statusSaveState, setStatusSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [sigEmail, setSigEmail] = useState("");
+  const [sigDialogOpen, setSigDialogOpen] = useState(false);
+  const requestSignature = useRequestJobSignature();
 
   const elapsed = useJobTimer(job?.timerStartedAt);
   const isTimerRunning = !!job?.timerStartedAt;
@@ -475,6 +479,95 @@ export default function JobDetail() {
         >
           <FileText className="w-4 h-4 mr-2" /> Zakázkový list (PDF / e-mail)
         </Button>
+
+        {/* Signature status / request button */}
+        {job.signedAt ? (
+          <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-800 px-4 py-3">
+            <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-green-800 dark:text-green-300">Zákazník podepsal předávací protokol</p>
+              <p className="text-xs text-muted-foreground">{new Date(job.signedAt).toLocaleString("cs-CZ")}</p>
+            </div>
+            {job.signatureObjectPath && (
+              <a
+                href={`/api/storage${job.signatureObjectPath}`}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0"
+              >
+                <img
+                  src={`/api/storage${job.signatureObjectPath}`}
+                  alt="Podpis zákazníka"
+                  className="h-10 w-28 object-contain border rounded bg-white"
+                />
+              </a>
+            )}
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() => { setSigEmail(job.customerEmail ?? ""); setSigDialogOpen(true); }}
+            className="w-full h-11 border-violet-300 text-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/20"
+          >
+            <PenLine className="w-4 h-4 mr-2" /> Odeslat k podpisu zákazníkem
+            {job.signatureRequestedAt && (
+              <span className="ml-2 text-xs text-muted-foreground">(již odesláno)</span>
+            )}
+          </Button>
+        )}
+
+        {/* Signature request dialog */}
+        <Dialog open={sigDialogOpen} onOpenChange={setSigDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <PenLine className="h-4 w-4" /> Odeslat k podpisu
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <p className="text-sm text-muted-foreground">
+                Zákazník obdrží e-mail s odkazem na stránku, kde může digitálně podepsat předávací protokol. Odkaz je platný 7 dní.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="sig-email">E-mail zákazníka</Label>
+                <Input
+                  id="sig-email"
+                  type="email"
+                  placeholder="zakaznik@firma.cz"
+                  value={sigEmail}
+                  onChange={(e) => setSigEmail(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => setSigDialogOpen(false)}>
+                  Zrušit
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={!sigEmail.trim() || requestSignature.isPending}
+                  onClick={() => {
+                    requestSignature.mutate(
+                      { id, data: { to: sigEmail.trim() } },
+                      {
+                        onSuccess: () => {
+                          setSigDialogOpen(false);
+                          toast({ title: "Odkaz k podpisu byl odeslán", description: `Na adresu ${sigEmail} byl odeslán odkaz k podpisu.` });
+                        },
+                        onError: (err: unknown) => {
+                          const msg = err instanceof Error ? err.message : "Nepodařilo se odeslat odkaz k podpisu.";
+                          toast({ title: "Chyba", description: msg, variant: "destructive" });
+                        },
+                      }
+                    );
+                  }}
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  {requestSignature.isPending ? "Odesílám…" : "Odeslat"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         <JobMarginAlert jobId={id} />
         <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
