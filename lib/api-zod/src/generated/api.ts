@@ -4571,7 +4571,12 @@ export const ListBackupsResponse = zod.object({
   "trigger": zod.enum(['manual', 'auto']),
   "error": zod.string().nullable(),
   "createdBy": zod.string().nullable(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "restoreTestedAt": zod.string().nullable().describe('ISO timestamp of the last restore test; null if never tested'),
+  "restoreStatus": zod.union([zod.literal('ok'),zod.literal('failed'),zod.literal('pending'),zod.literal(null)]).nullable().describe('Result of the last restore test'),
+  "restoreError": zod.string().nullable().describe('Error message from the last failed restore test'),
+  "restoreDurationMs": zod.number().nullable().describe('Duration of the last restore test in milliseconds'),
+  "restoreVerifiedTables": zod.record(zod.string(), zod.number()).nullable().describe('Map of table name to row count verified during the last restore test')
 })),
   "lastSuccessAt": zod.string().nullable()
 })
@@ -4595,6 +4600,53 @@ export const RestoreBackupParams = zod.object({
 export const RestoreBackupResponse = zod.object({
   "ok": zod.boolean(),
   "message": zod.string()
+})
+
+
+/**
+ * @summary Run a non-destructive restore test for a backup into a temporary database (admin only)
+ */
+export const TestBackupRestoreParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const TestBackupRestoreResponse = zod.object({
+  "id": zod.number(),
+  "filename": zod.string(),
+  "sizeBytes": zod.number().nullable(),
+  "status": zod.enum(['running', 'success', 'failed']),
+  "trigger": zod.enum(['manual', 'auto']),
+  "error": zod.string().nullable(),
+  "createdBy": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "restoreTestedAt": zod.string().nullable().describe('ISO timestamp of the last restore test; null if never tested'),
+  "restoreStatus": zod.union([zod.literal('ok'),zod.literal('failed'),zod.literal('pending'),zod.literal(null)]).nullable().describe('Result of the last restore test'),
+  "restoreError": zod.string().nullable().describe('Error message from the last failed restore test'),
+  "restoreDurationMs": zod.number().nullable().describe('Duration of the last restore test in milliseconds'),
+  "restoreVerifiedTables": zod.record(zod.string(), zod.number()).nullable().describe('Map of table name to row count verified during the last restore test')
+})
+
+
+/**
+ * @summary Get backup restore-test schedule settings (admin only)
+ */
+export const GetBackupSettingsResponse = zod.object({
+  "restoreTestDayOfWeek": zod.number().nullable().describe('Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled'),
+  "restoreNotifyEmail": zod.string().nullable().describe('E-mail to notify on failure; null = all admins')
+})
+
+
+/**
+ * @summary Update backup restore-test schedule settings (admin only)
+ */
+export const UpdateBackupSettingsBody = zod.object({
+  "restoreTestDayOfWeek": zod.number().nullish().describe('Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled'),
+  "restoreNotifyEmail": zod.string().nullish().describe('E-mail to notify on failure; null = all admins')
+})
+
+export const UpdateBackupSettingsResponse = zod.object({
+  "restoreTestDayOfWeek": zod.number().nullable().describe('Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled'),
+  "restoreNotifyEmail": zod.string().nullable().describe('E-mail to notify on failure; null = all admins')
 })
 
 

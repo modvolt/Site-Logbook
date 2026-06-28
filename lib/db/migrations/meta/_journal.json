@@ -379,6 +379,13 @@
       "when": 1784300000000,
       "tag": "0051_recurring_invoice_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1784600000000,
+      "tag": "0052_backup_restore_test",
+      "breakpoints": true
     }
   ]
 }

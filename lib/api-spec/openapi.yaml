@@ -4860,6 +4860,73 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /backups/{id}/restore-test:
+    post:
+      operationId: testBackupRestore
+      tags: [backups]
+      summary: Run a non-destructive restore test for a backup into a temporary database (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Restore test completed (check restoreStatus for ok/failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Backup"
+        "404":
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Restore test failed unexpectedly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /backups/settings:
+    get:
+      operationId: getBackupSettings
+      tags: [backups]
+      summary: Get backup restore-test schedule settings (admin only)
+      responses:
+        "200":
+          description: Current backup settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupSettings"
+    put:
+      operationId: updateBackupSettings
+      tags: [backups]
+      summary: Update backup restore-test schedule settings (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupSettingsInput"
+      responses:
+        "200":
+          description: Settings saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupSettings"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/summary:
     get:
       operationId: getBillingSummary
@@ -10516,7 +10583,7 @@ components:
 
     Backup:
       type: object
-      required: [id, filename, sizeBytes, status, trigger, error, createdBy, createdAt]
+      required: [id, filename, sizeBytes, status, trigger, error, createdBy, createdAt, restoreTestedAt, restoreStatus, restoreError, restoreDurationMs, restoreVerifiedTables]
       properties:
         id:
           type: integer
@@ -10536,6 +10603,45 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
+        restoreTestedAt:
+          type: ["string", "null"]
+          description: ISO timestamp of the last restore test; null if never tested
+        restoreStatus:
+          type: ["string", "null"]
+          enum: [ok, failed, pending, null]
+          description: Result of the last restore test
+        restoreError:
+          type: ["string", "null"]
+          description: Error message from the last failed restore test
+        restoreDurationMs:
+          type: ["integer", "null"]
+          description: Duration of the last restore test in milliseconds
+        restoreVerifiedTables:
+          type: ["object", "null"]
+          additionalProperties:
+            type: integer
+          description: Map of table name to row count verified during the last restore test
+
+    BackupSettings:
+      type: object
+      required: [restoreTestDayOfWeek, restoreNotifyEmail]
+      properties:
+        restoreTestDayOfWeek:
+          type: ["integer", "null"]
+          description: Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
+        restoreNotifyEmail:
+          type: ["string", "null"]
+          description: E-mail to notify on failure; null = all admins
+
+    BackupSettingsInput:
+      type: object
+      properties:
+        restoreTestDayOfWeek:
+          type: ["integer", "null"]
+          description: Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
+        restoreNotifyEmail:
+          type: ["string", "null"]
+          description: E-mail to notify on failure; null = all admins
 
     BackupListResponse:
       type: object

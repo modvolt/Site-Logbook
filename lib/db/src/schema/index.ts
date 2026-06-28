@@ -29,6 +29,7 @@ export * from "./document-linking-settings";
 export * from "./email-import-settings";
 export * from "./email-import-log";
 export * from "./backup-log";
+export * from "./backup-settings";
 export * from "./invoices";
 export * from "./invoice-reminders";
 export * from "./billing-settings";

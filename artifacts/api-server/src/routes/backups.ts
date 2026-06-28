@@ -1,7 +1,15 @@
 import { Router, type IRouter } from "express";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { requireRole } from "../middlewares/auth";
-import { createBackup, getBackup, listBackups, restoreBackup } from "../lib/backup";
+import {
+  createBackup,
+  getBackup,
+  listBackups,
+  restoreBackup,
+  testBackupRestore,
+  getBackupSettings,
+  upsertBackupSettings,
+} from "../lib/backup";
 import type { BackupLog } from "@workspace/db";
 
 const router: IRouter = Router();
@@ -21,6 +29,11 @@ function serialize(b: BackupLog) {
     error: b.error ?? null,
     createdBy: b.createdBy ?? null,
     createdAt: b.createdAt.toISOString(),
+    restoreTestedAt: b.restoreTestedAt ? b.restoreTestedAt.toISOString() : null,
+    restoreStatus: b.restoreStatus ?? null,
+    restoreError: b.restoreError ?? null,
+    restoreDurationMs: b.restoreDurationMs ?? null,
+    restoreVerifiedTables: b.restoreVerifiedTables ?? null,
   };
 }
 
@@ -96,6 +109,60 @@ router.post("/backups/:id/restore", async (req, res): Promise<void> => {
       error: err instanceof Error ? err.message : "Obnovení ze zálohy selhalo.",
     });
   }
+});
+
+router.post("/backups/:id/restore-test", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Neplatné ID zálohy." });
+    return;
+  }
+  const row = await getBackup(id);
+  if (!row || row.status !== "success" || !row.objectPath) {
+    res.status(404).json({ error: "Záloha nenalezena." });
+    return;
+  }
+  try {
+    req.log.info({ backupId: id, actor: req.auth?.name ?? null }, "Backup restore test started");
+    const result = await testBackupRestore(id);
+    res.json(serialize(result));
+  } catch (err) {
+    req.log.error({ err, backupId: id }, "Backup restore test failed");
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Restore test selhal.",
+    });
+  }
+});
+
+router.get("/backups/settings", async (_req, res): Promise<void> => {
+  const settings = await getBackupSettings();
+  res.json({
+    restoreTestDayOfWeek: settings?.restoreTestDayOfWeek ?? null,
+    restoreNotifyEmail: settings?.restoreNotifyEmail ?? null,
+  });
+});
+
+router.put("/backups/settings", async (req, res): Promise<void> => {
+  const body = req.body as {
+    restoreTestDayOfWeek?: number | null;
+    restoreNotifyEmail?: string | null;
+  };
+
+  const dayOfWeek = body.restoreTestDayOfWeek ?? null;
+  if (dayOfWeek !== null && (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6)) {
+    res.status(400).json({ error: "restoreTestDayOfWeek must be 0–6 or null." });
+    return;
+  }
+
+  const email = body.restoreNotifyEmail?.trim() || null;
+  const settings = await upsertBackupSettings({
+    restoreTestDayOfWeek: dayOfWeek,
+    restoreNotifyEmail: email,
+  });
+  res.json({
+    restoreTestDayOfWeek: settings.restoreTestDayOfWeek ?? null,
+    restoreNotifyEmail: settings.restoreNotifyEmail ?? null,
+  });
 });
 
 export default router;

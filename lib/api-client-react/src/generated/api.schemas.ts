@@ -3101,6 +3101,25 @@ export const BackupTrigger = {
   auto: 'auto',
 } as const;
 
+/**
+ * Result of the last restore test
+ * @nullable
+ */
+export type BackupRestoreStatus = typeof BackupRestoreStatus[keyof typeof BackupRestoreStatus] | null;
+
+
+export const BackupRestoreStatus = {
+  ok: 'ok',
+  failed: 'failed',
+  pending: 'pending',
+} as const;
+
+/**
+ * Map of table name to row count verified during the last restore test
+ * @nullable
+ */
+export type BackupRestoreVerifiedTables = {[key: string]: number} | null;
+
 export interface Backup {
   id: number;
   filename: string;
@@ -3113,6 +3132,31 @@ export interface Backup {
   /** @nullable */
   createdBy: string | null;
   createdAt: string;
+  /**
+     * ISO timestamp of the last restore test; null if never tested
+     * @nullable
+     */
+  restoreTestedAt: string | null;
+  /**
+     * Result of the last restore test
+     * @nullable
+     */
+  restoreStatus: BackupRestoreStatus;
+  /**
+     * Error message from the last failed restore test
+     * @nullable
+     */
+  restoreError: string | null;
+  /**
+     * Duration of the last restore test in milliseconds
+     * @nullable
+     */
+  restoreDurationMs: number | null;
+  /**
+     * Map of table name to row count verified during the last restore test
+     * @nullable
+     */
+  restoreVerifiedTables: BackupRestoreVerifiedTables;
 }
 
 export interface BackupListResponse {
@@ -3124,6 +3168,32 @@ export interface BackupListResponse {
 export interface RestoreResult {
   ok: boolean;
   message: string;
+}
+
+export interface BackupSettings {
+  /**
+     * Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
+     * @nullable
+     */
+  restoreTestDayOfWeek: number | null;
+  /**
+     * E-mail to notify on failure; null = all admins
+     * @nullable
+     */
+  restoreNotifyEmail: string | null;
+}
+
+export interface BackupSettingsInput {
+  /**
+     * Day of week for the weekly restore test (0=Sunday…6=Saturday); null=disabled
+     * @nullable
+     */
+  restoreTestDayOfWeek?: number | null;
+  /**
+     * E-mail to notify on failure; null = all admins
+     * @nullable
+     */
+  restoreNotifyEmail?: string | null;
 }
 
 export interface BillingSummary {

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, bigint, timestamp, char } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, bigint, timestamp, char, integer, jsonb } from "drizzle-orm/pg-core";
 
 /**
  * Record of every database backup attempt (manual or scheduled). The backup
@@ -22,6 +22,12 @@ export const backupLogTable = pgTable("backup_log", {
   sha256: char("sha256", { length: 64 }),
   // Set when this backup row was used as the source of a successful restore/test-restore.
   restoredAt: timestamp("restored_at"),
+  // Restore-test result fields (non-destructive test into a temporary DB).
+  restoreTestedAt: timestamp("restore_tested_at"),
+  restoreStatus: text("restore_status"), // ok | failed | pending
+  restoreError: text("restore_error"),
+  restoreDurationMs: integer("restore_duration_ms"),
+  restoreVerifiedTables: jsonb("restore_verified_tables").$type<Record<string, number>>(),
 });
 
 export type BackupLog = typeof backupLogTable.$inferSelect;

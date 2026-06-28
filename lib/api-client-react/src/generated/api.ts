@@ -46,6 +46,8 @@ import type {
   AuthUser,
   Backup,
   BackupListResponse,
+  BackupSettings,
+  BackupSettingsInput,
   BankPaymentsConfirmInput,
   BankPaymentsConfirmResult,
   BankStatementParseInput,
@@ -15289,6 +15291,224 @@ export const useRestoreBackup = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getRestoreBackupMutationOptions(options));
+    }
+
+export const getTestBackupRestoreUrl = (id: number,) => {
+
+
+
+
+  return `/api/backups/${id}/restore-test`
+}
+
+/**
+ * @summary Run a non-destructive restore test for a backup into a temporary database (admin only)
+ */
+export const testBackupRestore = async (id: number, options?: RequestInit): Promise<Backup> => {
+
+  return customFetch<Backup>(getTestBackupRestoreUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestBackupRestoreMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testBackupRestore>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testBackupRestore>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['testBackupRestore'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testBackupRestore>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  testBackupRestore(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestBackupRestoreMutationResult = NonNullable<Awaited<ReturnType<typeof testBackupRestore>>>
+
+    export type TestBackupRestoreMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run a non-destructive restore test for a backup into a temporary database (admin only)
+ */
+export const useTestBackupRestore = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testBackupRestore>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testBackupRestore>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getTestBackupRestoreMutationOptions(options));
+    }
+
+export const getGetBackupSettingsUrl = () => {
+
+
+
+
+  return `/api/backups/settings`
+}
+
+/**
+ * @summary Get backup restore-test schedule settings (admin only)
+ */
+export const getBackupSettings = async ( options?: RequestInit): Promise<BackupSettings> => {
+
+  return customFetch<BackupSettings>(getGetBackupSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBackupSettingsQueryKey = () => {
+    return [
+    `/api/backups/settings`
+    ] as const;
+    }
+
+
+export const getGetBackupSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getBackupSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBackupSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBackupSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBackupSettings>>> = ({ signal }) => getBackupSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBackupSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBackupSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getBackupSettings>>>
+export type GetBackupSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get backup restore-test schedule settings (admin only)
+ */
+
+export function useGetBackupSettings<TData = Awaited<ReturnType<typeof getBackupSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBackupSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBackupSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateBackupSettingsUrl = () => {
+
+
+
+
+  return `/api/backups/settings`
+}
+
+/**
+ * @summary Update backup restore-test schedule settings (admin only)
+ */
+export const updateBackupSettings = async (backupSettingsInput: BackupSettingsInput, options?: RequestInit): Promise<BackupSettings> => {
+
+  return customFetch<BackupSettings>(getUpdateBackupSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      backupSettingsInput,)
+  }
+);}
+
+
+
+
+export const getUpdateBackupSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBackupSettings>>, TError,{data: BodyType<BackupSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateBackupSettings>>, TError,{data: BodyType<BackupSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateBackupSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateBackupSettings>>, {data: BodyType<BackupSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateBackupSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateBackupSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateBackupSettings>>>
+    export type UpdateBackupSettingsMutationBody = BodyType<BackupSettingsInput>
+    export type UpdateBackupSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update backup restore-test schedule settings (admin only)
+ */
+export const useUpdateBackupSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateBackupSettings>>, TError,{data: BodyType<BackupSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateBackupSettings>>,
+        TError,
+        {data: BodyType<BackupSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateBackupSettingsMutationOptions(options));
     }
 
 export const getGetBillingSummaryUrl = () => {

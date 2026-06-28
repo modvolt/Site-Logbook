@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { formatDistanceToNow } from "date-fns";
 import { cs } from "date-fns/locale";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays, Smartphone, Laptop, LogOut } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays, Smartphone, Laptop, LogOut, FlaskConical, Clock } from "lucide-react";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,9 +29,14 @@ import {
   useListBackups,
   useCreateBackup,
   useRestoreBackup,
+  useTestBackupRestore,
+  useGetBackupSettings,
+  useUpdateBackupSettings,
   getListBackupsQueryKey,
+  getGetBackupSettingsQueryKey,
   downloadBackup,
   type Backup,
+  type BackupSettingsInput,
   useGetSecurityQuestionsStatus,
   useSetSecurityQuestions,
   getGetSecurityQuestionsStatusQueryKey,
@@ -171,6 +176,38 @@ function BackupStatusBadge({ status }: { status: Backup["status"] }) {
   );
 }
 
+function RestoreTestBadge({ backup }: { backup: Backup }) {
+  const rs = backup.restoreStatus;
+  if (rs === "ok") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400" title={`Otestováno: ${backup.restoreTestedAt ? formatDateTime(backup.restoreTestedAt) : ""}`}>
+        <FlaskConical className="h-3 w-3" /> OK
+      </span>
+    );
+  }
+  if (rs === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-destructive" title={backup.restoreError ?? "Restore test selhal"}>
+        <FlaskConical className="h-3 w-3" /> Selhalo
+      </span>
+    );
+  }
+  if (rs === "pending") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Testuje se…
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground/60">
+      <FlaskConical className="h-3 w-3" /> Neověřeno
+    </span>
+  );
+}
+
+const DAY_NAMES = ["Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota"];
+
 function BackupCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -179,8 +216,10 @@ function BackupCard() {
   });
   const createMutation = useCreateBackup();
   const restoreMutation = useRestoreBackup();
+  const restoreTestMutation = useTestBackupRestore();
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [testingId, setTestingId] = useState<number | null>(null);
 
   const handleCreate = () => {
     createMutation.mutate(undefined, {
@@ -244,6 +283,42 @@ function BackupCard() {
     );
   };
 
+  const handleRestoreTest = (backup: Backup) => {
+    setTestingId(backup.id);
+    restoreTestMutation.mutate(
+      { id: backup.id },
+      {
+        onSuccess: (result) => {
+          queryClient.invalidateQueries({ queryKey: getListBackupsQueryKey() });
+          if (result.restoreStatus === "ok") {
+            const ms = result.restoreDurationMs;
+            const dur = ms != null ? ` (${(ms / 1000).toFixed(1)} s)` : "";
+            toast({
+              title: "Restore test úspěšný",
+              description: `Záloha je obnovitelná${dur}.`,
+            });
+          } else {
+            toast({
+              title: "Restore test selhal",
+              description: result.restoreError ?? "Neznámá chyba",
+              variant: "destructive",
+            });
+          }
+        },
+        onError: (err: unknown) => {
+          const message =
+            err && typeof err === "object" && "error" in err
+              ? String((err as { error: unknown }).error)
+              : "Restore test se nezdařil.";
+          toast({ title: "Chyba", description: message, variant: "destructive" });
+        },
+        onSettled: () => {
+          setTestingId(null);
+        },
+      },
+    );
+  };
+
   const items = data?.items ?? [];
   const lastSuccessAt = data?.lastSuccessAt ?? null;
 
@@ -289,28 +364,40 @@ function BackupCard() {
         ) : (
           <div className="divide-y rounded-md border">
             {items.map((backup) => (
-              <div key={backup.id} className="flex items-center justify-between gap-3 p-3">
+              <div key={backup.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <BackupStatusBadge status={backup.status} />
                     <span className="text-xs text-muted-foreground">
                       {backup.trigger === "auto" ? "automatická" : "ruční"}
                     </span>
+                    {backup.status === "success" && (
+                      <>
+                        <span className="text-xs text-muted-foreground/50">·</span>
+                        <RestoreTestBadge backup={backup} />
+                      </>
+                    )}
                   </div>
                   <div className="truncate text-sm font-medium">{formatDateTime(backup.createdAt)}</div>
                   <div className="text-xs text-muted-foreground">
                     {formatBytes(backup.sizeBytes)}
                     {backup.error ? ` · ${backup.error}` : ""}
+                    {backup.restoreStatus === "ok" && backup.restoreTestedAt && (
+                      <span> · test {formatDateTime(backup.restoreTestedAt)}{backup.restoreDurationMs != null ? ` (${(backup.restoreDurationMs / 1000).toFixed(1)} s)` : ""}</span>
+                    )}
+                    {backup.restoreStatus === "failed" && backup.restoreError && (
+                      <span className="text-destructive"> · {backup.restoreError}</span>
+                    )}
                   </div>
                 </div>
                 {backup.status === "success" && (
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className="gap-2"
-                      disabled={downloadingId === backup.id || restoringId !== null}
+                      disabled={downloadingId === backup.id || restoringId !== null || testingId !== null}
                       onClick={() => handleDownload(backup)}
                     >
                       {downloadingId === backup.id ? (
@@ -320,6 +407,21 @@ function BackupCard() {
                       )}
                       Stáhnout
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={testingId !== null || restoringId !== null}
+                      onClick={() => handleRestoreTest(backup)}
+                    >
+                      {testingId === backup.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FlaskConical className="h-4 w-4" />
+                      )}
+                      {testingId === backup.id ? "Testuje se…" : "Test obnovy"}
+                    </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -327,7 +429,7 @@ function BackupCard() {
                           variant="outline"
                           size="sm"
                           className="gap-2"
-                          disabled={restoringId !== null}
+                          disabled={restoringId !== null || testingId !== null}
                         >
                           {restoringId === backup.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -373,6 +475,111 @@ function BackupCard() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BackupScheduleCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetBackupSettings({
+    query: { queryKey: getGetBackupSettingsQueryKey() },
+  });
+  const updateMutation = useUpdateBackupSettings();
+
+  const [dayOfWeek, setDayOfWeek] = useState<string>("disabled");
+  const [notifyEmail, setNotifyEmail] = useState<string>("");
+
+  useEffect(() => {
+    if (!data) return;
+    setDayOfWeek(data.restoreTestDayOfWeek != null ? String(data.restoreTestDayOfWeek) : "disabled");
+    setNotifyEmail(data.restoreNotifyEmail ?? "");
+  }, [data]);
+
+  function handleSave() {
+    const body: BackupSettingsInput = {
+      restoreTestDayOfWeek: dayOfWeek === "disabled" ? null : Number(dayOfWeek),
+      restoreNotifyEmail: notifyEmail.trim() || null,
+    };
+    updateMutation.mutate(
+      { data: body },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetBackupSettingsQueryKey() });
+          toast({ title: "Nastavení restore testu uloženo" });
+        },
+        onError: (err: unknown) => {
+          const message =
+            err && typeof err === "object" && "error" in err
+              ? String((err as { error: unknown }).error)
+              : "Uložení selhalo.";
+          toast({ title: "Chyba", description: message, variant: "destructive" });
+        },
+      },
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Clock className="h-5 w-5" />
+          Automatický restore test záloh
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Každý týden server automaticky ověří, že nejnovější záloha je skutečně obnovitelná,
+          a to bez dotyku produkčních dat (restore do dočasné DB). Při selhání odešle e-mail.
+        </p>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Načítání…</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Den v týdnu pro automatický test</label>
+              <select
+                className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1 focus:ring-ring"
+                value={dayOfWeek}
+                onChange={(e) => setDayOfWeek(e.target.value)}
+              >
+                <option value="disabled">Vypnuto (bez automatického testu)</option>
+                {DAY_NAMES.map((name, i) => (
+                  <option key={i} value={String(i)}>{name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Test se spustí jednou týdně ve zvolený den. Čas spuštění závisí na tom, kdy byl server naposledy restartován.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">E-mail pro notifikaci selhání</label>
+              <Input
+                type="email"
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder="admin@example.com (prázdné = všichni admini)"
+                className="max-w-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Necháte-li prázdné, upozornění dostane každý aktivní admin s nastaveným e-mailem.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="gap-2"
+            >
+              <Save className="h-4 w-4" />
+              {updateMutation.isPending ? "Ukládání…" : "Uložit nastavení"}
+            </Button>
           </div>
         )}
       </CardContent>
@@ -1770,6 +1977,8 @@ export default function Settings() {
       {can("manageUsers") && <BackupCard />}
 
       <MySessionsCard />
+
+      {can("manageUsers") && <BackupScheduleCard />}
 
       {can("manageUsers") && <SecurityQuestionsCard />}
 

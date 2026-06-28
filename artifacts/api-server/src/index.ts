@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startBackupScheduler } from "./lib/backup";
+import { startBackupScheduler, startRestoreTestScheduler } from "./lib/backup";
 import { startReminderScheduler } from "./lib/invoice-reminders";
 import { startExtractionWorker } from "./lib/extraction-worker";
 import { startEmailImportWorker } from "./lib/email-import";
@@ -33,6 +33,7 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   logger.info(describeObjectStorageConfig(), "Object storage configuration");
   startBackupScheduler();
+  startRestoreTestScheduler();
   startReminderScheduler();
   startExtractionWorker();
   startEmailImportWorker();
