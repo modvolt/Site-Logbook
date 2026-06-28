@@ -302,6 +302,54 @@ describe("confirmed assignment edit guard", () => {
     expect(res.body.error).toBeDefined();
   });
 
+  it("PATCH on confirmed assignment with replaceBy → 409", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      replaceBy: "2030-01-01",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("PATCH on confirmed assignment with nextInspectionAt → 409", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      nextInspectionAt: "2030-06-01",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("PATCH on confirmed assignment with size → 409", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      size: "XL",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("PATCH on confirmed assignment with serialNumber → 409", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      serialNumber: "SN-9999",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("PATCH on confirmed assignment with notes → 409", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      notes: "pokus o přepsání",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("PATCH on confirmed assignment with empty body → 200 (no-op, not rejected)", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.employeeConfirmedAt).not.toBeNull();
+  });
+
+  it("employeeConfirmedAt remains set after empty-body PATCH (immutable)", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.employeeConfirmedAt).toBeDefined();
+    expect(res.body.employeeConfirmedAt).not.toBeNull();
+  });
+
   it("PATCH on confirmed assignment with status/returnedAt fields → 200", async () => {
     const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
       status: "returned",
@@ -309,6 +357,206 @@ describe("confirmed assignment edit guard", () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("returned");
+  });
+
+  it("employeeConfirmedAt remains set after status-change PATCH (immutable via update path)", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      status: "returned",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.employeeConfirmedAt).not.toBeNull();
+  });
+
+  it("confirmToken is never exposed in PATCH response", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmedAssignmentId}`).send({
+      status: "returned",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.confirmToken).toBeUndefined();
+  });
+});
+
+// ── Confirm token flow (POST /ppe/confirm, GET /ppe/confirm) ─────────────────
+
+describe("employee confirmation signature flow", () => {
+  let confirmItemId: number;
+  let confirmAssignmentId: number;
+  let confirmToken: string;
+
+  beforeAll(async () => {
+    const [item] = await db
+      .insert(ppeItemsTable)
+      .values({ name: `ConfirmFlowItem ${TAG}`, category: "telo", active: true })
+      .returning();
+    confirmItemId = item.id;
+    itemIds.push(confirmItemId);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const [assignment] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: confirmItemId,
+        personId,
+        ppeNameSnapshot: item.name,
+        personNameSnapshot: `Worker ${TAG}`,
+        quantity: 1,
+        issuedAt: todayStr,
+        status: "issued",
+      })
+      .returning();
+    confirmAssignmentId = assignment.id;
+    assignmentIds.push(confirmAssignmentId);
+  });
+
+  it("POST /api/ppe/assignments/:id/request-confirm → 200 with confirmUrl and token", async () => {
+    const res = await adminAgent.post(`/api/ppe/assignments/${confirmAssignmentId}/request-confirm`);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.token).toBe("string");
+    expect(res.body.token.length).toBeGreaterThan(0);
+    expect(typeof res.body.confirmUrl).toBe("string");
+    expect(res.body.confirmUrl).toContain(res.body.token);
+    confirmToken = res.body.token;
+  });
+
+  it("GET /api/ppe/confirm?token= returns assignment info without confirmToken field", async () => {
+    const res = await adminAgent.get(`/api/ppe/confirm?token=${confirmToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(confirmAssignmentId);
+    expect(res.body.employeeConfirmedAt).toBeNull();
+    expect(res.body.confirmToken).toBeUndefined();
+  });
+
+  it("GET /api/ppe/confirm with invalid token → 404", async () => {
+    const res = await adminAgent.get("/api/ppe/confirm?token=definitely-not-a-real-token-xyz");
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /api/ppe/confirm with missing token → 400", async () => {
+    const res = await adminAgent.get("/api/ppe/confirm");
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/ppe/confirm with valid token → 200, sets employeeConfirmedAt", async () => {
+    const res = await request(app).post("/api/ppe/confirm").send({ token: confirmToken });
+    expect(res.status).toBe(200);
+    expect(res.body.already).toBe(false);
+    expect(res.body.assignment.employeeConfirmedAt).not.toBeNull();
+    expect(res.body.assignment.id).toBe(confirmAssignmentId);
+    expect(res.body.assignment.confirmToken).toBeUndefined();
+  });
+
+  it("POST /api/ppe/confirm again with same token → 200 with already:true (idempotent)", async () => {
+    const res = await request(app).post("/api/ppe/confirm").send({ token: confirmToken });
+    expect(res.status).toBe(200);
+    expect(res.body.already).toBe(true);
+    expect(res.body.assignment.employeeConfirmedAt).not.toBeNull();
+  });
+
+  it("POST /api/ppe/confirm with missing token → 400", async () => {
+    const res = await request(app).post("/api/ppe/confirm").send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/ppe/confirm with invalid token → 404", async () => {
+    const res = await request(app).post("/api/ppe/confirm").send({ token: "bad-token-xyz" });
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /api/ppe/assignments/:id/request-confirm on already-confirmed → 409", async () => {
+    const res = await adminAgent.post(`/api/ppe/assignments/${confirmAssignmentId}/request-confirm`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/potvrzen/i);
+  });
+
+  it("after confirmation, PATCH with non-status field → 409 (guard still active)", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmAssignmentId}`).send({
+      notes: "pokus po potvrzení",
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("after confirmation, employeeConfirmedAt cannot be cleared by PATCH (field silently stripped)", async () => {
+    const res = await adminAgent.patch(`/api/ppe/assignments/${confirmAssignmentId}`).send({
+      status: "returned",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.employeeConfirmedAt).not.toBeNull();
+  });
+});
+
+// ── request-confirm guards ────────────────────────────────────────────────────
+
+describe("request-confirm guards", () => {
+  let returnedAssignmentId: number;
+
+  beforeAll(async () => {
+    const [item] = await db
+      .insert(ppeItemsTable)
+      .values({ name: `ReqConfirmGuardItem ${TAG}`, category: "telo", active: true })
+      .returning();
+    itemIds.push(item.id);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const [assignment] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: item.id,
+        personId,
+        ppeNameSnapshot: item.name,
+        personNameSnapshot: `Worker ${TAG}`,
+        quantity: 1,
+        issuedAt: todayStr,
+        status: "returned",
+        returnedAt: todayStr,
+      })
+      .returning();
+    returnedAssignmentId = assignment.id;
+    assignmentIds.push(returnedAssignmentId);
+  });
+
+  it("POST request-confirm on returned assignment → 409", async () => {
+    const res = await adminAgent.post(`/api/ppe/assignments/${returnedAssignmentId}/request-confirm`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/aktivní/i);
+  });
+
+  it("POST request-confirm on non-existent assignment → 404", async () => {
+    const res = await adminAgent.post("/api/ppe/assignments/9999999/request-confirm");
+    expect(res.status).toBe(404);
+  });
+
+  it("guest POST request-confirm → 403", async () => {
+    const res = await guestAgent.post(`/api/ppe/assignments/${returnedAssignmentId}/request-confirm`);
+    expect(res.status).toBe(403);
+  });
+
+  it("POST request-confirm is idempotent (same token returned on repeat call for issued assignment)", async () => {
+    const [item] = await db
+      .insert(ppeItemsTable)
+      .values({ name: `IdempotentConfirm ${TAG}`, category: "telo", active: true })
+      .returning();
+    itemIds.push(item.id);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const [assignment] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: item.id,
+        personId,
+        ppeNameSnapshot: item.name,
+        personNameSnapshot: `Worker ${TAG}`,
+        quantity: 1,
+        issuedAt: todayStr,
+        status: "issued",
+      })
+      .returning();
+    assignmentIds.push(assignment.id);
+
+    const first = await adminAgent.post(`/api/ppe/assignments/${assignment.id}/request-confirm`);
+    expect(first.status).toBe(200);
+    const second = await adminAgent.post(`/api/ppe/assignments/${assignment.id}/request-confirm`);
+    expect(second.status).toBe(200);
+    expect(second.body.token).toBe(first.body.token);
   });
 });
 

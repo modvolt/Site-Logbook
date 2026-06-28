@@ -352,6 +352,11 @@ router.patch("/ppe/assignments/:id", requireRole("admin", "master"), async (req,
 
   const updates: Partial<typeof ppeAssignmentsTable.$inferInsert> = { ...parsed.data };
 
+  if (Object.keys(updates).length === 0) {
+    res.json(serializeAssignment(existing));
+    return;
+  }
+
   const [updated] = await db
     .update(ppeAssignmentsTable)
     .set(updates)
