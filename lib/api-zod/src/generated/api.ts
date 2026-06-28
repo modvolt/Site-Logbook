@@ -3523,7 +3523,8 @@ export const DeleteSessionParams = zod.object({
  * @summary List all active sessions (admin only)
  */
 export const ListAllSessionsQueryParams = zod.object({
-  "userId": zod.coerce.number().optional()
+  "userId": zod.coerce.number().optional(),
+  "includeAnonymous": zod.coerce.boolean().optional()
 })
 
 export const ListAllSessionsResponseItem = zod.object({
@@ -3540,6 +3541,14 @@ export const ListAllSessionsResponseItem = zod.object({
   "isCurrent": zod.boolean().describe('True when this session belongs to the current request')
 })
 export const ListAllSessionsResponse = zod.array(ListAllSessionsResponseItem)
+
+
+/**
+ * @summary Purge expired and anonymous sessions older than 24h (admin only)
+ */
+export const PurgeExpiredSessionsResponse = zod.object({
+  "deleted": zod.number()
+})
 
 
 /**

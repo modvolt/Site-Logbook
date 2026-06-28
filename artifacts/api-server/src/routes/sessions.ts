@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gt, ne } from "drizzle-orm";
+import { eq, and, gt, ne, isNull, or, lt, sql } from "drizzle-orm";
 import { db, userSessionsTable, usersTable, auditLogTable } from "@workspace/db";
 import { requireAuth, requireRole } from "../middlewares/auth";
 
@@ -92,8 +92,12 @@ router.get("/sessions", requireAuth, async (req, res): Promise<void> => {
 router.get("/admin/sessions", requireRole("admin"), async (req, res): Promise<void> => {
   const now = new Date();
   const userIdFilter = req.query.userId ? Number(req.query.userId) : null;
+  const includeAnonymous = req.query.includeAnonymous === "true";
 
   const conditions = [gt(userSessionsTable.expire, now)];
+  if (!includeAnonymous) {
+    conditions.push(sql`${userSessionsTable.userId} IS NOT NULL`);
+  }
   if (userIdFilter) {
     conditions.push(eq(userSessionsTable.userId, userIdFilter));
   }
@@ -115,6 +119,33 @@ router.get("/admin/sessions", requireRole("admin"), async (req, res): Promise<vo
     .where(and(...conditions));
 
   res.json(rows.map((r) => serializeSession(r, req.sessionID as string)));
+});
+
+router.delete("/admin/sessions/expired", requireRole("admin"), async (req, res): Promise<void> => {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const deleted = await db
+    .delete(userSessionsTable)
+    .where(
+      or(
+        lt(userSessionsTable.expire, now),
+        and(
+          isNull(userSessionsTable.userId),
+          lt(userSessionsTable.createdAt, cutoff),
+        ),
+      ),
+    )
+    .returning({ sid: userSessionsTable.sid });
+
+  await writeAudit(
+    req.auth!.userId,
+    req.auth!.name,
+    "delete",
+    `Vyčištění expirovaných/anonymních session: odstraněno ${deleted.length}`,
+  );
+
+  res.json({ deleted: deleted.length });
 });
 
 router.delete("/sessions/:sid", requireAuth, async (req, res): Promise<void> => {

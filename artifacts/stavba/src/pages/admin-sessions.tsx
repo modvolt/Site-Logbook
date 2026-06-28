@@ -8,6 +8,7 @@ import {
   getListAllSessionsQueryKey,
   useDeleteSession,
   useDeleteUserSessions,
+  usePurgeExpiredSessions,
   getListMySessionsQueryKey,
   type SessionEntry,
 } from "@workspace/api-client-react";
@@ -152,6 +153,7 @@ export default function AdminSessions() {
 
   const deleteSession = useDeleteSession();
   const deleteUserSessions = useDeleteUserSessions();
+  const purgeExpired = usePurgeExpiredSessions();
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: getListAllSessionsQueryKey({}) });
@@ -210,6 +212,26 @@ export default function AdminSessions() {
 
   const isRevoking = deleteSession.isPending || deleteUserSessions.isPending;
 
+  const handlePurge = () => {
+    openConfirm(
+      {
+        title: "Vyčistit expirované session?",
+        description: "Odstraní všechny expirované session a anonymní session starší než 24 hodin. Tato akce je nevratná.",
+      },
+      () => {
+        purgeExpired.mutate(undefined, {
+          onSuccess: (data) => {
+            refresh();
+            toast({ title: `Odstraněno ${data.deleted} session` });
+          },
+          onError: (err: any) => toast({ title: "Chyba", description: err?.message, variant: "destructive" }),
+        });
+      },
+    );
+  };
+
+  const totalSessions = sessions?.length ?? 0;
+
   return (
     <div className="p-4 md:p-6 w-full">
       <div className="max-w-[1200px] mx-auto">
@@ -217,6 +239,11 @@ export default function AdminSessions() {
           <div className="flex items-center gap-3">
             <Monitor className="w-7 h-7 text-rose-600" />
             <h1 className="text-2xl font-bold">Aktivní přihlášení</h1>
+            {!isLoading && !error && (
+              <span className="text-sm text-muted-foreground font-normal">
+                ({totalSessions})
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Input
@@ -225,6 +252,16 @@ export default function AdminSessions() {
               onChange={(e) => setSearch(e.target.value)}
               className="w-52 h-9"
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePurge}
+              disabled={purgeExpired.isPending}
+              className="h-9 text-muted-foreground"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Vyčistit expirované
+            </Button>
             <Button variant="outline" size="sm" onClick={refresh} className="h-9">
               Obnovit
             </Button>

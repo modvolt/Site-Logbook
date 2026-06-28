@@ -213,6 +213,7 @@ import type {
   PpeSignHandoverInput,
   PublicHoliday,
   PurgeClientErrorsParams,
+  PurgeExpiredSessions200,
   Quote,
   QuoteDetail,
   RecurringGenerationResult,
@@ -11348,6 +11349,76 @@ export function useListAllSessions<TData = Awaited<ReturnType<typeof listAllSess
 
 
 
+
+export const getPurgeExpiredSessionsUrl = () => {
+
+
+
+
+  return `/api/admin/sessions/expired`
+}
+
+/**
+ * @summary Purge expired and anonymous sessions older than 24h (admin only)
+ */
+export const purgeExpiredSessions = async ( options?: RequestInit): Promise<PurgeExpiredSessions200> => {
+
+  return customFetch<PurgeExpiredSessions200>(getPurgeExpiredSessionsUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getPurgeExpiredSessionsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purgeExpiredSessions>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof purgeExpiredSessions>>, TError,void, TContext> => {
+
+const mutationKey = ['purgeExpiredSessions'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof purgeExpiredSessions>>, void> = () => {
+
+
+          return  purgeExpiredSessions(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PurgeExpiredSessionsMutationResult = NonNullable<Awaited<ReturnType<typeof purgeExpiredSessions>>>
+
+    export type PurgeExpiredSessionsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Purge expired and anonymous sessions older than 24h (admin only)
+ */
+export const usePurgeExpiredSessions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof purgeExpiredSessions>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof purgeExpiredSessions>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getPurgeExpiredSessionsMutationOptions(options));
+    }
 
 export const getDeleteUserSessionsUrl = (id: number,) => {
 

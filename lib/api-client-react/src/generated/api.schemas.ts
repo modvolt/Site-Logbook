@@ -5480,6 +5480,11 @@ export type RetryEmailImportLog200 = {
 
 export type ListAllSessionsParams = {
 userId?: number;
+includeAnonymous?: boolean;
+};
+
+export type PurgeExpiredSessions200 = {
+  deleted: number;
 };
 
 export type ListAuditLogsParams = {

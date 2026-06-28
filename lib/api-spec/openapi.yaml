@@ -3548,6 +3548,11 @@ paths:
           required: false
           schema:
             type: integer
+        - name: includeAnonymous
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: All active sessions
@@ -3557,6 +3562,23 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SessionEntry"
+
+  /admin/sessions/expired:
+    delete:
+      operationId: purgeExpiredSessions
+      tags: [sessions]
+      summary: Purge expired and anonymous sessions older than 24h (admin only)
+      responses:
+        "200":
+          description: Number of deleted sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted:
+                    type: integer
 
   /users/{id}/sessions:
     delete:
