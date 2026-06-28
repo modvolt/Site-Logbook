@@ -93,7 +93,7 @@ export const ppeHandoverDocumentsTable = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique("ppe_handover_documents_assignment_version_uniq").on(t.assignmentId, t.version),
+    unique("ppe_handover_documents_assignment_id_uniq").on(t.assignmentId),
     index("ppe_handover_documents_assignment_id_idx").on(t.assignmentId),
   ],
 );

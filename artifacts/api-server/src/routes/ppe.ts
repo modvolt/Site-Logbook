@@ -16,8 +16,6 @@ import { generatePpeHandoverPdf } from "../lib/ppe-handover-pdf";
 import { z } from "zod/v4";
 import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pdf";
 import { ensureBillingSettings } from "../lib/invoice-service";
-import { ObjectStorageService } from "../lib/objectStorage";
-import { randomUUID } from "crypto";
 
 const objectStorage = new ObjectStorageService();
 
@@ -60,9 +58,10 @@ function serializeAssignment(
 ) {
   return {
     ...a,
-    confirmToken: undefined,
-    confirmTokenExpiresAt: undefined,
-    hasConfirmToken: !!a.confirmToken,
+    signatureToken: undefined,
+    signatureObjectPath: undefined,
+    hasSignature: !!a.signatureObjectPath,
+    hasSignToken: !!a.signatureToken,
     employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
     createdAt: a.createdAt.toISOString(),
     handoverDocument: doc ? serializeHandoverDocument(doc) : null,
@@ -75,19 +74,6 @@ function serializeItem(item: typeof ppeItemsTable.$inferSelect) {
     createdAt: item.createdAt.toISOString(),
   };
 }
-
-function serializeAssignment(a: typeof ppeAssignmentsTable.$inferSelect) {
-  return {
-    ...a,
-    signatureToken: undefined,
-    signatureObjectPath: undefined,
-    hasSignature: !!a.signatureObjectPath,
-    hasSignToken: !!a.signatureToken,
-    employeeConfirmedAt: a.employeeConfirmedAt ? a.employeeConfirmedAt.toISOString() : null,
-    createdAt: a.createdAt.toISOString(),
-  };
-}
-
 const PpeItemInputSchema = z.object({
   name: z.string().min(1, "Název je povinný"),
   category: z.enum(PPE_CATEGORIES as unknown as [string, ...string[]]).default("ostatni"),
@@ -765,8 +751,12 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
 
     // Atomic DB transaction
     const handoverDoc = await db.transaction(async (tx) => {
-      // Idempotency guard inside transaction
-      const [recheck] = await tx.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
+      // Lock the assignment row to serialize concurrent sign attempts
+      const [recheck] = await tx
+        .select()
+        .from(ppeAssignmentsTable)
+        .where(eq(ppeAssignmentsTable.id, params.data.id))
+        .for("update");
       if (recheck?.employeeConfirmedAt) {
         throw new Error("ALREADY_SIGNED");
       }
@@ -862,6 +852,10 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
 
     if (err instanceof Error && err.message === "ALREADY_SIGNED") {
       res.status(409).json({ error: "Výdej již byl podepsán" });
+      return;
+    }
+    if (typeof err === "object" && err !== null && (err as Record<string, unknown>).code === "23505") {
+      res.status(409).json({ error: "Protokol předání pro tento výdej již existuje" });
       return;
     }
     req.log.error({ err }, "Error signing PPE handover");
