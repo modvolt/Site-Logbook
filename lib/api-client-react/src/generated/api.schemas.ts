@@ -9,6 +9,113 @@ export interface HealthStatus {
   status: string;
 }
 
+export type AdminHealthStatusDbStatus = typeof AdminHealthStatusDbStatus[keyof typeof AdminHealthStatusDbStatus];
+
+
+export const AdminHealthStatusDbStatus = {
+  ok: 'ok',
+  error: 'error',
+} as const;
+
+export type AdminHealthStatusStorageStatus = typeof AdminHealthStatusStorageStatus[keyof typeof AdminHealthStatusStorageStatus];
+
+
+export const AdminHealthStatusStorageStatus = {
+  ok: 'ok',
+  error: 'error',
+  not_configured: 'not_configured',
+} as const;
+
+export type AdminHealthStatusSmtpStatus = typeof AdminHealthStatusSmtpStatus[keyof typeof AdminHealthStatusSmtpStatus];
+
+
+export const AdminHealthStatusSmtpStatus = {
+  configured: 'configured',
+  not_configured: 'not_configured',
+} as const;
+
+export type AdminHealthStatusAiStatus = typeof AdminHealthStatusAiStatus[keyof typeof AdminHealthStatusAiStatus];
+
+
+export const AdminHealthStatusAiStatus = {
+  ready: 'ready',
+  configured_disabled: 'configured_disabled',
+  not_configured: 'not_configured',
+} as const;
+
+export type AdminHealthStatusGmailStatus = typeof AdminHealthStatusGmailStatus[keyof typeof AdminHealthStatusGmailStatus];
+
+
+export const AdminHealthStatusGmailStatus = {
+  connected: 'connected',
+  disconnected: 'disconnected',
+  not_configured: 'not_configured',
+} as const;
+
+export type AdminHealthStatusImapStatus = typeof AdminHealthStatusImapStatus[keyof typeof AdminHealthStatusImapStatus];
+
+
+export const AdminHealthStatusImapStatus = {
+  configured: 'configured',
+  not_configured: 'not_configured',
+} as const;
+
+export interface AdminHealthLastBackup {
+  createdAt: string;
+  status: string;
+  /** @nullable */
+  sizeBytes?: number | null;
+  trigger: string;
+  /** @nullable */
+  error?: string | null;
+  /**
+     * SHA-256 hex digest of the dump bytes; null for older backups
+     * @nullable
+     */
+  sha256?: string | null;
+  /**
+     * ISO timestamp of the last successful restore from this backup; null if never restored
+     * @nullable
+     */
+  restoredAt?: string | null;
+}
+
+export interface AdminHealthStatus {
+  /** Build SHA or version of the running API */
+  apiVersion: string;
+  /** True when all expected migrations are applied */
+  migrationParity: boolean;
+  expectedMigrations: number;
+  appliedMigrations: number;
+  /** @nullable */
+  latestExpectedTag?: string | null;
+  missingMigrationTags: string[];
+  dbStatus: AdminHealthStatusDbStatus;
+  /** @nullable */
+  dbLatencyMs?: number | null;
+  storageStatus: AdminHealthStatusStorageStatus;
+  /** True when using GCS/Replit fallback storage instead of a configured S3 bucket */
+  storageIsDevFallback: boolean;
+  /** @nullable */
+  storageDetails?: string | null;
+  smtpStatus: AdminHealthStatusSmtpStatus;
+  /** @nullable */
+  smtpHost?: string | null;
+  aiStatus: AdminHealthStatusAiStatus;
+  /** @nullable */
+  aiModel?: string | null;
+  gmailStatus: AdminHealthStatusGmailStatus;
+  /** @nullable */
+  gmailEmail?: string | null;
+  imapStatus: AdminHealthStatusImapStatus;
+  /** Number of frontend JS errors logged in the last 24 hours */
+  frontendErrorCount24h: number;
+  /** Number of backend processing failures (backup + email import) in the last 24 hours */
+  backendErrorCount24h: number;
+  lastSuccessfulBackup?: AdminHealthLastBackup | null;
+  lastBackupError?: AdminHealthLastBackup | null;
+}
+
 export interface Job {
   id: number;
   title: string;

@@ -140,6 +140,13 @@ export default defineConfig(async ({ command }) => {
       dedupe: ["react", "react-dom"],
     },
     root: path.resolve(import.meta.dirname),
+    define: {
+      // Inject build-time git SHA so the health page can compare frontend vs API versions.
+      // Set VITE_BUILD_SHA in CI / Coolify build args. Falls back to "dev" at runtime.
+      "import.meta.env.VITE_BUILD_SHA": JSON.stringify(
+        process.env.VITE_BUILD_SHA ?? process.env.BUILD_SHA ?? process.env.COMMIT_SHA ?? "dev",
+      ),
+    },
     build: {
       outDir: path.resolve(import.meta.dirname, "dist/public"),
       emptyOutDir: true,

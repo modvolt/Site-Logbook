@@ -51,6 +51,7 @@ import BillingDocuments from "@/pages/billing-documents";
 import BillingDocumentDetail from "@/pages/billing-document-detail";
 import BillingReviewQueue from "@/pages/billing-review-queue";
 import BillingEmailImport from "@/pages/billing-email-import";
+import AdminHealth from "@/pages/admin-health";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
 
 interface ErrorBoundaryState {
@@ -210,6 +211,7 @@ function AuthenticatedApp() {
         <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
         <Route path="/admin/client-errors">{() => <AdminOnly component={ClientErrors} />}</Route>
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
+        <Route path="/admin/health">{() => <WriteOnly component={AdminHealth} />}</Route>
         <Route component={NotFound} />
         </Switch>
         </PageErrorBoundary>

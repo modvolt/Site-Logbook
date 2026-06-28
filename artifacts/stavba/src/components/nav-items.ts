@@ -1,7 +1,7 @@
 import {
   Home, Calendar, Briefcase, Users, Settings, Building2, ShieldAlert,
   UserCog, Hammer, User as UserIcon, Package, Wrench, ScrollText,
-  ShieldCheck, KeyRound, BarChart3, Receipt, Bug,
+  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity,
 } from "lucide-react";
 
 export type NavItem = {
@@ -40,6 +40,7 @@ export const adminNavItems: NavItem[] = [
   { href: "/admin/audit", icon: ScrollText, label: "Záznam změn", shortLabel: "Záznam", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers" },
   { href: "/admin/client-errors", icon: Bug, label: "Frontend chyby", shortLabel: "Chyby", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers" },
   { href: "/admin/gdpr", icon: ShieldCheck, label: "GDPR", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "manageUsers" },
+  { href: "/admin/health", icon: Activity, label: "Diagnostika", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "write" },
   { href: "/settings", icon: Settings, label: "Nastavení", color: "text-gray-500", activeBg: "bg-gray-500 text-white", hoverBg: "hover:bg-muted hover:text-foreground" },
 ];
 

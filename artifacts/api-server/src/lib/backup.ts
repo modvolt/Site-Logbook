@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -123,18 +124,20 @@ export async function createBackup(opts: {
     const buffer = await runPgDump(databaseUrl);
     await objectStorage.putPrivateObject(objectPath, buffer, "application/octet-stream");
 
+    const sha256 = createHash("sha256").update(buffer).digest("hex");
     const [updated] = await db
       .update(backupLogTable)
       .set({
         status: "success",
         objectPath,
         sizeBytes: buffer.length,
+        sha256,
       })
       .where(eq(backupLogTable.id, row.id))
       .returning();
 
     logger.info(
-      { backupId: row.id, sizeBytes: buffer.length, trigger: opts.trigger },
+      { backupId: row.id, sizeBytes: buffer.length, sha256, trigger: opts.trigger },
       "Database backup completed",
     );
 
@@ -218,6 +221,13 @@ export async function restoreBackup(id: number): Promise<void> {
         else reject(new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`));
       });
     });
+
+    // Record when this backup was last successfully restored so the health page
+    // can display the last restore-test timestamp.
+    await db
+      .update(backupLogTable)
+      .set({ restoredAt: new Date() })
+      .where(eq(backupLogTable.id, id));
 
     logger.warn({ backupId: id }, "Database restored from backup");
   } finally {

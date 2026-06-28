@@ -35,6 +35,7 @@ import type {
   ActivityVisit,
   ActivityVisitInput,
   ActivityVisitUpdate,
+  AdminHealthStatus,
   AnalyzeJobDocumentsResult,
   ApprovedCostLine,
   Attachment,
@@ -282,6 +283,83 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHealthCheckQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetAdminHealthUrl = () => {
+
+
+
+
+  return `/api/admin/health`
+}
+
+/**
+ * @summary Operational health and build diagnostics (admin only)
+ */
+export const getAdminHealth = async ( options?: RequestInit): Promise<AdminHealthStatus> => {
+
+  return customFetch<AdminHealthStatus>(getGetAdminHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminHealthQueryKey = () => {
+    return [
+    `/api/admin/health`
+    ] as const;
+    }
+
+
+export const getGetAdminHealthQueryOptions = <TData = Awaited<ReturnType<typeof getAdminHealth>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminHealth>>> = ({ signal }) => getAdminHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminHealthQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminHealth>>>
+export type GetAdminHealthQueryError = ErrorType<void>
+
+
+/**
+ * @summary Operational health and build diagnostics (admin only)
+ */
+
+export function useGetAdminHealth<TData = Awaited<ReturnType<typeof getAdminHealth>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminHealthQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -17,6 +17,51 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary Operational health and build diagnostics (admin only)
+ */
+export const GetAdminHealthResponse = zod.object({
+  "apiVersion": zod.string().describe('Build SHA or version of the running API'),
+  "migrationParity": zod.boolean().describe('True when all expected migrations are applied'),
+  "expectedMigrations": zod.number(),
+  "appliedMigrations": zod.number(),
+  "latestExpectedTag": zod.string().nullish(),
+  "missingMigrationTags": zod.array(zod.string()),
+  "dbStatus": zod.enum(['ok', 'error']),
+  "dbLatencyMs": zod.number().nullish(),
+  "storageStatus": zod.enum(['ok', 'error', 'not_configured']),
+  "storageIsDevFallback": zod.boolean().describe('True when using GCS\/Replit fallback storage instead of a configured S3 bucket'),
+  "storageDetails": zod.string().nullish(),
+  "smtpStatus": zod.enum(['configured', 'not_configured']),
+  "smtpHost": zod.string().nullish(),
+  "aiStatus": zod.enum(['ready', 'configured_disabled', 'not_configured']),
+  "aiModel": zod.string().nullish(),
+  "gmailStatus": zod.enum(['connected', 'disconnected', 'not_configured']),
+  "gmailEmail": zod.string().nullish(),
+  "imapStatus": zod.enum(['configured', 'not_configured']),
+  "frontendErrorCount24h": zod.number().describe('Number of frontend JS errors logged in the last 24 hours'),
+  "backendErrorCount24h": zod.number().describe('Number of backend processing failures (backup + email import) in the last 24 hours'),
+  "lastSuccessfulBackup": zod.union([zod.object({
+  "createdAt": zod.string(),
+  "status": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "trigger": zod.string(),
+  "error": zod.string().nullish(),
+  "sha256": zod.string().nullish().describe('SHA-256 hex digest of the dump bytes; null for older backups'),
+  "restoredAt": zod.string().nullish().describe('ISO timestamp of the last successful restore from this backup; null if never restored')
+}),zod.null()]).optional(),
+  "lastBackupError": zod.union([zod.object({
+  "createdAt": zod.string(),
+  "status": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "trigger": zod.string(),
+  "error": zod.string().nullish(),
+  "sha256": zod.string().nullish().describe('SHA-256 hex digest of the dump bytes; null for older backups'),
+  "restoredAt": zod.string().nullish().describe('ISO timestamp of the last successful restore from this backup; null if never restored')
+}),zod.null()]).optional()
+})
+
+
+/**
  * @summary List jobs, optionally filtered by date range
  */
 export const ListJobsQueryParams = zod.object({

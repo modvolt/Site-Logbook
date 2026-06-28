@@ -253,6 +253,13 @@
       "when": 1783300000000,
       "tag": "0035_activity_visits",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783301000000,
+      "tag": "0036_backup_sha256_restore",
+      "breakpoints": true
     }
   ]
 }
