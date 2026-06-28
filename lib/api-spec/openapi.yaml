@@ -688,6 +688,152 @@ paths:
         "204":
           description: Deleted
 
+  /leaves:
+    get:
+      operationId: listLeaves
+      tags: [people]
+      summary: List employee leaves, optionally filtered by person / date range
+      parameters:
+        - name: personId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            description: ISO date YYYY-MM-DD
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            description: ISO date YYYY-MM-DD
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [vacation, sick, other]
+      responses:
+        "200":
+          description: List of leaves
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmployeeLeave"
+    post:
+      operationId: createLeave
+      tags: [people]
+      summary: Create an employee leave record (admin/master)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeLeaveInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeLeave"
+        "400":
+          description: Validation error
+        "404":
+          description: Person not found
+
+  /leaves/{id}:
+    put:
+      operationId: updateLeave
+      tags: [people]
+      summary: Update an employee leave record (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeLeaveInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeLeave"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteLeave
+      tags: [people]
+      summary: Delete an employee leave record (admin/master)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /leaves/summary:
+    get:
+      operationId: getLeavesSummary
+      tags: [people]
+      summary: Aggregated leave days per person for a given year
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: Year (defaults to current year)
+      responses:
+        "200":
+          description: Summary per person
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaveSummary"
+
+  /public-holidays:
+    get:
+      operationId: listPublicHolidays
+      tags: [people]
+      summary: List Czech public holidays for a given year
+      parameters:
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+            description: Year (defaults to current year)
+      responses:
+        "200":
+          description: Public holidays
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicHoliday"
+
   /customers:
     get:
       operationId: listCustomers
@@ -10634,3 +10780,80 @@ components:
         computedAt:
           type: string
           description: ISO timestamp when this summary was computed.
+
+    EmployeeLeave:
+      type: object
+      required: [id, personId, type, startDate, endDate, days, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        personId:
+          type: integer
+        personName:
+          type: ["string", "null"]
+        type:
+          type: string
+          enum: [vacation, sick, other]
+        startDate:
+          type: string
+          description: YYYY-MM-DD
+        endDate:
+          type: string
+          description: YYYY-MM-DD
+        note:
+          type: ["string", "null"]
+        days:
+          type: integer
+          description: Calendar days (inclusive)
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    EmployeeLeaveInput:
+      type: object
+      required: [personId, startDate, endDate]
+      properties:
+        personId:
+          type: integer
+        type:
+          type: string
+          enum: [vacation, sick, other]
+          default: vacation
+        startDate:
+          type: string
+          description: YYYY-MM-DD
+        endDate:
+          type: string
+          description: YYYY-MM-DD
+        note:
+          type: ["string", "null"]
+
+    LeaveSummary:
+      type: object
+      required: [personId, personName, year, vacationDays, sickDays, otherDays, totalDays]
+      properties:
+        personId:
+          type: integer
+        personName:
+          type: string
+        year:
+          type: integer
+        vacationDays:
+          type: integer
+        sickDays:
+          type: integer
+        otherDays:
+          type: integer
+        totalDays:
+          type: integer
+
+    PublicHoliday:
+      type: object
+      required: [date, name]
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD
+        name:
+          type: string

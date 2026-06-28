@@ -572,6 +572,69 @@ export interface ActiveTimer {
   timerStartedAt: string;
 }
 
+export type EmployeeLeaveType = typeof EmployeeLeaveType[keyof typeof EmployeeLeaveType];
+
+
+export const EmployeeLeaveType = {
+  vacation: 'vacation',
+  sick: 'sick',
+  other: 'other',
+} as const;
+
+export interface EmployeeLeave {
+  id: number;
+  personId: number;
+  /** @nullable */
+  personName?: string | null;
+  type: EmployeeLeaveType;
+  /** YYYY-MM-DD */
+  startDate: string;
+  /** YYYY-MM-DD */
+  endDate: string;
+  /** @nullable */
+  note?: string | null;
+  /** Calendar days (inclusive) */
+  days: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EmployeeLeaveInputType = typeof EmployeeLeaveInputType[keyof typeof EmployeeLeaveInputType];
+
+
+export const EmployeeLeaveInputType = {
+  vacation: 'vacation',
+  sick: 'sick',
+  other: 'other',
+} as const;
+
+export interface EmployeeLeaveInput {
+  personId: number;
+  type?: EmployeeLeaveInputType;
+  /** YYYY-MM-DD */
+  startDate: string;
+  /** YYYY-MM-DD */
+  endDate: string;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface LeaveSummary {
+  personId: number;
+  personName: string;
+  year: number;
+  vacationDays: number;
+  sickDays: number;
+  otherDays: number;
+  totalDays: number;
+}
+
+export interface PublicHoliday {
+  /** YYYY-MM-DD */
+  date: string;
+  name: string;
+}
+
 export interface Customer {
   id: number;
   companyName: string;
@@ -3987,6 +4050,42 @@ export const ListJobsSegment = {
   without_price: 'without_price',
   cancelled: 'cancelled',
 } as const;
+
+export type ListLeavesParams = {
+personId?: number;
+/**
+ * ISO date YYYY-MM-DD
+ */
+from?: string;
+/**
+ * ISO date YYYY-MM-DD
+ */
+to?: string;
+type?: ListLeavesType;
+};
+
+export type ListLeavesType = typeof ListLeavesType[keyof typeof ListLeavesType];
+
+
+export const ListLeavesType = {
+  vacation: 'vacation',
+  sick: 'sick',
+  other: 'other',
+} as const;
+
+export type GetLeavesSummaryParams = {
+/**
+ * Year (defaults to current year)
+ */
+year?: number;
+};
+
+export type ListPublicHolidaysParams = {
+/**
+ * Year (defaults to current year)
+ */
+year?: number;
+};
 
 export type GetStatsOverviewParams = {
 /**

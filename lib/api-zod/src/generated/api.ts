@@ -693,6 +693,117 @@ export const DeletePersonParams = zod.object({
 
 
 /**
+ * @summary List employee leaves, optionally filtered by person / date range
+ */
+export const ListLeavesQueryParams = zod.object({
+  "personId": zod.coerce.number().optional(),
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional(),
+  "type": zod.enum(['vacation', 'sick', 'other']).optional()
+})
+
+export const ListLeavesResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string().nullish(),
+  "type": zod.enum(['vacation', 'sick', 'other']),
+  "startDate": zod.string().describe('YYYY-MM-DD'),
+  "endDate": zod.string().describe('YYYY-MM-DD'),
+  "note": zod.string().nullish(),
+  "days": zod.number().describe('Calendar days (inclusive)'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListLeavesResponse = zod.array(ListLeavesResponseItem)
+
+
+/**
+ * @summary Create an employee leave record (admin/master)
+ */
+export const createLeaveBodyTypeDefault = `vacation`;
+
+export const CreateLeaveBody = zod.object({
+  "personId": zod.number(),
+  "type": zod.enum(['vacation', 'sick', 'other']).default(createLeaveBodyTypeDefault),
+  "startDate": zod.string().describe('YYYY-MM-DD'),
+  "endDate": zod.string().describe('YYYY-MM-DD'),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update an employee leave record (admin/master)
+ */
+export const UpdateLeaveParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateLeaveBodyTypeDefault = `vacation`;
+
+export const UpdateLeaveBody = zod.object({
+  "personId": zod.number(),
+  "type": zod.enum(['vacation', 'sick', 'other']).default(updateLeaveBodyTypeDefault),
+  "startDate": zod.string().describe('YYYY-MM-DD'),
+  "endDate": zod.string().describe('YYYY-MM-DD'),
+  "note": zod.string().nullish()
+})
+
+export const UpdateLeaveResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string().nullish(),
+  "type": zod.enum(['vacation', 'sick', 'other']),
+  "startDate": zod.string().describe('YYYY-MM-DD'),
+  "endDate": zod.string().describe('YYYY-MM-DD'),
+  "note": zod.string().nullish(),
+  "days": zod.number().describe('Calendar days (inclusive)'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete an employee leave record (admin/master)
+ */
+export const DeleteLeaveParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Aggregated leave days per person for a given year
+ */
+export const GetLeavesSummaryQueryParams = zod.object({
+  "year": zod.coerce.number().optional()
+})
+
+export const GetLeavesSummaryResponseItem = zod.object({
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "year": zod.number(),
+  "vacationDays": zod.number(),
+  "sickDays": zod.number(),
+  "otherDays": zod.number(),
+  "totalDays": zod.number()
+})
+export const GetLeavesSummaryResponse = zod.array(GetLeavesSummaryResponseItem)
+
+
+/**
+ * @summary List Czech public holidays for a given year
+ */
+export const ListPublicHolidaysQueryParams = zod.object({
+  "year": zod.coerce.number().optional()
+})
+
+export const ListPublicHolidaysResponseItem = zod.object({
+  "date": zod.string().describe('YYYY-MM-DD'),
+  "name": zod.string()
+})
+export const ListPublicHolidaysResponse = zod.array(ListPublicHolidaysResponseItem)
+
+
+/**
  * @summary List all customers
  */
 export const ListCustomersResponseItem = zod.object({

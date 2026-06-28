@@ -35,6 +35,8 @@ import emailImportRouter from "./email-import";
 import eventsRouter from "./events";
 import risksRouter from "./risks";
 import clientErrorsRouter from "./client-errors";
+import leavesRouter from "./leaves";
+import publicHolidaysRouter from "./public-holidays";
 
 const router: IRouter = Router();
 
@@ -74,5 +76,7 @@ router.use(emailImportRouter);
 router.use(eventsRouter);
 router.use(risksRouter);
 router.use(clientErrorsRouter);
+router.use(leavesRouter);
+router.use(publicHolidaysRouter);
 
 export default router;

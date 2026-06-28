@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, lte, sql, count, inArray, max, isNull, isNotNull, ne, or } from "drizzle-orm";
-import { db, jobsTable, jobVisitsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable } from "@workspace/db";
+import { db, jobsTable, jobVisitsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable, employeeLeavesTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
   CreateJobBody,
@@ -169,6 +169,33 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
     createdAt: job.createdAt.toISOString(),
   };
+}
+
+async function checkLeaveConflict(
+  personId: number,
+  date: string,
+): Promise<{ conflict: true; leaveId: number; personName: string } | { conflict: false }> {
+  const [person] = await db
+    .select({ name: peopleTable.name })
+    .from(peopleTable)
+    .where(eq(peopleTable.id, personId));
+
+  const [leave] = await db
+    .select({ id: employeeLeavesTable.id })
+    .from(employeeLeavesTable)
+    .where(
+      and(
+        eq(employeeLeavesTable.personId, personId),
+        lte(employeeLeavesTable.startDate, date),
+        gte(employeeLeavesTable.endDate, date),
+      ),
+    )
+    .limit(1);
+
+  if (leave) {
+    return { conflict: true, leaveId: leave.id, personName: person?.name ?? "" };
+  }
+  return { conflict: false };
 }
 
 const DEFAULT_STALE_DAYS = 14;
@@ -343,6 +370,19 @@ router.post("/jobs", async (req, res): Promise<void> => {
     return;
   }
 
+  const { assignedPersonId, date } = parsed.data as any;
+  if (assignedPersonId && date) {
+    const chk = await checkLeaveConflict(assignedPersonId, date as string);
+    if (chk.conflict) {
+      res.status(409).json({
+        error: `Pracovník ${chk.personName} je v době dovolené (${date}).`,
+        leaveId: chk.leaveId,
+        personName: chk.personName,
+      });
+      return;
+    }
+  }
+
   const values = numericJobFields(parsed.data) as Record<string, unknown>;
   if (values.date) {
     const [agg] = await db
@@ -447,6 +487,30 @@ router.patch("/jobs/:id", async (req, res): Promise<void> => {
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+
+  const data = parsed.data as any;
+  // Resolve effective person + date: payload values take priority, fall back to existing row.
+  if (data.assignedPersonId || data.date) {
+    const [existing] = await db
+      .select({ assignedPersonId: jobsTable.assignedPersonId, date: jobsTable.date })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, params.data.id));
+    if (existing) {
+      const effectivePerson = data.assignedPersonId ?? existing.assignedPersonId;
+      const effectiveDate = (data.date as string | undefined) ?? existing.date;
+      if (effectivePerson && effectiveDate) {
+        const chk = await checkLeaveConflict(effectivePerson, effectiveDate);
+        if (chk.conflict) {
+          res.status(409).json({
+            error: `Pracovník ${chk.personName} je v době dovolené (${effectiveDate}).`,
+            leaveId: chk.leaveId,
+            personName: chk.personName,
+          });
+          return;
+        }
+      }
+    }
   }
 
   const [job] = await db

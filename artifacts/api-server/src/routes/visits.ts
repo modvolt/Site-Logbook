@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, and, asc } from "drizzle-orm";
-import { db, jobVisitsTable, jobsTable, peopleTable } from "@workspace/db";
+import { eq, and, asc, lte, gte } from "drizzle-orm";
+import { db, jobVisitsTable, jobsTable, peopleTable, employeeLeavesTable } from "@workspace/db";
 import {
   ListJobVisitsParams,
   CreateJobVisitParams,
@@ -12,6 +12,33 @@ import {
 import { requireRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+async function checkVisitLeaveConflict(
+  personId: number,
+  date: string,
+): Promise<{ conflict: true; leaveId: number; personName: string } | { conflict: false }> {
+  const [person] = await db
+    .select({ name: peopleTable.name })
+    .from(peopleTable)
+    .where(eq(peopleTable.id, personId));
+
+  const [leave] = await db
+    .select({ id: employeeLeavesTable.id })
+    .from(employeeLeavesTable)
+    .where(
+      and(
+        eq(employeeLeavesTable.personId, personId),
+        lte(employeeLeavesTable.startDate, date),
+        gte(employeeLeavesTable.endDate, date),
+      ),
+    )
+    .limit(1);
+
+  if (leave) {
+    return { conflict: true, leaveId: leave.id, personName: person?.name ?? "" };
+  }
+  return { conflict: false };
+}
 
 async function serializeVisit(v: typeof jobVisitsTable.$inferSelect) {
   let personName: string | null = null;
@@ -69,6 +96,18 @@ router.post(
       return;
     }
 
+    if (parsed.data.personId && parsed.data.date) {
+      const chk = await checkVisitLeaveConflict(parsed.data.personId, parsed.data.date);
+      if (chk.conflict) {
+        res.status(409).json({
+          error: `Pracovník ${chk.personName} je v době dovolené (${parsed.data.date}).`,
+          leaveId: chk.leaveId,
+          personName: chk.personName,
+        });
+        return;
+      }
+    }
+
     const [visit] = await db
       .insert(jobVisitsTable)
       .values({ ...parsed.data, jobId: params.data.jobId })
@@ -91,6 +130,31 @@ router.patch(
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;
+    }
+
+    if (parsed.data.personId || parsed.data.date) {
+      const [existing] = await db
+        .select({ personId: jobVisitsTable.personId, date: jobVisitsTable.date })
+        .from(jobVisitsTable)
+        .where(
+          and(
+            eq(jobVisitsTable.id, params.data.visitId),
+            eq(jobVisitsTable.jobId, params.data.jobId),
+          ),
+        );
+      const effectivePersonId = parsed.data.personId ?? existing?.personId;
+      const effectiveDate = parsed.data.date ?? existing?.date;
+      if (effectivePersonId && effectiveDate) {
+        const chk = await checkVisitLeaveConflict(effectivePersonId, effectiveDate);
+        if (chk.conflict) {
+          res.status(409).json({
+            error: `Pracovník ${chk.personName} je v době dovolené (${effectiveDate}).`,
+            leaveId: chk.leaveId,
+            personName: chk.personName,
+          });
+          return;
+        }
+      }
     }
 
     const [visit] = await db

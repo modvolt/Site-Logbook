@@ -32,6 +32,7 @@ export type InvalidationDomain =
   | "customers"
   | "people"
   | "machines"
+  | "leaves"
   | "billingInvoices"
   | "billingDocuments"
   | "bankImport"
@@ -61,6 +62,7 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
   customers: ["/api/customers", "/api/customer-sites"],
   people: ["/api/people"],
   machines: ["/api/machines"],
+  leaves: ["/api/leaves"],
   // Faktury: seznam, detail, souhrn fakturace i nevyfakturovaní zákazníci.
   billingInvoices: [
     "/api/billing/invoices",

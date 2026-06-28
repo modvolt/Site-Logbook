@@ -108,6 +108,8 @@ import type {
   EmailSettingsInput,
   EmailTestInput,
   EmailTestResult,
+  EmployeeLeave,
+  EmployeeLeaveInput,
   ErrorEnvelope,
   ExportSubjectDataParams,
   ForgotPasswordQuestions,
@@ -115,6 +117,7 @@ import type {
   GdprEraseInput,
   GdprEraseResult,
   GdprExport,
+  GetLeavesSummaryParams,
   GetMyDoneJobsParams,
   GetMyVisitsParams,
   GetRisksSummaryParams,
@@ -138,6 +141,7 @@ import type {
   JobVisit,
   JobVisitInput,
   JobVisitUpdate,
+  LeaveSummary,
   ListActivitiesParams,
   ListApprovedCostLinesParams,
   ListAuditLogsParams,
@@ -147,6 +151,8 @@ import type {
   ListEmailImportMessagesParams,
   ListInvoicesParams,
   ListJobsParams,
+  ListLeavesParams,
+  ListPublicHolidaysParams,
   ListWarehouseItemsParams,
   ListWarehouseMovementsParams,
   LoginInput,
@@ -166,6 +172,7 @@ import type {
   Person,
   PersonInput,
   PersonStats,
+  PublicHoliday,
   PurgeClientErrorsParams,
   ResetPasswordWithAnswersInput,
   RestoreResult,
@@ -2369,6 +2376,471 @@ export const useDeletePerson = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getDeletePersonMutationOptions(options));
     }
+
+export const getListLeavesUrl = (params?: ListLeavesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/leaves?${stringifiedParams}` : `/api/leaves`
+}
+
+/**
+ * @summary List employee leaves, optionally filtered by person / date range
+ */
+export const listLeaves = async (params?: ListLeavesParams, options?: RequestInit): Promise<EmployeeLeave[]> => {
+
+  return customFetch<EmployeeLeave[]>(getListLeavesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLeavesQueryKey = (params?: ListLeavesParams,) => {
+    return [
+    `/api/leaves`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListLeavesQueryOptions = <TData = Awaited<ReturnType<typeof listLeaves>>, TError = ErrorType<unknown>>(params?: ListLeavesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLeaves>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLeavesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLeaves>>> = ({ signal }) => listLeaves(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLeaves>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLeavesQueryResult = NonNullable<Awaited<ReturnType<typeof listLeaves>>>
+export type ListLeavesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List employee leaves, optionally filtered by person / date range
+ */
+
+export function useListLeaves<TData = Awaited<ReturnType<typeof listLeaves>>, TError = ErrorType<unknown>>(
+ params?: ListLeavesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLeaves>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLeavesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateLeaveUrl = () => {
+
+
+
+
+  return `/api/leaves`
+}
+
+/**
+ * @summary Create an employee leave record (admin/master)
+ */
+export const createLeave = async (employeeLeaveInput: EmployeeLeaveInput, options?: RequestInit): Promise<EmployeeLeave> => {
+
+  return customFetch<EmployeeLeave>(getCreateLeaveUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      employeeLeaveInput,)
+  }
+);}
+
+
+
+
+export const getCreateLeaveMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLeave>>, TError,{data: BodyType<EmployeeLeaveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createLeave>>, TError,{data: BodyType<EmployeeLeaveInput>}, TContext> => {
+
+const mutationKey = ['createLeave'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLeave>>, {data: BodyType<EmployeeLeaveInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createLeave(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateLeaveMutationResult = NonNullable<Awaited<ReturnType<typeof createLeave>>>
+    export type CreateLeaveMutationBody = BodyType<EmployeeLeaveInput>
+    export type CreateLeaveMutationError = ErrorType<void>
+
+    /**
+ * @summary Create an employee leave record (admin/master)
+ */
+export const useCreateLeave = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLeave>>, TError,{data: BodyType<EmployeeLeaveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createLeave>>,
+        TError,
+        {data: BodyType<EmployeeLeaveInput>},
+        TContext
+      > => {
+      return useMutation(getCreateLeaveMutationOptions(options));
+    }
+
+export const getUpdateLeaveUrl = (id: number,) => {
+
+
+
+
+  return `/api/leaves/${id}`
+}
+
+/**
+ * @summary Update an employee leave record (admin/master)
+ */
+export const updateLeave = async (id: number,
+    employeeLeaveInput: EmployeeLeaveInput, options?: RequestInit): Promise<EmployeeLeave> => {
+
+  return customFetch<EmployeeLeave>(getUpdateLeaveUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      employeeLeaveInput,)
+  }
+);}
+
+
+
+
+export const getUpdateLeaveMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLeave>>, TError,{id: number;data: BodyType<EmployeeLeaveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLeave>>, TError,{id: number;data: BodyType<EmployeeLeaveInput>}, TContext> => {
+
+const mutationKey = ['updateLeave'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLeave>>, {id: number;data: BodyType<EmployeeLeaveInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateLeave(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLeaveMutationResult = NonNullable<Awaited<ReturnType<typeof updateLeave>>>
+    export type UpdateLeaveMutationBody = BodyType<EmployeeLeaveInput>
+    export type UpdateLeaveMutationError = ErrorType<void>
+
+    /**
+ * @summary Update an employee leave record (admin/master)
+ */
+export const useUpdateLeave = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLeave>>, TError,{id: number;data: BodyType<EmployeeLeaveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLeave>>,
+        TError,
+        {id: number;data: BodyType<EmployeeLeaveInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateLeaveMutationOptions(options));
+    }
+
+export const getDeleteLeaveUrl = (id: number,) => {
+
+
+
+
+  return `/api/leaves/${id}`
+}
+
+/**
+ * @summary Delete an employee leave record (admin/master)
+ */
+export const deleteLeave = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteLeaveUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteLeaveMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLeave>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteLeave>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteLeave'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteLeave>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteLeave(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteLeaveMutationResult = NonNullable<Awaited<ReturnType<typeof deleteLeave>>>
+
+    export type DeleteLeaveMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete an employee leave record (admin/master)
+ */
+export const useDeleteLeave = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLeave>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteLeave>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteLeaveMutationOptions(options));
+    }
+
+export const getGetLeavesSummaryUrl = (params?: GetLeavesSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/leaves/summary?${stringifiedParams}` : `/api/leaves/summary`
+}
+
+/**
+ * @summary Aggregated leave days per person for a given year
+ */
+export const getLeavesSummary = async (params?: GetLeavesSummaryParams, options?: RequestInit): Promise<LeaveSummary[]> => {
+
+  return customFetch<LeaveSummary[]>(getGetLeavesSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLeavesSummaryQueryKey = (params?: GetLeavesSummaryParams,) => {
+    return [
+    `/api/leaves/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLeavesSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getLeavesSummary>>, TError = ErrorType<unknown>>(params?: GetLeavesSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeavesSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLeavesSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLeavesSummary>>> = ({ signal }) => getLeavesSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLeavesSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLeavesSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getLeavesSummary>>>
+export type GetLeavesSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Aggregated leave days per person for a given year
+ */
+
+export function useGetLeavesSummary<TData = Awaited<ReturnType<typeof getLeavesSummary>>, TError = ErrorType<unknown>>(
+ params?: GetLeavesSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLeavesSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLeavesSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListPublicHolidaysUrl = (params?: ListPublicHolidaysParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/public-holidays?${stringifiedParams}` : `/api/public-holidays`
+}
+
+/**
+ * @summary List Czech public holidays for a given year
+ */
+export const listPublicHolidays = async (params?: ListPublicHolidaysParams, options?: RequestInit): Promise<PublicHoliday[]> => {
+
+  return customFetch<PublicHoliday[]>(getListPublicHolidaysUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPublicHolidaysQueryKey = (params?: ListPublicHolidaysParams,) => {
+    return [
+    `/api/public-holidays`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPublicHolidaysQueryOptions = <TData = Awaited<ReturnType<typeof listPublicHolidays>>, TError = ErrorType<unknown>>(params?: ListPublicHolidaysParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPublicHolidays>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPublicHolidaysQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPublicHolidays>>> = ({ signal }) => listPublicHolidays(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPublicHolidays>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPublicHolidaysQueryResult = NonNullable<Awaited<ReturnType<typeof listPublicHolidays>>>
+export type ListPublicHolidaysQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List Czech public holidays for a given year
+ */
+
+export function useListPublicHolidays<TData = Awaited<ReturnType<typeof listPublicHolidays>>, TError = ErrorType<unknown>>(
+ params?: ListPublicHolidaysParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPublicHolidays>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPublicHolidaysQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListCustomersUrl = () => {
 
