@@ -47,6 +47,7 @@ export default function JobExport() {
   const id = parseInt(params.id || "0", 10);
   const [showPrice, setShowPrice] = useState(true);
   const [customerSig, setCustomerSig] = useState<string | null>(null);
+  const [sigTimestamp, setSigTimestamp] = useState<string | null>(null);
   const [padOpen, setPadOpen] = useState(false);
   const [company] = useState(() => loadCompanySettings());
   const [pendingSave, setPendingSave] = useState(false);
@@ -77,6 +78,7 @@ export default function JobExport() {
 
   const handleSignatureSave = (sig: string) => {
     setCustomerSig(sig);
+    setSigTimestamp(new Date().toISOString());
     setPendingSave(true);
   };
 
@@ -103,6 +105,15 @@ export default function JobExport() {
   const { data: materials } = useListMaterials(id, {
     query: { enabled: !!id, queryKey: getListMaterialsQueryKey(id) },
   });
+
+  // Pre-populate from a previously captured remote signature (digital signing flow).
+  useEffect(() => {
+    if (job?.signedAt && job.signatureObjectPath && !customerSig) {
+      setCustomerSig(`/api/storage${job.signatureObjectPath}`);
+      setSigTimestamp(job.signedAt);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.signedAt, job?.signatureObjectPath]);
 
   if (isLoading) {
     return (
@@ -408,7 +419,12 @@ export default function JobExport() {
               <div>
                 <div className="h-16 flex items-end justify-center">
                   {customerSig ? (
-                    <img src={customerSig} alt="Podpis objednatele" className="max-h-16 object-contain" />
+                    <img
+                      src={customerSig}
+                      alt="Podpis objednatele"
+                      crossOrigin="anonymous"
+                      className="max-h-16 object-contain"
+                    />
                   ) : (
                     <Button
                       type="button"
@@ -421,6 +437,11 @@ export default function JobExport() {
                     </Button>
                   )}
                 </div>
+                {sigTimestamp && (
+                  <p className="text-xs text-neutral-500 text-center mt-0.5">
+                    {new Date(sigTimestamp).toLocaleString("cs-CZ")}
+                  </p>
+                )}
                 <div className="border-t border-neutral-700 pt-1 text-neutral-600 flex items-center justify-between">
                   <span>Objednatel</span>
                   {customerSig && (
