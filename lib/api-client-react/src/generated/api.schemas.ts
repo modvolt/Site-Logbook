@@ -673,6 +673,8 @@ export interface Material {
   done: boolean;
   sortOrder: number;
   /** @nullable */
+  warehouseItemId?: number | null;
+  /** @nullable */
   sourceType?: string | null;
   /** @nullable */
   sourceId?: number | null;
@@ -708,6 +710,8 @@ export interface MaterialInput {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /** @nullable */
+  warehouseItemId?: number | null;
 }
 
 export interface MaterialUpdate {
@@ -720,6 +724,8 @@ export interface MaterialUpdate {
   /** @nullable */
   pricePerUnit?: number | null;
   done?: boolean;
+  /** @nullable */
+  warehouseItemId?: number | null;
 }
 
 export interface LinkableBillingDocumentLine {
@@ -2947,6 +2953,8 @@ export interface ActivityMaterial {
   pricePerUnit?: number | null;
   done: boolean;
   sortOrder: number;
+  /** @nullable */
+  warehouseItemId?: number | null;
   createdAt: string;
 }
 
@@ -2961,6 +2969,8 @@ export interface ActivityMaterialInput {
   pricePerUnit?: number | null;
   done?: boolean;
   sortOrder?: number;
+  /** @nullable */
+  warehouseItemId?: number | null;
 }
 
 export interface ActivityMaterialUpdate {
@@ -2974,6 +2984,8 @@ export interface ActivityMaterialUpdate {
   pricePerUnit?: number | null;
   done?: boolean;
   sortOrder?: number;
+  /** @nullable */
+  warehouseItemId?: number | null;
 }
 
 export interface ActivityAttachment {

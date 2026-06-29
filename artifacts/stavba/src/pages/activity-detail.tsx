@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import {
   useGetActivity, getGetActivityQueryKey,
   useUpdateActivity,
@@ -746,6 +746,7 @@ type Material = {
   pricePerUnit?: number | null;
   done: boolean;
   sortOrder: number;
+  warehouseItemId?: number | null;
   createdAt: string;
 };
 
@@ -768,11 +769,41 @@ function MaterialsSection({
     { query: { queryKey: getGetWarehouseActivityMarginTrendQueryKey({ activityId }) } },
   );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
+  // Name-keyed map for resolving warehouseItemId from the autocomplete selection.
+  // Only entries with a UNIQUE lowercase name are stored — duplicate names produce no
+  // explicit ID so the backend's ambiguity guard remains effective.
+  const warehouseItemsByName = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const w of (warehouseItems ?? []) as { id: number; name: string }[]) {
+      const key = String(w.name).trim().toLowerCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const map = new Map<string, { id: number; name: string }>();
+    for (const w of (warehouseItems ?? []) as { id: number; name: string }[]) {
+      const key = String(w.name).trim().toLowerCase();
+      if (counts.get(key) === 1) map.set(key, w);
+    }
+    return map;
+  }, [warehouseItems]);
+  // ID-keyed map for badge display
+  const warehouseItemsById = useMemo(() => {
+    const map = new Map<number, { name: string }>();
+    for (const w of (warehouseItems ?? []) as { id: number; name: string }[]) {
+      map.set(w.id, w);
+    }
+    return map;
+  }, [warehouseItems]);
+  // Label for a warehouse item in the picker: "Name (Code)" or just "Name"
+  const whLabel = (w: { name: string; code?: string | null }) =>
+    w.code ? `${w.name} (${w.code})` : w.name;
+
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });
+  // Explicit warehouse item ID for the add form — set by picker or auto-populated on unambiguous name match
+  const [newWarehouseItemId, setNewWarehouseItemId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "" });
+  const [editForm, setEditForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "", warehouseItemId: null as number | null });
 
   const total = materials.reduce((sum, m) => sum + (m.quantity ?? 0) * (m.pricePerUnit ?? 0), 0);
 
@@ -791,13 +822,14 @@ function MaterialsSection({
       quantity: m.quantity != null ? String(m.quantity) : "",
       unit: m.unit ?? "",
       pricePerUnit: m.pricePerUnit != null ? String(m.pricePerUnit) : "",
+      warehouseItemId: m.warehouseItemId ?? null,
     });
     setShowAdd(false);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditForm({ name: "", quantity: "", unit: "", pricePerUnit: "" });
+    setEditForm({ name: "", quantity: "", unit: "", pricePerUnit: "", warehouseItemId: null });
   };
 
   const handleSaveEdit = (e: React.FormEvent, materialId: number) => {
@@ -811,6 +843,7 @@ function MaterialsSection({
         quantity: parseDecimal(editForm.quantity),
         unit: editForm.unit.trim() || null,
         pricePerUnit: parseDecimal(editForm.pricePerUnit),
+        warehouseItemId: editForm.warehouseItemId ?? null,
       },
     }, {
       onSuccess: () => {
@@ -831,10 +864,12 @@ function MaterialsSection({
         quantity: parseDecimal(form.quantity),
         unit: form.unit.trim() || null,
         pricePerUnit: parseDecimal(form.pricePerUnit),
+        warehouseItemId: newWarehouseItemId,
       },
     }, {
       onSuccess: () => {
         setForm({ name: "", quantity: "", unit: "", pricePerUnit: "" });
+        setNewWarehouseItemId(null);
         setShowAdd(false);
         onChange();
         toast({ title: "Materiál přidán" });
@@ -873,7 +908,29 @@ function MaterialsSection({
 
         {showAdd && canWrite && (
           <form onSubmit={handleAdd} className="space-y-2 p-3 border rounded-md bg-muted/30">
-            <Autocomplete placeholder="Název" value={form.name} onValueChange={(v) => setForm({ ...form, name: v })} suggestions={materialSuggestions} autoFocus required />
+            <Autocomplete
+              placeholder="Název"
+              value={form.name}
+              onValueChange={(v) => {
+                setForm({ ...form, name: v });
+                const matched = warehouseItemsByName.get(v.trim().toLowerCase());
+                if (matched) setNewWarehouseItemId(matched.id);
+              }}
+              suggestions={materialSuggestions}
+              autoFocus
+              required
+            />
+            {/* Explicit warehouse-item picker — keyed by ID so duplicates are unambiguous */}
+            <select
+              value={newWarehouseItemId ?? ""}
+              onChange={e => setNewWarehouseItemId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">— Nepropojovat se skladem —</option>
+              {(warehouseItems ?? []).map((w: any) => (
+                <option key={w.id} value={w.id}>{whLabel(w)}</option>
+              ))}
+            </select>
             <div className="grid grid-cols-3 gap-2">
               <DecimalInput placeholder="Množ." value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} error={matQtyError} />
               <Input placeholder="Jed." value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
@@ -896,6 +953,17 @@ function MaterialsSection({
                   <li key={m.id} className="py-2 border-b last:border-0">
                     <form onSubmit={(e) => handleSaveEdit(e, m.id)} className="space-y-2 p-2 border rounded-md bg-muted/30">
                       <Autocomplete placeholder="Název" value={editForm.name} onValueChange={(v) => setEditForm({ ...editForm, name: v })} suggestions={materialSuggestions} autoFocus required />
+                      {/* Explicit warehouse-item picker for the edit form */}
+                      <select
+                        value={editForm.warehouseItemId ?? ""}
+                        onChange={e => setEditForm({ ...editForm, warehouseItemId: e.target.value ? Number(e.target.value) : null })}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        <option value="">— Nepropojovat se skladem —</option>
+                        {(warehouseItems ?? []).map((w: any) => (
+                          <option key={w.id} value={w.id}>{whLabel(w)}</option>
+                        ))}
+                      </select>
                       <div className="grid grid-cols-3 gap-2">
                         <DecimalInput placeholder="Množ." value={editForm.quantity} onChange={(v) => setEditForm({ ...editForm, quantity: v })} error={editQtyError} />
                         <Input placeholder="Jed." value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })} />
@@ -916,6 +984,13 @@ function MaterialsSection({
                   <div className="flex-1 min-w-0">
                     <div className={`font-medium text-sm ${m.done ? "line-through text-muted-foreground" : ""}`}>
                       {m.name}
+                      {m.warehouseItemId != null && (
+                        <Link href="/sklad">
+                          <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle hover:bg-cyan-200 cursor-pointer" title="Zobrazit skladovou kartu">
+                            Sklad − {warehouseItemsById.get(m.warehouseItemId)?.name ?? `#${m.warehouseItemId}`}
+                          </span>
+                        </Link>
+                      )}
                     </div>
                     {(m.quantity != null || m.pricePerUnit != null) && (
                       <div className="text-xs text-muted-foreground">

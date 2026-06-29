@@ -422,10 +422,12 @@ router.post("/activities/:activityId/materials", requireAuth, async (req, res): 
     res.status(404).json({ error: "Activity not found" });
     return;
   }
-  const { quantity, pricePerUnit, ...rest } = parsed.data;
+  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, ...rest } = parsed.data;
   const actor = actorOf(req);
   const m = await db.transaction(async (tx) => {
-    const warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
+    const warehouseItemId = bodyWarehouseItemId !== undefined
+      ? bodyWarehouseItemId
+      : await resolveWarehouseItemIdByName(tx, rest.name);
     const [created] = await tx
       .insert(activityMaterialsTable)
       .values({
@@ -457,14 +459,16 @@ router.patch("/activities/:activityId/materials/:materialId", requireAuth, async
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { quantity, pricePerUnit, ...rest } = parsed.data;
+  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, ...rest } = parsed.data;
   const updateData: Record<string, unknown> = { ...rest };
   if (quantity !== undefined) updateData.quantity = toStr(quantity);
   if (pricePerUnit !== undefined) updateData.pricePerUnit = toStr(pricePerUnit);
 
   const actor = actorOf(req);
   const m = await db.transaction(async (tx) => {
-    if (typeof rest.name === "string") {
+    if (bodyWarehouseItemId !== undefined) {
+      updateData.warehouseItemId = bodyWarehouseItemId;
+    } else if (typeof rest.name === "string") {
       updateData.warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
     }
     const [updated] = await tx

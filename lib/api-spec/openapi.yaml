@@ -9396,6 +9396,8 @@ components:
           type: boolean
         sortOrder:
           type: integer
+        warehouseItemId:
+          type: ["integer", "null"]
         sourceType:
           type: ["string", "null"]
         sourceId:
@@ -9436,6 +9438,8 @@ components:
           type: ["string", "null"]
         pricePerUnit:
           type: ["number", "null"]
+        warehouseItemId:
+          type: ["integer", "null"]
 
     MaterialUpdate:
       type: object
@@ -9451,6 +9455,8 @@ components:
           type: ["number", "null"]
         done:
           type: boolean
+        warehouseItemId:
+          type: ["integer", "null"]
 
     MaterialLinkDocumentInput:
       type: object
@@ -10385,6 +10391,8 @@ components:
           type: boolean
         sortOrder:
           type: integer
+        warehouseItemId:
+          type: ["integer", "null"]
         createdAt:
           type: string
 
@@ -10405,6 +10413,8 @@ components:
           type: boolean
         sortOrder:
           type: integer
+        warehouseItemId:
+          type: ["integer", "null"]
 
     ActivityMaterialUpdate:
       type: object
@@ -10422,6 +10432,8 @@ components:
           type: boolean
         sortOrder:
           type: integer
+        warehouseItemId:
+          type: ["integer", "null"]
 
     ActivityAttachment:
       type: object

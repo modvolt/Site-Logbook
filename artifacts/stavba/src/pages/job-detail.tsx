@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
-import { useParams, useLocation, useSearch } from "wouter";
+import { useParams, useLocation, useSearch, Link } from "wouter";
 import { format, differenceInDays } from "date-fns";
 import { cs } from "date-fns/locale";
 import { 
@@ -2041,9 +2041,35 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
   );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
-  const stockNames = new Set(
-    (warehouseItems ?? []).map((w: any) => String(w.name).trim().toLowerCase()),
-  );
+  // Name-keyed map for resolving warehouseItemId when user picks from autocomplete.
+  // Only entries with a UNIQUE lowercase name are stored — duplicate names produce no
+  // explicit ID so the backend's ambiguity guard (resolveWarehouseItemIdByName returns
+  // null for non-unique names) remains effective.
+  const warehouseItemsByName = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const w of (warehouseItems ?? []) as { id: number; name: string }[]) {
+      const key = String(w.name).trim().toLowerCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const m = new Map<string, { id: number; name: string }>();
+    for (const w of (warehouseItems ?? []) as { id: number; name: string }[]) {
+      const key = String(w.name).trim().toLowerCase();
+      if (counts.get(key) === 1) m.set(key, w);
+    }
+    return m;
+  }, [warehouseItems]);
+  // ID-keyed map for displaying the linked item name in badges
+  const warehouseItemsById = useMemo(() => {
+    const m = new Map<number, { name: string }>();
+    for (const w of (warehouseItems ?? []) as { id: number; name: string }[]) {
+      m.set(w.id, w);
+    }
+    return m;
+  }, [warehouseItems]);
+
+  // Label for a warehouse item in the picker: "Name (Code)" or just "Name"
+  const whLabel = (w: { name: string; code?: string | null }) =>
+    w.code ? `${w.name} (${w.code})` : w.name;
 
   const isFixedPrice = job?.pricingMode === "fixed_price";
 
@@ -2051,6 +2077,9 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const [newQty, setNewQty] = useState("");
   const [newUnit, setNewUnit] = useState("ks");
   const [newPrice, setNewPrice] = useState("");
+  // Explicit warehouse item ID for the add form — set by the picker or auto-populated
+  // when the name unambiguously matches one item.
+  const [newWarehouseItemId, setNewWarehouseItemId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<any>({});
   const [linkingMaterial, setLinkingMaterial] = useState<any | null>(null);
@@ -2059,6 +2088,14 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const newPriceErr = decimalError(newPrice);
   const editQtyErr = decimalError(editDraft.quantity ?? "");
   const editPriceErr = decimalError(editDraft.pricePerUnit ?? "");
+
+  // When the name autocomplete selects an unambiguous warehouse item, auto-fill the picker.
+  const handleNewNameChange = (v: string) => {
+    setNewName(v);
+    const matched = warehouseItemsByName.get(v.trim().toLowerCase());
+    if (matched) setNewWarehouseItemId(matched.id);
+    // Don't clear an explicit picker selection when typing a partial name
+  };
 
   const newMatNamePending = !!newName.trim();
   useEffect(() => { onUnsavedChange?.(newMatNamePending); }, [newMatNamePending, onUnsavedChange]);
@@ -2075,19 +2112,22 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const summaryBase = totalCount > 0 ? `${totalCount} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
   const summary = pendingMaterials.length > 0 ? `${summaryBase} + ${pendingMaterials.length} čeká` : summaryBase;
 
+  const resetAddForm = () => { setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice(""); setNewWarehouseItemId(null); };
+
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
+    const warehouseItemId = newWarehouseItemId;
     if (!isOnline) {
-      const data = { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice) };
+      const data = { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice), warehouseItemId };
       void enqueue({ id: crypto.randomUUID(), type: "add_material", jobId, payload: data });
-      setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
+      resetAddForm();
       toast({ title: "Materiál uložen — odešle se po obnovení připojení" });
       return;
     }
-    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice) } }, {
+    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice), warehouseItemId } }, {
       onSuccess: () => {
-        setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice("");
+        resetAddForm();
         invalidateData(queryClient, "jobs", "warehouse");
       }
     });
@@ -2104,11 +2144,11 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     });
   };
 
-  const startEdit = (m: any) => { setEditingId(m.id); setEditDraft({ name: m.name, quantity: m.quantity ?? "", unit: m.unit ?? "ks", pricePerUnit: m.pricePerUnit ?? "" }); };
+  const startEdit = (m: any) => { setEditingId(m.id); setEditDraft({ name: m.name, quantity: m.quantity ?? "", unit: m.unit ?? "ks", pricePerUnit: m.pricePerUnit ?? "", warehouseItemId: m.warehouseItemId ?? null }); };
   const cancelEdit = () => { setEditingId(null); setEditDraft({}); };
   const saveEdit = () => {
     if (!editDraft.name?.trim()) return;
-    updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: parseDecimal(editDraft.quantity), unit: editDraft.unit || null, pricePerUnit: parseDecimal(editDraft.pricePerUnit) } }, {
+    updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: parseDecimal(editDraft.quantity), unit: editDraft.unit || null, pricePerUnit: parseDecimal(editDraft.pricePerUnit), warehouseItemId: editDraft.warehouseItemId ?? null } }, {
       onSuccess: () => { invalidateData(queryClient, "jobs", "warehouse"); cancelEdit(); }
     });
   };
@@ -2132,12 +2172,23 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
         <form onSubmit={handleAdd} className="space-y-2">
           <div className="flex gap-2">
             <div className="flex-1">
-              <Autocomplete value={newName} onValueChange={setNewName} suggestions={materialSuggestions} placeholder="Název materiálu..." className="h-12 text-base bg-background" />
+              <Autocomplete value={newName} onValueChange={handleNewNameChange} suggestions={materialSuggestions} placeholder="Název materiálu..." className="h-12 text-base bg-background" />
             </div>
             <Button type="submit" disabled={!newName.trim() || createMaterial.isPending || !!newQtyErr || !!newPriceErr} className="h-12 px-4">
               <Plus className="w-5 h-5" />
             </Button>
           </div>
+          {/* Explicit warehouse-item picker — keyed by ID so duplicates are unambiguous */}
+          <select
+            value={newWarehouseItemId ?? ""}
+            onChange={e => setNewWarehouseItemId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="">— Nepropojovat se skladem —</option>
+            {(warehouseItems ?? []).map((w: any) => (
+              <option key={w.id} value={w.id}>{whLabel(w)}</option>
+            ))}
+          </select>
           <div className="flex gap-2 items-start">
             <div className="w-24 shrink-0">
               <DecimalInput value={newQty} onChange={setNewQty} placeholder="Množství" className="h-10 text-sm w-full bg-background" error={newQtyErr} />
@@ -2164,7 +2215,18 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
             {materials.map((m: any) => (
               editingId === m.id ? (
                 <div key={m.id} className="p-3 border rounded-lg space-y-2 bg-card">
-                  <Input value={editDraft.name} onChange={e => setEditDraft((d: any) => ({ ...d, name: e.target.value }))} className="h-9 text-sm" autoFocus />
+                  <Autocomplete value={editDraft.name} onValueChange={v => setEditDraft((d: any) => ({ ...d, name: v }))} suggestions={materialSuggestions} className="h-9 text-sm" autoFocus />
+                  {/* Explicit warehouse-item picker for the edit form */}
+                  <select
+                    value={editDraft.warehouseItemId ?? ""}
+                    onChange={e => setEditDraft((d: any) => ({ ...d, warehouseItemId: e.target.value ? Number(e.target.value) : null }))}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">— Nepropojovat se skladem —</option>
+                    {(warehouseItems ?? []).map((w: any) => (
+                      <option key={w.id} value={w.id}>{whLabel(w)}</option>
+                    ))}
+                  </select>
                   <div className="flex gap-2 items-start">
                     <div className="w-24 shrink-0">
                       <DecimalInput value={editDraft.quantity} onChange={v => setEditDraft((d: any) => ({ ...d, quantity: v }))} placeholder="Množ." className="h-9 text-sm w-full" error={editQtyErr} />
@@ -2193,8 +2255,12 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                     {m.invoicedInvoiceId != null && (
                       <span className="ml-2 inline-flex items-center rounded-full bg-violet-100 text-violet-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Vyfakturováno</span>
                     )}
-                    {m.name && stockNames.has(String(m.name).trim().toLowerCase()) && (
-                      <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Sklad −</span>
+                    {m.warehouseItemId != null && (
+                      <Link href="/sklad">
+                        <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle hover:bg-cyan-200 cursor-pointer" title="Zobrazit skladovou kartu">
+                          Sklad − {warehouseItemsById.get(m.warehouseItemId)?.name ?? `#${m.warehouseItemId}`}
+                        </span>
+                      </Link>
                     )}
                     {(m.quantity != null || m.unit) && (
                       <span className="text-muted-foreground text-xs ml-2">{m.quantity} {m.unit}</span>

@@ -71,14 +71,16 @@ router.post("/jobs/:jobId/materials", async (req, res): Promise<void> => {
   const parsed = CreateMaterialBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const { quantity, pricePerUnit, ...rest } = parsed.data;
+  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, ...rest } = parsed.data;
   const actor = actorOf(req);
   // Insert the material and draw down any matching warehouse item (výdej) in one
   // transaction so stock and the job material can never drift apart.
   const material = await db.transaction(async (tx) => {
-    // Resolve warehouseItemId from name for unambiguous matches so future
-    // reconcile calls are ID-based (immune to renames & duplicate names).
-    const warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
+    // Prefer explicit warehouseItemId from body (user picked one); fall back to
+    // auto-resolution by name for unambiguous matches.
+    const warehouseItemId = bodyWarehouseItemId !== undefined
+      ? bodyWarehouseItemId
+      : await resolveWarehouseItemIdByName(tx, rest.name);
     const [m] = await tx
       .insert(materialsTable)
       .values({
@@ -103,16 +105,19 @@ router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<voi
   const parsed = UpdateMaterialBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const { quantity, pricePerUnit, ...rest } = parsed.data;
+  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, ...rest } = parsed.data;
   const updateData: Record<string, unknown> = { ...rest };
   if (quantity !== undefined) updateData.quantity = toStr(quantity);
   if (pricePerUnit !== undefined) updateData.pricePerUnit = toStr(pricePerUnit);
 
   const actor = actorOf(req);
   const material = await db.transaction(async (tx) => {
-    // When the name changes, re-resolve the warehouseItemId so the FK stays
-    // accurate. If name wasn't updated we leave the existing ID in place.
-    if (typeof rest.name === "string") {
+    if (bodyWarehouseItemId !== undefined) {
+      // Explicit override from the UI takes priority over auto-resolution.
+      updateData.warehouseItemId = bodyWarehouseItemId;
+    } else if (typeof rest.name === "string") {
+      // When the name changes, re-resolve the warehouseItemId so the FK stays
+      // accurate. If name wasn't updated we leave the existing ID in place.
       updateData.warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
     }
     const [m] = await tx
