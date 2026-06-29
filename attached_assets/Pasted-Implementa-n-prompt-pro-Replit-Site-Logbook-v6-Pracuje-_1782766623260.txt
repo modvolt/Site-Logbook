@@ -1,0 +1,315 @@
+Implementační prompt pro Replit - Site-Logbook v6
+Pracuješ na interní produkční aplikaci Site-Logbook / Stavba pro Modvolt s.r.o.
+Jde o PNPM monorepo s Reactem, TanStack Query, Express, Drizzle ORM a PostgreSQL.
+Hlavní cíl
+Implementuj opravy datové integrity a okamžitého propisování změn mezi všemi
+menu, kartami, zařízeními a uživatelskými sessions.
+Nestačí, aby se obnovila pouze obrazovka, ze které byla mutace provedena.
+Po úspěšném zápisu se musí bez ručního reloadu obnovit všechny relevantní
+seznamy, detaily, dashboardy, statistiky a souhrny. Řešení musí fungovat i při
+více instancích API v Replit autoscale nebo v budoucím škálovaném Coolify.
+Nezastavuj se u analýzy nebo návrhu. Změny implementuj, přidej migrace a testy,
+spusť ověření a na konci napiš přesný souhrn.
+Omezení
+Neměň UI ani názvy menu, pokud to není nezbytné pro korektní chybový stav.
+Neřeš mobilní redesign.
+Neimplementuj P2 opravy Windows nativních balíčků, PNPM overrides ani Windows CI.
+Nemaž ani neresetuj existující databázi.
+Migrace musí být dopředné, bezpečné pro existující data a opakovatelné.
+Nemaž existující přílohy, faktury, skladové pohyby ani auditní historii.
+Neobcházej problém pollingem celé aplikace.
+Zachovej současné role, oprávnění a audit log.
+Nevytvářej Redis jako novou provozní závislost. Pro sdílené události využij
+existující PostgreSQL.
+Výchozí problémy
+Aktuální implementace má tři oddělené a rozdílné seznamy domén:
+artifacts/stavba/src/lib/query-invalidation.ts
+artifacts/stavba/src/hooks/use-live-updates.ts
+artifacts/api-server/src/lib/live-updates.ts
+Server navíc odvozuje změněné domény pouze z URL požadavku. To nezná skutečné
+vedlejší účinky aplikačních služeb. Například:
+vystavení faktury mění fakturu, zakázky a dlouhodobé akce,
+schválení přijatého dokladu mění doklad, frontu, zakázkové materiály, sklad,
+skladové ceny a rizikové souhrny,
+nabídka převedená na zakázku mění nabídky, zakázky a finance zákazníka,
+background AI worker mění doklad bez HTTP mutace.
+SSE klienti jsou uloženi pouze v paměti jednoho Node procesu. Událost z API
+instance A se proto nedostane k browseru připojenému k instanci B.
+P0.1 - Jeden sdílený kontrakt live událostí
+Vytvoř jediný typovaný kontrakt domén, který používá server i frontend. Nesmí
+zůstat tři ručně synchronizované seznamy.
+Kontrakt musí minimálně obsahovat:
+jobs
+activities
+warehouse
+customers
+people
+machines
+leaves
+billingInvoices
+billingDocuments
+billingRecurringTemplates
+bankImport
+emailImport
+reviewQueue
+ppe
+quotes
+sessions
+Preferuj malý sdílený workspace modul bez závislosti na Reactu nebo Expressu.
+Server i klient musí importovat stejný seznam a stejný TypeScript typ.
+Přidej runtime validaci payloadu. Neznámá doména nesmí shodit klienta, ale
+rozdíl mezi serverovým a klientským kontraktem už nesmí být možný při buildu.
+P0.2 - PostgreSQL LISTEN/NOTIFY pro více API instancí
+Nahraď čistě procesovou distribuci událostí následujícím tokem:
+Aplikační služba úspěšně commitne databázovou změnu.
+Server publikuje typovanou událost do PostgreSQL NOTIFY.
+Každá API instance má vlastní dlouhodobé LISTEN spojení.
+Přijatou událost rozešle svým lokálním SSE klientům.
+Browser invaliduje pouze relevantní query keys.
+Požadavky:
+nevysílej událost před commitem,
+rollback nesmí vyvolat live aktualizaci,
+přerušení DB spojení musí mít reconnect s omezeným backoffem,
+chybný payload pouze zaloguj a ignoruj,
+shutdown musí korektně uzavřít LISTEN spojení,
+přidej eventId, čas, domény a volitelná ID entit,
+přidej originClientId, aby původní browser nedostal duplicitní refetch,
+SSE ponech s heartbeat a automatickým reconnectem,
+nevkládej citlivá data do event payloadu.
+Pokud je aplikace spuštěna pouze v jedné instanci, musí stejný mechanismus
+fungovat bez odlišné konfigurace.
+P0.3 - Události publikuj podle skutečných vedlejších účinků
+Samotné domainsForPath(req.path) nesmí být zdrojem pravdy. Může zůstat jen
+jako dočasná pojistka pro jednoduché CRUD mutace.
+Explicitní události přidej do aplikačních služeb nebo orchestrace po úspěšném
+commitu.
+Implementuj minimálně tuto matici:
+Akce	Povinně obnovit
+vytvoření/editace/smazání zakázky	jobs, dashboard, statistiky, rizika, finance zákazníka
+změna materiálu zakázky	jobs, warehouse, skladový souhrn, rizika
+změna dlouhodobé akce nebo výjezdu	activities, kalendář, statistiky, případně people
+vystavení faktury	billingInvoices, jobs, activities, rizika, finance zákazníka
+storno faktury	billingInvoices, jobs, activities, billingDocuments, rizika, finance zákazníka
+změna úhrady nebo bankovní párování	billingInvoices, billing summary, finance zákazníka
+schválení/odschválení/smazání přijatého dokladu	billingDocuments, reviewQueue, jobs, warehouse, skladový souhrn, rizika
+potvrzení nebo přeskočení review queue	reviewQueue, billingDocuments, warehouse a jobs podle vedlejších účinků
+dokončení nebo selhání AI extrakce	billingDocuments, reviewQueue, emailImport
+vytvoření/editace/smazání paušální šablony	billingRecurringTemplates
+automatické nebo ruční vygenerování paušálu	billingRecurringTemplates, billingInvoices, billing summary, finance zákazníka
+vytvoření/editace/přijetí/odmítnutí nabídky	quotes, finance zákazníka
+převod nabídky na zakázku	quotes, jobs, dashboard, rizika, finance zákazníka
+změna dovolené	leaves, kalendář, people podle zobrazených údajů
+změna stroje nebo revize	machines, rizika
+změna zákaznického dokumentu	customers, rizika
+změna přístupového údaje	customers
+změna OOPP	ppe, people
+ukončení sessions	sessions
+
+Entity IDs použij pro cílenou invalidaci detailu zákazníka, zakázky, akce,
+faktury nebo skladové položky. Když ID není k dispozici, bezpečně invaliduj
+celou doménu.
+P0.4 - Atomický převod nabídky na zakázku
+Oprav convertQuoteToJob() v:
+artifacts/api-server/src/lib/quote-service.ts
+Aktuální načtení nabídky, vložení zakázky a zápis convertedToJobId nejsou v
+jedné transakci. Dva souběžné požadavky mohou vytvořit dvě zakázky.
+Požadavky:
+celý převod proveď v jedné DB transakci,
+nabídku načti FOR UPDATE,
+znovu uvnitř transakce ověř status === accepted,
+znovu ověř convertedToJobId IS NULL,
+vlož právě jednu zakázku,
+nastav vazbu podmíněným updatem,
+při souběhu vrať druhému požadavku HTTP 409 s jasnou zprávou,
+publikuj quotes, jobs, customers a případně risks až po commitu.
+Přidej integrační test se dvěma paralelními požadavky. Výsledkem musí být:
+právě jedna nová zakázka,
+právě jedno convertedToJobId,
+jeden úspěch a jeden kontrolovaný konflikt,
+žádná osiřelá zakázka.
+P0.5 - Atomické generování paušálních faktur
+Oprav:
+artifacts/api-server/src/lib/recurring-templates.ts
+artifacts/api-server/src/lib/invoice-service.ts
+související Drizzle schéma a migraci.
+generateFromTemplate() dnes otevře vnější transakci, ale createDraft() si
+otevře a commitne vlastní transakci. Při následném selhání zůstane osiřelý
+koncept bez generačního záznamu.
+Požadavky:
+umožni createDraft() přijmout existující tx,
+fakturu, řádky, vazbu na šablonu, generation record a posun dalšího data
+vytvoř v jedné transakci,
+advisory lock zachovej nebo nahraď stejně bezpečným řádkovým zámkem,
+databázově garantuj nejvýše jednu úspěšnou generaci pro
+(template_id, period),
+unikátní partial index deklaruj také v Drizzle schématu,
+ruční a automatický trigger musí používat stejnou idempotentní službu,
+při retry po chybě nesmí vzniknout druhý draft,
+po commitu publikuj billingRecurringTemplates, billingInvoices a cíleně
+customers.
+Přidej test:
+scheduler a ruční trigger spuštěné paralelně,
+umělé selhání před commitem,
+následný retry,
+vždy nejvýše jedna faktura pro šablonu a období.
+P1.1 - Doplň všechny odvozené query keys
+Oprav artifacts/stavba/src/lib/query-invalidation.ts.
+Minimálně doplň:
+warehouse vlastní také /api/warehouse-summary,
+relevantní domény invalidují /api/risks/summary,
+invoices/jobs/quotes invalidují finanční souhrn dotčeného zákazníka,
+zákaznické dokumenty invalidují zákaznický detail i rizika,
+dlouhodobé výjezdy invalidují kalendářní query,
+leaves invalidují všechny kalendářní a personální query, které je zobrazují.
+Nevytvářej plošné queryClient.clear(). Zachovej cílené invalidace.
+Rozšiř existující query-invalidation.test.ts o skutečné generované query keys:
+warehouse summary,
+risks summary,
+customer financial summary,
+quotes,
+leaves,
+recurring templates,
+review queue,
+PPE,
+sessions.
+P1.2 - Background workery musí publikovat stav
+Oprav minimálně:
+artifacts/api-server/src/lib/extraction-worker.ts
+artifacts/api-server/src/lib/recurring-templates.ts
+artifacts/api-server/src/lib/email-import.ts
+další worker, který mění data viditelná v otevřeném UI.
+Po každém úspěšném commitu, definitivním selhání nebo přechodu do
+needs_review publikuj odpovídající domény. Událost neposílej při pouhém
+načtení jobu.
+U AI extrakce musí druhá session bez reloadu vidět:
+přechod queued/running/done/failed, pokud se v UI zobrazuje,
+nové vytěžené hodnoty a řádky,
+zařazení nebo odebrání z review queue,
+srozumitelný stav definitivního selhání.
+P1.3 - Koordinace schedulerů mezi instancemi
+V artifacts/api-server/src/index.ts se všechny schedulery spouštějí v každé
+API instanci. Procesová proměnná schedulerStarted chrání pouze jednu instanci.
+Pro procesy, které mohou vytvořit externí nebo finanční vedlejší účinek, použij:
+PostgreSQL advisory lock pro celý tick nebo
+DB lease s vlastníkem a expirací.
+Týká se zejména:
+paušálních faktur,
+automatických záloh a testu obnovy,
+e-mailového importu,
+upomínek faktur,
+OOPP notifikací.
+Jednotlivý job musí zůstat idempotentní, i když dvě instance zahájí tick ve
+stejnou chvíli. Extraction worker již používá atomický claim řádku; zachovej jej.
+P1.4 - Stabilní vazba materiálu na skladovou položku
+Aktuální skladové párování používá textový název, který není unikátní:
+lib/db/src/schema/warehouse-items.ts
+lib/db/src/schema/activity-materials.ts
+schema materiálů zakázek,
+artifacts/api-server/src/lib/warehouse-service.ts
+artifacts/api-server/src/routes/activities.ts
+Implementuj stabilní vazbu:
+přidej nullable warehouseItemId na materiál zakázky a dlouhodobé akce,
+přidej bezpečné FK ON DELETE SET NULL,
+existující data nemaž,
+připrav konzervativní backfill pouze pro jednoznačnou shodu,
+nejednoznačné a nenalezené shody ponech bez vazby a reportuj je,
+skladový výdej, nákupní cenu a ziskovost počítej podle ID,
+textový název zachovej jako historický popis, ne jako identitu,
+import dokladu smí použít EAN/SKU/normalizovaný název pro návrh, ale výsledná
+skladová vazba musí být konkrétní ID,
+souběžný import nesmí založit duplicitní skladové karty.
+Před přidáním unikátních indexů nejprve zjisti existující duplicity. Migrace
+nesmí selhat ani svévolně sloučit dvě reálně odlišné položky.
+Přidej testy:
+dvě položky se stejným názvem,
+přejmenování skladové položky,
+souběžné schválení dvou dokladů,
+editace a smazání materiálu,
+správné storno/reverzní pohyby,
+zachování auditní historie pohybů.
+P2 - Oprav asynchronní invalidaci a duplicitní SSE subscription
+Tuto část implementuj. Výjimkou je pouze Windows build, který je z tohoto
+promptu výslovně vyřazen.
+invalidateData() musí vracet Promise
+V artifacts/stavba/src/lib/query-invalidation.ts dnes funkce vrací void a
+zahazuje promise z queryClient.invalidateQueries(). Některý kód ji přesto
+volá s await.
+Požadavky:
+změň návratový typ na Promise<void>,
+skutečně vrať/čekej dokončení všech invalidací,
+volající, kteří potřebují následnou navigaci nebo další refetch, musí použít
+await,
+ostatní volající mohou explicitně použít void invalidateData(...),
+odstraň zavádějící await nad funkcí vracející void,
+zachovej deduplikaci prefixů.
+Pouze jedna SSE subscription na browser session
+AuthenticatedApp už volá useLiveUpdates(). Odstraň druhé volání z
+AdminSessions a ověř, že na každé otevřené okno vzniká právě jeden EventSource.
+Přidej test, který při přechodu mezi routami neotevírá další SSE spojení.
+Testy povinné před dokončením
+Přidej samostatné testy pro live-update kontrakt a serverové publikování.
+Unit testy
+všechny domény jsou sdílené serverem i klientem,
+neznámý payload je bezpečně odmítnut,
+každý mutační workflow publikuje očekávané domény,
+aggregate query keys jsou invalidovány,
+invalidateData() lze skutečně await,
+původní klient neprovádí duplicitní refetch.
+Integrační testy s PostgreSQL
+událost se publikuje až po commitu,
+rollback nepublikuje nic,
+dvě API instance si předají událost přes LISTEN/NOTIFY,
+reconnect LISTEN spojení,
+atomický převod nabídky,
+atomické generování paušálu,
+skladové vazby a souběžné importy.
+E2E testy
+Použij dvě nezávislé browser sessions nebo dva browser contexts:
+Session A dokončí zakázku.
+Session B bez reloadu aktualizuje zakázky, dashboard, rizika, fakturaci a
+finance zákazníka.
+Session A vystaví a následně stornuje fakturu.
+Session B bez reloadu aktualizuje faktury, zakázku, akci a zákazníka.
+Session A schválí přijatý doklad.
+Session B aktualizuje doklady, frontu, sklad, skladový souhrn a zakázku.
+Background AI worker dokončí doklad a obě sessions zobrazí nový stav.
+Nabídka se dvojklikem převede právě na jednu zakázku.
+Souběžné generování paušálu vytvoří právě jednu fakturu.
+Změna dovolené, zákaznického dokumentu a přístupového údaje se promítne do
+druhé session.
+Zopakuj klíčové scénáře se dvěma API procesy připojenými ke stejné testovací DB.
+Povinné ověřovací příkazy
+Spusť podle existujících workspace skriptů minimálně:
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm --filter @workspace/api-server run build
+BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/stavba run build
+pnpm --filter @workspace/api-server test
+pnpm --filter @workspace/stavba test
+pnpm test:e2e
+Použij izolovanou testovací PostgreSQL a aplikuj na ni všechny migrace od nuly.
+Potom otestuj upgrade kopie schématu z předchozí verze. Nepoužívej produkční DB
+pro destruktivní nebo souběžné testy.
+Definition of Done
+Práce není hotová, dokud:
+neexistuje jediný sdílený kontrakt domén,
+live updates fungují přes dvě API instance,
+všechny uvedené mezimodulové vazby se obnovují bez reloadu,
+background workery publikují změny,
+převod nabídky a paušální generování jsou atomické,
+skladové pohyby nepoužívají název jako trvalou identitu,
+všechny nové migrace jsou bezpečné pro existující data,
+typecheck a oba produkční buildy projdou,
+nové unit, integrační a dvousession E2E testy projdou.
+Výstup Replitu
+Na konci vrať:
+seznam změněných souborů,
+seznam migrací a způsob bezpečného backfillu,
+přesnou výslednou matici událostí a invalidovaných query,
+výsledky všech příkazů a testů v PASS/FAIL tabulce,
+seznam nevyřešených omezení,
+stručný rollback plán,
+potvrzení, že nebyla smazána ani resetována existující data.
+Neoznačuj úkol za dokončený pouze na základě typechecku. Rozhodující jsou
+integrační testy se skutečnou PostgreSQL a E2E test se dvěma sessions a dvěma
+API procesy.
