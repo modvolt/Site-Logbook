@@ -479,12 +479,15 @@ export default function QuoteDetail() {
               </div>
               <div>
                 <Label>Zákazník</Label>
-                <Select value={customerId} onValueChange={setCustomerId}>
+                <Select
+                  value={customerId === "" ? "__none__" : customerId}
+                  onValueChange={(v) => setCustomerId(v === "__none__" ? "" : v)}
+                >
                   <SelectTrigger className="mt-1">
                     <SelectValue placeholder="Vyberte zákazníka" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— bez zákazníka —</SelectItem>
+                    <SelectItem value="__none__">— bez zákazníka —</SelectItem>
                     {(customers ?? []).map((c) => (
                       <SelectItem key={c.id} value={String(c.id)}>
                         {c.companyName}
