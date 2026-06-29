@@ -11,6 +11,7 @@ import {
   usersTable,
   invoicesTable,
   invoiceSourceLinksTable,
+  warehouseItemsTable,
 } from "@workspace/db";
 import {
   reconcileActivityMaterialStockMovement,
@@ -88,7 +89,7 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
     )
     .limit(1);
 
-  const [mat, attRow, extraRow, visitSummary] = await Promise.all([
+  const [mat, attRow, extraRow, visitSummary, materialLines] = await Promise.all([
     db
       .select({
         total: sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(Number),
@@ -121,7 +122,47 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
       .from(activityVisitsTable)
       .where(eq(activityVisitsTable.activityId, a.id))
       .then((r) => r[0]),
+    db
+      .select({
+        name: activityMaterialsTable.name,
+        quantity: activityMaterialsTable.quantity,
+        pricePerUnit: activityMaterialsTable.pricePerUnit,
+      })
+      .from(activityMaterialsTable)
+      .where(eq(activityMaterialsTable.activityId, a.id)),
   ]);
+
+  // Compute cost for materials: use warehouse purchase_price if available by name, else fall back to pricePerUnit.
+  let costMaterials = 0;
+  if (materialLines.length > 0) {
+    const names = [...new Set(materialLines.map((m) => m.name))];
+    const warehouseRows = await db
+      .select({ name: warehouseItemsTable.name, purchasePrice: warehouseItemsTable.purchasePrice })
+      .from(warehouseItemsTable)
+      .where(sql`lower(${warehouseItemsTable.name}) = ANY(${names.map((n) => n.toLowerCase())})`);
+    const purchaseByName = new Map(warehouseRows.map((r) => [r.name.toLowerCase(), r.purchasePrice ? Number(r.purchasePrice) : null]));
+    for (const m of materialLines) {
+      const qty = m.quantity != null ? Number(m.quantity) : 0;
+      const purchasePrice = purchaseByName.get(m.name.toLowerCase()) ?? (m.pricePerUnit != null ? Number(m.pricePerUnit) : 0);
+      costMaterials += qty * purchasePrice;
+    }
+  }
+
+  const materialsTotalCost = mat?.total ?? 0;
+  const extraWorksTotalAmount = extraRow?.totalAmount ?? 0;
+  const hoursSpent = a.hoursSpent != null ? Number(a.hoursSpent) : null;
+  const fixedPrice = a.fixedPrice != null ? Number(a.fixedPrice) : null;
+  const hourlyRate = a.hourlyRate != null ? Number(a.hourlyRate) : null;
+
+  // Revenue: fixedPrice if set, else materials (sale) + extra works
+  const revenueTotal = fixedPrice != null ? fixedPrice : materialsTotalCost + extraWorksTotalAmount;
+
+  // Cost: materials at purchase prices + labour cost (hours × rate if both set)
+  const labourCost = hoursSpent != null && hourlyRate != null ? hoursSpent * hourlyRate : null;
+  const costTotal = costMaterials + (labourCost ?? 0);
+
+  const marginAmount = revenueTotal - costTotal;
+  const marginPct = revenueTotal > 0 ? (marginAmount / revenueTotal) * 100 : null;
 
   return {
     id: a.id,
@@ -132,11 +173,17 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
     createdByUserId: a.createdByUserId,
     createdByUserName,
     timerStartedAt: a.timerStartedAt ? a.timerStartedAt.toISOString() : null,
-    hoursSpent: a.hoursSpent != null ? Number(a.hoursSpent) : null,
-    materialsTotalCost: mat?.total ?? 0,
+    hoursSpent,
+    fixedPrice,
+    hourlyRate,
+    revenueTotal,
+    costTotal,
+    marginAmount,
+    marginPct,
+    materialsTotalCost,
     photosCount: attRow?.photosCount ?? 0,
     attachmentsCount: attRow?.attachmentsCount ?? 0,
-    extraWorksTotalAmount: extraRow?.totalAmount ?? 0,
+    extraWorksTotalAmount,
     extraWorksTotalHours: extraRow?.totalHours ?? 0,
     billingStatus: a.billingStatus,
     billedInvoiceId: billingLink?.invoiceId ?? null,
@@ -250,6 +297,8 @@ router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => 
   if (d.hoursSpent !== undefined) update.hoursSpent = toStr(d.hoursSpent);
   if (d.completedAt !== undefined) update.completedAt = d.completedAt ? new Date(d.completedAt) : null;
   if (d.billingStatus !== undefined) update.billingStatus = d.billingStatus;
+  if ("fixedPrice" in d) update.fixedPrice = toStr(d.fixedPrice as number | null | undefined);
+  if ("hourlyRate" in d) update.hourlyRate = toStr(d.hourlyRate as number | null | undefined);
 
   const [a] = await db
     .update(activitiesTable)

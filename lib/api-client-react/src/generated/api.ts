@@ -58,6 +58,7 @@ import type {
   BulkConfirmReviewLinesInput,
   BulkReviewDiff,
   BulkUpdateResult,
+  CalendarActivityVisit,
   CalendarJob,
   CancelInvoiceInput,
   ClientErrorInput,
@@ -130,6 +131,7 @@ import type {
   GdprEraseResult,
   GdprExport,
   GenerateNowResult,
+  GetActivityVisitsCalendarParams,
   GetJobsCalendarParams,
   GetLeavesSummaryParams,
   GetMyDoneJobsParams,
@@ -15364,6 +15366,90 @@ export const useDeleteJobVisit = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getDeleteJobVisitMutationOptions(options));
     }
+
+export const getGetActivityVisitsCalendarUrl = (params: GetActivityVisitsCalendarParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/activities/visits/calendar?${stringifiedParams}` : `/api/activities/visits/calendar`
+}
+
+/**
+ * @summary Activity visits in a date range for calendar display
+ */
+export const getActivityVisitsCalendar = async (params: GetActivityVisitsCalendarParams, options?: RequestInit): Promise<CalendarActivityVisit[]> => {
+
+  return customFetch<CalendarActivityVisit[]>(getGetActivityVisitsCalendarUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetActivityVisitsCalendarQueryKey = (params?: GetActivityVisitsCalendarParams,) => {
+    return [
+    `/api/activities/visits/calendar`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetActivityVisitsCalendarQueryOptions = <TData = Awaited<ReturnType<typeof getActivityVisitsCalendar>>, TError = ErrorType<void>>(params: GetActivityVisitsCalendarParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActivityVisitsCalendar>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetActivityVisitsCalendarQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getActivityVisitsCalendar>>> = ({ signal }) => getActivityVisitsCalendar(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getActivityVisitsCalendar>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetActivityVisitsCalendarQueryResult = NonNullable<Awaited<ReturnType<typeof getActivityVisitsCalendar>>>
+export type GetActivityVisitsCalendarQueryError = ErrorType<void>
+
+
+/**
+ * @summary Activity visits in a date range for calendar display
+ */
+
+export function useGetActivityVisitsCalendar<TData = Awaited<ReturnType<typeof getActivityVisitsCalendar>>, TError = ErrorType<void>>(
+ params: GetActivityVisitsCalendarParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActivityVisitsCalendar>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetActivityVisitsCalendarQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListActivityVisitsUrl = (activityId: number,) => {
 

@@ -26,9 +26,16 @@ import {
   useListPublicHolidays,
   getListPublicHolidaysQueryKey,
   useUpdateJob,
+  useGetActivityVisitsCalendar,
+  getGetActivityVisitsCalendarQueryKey,
+  useUpdateActivityVisit,
+  useListActivities,
+  useCreateActivityVisit,
   type CalendarJob,
   type EmployeeLeave,
   type Person,
+  type CalendarActivityVisit,
+  type Activity,
 } from "@workspace/api-client-react";
 import {
   DndContext,
@@ -51,7 +58,15 @@ import {
   Rows3,
   LayoutGrid,
   Palmtree,
+  Check,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { QueryErrorState } from "@/components/query-error-state";
 import { useLocation } from "wouter";
@@ -206,16 +221,133 @@ function parseSlotId(id: string): { personId: number | null; dateStr: string } |
   };
 }
 
+function actVisitChipClass(status: string) {
+  switch (status) {
+    case "completed": return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300";
+    case "cancelled": return "bg-gray-200 text-gray-500 dark:bg-gray-700/40 dark:text-gray-400 line-through";
+    default: return "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300";
+  }
+}
+
+interface CreateActivityVisitDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  date: string;
+  personId: number | null;
+  activities: Activity[];
+  onConfirm: (activityId: number) => void;
+  isLoading: boolean;
+}
+
+function CreateActivityVisitDialog({ open, onOpenChange, date, personId: _personId, activities, onConfirm, isLoading }: CreateActivityVisitDialogProps) {
+  const [selectedId, setSelectedId] = useState<string>("");
+  const active = activities.filter((a) => !a.isArchived);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Nový výjezd akce</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <p className="text-sm text-muted-foreground">Datum: <span className="font-medium text-foreground">{date}</span></p>
+          <div>
+            <label className="text-sm font-medium block mb-1">Akce</label>
+            <select
+              className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+            >
+              <option value="">— Vyberte akci —</option>
+              {active.map((a) => (
+                <option key={a.id} value={String(a.id)}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Zrušit</Button>
+          <Button
+            onClick={() => { if (selectedId) onConfirm(Number(selectedId)); }}
+            disabled={!selectedId || isLoading}
+          >
+            {isLoading ? "Ukládám…" : "Vytvořit výjezd"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface DraggableActivityVisitChipProps {
+  visit: CalendarActivityVisit;
+  onNavigate: (path: string) => void;
+}
+
+function DraggableActivityVisitChip({ visit, onNavigate }: DraggableActivityVisitChipProps) {
+  const updateVisit = useUpdateActivityVisit();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `actvisit-${visit.id}`,
+    data: { activityVisit: visit },
+  });
+  const style = transform ? { transform: CSS.Translate.toString(transform), zIndex: 50, opacity: 0.5 } : undefined;
+
+  const handleToggleComplete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newStatus = visit.status === "completed" ? "planned" : "completed";
+    updateVisit.mutate(
+      { activityId: visit.activityId, visitId: visit.id, data: { status: newStatus } },
+      {
+        onSuccess: () => {
+          invalidateData(queryClient, "activities");
+          toast({ title: newStatus === "completed" ? "Výjezd splněn" : "Výjezd obnoven" });
+        },
+      },
+    );
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...listeners}
+      {...attributes}
+      role="button"
+      tabIndex={0}
+      className={`w-full rounded px-1 py-0.5 text-[9px] font-medium leading-tight touch-none select-none cursor-grab active:cursor-grabbing border-l-2 border-violet-400 dark:border-violet-600 flex items-center gap-0.5 ${actVisitChipClass(visit.status)} ${isDragging ? "opacity-30" : ""}`}
+      title={`Akce: ${visit.activityName}${visit.timeFrom ? ` · ${visit.timeFrom}` : ""}${visit.personName ? ` · ${visit.personName}` : ""}`}
+      onClick={(e) => { if (!isDragging) { e.stopPropagation(); onNavigate(`/activities/${visit.activityId}`); } }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/activities/${visit.activityId}`); }}
+    >
+      <span className="truncate flex-1">◈ {truncate(visit.activityName, 12)}</span>
+      <button
+        type="button"
+        className={`shrink-0 rounded hover:bg-black/10 dark:hover:bg-white/10 p-0.5 transition-colors ${visit.status === "completed" ? "text-emerald-600 dark:text-emerald-400" : "opacity-40 hover:opacity-100"}`}
+        onClick={handleToggleComplete}
+        title={visit.status === "completed" ? "Označit jako neplánovaný" : "Označit jako splněný"}
+        aria-label={visit.status === "completed" ? "Označit jako neplánovaný" : "Označit jako splněný"}
+      >
+        <Check className="h-2.5 w-2.5" />
+      </button>
+    </div>
+  );
+}
+
 interface WeekViewProps {
   jobs: CalendarJob[];
+  activityVisits: CalendarActivityVisit[];
   people: Person[];
   leaves: EmployeeLeave[];
   holidays: Map<string, string>;
   weekStart: Date;
   onNavigate: (path: string) => void;
+  onRequestCreateVisit: (date: string, personId: number | null) => void;
 }
 
-function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: WeekViewProps) {
+function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, onNavigate, onRequestCreateVisit }: WeekViewProps) {
   const days: Date[] = [];
   for (let i = 0; i < 7; i++) days.push(addDays(weekStart, i));
   const dayStrs = days.map((d) => format(d, "yyyy-MM-dd"));
@@ -223,14 +355,19 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
   const DAY_NAMES = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
   const updateJob = useUpdateJob();
+  const updateActivityVisit = useUpdateActivityVisit();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const [optimisticOverrides, setOptimisticOverrides] = useState<
     Map<number, { date: string; assignedPersonId: number | null }>
   >(new Map());
+  const [optimisticVisitOverrides, setOptimisticVisitOverrides] = useState<
+    Map<number, { date: string }>
+  >(new Map());
 
   const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
+  const [draggingVisitId, setDraggingVisitId] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -246,21 +383,54 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
     });
   }, [jobs, optimisticOverrides]);
 
+  const effectiveVisits = useMemo(() => {
+    if (optimisticVisitOverrides.size === 0) return activityVisits;
+    return activityVisits.map((v) => {
+      const override = optimisticVisitOverrides.get(v.id);
+      if (!override) return v;
+      return { ...v, ...override };
+    });
+  }, [activityVisits, optimisticVisitOverrides]);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const job = event.active.data.current?.job as CalendarJob | undefined;
-    if (job) setDraggingJobId(job.id);
+    if (job) { setDraggingJobId(job.id); return; }
+    const visit = event.active.data.current?.activityVisit as CalendarActivityVisit | undefined;
+    if (visit) setDraggingVisitId(visit.id);
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     setDraggingJobId(null);
+    setDraggingVisitId(null);
     const { active, over } = event;
     if (!over) return;
 
-    const job = active.data.current?.job as CalendarJob | undefined;
-    if (!job) return;
-
     const target = parseSlotId(String(over.id));
     if (!target) return;
+
+    const visit = active.data.current?.activityVisit as CalendarActivityVisit | undefined;
+    if (visit) {
+      if (visit.date === target.dateStr) return;
+      setOptimisticVisitOverrides((prev) => { const next = new Map(prev); next.set(visit.id, { date: target.dateStr }); return next; });
+      updateActivityVisit.mutate(
+        { activityId: visit.activityId, visitId: visit.id, data: { date: target.dateStr } },
+        {
+          onSuccess: () => {
+            setOptimisticVisitOverrides((prev) => { const next = new Map(prev); next.delete(visit.id); return next; });
+            invalidateData(queryClient, "activities");
+            toast({ title: "Výjezd přesunut" });
+          },
+          onError: () => {
+            setOptimisticVisitOverrides((prev) => { const next = new Map(prev); next.delete(visit.id); return next; });
+            toast({ title: "Přesun selhal", variant: "destructive" });
+          },
+        },
+      );
+      return;
+    }
+
+    const job = active.data.current?.job as CalendarJob | undefined;
+    if (!job) return;
 
     const sameSlot = job.date === target.dateStr && job.assignedPersonId === target.personId;
     if (sameSlot) return;
@@ -312,10 +482,13 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
         },
       },
     );
-  }, [updateJob, queryClient, toast]);
+  }, [updateJob, updateActivityVisit, queryClient, toast]);
 
   const draggingJob = draggingJobId != null
     ? (jobs.find((j) => j.id === draggingJobId) ?? null)
+    : null;
+  const draggingVisit = draggingVisitId != null
+    ? (activityVisits.find((v) => v.id === draggingVisitId) ?? null)
     : null;
 
   const rows: Array<{ person: Person | null; label: string }> = [
@@ -375,6 +548,7 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
                 const isToday = ds === today;
                 const isWeekend = i >= 5;
                 const slotJobs = jobsForSlot(effectiveJobs, person?.id ?? null, ds);
+                const slotVisits = effectiveVisits.filter((v) => v.date === ds && (v.personId ?? null) === (person?.id ?? null));
                 const onLeave = person ? personLeavesOn(leaves, person.id, ds) : [];
 
                 return (
@@ -414,6 +588,21 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
                         onNavigate={onNavigate}
                       />
                     ))}
+                    {slotVisits.map((visit) => (
+                      <DraggableActivityVisitChip
+                        key={`v-${visit.id}`}
+                        visit={visit}
+                        onNavigate={onNavigate}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      className="w-full text-left rounded px-1 py-0.5 text-[9px] text-violet-500 dark:text-violet-400 opacity-0 group-hover:opacity-100 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-opacity"
+                      onClick={(e) => { e.stopPropagation(); onRequestCreateVisit(ds, person?.id ?? null); }}
+                      title="Přidat výjezd akce"
+                    >
+                      ◈+
+                    </button>
                   </DroppableSlot>
                 );
               })}
@@ -430,6 +619,13 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
           >
             {truncate(draggingJob.title, 14)}
           </div>
+        ) : draggingVisit ? (
+          <div
+            className={`rounded px-1 py-0.5 text-[10px] font-medium leading-tight truncate shadow-lg ring-2 ring-violet-400/60 cursor-grabbing select-none border-l-2 border-violet-400 ${actVisitChipClass(draggingVisit.status)}`}
+            style={{ minWidth: '80px', maxWidth: '140px' }}
+          >
+            ◈ {truncate(draggingVisit.activityName, 14)}
+          </div>
         ) : null}
       </DragOverlay>
     </DndContext>
@@ -438,12 +634,14 @@ function WeekView({ jobs, people, leaves, holidays, weekStart, onNavigate }: Wee
 
 interface MonthViewProps {
   jobs: CalendarJob[];
+  activityVisits: CalendarActivityVisit[];
   holidays: Map<string, string>;
   monthDate: Date;
   onNavigate: (path: string) => void;
+  onRequestCreateVisit: (date: string, personId: number | null) => void;
 }
 
-function MonthView({ jobs, holidays, monthDate, onNavigate }: MonthViewProps) {
+function MonthView({ jobs, activityVisits, holidays, monthDate, onNavigate, onRequestCreateVisit }: MonthViewProps) {
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const today = format(new Date(), "yyyy-MM-dd");
 
@@ -475,10 +673,12 @@ function MonthView({ jobs, holidays, monthDate, onNavigate }: MonthViewProps) {
           const isWeekend = dow === 0 || dow === 6;
           const holiday = holidays.get(ds);
           const dayJobs = jobsForDay(jobs, ds);
+          const dayVisits = activityVisits.filter((v) => v.date === ds);
           const isExpanded = expandedDay === ds;
           const maxVisible = 3;
-          const visibleJobs = isExpanded ? dayJobs : dayJobs.slice(0, maxVisible);
-          const overflow = dayJobs.length - maxVisible;
+          const allItems = [...dayJobs.map((j) => ({ type: "job" as const, job: j })), ...dayVisits.map((v) => ({ type: "visit" as const, visit: v }))];
+          const visibleItems = isExpanded ? allItems : allItems.slice(0, maxVisible);
+          const overflow = allItems.length - maxVisible;
 
           let cellBg: string;
           if (holiday && inMonth) {
@@ -520,9 +720,23 @@ function MonthView({ jobs, holidays, monthDate, onNavigate }: MonthViewProps) {
                 )}
               </div>
               <div className="space-y-0.5">
-                {visibleJobs.map((job) => (
-                  <JobChip key={job.id} job={job} onNavigate={onNavigate} compact />
-                ))}
+                {visibleItems.map((item) =>
+                  item.type === "job" ? (
+                    <JobChip key={`j-${item.job.id}`} job={item.job} onNavigate={onNavigate} compact />
+                  ) : (
+                    <div
+                      key={`v-${item.visit.id}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); onNavigate(`/activities/${item.visit.activityId}`); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onNavigate(`/activities/${item.visit.activityId}`); } }}
+                      className={`w-full rounded px-1 py-0.5 text-[9px] font-medium leading-tight truncate cursor-pointer border-l-2 border-violet-400 dark:border-violet-600 ${actVisitChipClass(item.visit.status)}`}
+                      title={`Akce: ${item.visit.activityName}`}
+                    >
+                      ◈ {truncate(item.visit.activityName, 12)}
+                    </div>
+                  )
+                )}
                 {!isExpanded && overflow > 0 && (
                   <div
                     role="button"
@@ -544,6 +758,16 @@ function MonthView({ jobs, holidays, monthDate, onNavigate }: MonthViewProps) {
                   >
                     skrýt
                   </div>
+                )}
+                {inMonth && (
+                  <button
+                    type="button"
+                    className="w-full text-left text-[9px] text-violet-400 hover:text-violet-600 dark:text-violet-500 dark:hover:text-violet-300 hover:underline transition-colors"
+                    onClick={(e) => { e.stopPropagation(); onRequestCreateVisit(ds, null); }}
+                    title="Přidat výjezd akce"
+                  >
+                    ◈+
+                  </button>
                 )}
               </div>
             </div>
@@ -647,13 +871,15 @@ function DroppableTimeSlot({ hour, dateStr, onNavigate }: DroppableTimeSlotProps
 
 interface DayViewProps {
   jobs: CalendarJob[];
+  activityVisits: CalendarActivityVisit[];
   leaves: EmployeeLeave[];
   holidays: Map<string, string>;
   date: Date;
   onNavigate: (path: string) => void;
+  onRequestCreateVisit: (date: string, personId: number | null) => void;
 }
 
-function DayView({ jobs, leaves, holidays, date, onNavigate }: DayViewProps) {
+function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onRequestCreateVisit }: DayViewProps) {
   const ds = format(date, "yyyy-MM-dd");
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const isToday = ds === todayStr;
@@ -752,6 +978,7 @@ function DayView({ jobs, leaves, holidays, date, onNavigate }: DayViewProps) {
   const timedJobs = dayJobs.filter((j) => j.startTime);
   const untimedJobs = dayJobs.filter((j) => !j.startTime);
   const dayLeaves = leaves.filter((l) => l.startDate <= ds && l.endDate >= ds);
+  const dayVisits = activityVisits.filter((v) => v.date === ds);
   const holiday = holidays.get(ds);
 
   const draggingJob = draggingJobId != null
@@ -794,7 +1021,7 @@ function DayView({ jobs, leaves, holidays, date, onNavigate }: DayViewProps) {
           </div>
         )}
 
-        {untimedJobs.length > 0 && (
+        {(untimedJobs.length > 0 || dayVisits.length > 0) && (
           <div className="px-4 pt-3 space-y-1.5">
             <p className="text-xs font-semibold text-muted-foreground">Bez naplánovaného času</p>
             {untimedJobs.map((job) => (
@@ -810,6 +1037,20 @@ function DayView({ jobs, leaves, holidays, date, onNavigate }: DayViewProps) {
                 {job.assignedPersonName && (
                   <p className="text-[10px] opacity-70">{job.assignedPersonName}</p>
                 )}
+              </div>
+            ))}
+            {dayVisits.map((visit) => (
+              <div
+                key={`v-${visit.id}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => onNavigate(`/activities/${visit.activityId}`)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onNavigate(`/activities/${visit.activityId}`); }}
+                className={`rounded-lg px-3 py-2 cursor-pointer border border-violet-200 dark:border-violet-800/50 hover:border-border/60 transition-colors ${actVisitChipClass(visit.status)}`}
+              >
+                <p className="text-xs font-semibold leading-tight">◈ {visit.activityName}</p>
+                {visit.personName && <p className="text-[10px] opacity-70">{visit.personName}</p>}
+                {visit.timeFrom && <p className="text-[10px] opacity-60">{visit.timeFrom}{visit.timeTo ? ` – ${visit.timeTo}` : ""}</p>}
               </div>
             ))}
           </div>
@@ -863,9 +1104,16 @@ function DayView({ jobs, leaves, holidays, date, onNavigate }: DayViewProps) {
           </div>
         )}
 
-        <div className="px-4 pt-3">
+        <div className="px-4 pt-3 space-y-2">
           <Button variant="outline" className="w-full" onClick={() => onNavigate(`/jobs/new?date=${ds}`)}>
             <Plus className="mr-2 h-4 w-4" /> Přidat zakázku na tento den
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full text-violet-600 border-violet-200 hover:bg-violet-50 dark:text-violet-400 dark:border-violet-800 dark:hover:bg-violet-900/20"
+            onClick={() => onRequestCreateVisit(ds, null)}
+          >
+            <span className="mr-2">◈</span> Přidat výjezd akce
           </Button>
         </div>
       </div>
@@ -892,6 +1140,9 @@ export default function CalendarPage() {
     return "week";
   });
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [createVisitCtx, setCreateVisitCtx] = useState<{ date: string; personId: number | null } | null>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { from, to } = useMemo(() => {
     if (view === "week") {
@@ -912,6 +1163,41 @@ export default function CalendarPage() {
     { from, to },
     { query: { queryKey: getGetJobsCalendarQueryKey({ from, to }) } }
   );
+
+  const { data: activityVisitsData } = useGetActivityVisitsCalendar(
+    { from, to },
+    { query: { queryKey: getGetActivityVisitsCalendarQueryKey({ from, to }) } }
+  );
+
+  const { data: activitiesList } = useListActivities({ archived: false });
+  const createActivityVisit = useCreateActivityVisit();
+
+  const handleRequestCreateVisit = (date: string, personId: number | null) => {
+    setCreateVisitCtx({ date, personId });
+  };
+
+  const handleConfirmCreateVisit = (activityId: number) => {
+    if (!createVisitCtx) return;
+    createActivityVisit.mutate(
+      {
+        activityId,
+        data: {
+          date: createVisitCtx.date,
+          personId: createVisitCtx.personId ?? undefined,
+        },
+      },
+      {
+        onSuccess: () => {
+          setCreateVisitCtx(null);
+          invalidateData(queryClient, "activities");
+          toast({ title: "Výjezd vytvořen" });
+        },
+        onError: () => {
+          toast({ title: "Nepodařilo se vytvořit výjezd", variant: "destructive" });
+        },
+      },
+    );
+  };
 
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
@@ -940,6 +1226,7 @@ export default function CalendarPage() {
   const safeJobs = jobs ?? [];
   const safeLeaves = leavesData ?? [];
   const safePeople = people ?? [];
+  const safeActivityVisits = activityVisitsData ?? [];
 
   function goBack() {
     if (view === "week") setCurrentDate((d) => subWeeks(d, 1));
@@ -1033,32 +1320,48 @@ export default function CalendarPage() {
           {view === "week" && (
             <WeekView
               jobs={safeJobs}
+              activityVisits={safeActivityVisits}
               people={safePeople}
               leaves={safeLeaves}
               holidays={holidayMap}
               weekStart={startOfWeek(currentDate, { weekStartsOn: 1 })}
               onNavigate={navigate}
+              onRequestCreateVisit={handleRequestCreateVisit}
             />
           )}
           {view === "month" && (
             <MonthView
               jobs={safeJobs}
+              activityVisits={safeActivityVisits}
               holidays={holidayMap}
               monthDate={currentDate}
               onNavigate={navigate}
+              onRequestCreateVisit={handleRequestCreateVisit}
             />
           )}
           {view === "day" && (
             <DayView
               jobs={safeJobs}
+              activityVisits={safeActivityVisits}
               leaves={safeLeaves}
               holidays={holidayMap}
               date={currentDate}
               onNavigate={navigate}
+              onRequestCreateVisit={handleRequestCreateVisit}
             />
           )}
         </div>
       )}
+
+      <CreateActivityVisitDialog
+        open={createVisitCtx !== null}
+        onOpenChange={(open) => { if (!open) setCreateVisitCtx(null); }}
+        date={createVisitCtx?.date ?? ""}
+        personId={createVisitCtx?.personId ?? null}
+        activities={activitiesList ?? []}
+        onConfirm={handleConfirmCreateVisit}
+        isLoading={createActivityVisit.isPending}
+      />
     </div>
   );
 }

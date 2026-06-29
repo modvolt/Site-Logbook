@@ -4912,6 +4912,36 @@ paths:
         "204":
           description: Deleted
 
+  /activities/visits/calendar:
+    get:
+      operationId: getActivityVisitsCalendar
+      tags: [visits]
+      summary: Activity visits in a date range for calendar display
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            description: ISO date (YYYY-MM-DD)
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            description: ISO date (YYYY-MM-DD)
+      responses:
+        "200":
+          description: Activity visits in the requested date range
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarActivityVisit"
+        "400":
+          description: Validation error
+
   /activities/{activityId}/visits:
     get:
       operationId: listActivityVisits
@@ -10136,6 +10166,24 @@ components:
           type: ["string", "null"]
         hoursSpent:
           type: ["number", "null"]
+        fixedPrice:
+          type: ["number", "null"]
+          description: Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines
+        hourlyRate:
+          type: ["number", "null"]
+          description: Internal hourly rate in CZK used for labour cost calculation in the profitability panel
+        revenueTotal:
+          type: ["number", "null"]
+          description: Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount
+        costTotal:
+          type: ["number", "null"]
+          description: Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate
+        marginAmount:
+          type: ["number", "null"]
+          description: revenueTotal - costTotal (null when either component is null)
+        marginPct:
+          type: ["number", "null"]
+          description: marginAmount / revenueTotal × 100, null when revenue is zero or null
         materialsTotalCost:
           type: number
         photosCount:
@@ -10217,6 +10265,12 @@ components:
             accepted here — the authoritative billed state is derived from the
             invoice link (invoice_source_links / billedInvoiceId) and is set
             server-side when an invoice is issued. null | billable | not_billable
+        fixedPrice:
+          type: ["number", "null"]
+          description: Optional fixed contract price (paušál) in CZK
+        hourlyRate:
+          type: ["number", "null"]
+          description: Internal hourly rate in CZK for labour cost calculation
 
     ActivityMaterial:
       type: object
@@ -10492,6 +10546,31 @@ components:
         status:
           type: string
           enum: [planned, done]
+
+    CalendarActivityVisit:
+      type: object
+      required: [id, activityId, activityName, date, status]
+      properties:
+        id:
+          type: integer
+        activityId:
+          type: integer
+        activityName:
+          type: string
+        personId:
+          type: ["integer", "null"]
+        personName:
+          type: ["string", "null"]
+        date:
+          type: string
+          description: ISO date (YYYY-MM-DD)
+        timeFrom:
+          type: ["string", "null"]
+        timeTo:
+          type: ["string", "null"]
+        status:
+          type: string
+          description: "planned | in_progress | completed | cancelled"
 
     ActivityVisit:
       type: object

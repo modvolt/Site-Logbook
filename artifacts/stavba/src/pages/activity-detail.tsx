@@ -186,7 +186,7 @@ export default function ActivityDetail() {
   const deleteMaterial = useDeleteActivityMaterial();
 
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", description: "", customerId: "" as string });
+  const [form, setForm] = useState({ name: "", description: "", customerId: "" as string, fixedPrice: "", hourlyRate: "" });
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -195,6 +195,8 @@ export default function ActivityDetail() {
         name: activity.name,
         description: activity.description ?? "",
         customerId: activity.customerId ? String(activity.customerId) : "",
+        fixedPrice: activity.fixedPrice != null ? String(activity.fixedPrice) : "",
+        hourlyRate: activity.hourlyRate != null ? String(activity.hourlyRate) : "",
       });
       initialized.current = true;
     }
@@ -272,6 +274,8 @@ export default function ActivityDetail() {
           name: form.name.trim(),
           description: form.description.trim() || null,
           customerId: form.customerId ? Number(form.customerId) : null,
+          fixedPrice: form.fixedPrice !== "" ? Number(form.fixedPrice.replace(",", ".")) : null,
+          hourlyRate: form.hourlyRate !== "" ? Number(form.hourlyRate.replace(",", ".")) : null,
         },
       },
       {
@@ -554,6 +558,51 @@ export default function ActivityDetail() {
         </CardContent>
       </Card>
 
+      {/* Profitability panel — shown when fixedPrice or hourlyRate is set */}
+      {(activity.revenueTotal != null || activity.costTotal != null) && (
+        <Card>
+          <CardContent className="p-4">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Ziskovost</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {activity.fixedPrice != null && (
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Paušál (sml. cena)</div>
+                  <div className="font-semibold text-base">{Math.round(activity.fixedPrice).toLocaleString("cs-CZ")} Kč</div>
+                </div>
+              )}
+              {activity.revenueTotal != null && (
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Výnosy</div>
+                  <div className="font-semibold text-base">{Math.round(activity.revenueTotal).toLocaleString("cs-CZ")} Kč</div>
+                </div>
+              )}
+              {activity.costTotal != null && (
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Náklady</div>
+                  <div className="font-semibold text-base">{Math.round(activity.costTotal).toLocaleString("cs-CZ")} Kč</div>
+                </div>
+              )}
+              {activity.marginAmount != null && (
+                <div className={`rounded-lg p-3 ${activity.marginAmount >= 0 ? "bg-emerald-50 dark:bg-emerald-950/30" : "bg-red-50 dark:bg-red-950/30"}`}>
+                  <div className="text-xs text-muted-foreground mb-1">
+                    Zisk{activity.marginPct != null ? ` (${Math.round(activity.marginPct)} %)` : ""}
+                  </div>
+                  <div className={`font-semibold text-base ${activity.marginAmount >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}`}>
+                    {Math.round(activity.marginAmount).toLocaleString("cs-CZ")} Kč
+                  </div>
+                </div>
+              )}
+            </div>
+            {activity.hourlyRate != null && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Sazba: {Number(activity.hourlyRate).toLocaleString("cs-CZ")} Kč/h
+                {(activity.hoursSpent ?? 0) > 0 && ` · ${fmtH(activity.hoursSpent ?? 0)} práce`}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-4 space-y-3">
           {editing ? (
@@ -570,6 +619,24 @@ export default function ActivityDetail() {
                   <option key={c.id} value={c.id}>{c.companyName}</option>
                 ))}
               </select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium block mb-1">Smluvní cena (paušál) Kč</label>
+                  <DecimalInput
+                    placeholder="Volitelné"
+                    value={form.fixedPrice}
+                    onChange={(v) => setForm({ ...form, fixedPrice: v })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1">Interní hodinová sazba Kč/h</label>
+                  <DecimalInput
+                    placeholder="Volitelné"
+                    value={form.hourlyRate}
+                    onChange={(v) => setForm({ ...form, hourlyRate: v })}
+                  />
+                </div>
+              </div>
               <div className="flex gap-2">
                 <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" /> Uložit</Button>
                 <Button variant="ghost" onClick={() => { setEditing(false); initialized.current = false; }}>

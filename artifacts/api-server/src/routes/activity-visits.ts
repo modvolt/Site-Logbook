@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, gte, lte } from "drizzle-orm";
 import { db, activityVisitsTable, activitiesTable, peopleTable } from "@workspace/db";
 import {
   ListActivityVisitsParams,
@@ -10,6 +10,7 @@ import {
   DeleteActivityVisitParams,
 } from "@workspace/api-zod";
 import { requireRole } from "../middlewares/auth";
+import { z } from "zod/v4";
 
 const router: IRouter = Router();
 
@@ -37,6 +38,50 @@ async function serializeVisit(v: typeof activityVisitsTable.$inferSelect) {
     createdBy: v.createdBy,
   };
 }
+
+const CalendarQuerySchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+router.get("/activities/visits/calendar", async (req, res): Promise<void> => {
+  const parsed = CalendarQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Query params 'from' and 'to' are required (YYYY-MM-DD)" });
+    return;
+  }
+  const { from, to } = parsed.data;
+
+  const rows = await db
+    .select({
+      id: activityVisitsTable.id,
+      activityId: activityVisitsTable.activityId,
+      activityName: activitiesTable.name,
+      personId: activityVisitsTable.personId,
+      personName: peopleTable.name,
+      date: activityVisitsTable.date,
+      timeFrom: activityVisitsTable.timeFrom,
+      timeTo: activityVisitsTable.timeTo,
+      status: activityVisitsTable.status,
+    })
+    .from(activityVisitsTable)
+    .innerJoin(activitiesTable, eq(activityVisitsTable.activityId, activitiesTable.id))
+    .leftJoin(peopleTable, eq(activityVisitsTable.personId, peopleTable.id))
+    .where(and(gte(activityVisitsTable.date, from), lte(activityVisitsTable.date, to)))
+    .orderBy(asc(activityVisitsTable.date), asc(activityVisitsTable.id));
+
+  res.json(rows.map((r) => ({
+    id: r.id,
+    activityId: r.activityId,
+    activityName: r.activityName,
+    personId: r.personId,
+    personName: r.personName ?? null,
+    date: r.date,
+    timeFrom: r.timeFrom ?? null,
+    timeTo: r.timeTo ?? null,
+    status: r.status,
+  })));
+});
 
 router.get("/activities/:activityId/visits", async (req, res): Promise<void> => {
   const params = ListActivityVisitsParams.safeParse(req.params);

@@ -2756,6 +2756,36 @@ export interface Activity {
   timerStartedAt?: string | null;
   /** @nullable */
   hoursSpent?: number | null;
+  /**
+     * Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines
+     * @nullable
+     */
+  fixedPrice?: number | null;
+  /**
+     * Internal hourly rate in CZK used for labour cost calculation in the profitability panel
+     * @nullable
+     */
+  hourlyRate?: number | null;
+  /**
+     * Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount
+     * @nullable
+     */
+  revenueTotal?: number | null;
+  /**
+     * Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate
+     * @nullable
+     */
+  costTotal?: number | null;
+  /**
+     * revenueTotal - costTotal (null when either component is null)
+     * @nullable
+     */
+  marginAmount?: number | null;
+  /**
+     * marginAmount / revenueTotal × 100, null when revenue is zero or null
+     * @nullable
+     */
+  marginPct?: number | null;
   materialsTotalCost: number;
   /** Count of photo-type attachments */
   photosCount: number;
@@ -2845,6 +2875,16 @@ export interface ActivityUpdate {
      * @nullable
      */
   billingStatus?: ActivityUpdateBillingStatus;
+  /**
+     * Optional fixed contract price (paušál) in CZK
+     * @nullable
+     */
+  fixedPrice?: number | null;
+  /**
+     * Internal hourly rate in CZK for labour cost calculation
+     * @nullable
+     */
+  hourlyRate?: number | null;
 }
 
 export interface ActivityMaterial {
@@ -3102,6 +3142,24 @@ export interface JobVisitUpdate {
   /** @nullable */
   note?: string | null;
   status?: JobVisitUpdateStatus;
+}
+
+export interface CalendarActivityVisit {
+  id: number;
+  activityId: number;
+  activityName: string;
+  /** @nullable */
+  personId?: number | null;
+  /** @nullable */
+  personName?: string | null;
+  /** ISO date (YYYY-MM-DD) */
+  date: string;
+  /** @nullable */
+  timeFrom?: string | null;
+  /** @nullable */
+  timeTo?: string | null;
+  /** planned | in_progress | completed | cancelled */
+  status: string;
 }
 
 export interface ActivityVisit {
@@ -5701,6 +5759,17 @@ from?: string;
  * Filter visits on or before this date (YYYY-MM-DD). Omit for no upper bound.
  */
 to?: string;
+};
+
+export type GetActivityVisitsCalendarParams = {
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+from: string;
+/**
+ * ISO date (YYYY-MM-DD)
+ */
+to: string;
 };
 
 export type ListInvoicesParams = {

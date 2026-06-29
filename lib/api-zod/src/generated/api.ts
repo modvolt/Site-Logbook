@@ -3797,6 +3797,12 @@ export const ListActivitiesResponseItem = zod.object({
   "createdByUserName": zod.string().nullish(),
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "fixedPrice": zod.number().nullish().describe('Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines'),
+  "hourlyRate": zod.number().nullish().describe('Internal hourly rate in CZK used for labour cost calculation in the profitability panel'),
+  "revenueTotal": zod.number().nullish().describe('Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount'),
+  "costTotal": zod.number().nullish().describe('Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate'),
+  "marginAmount": zod.number().nullish().describe('revenueTotal - costTotal (null when either component is null)'),
+  "marginPct": zod.number().nullish().describe('marginAmount \/ revenueTotal × 100, null when revenue is zero or null'),
   "materialsTotalCost": zod.number(),
   "photosCount": zod.number().describe('Count of photo-type attachments'),
   "attachmentsCount": zod.number().describe('Count of doklad-type attachments (invoice\/receipt\/delivery_note)'),
@@ -3847,6 +3853,12 @@ export const GetActivityResponse = zod.object({
   "createdByUserName": zod.string().nullish(),
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "fixedPrice": zod.number().nullish().describe('Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines'),
+  "hourlyRate": zod.number().nullish().describe('Internal hourly rate in CZK used for labour cost calculation in the profitability panel'),
+  "revenueTotal": zod.number().nullish().describe('Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount'),
+  "costTotal": zod.number().nullish().describe('Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate'),
+  "marginAmount": zod.number().nullish().describe('revenueTotal - costTotal (null when either component is null)'),
+  "marginPct": zod.number().nullish().describe('marginAmount \/ revenueTotal × 100, null when revenue is zero or null'),
   "materialsTotalCost": zod.number(),
   "photosCount": zod.number().describe('Count of photo-type attachments'),
   "attachmentsCount": zod.number().describe('Count of doklad-type attachments (invoice\/receipt\/delivery_note)'),
@@ -3883,7 +3895,9 @@ export const UpdateActivityBody = zod.object({
   "hoursSpent": zod.number().nullish(),
   "completedAt": zod.string().nullish(),
   "isArchived": zod.boolean().optional(),
-  "billingStatus": zod.union([zod.literal('billable'),zod.literal('not_billable'),zod.literal(null)]).nullish().describe('Editable billing intent only. \"billed\" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links \/ billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable')
+  "billingStatus": zod.union([zod.literal('billable'),zod.literal('not_billable'),zod.literal(null)]).nullish().describe('Editable billing intent only. \"billed\" is intentionally NOT accepted here — the authoritative billed state is derived from the invoice link (invoice_source_links \/ billedInvoiceId) and is set server-side when an invoice is issued. null | billable | not_billable'),
+  "fixedPrice": zod.number().nullish().describe('Optional fixed contract price (paušál) in CZK'),
+  "hourlyRate": zod.number().nullish().describe('Internal hourly rate in CZK for labour cost calculation')
 })
 
 export const UpdateActivityResponse = zod.object({
@@ -3896,6 +3910,12 @@ export const UpdateActivityResponse = zod.object({
   "createdByUserName": zod.string().nullish(),
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "fixedPrice": zod.number().nullish().describe('Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines'),
+  "hourlyRate": zod.number().nullish().describe('Internal hourly rate in CZK used for labour cost calculation in the profitability panel'),
+  "revenueTotal": zod.number().nullish().describe('Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount'),
+  "costTotal": zod.number().nullish().describe('Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate'),
+  "marginAmount": zod.number().nullish().describe('revenueTotal - costTotal (null when either component is null)'),
+  "marginPct": zod.number().nullish().describe('marginAmount \/ revenueTotal × 100, null when revenue is zero or null'),
   "materialsTotalCost": zod.number(),
   "photosCount": zod.number().describe('Count of photo-type attachments'),
   "attachmentsCount": zod.number().describe('Count of doklad-type attachments (invoice\/receipt\/delivery_note)'),
@@ -3940,6 +3960,12 @@ export const StartActivityTimerResponse = zod.object({
   "createdByUserName": zod.string().nullish(),
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "fixedPrice": zod.number().nullish().describe('Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines'),
+  "hourlyRate": zod.number().nullish().describe('Internal hourly rate in CZK used for labour cost calculation in the profitability panel'),
+  "revenueTotal": zod.number().nullish().describe('Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount'),
+  "costTotal": zod.number().nullish().describe('Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate'),
+  "marginAmount": zod.number().nullish().describe('revenueTotal - costTotal (null when either component is null)'),
+  "marginPct": zod.number().nullish().describe('marginAmount \/ revenueTotal × 100, null when revenue is zero or null'),
   "materialsTotalCost": zod.number(),
   "photosCount": zod.number().describe('Count of photo-type attachments'),
   "attachmentsCount": zod.number().describe('Count of doklad-type attachments (invoice\/receipt\/delivery_note)'),
@@ -3976,6 +4002,12 @@ export const StopActivityTimerResponse = zod.object({
   "createdByUserName": zod.string().nullish(),
   "timerStartedAt": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
+  "fixedPrice": zod.number().nullish().describe('Optional fixed contract price (paušál) in CZK; when set, used as revenue base instead of summing material + extra-work lines'),
+  "hourlyRate": zod.number().nullish().describe('Internal hourly rate in CZK used for labour cost calculation in the profitability panel'),
+  "revenueTotal": zod.number().nullish().describe('Computed revenue — fixedPrice if set, else materialsTotalCost + extraWorksTotalAmount'),
+  "costTotal": zod.number().nullish().describe('Computed cost — materials at purchase prices (warehouse lookup) + hoursSpent × hourlyRate'),
+  "marginAmount": zod.number().nullish().describe('revenueTotal - costTotal (null when either component is null)'),
+  "marginPct": zod.number().nullish().describe('marginAmount \/ revenueTotal × 100, null when revenue is zero or null'),
   "materialsTotalCost": zod.number(),
   "photosCount": zod.number().describe('Count of photo-type attachments'),
   "attachmentsCount": zod.number().describe('Count of doklad-type attachments (invoice\/receipt\/delivery_note)'),
@@ -4582,6 +4614,28 @@ export const DeleteJobVisitParams = zod.object({
   "jobId": zod.coerce.number(),
   "visitId": zod.coerce.number()
 })
+
+
+/**
+ * @summary Activity visits in a date range for calendar display
+ */
+export const GetActivityVisitsCalendarQueryParams = zod.object({
+  "from": zod.coerce.string(),
+  "to": zod.coerce.string()
+})
+
+export const GetActivityVisitsCalendarResponseItem = zod.object({
+  "id": zod.number(),
+  "activityId": zod.number(),
+  "activityName": zod.string(),
+  "personId": zod.number().nullish(),
+  "personName": zod.string().nullish(),
+  "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
+  "timeFrom": zod.string().nullish(),
+  "timeTo": zod.string().nullish(),
+  "status": zod.string().describe('planned | in_progress | completed | cancelled')
+})
+export const GetActivityVisitsCalendarResponse = zod.array(GetActivityVisitsCalendarResponseItem)
 
 
 /**
