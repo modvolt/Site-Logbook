@@ -62,3 +62,15 @@ export async function cleanupActivity(
 ): Promise<void> {
   await request.delete(`/api/activities/${id}?force=true`).catch(() => {});
 }
+
+/**
+ * Delete a quote by ID, silently ignoring errors.
+ * Only draft/rejected/expired quotes can be deleted; accepted/converted ones
+ * are left as test debris (they don't block re-runs).
+ */
+export async function cleanupQuote(
+  request: APIRequestContext,
+  id: number,
+): Promise<void> {
+  await request.delete(`/api/quotes/${id}`).catch(() => {});
+}

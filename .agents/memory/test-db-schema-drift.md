@@ -28,8 +28,13 @@ on a rename/conflict prompt), so instead apply the gap with **direct psql**:
 
 **Known missing columns (as of June 2026):**
 - `jobs.short_name` TEXT — `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS short_name TEXT;`
+- `jobs.pricing_mode` TEXT NOT NULL DEFAULT 'hourly' — `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pricing_mode text NOT NULL DEFAULT 'hourly';`
+- `jobs.contract_price` numeric(10,2) — `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS contract_price numeric(10,2);`
+- `jobs.signature_token / signature_token_expires_at / signature_requested_at / signed_at / signature_object_path` — signature columns added with ALTER … ADD COLUMN IF NOT EXISTS.
 - `billing_settings.margin_alert_threshold_percent` numeric(6,2) NOT NULL DEFAULT '0' — `ALTER TABLE billing_settings ADD COLUMN IF NOT EXISTS margin_alert_threshold_percent numeric(6,2) NOT NULL DEFAULT '0';`
+- `billing_settings.quote_number_prefix` text NOT NULL DEFAULT 'NAB' + `quote_number_next_seq` integer NOT NULL DEFAULT 1 — required to create quotes.
 - `warehouse_movements.idempotency_key` TEXT + unique partial index — `ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS idempotency_key TEXT; CREATE UNIQUE INDEX IF NOT EXISTS warehouse_movements_idempotency_key_idx ON warehouse_movements(warehouse_item_id, idempotency_key) WHERE idempotency_key IS NOT NULL;`
+- **Missing tables:** `quotes` and `quote_items` — create via DDL mirroring `lib/db/src/schema/quotes.ts`.
 
 **Why:** push is interactive-only here and the journal is empty, so migrate-based
 sync is unreliable; targeted additive DDL is safe and deterministic.
