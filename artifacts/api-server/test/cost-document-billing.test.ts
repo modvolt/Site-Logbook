@@ -252,6 +252,59 @@ describe("cost-document line reservation roundtrip", () => {
   });
 });
 
+describe("createDraft – returned shape (no-tx path)", () => {
+  it("returns the full invoice detail with customer info, lines, and numeric totals", async () => {
+    const draft = await createDraft(
+      {
+        customerId,
+        lines: [
+          {
+            description: `Lešení ${TAG}`,
+            quantity: 3,
+            unitPriceWithoutVat: 200,
+            vatRate: 21,
+            vatMode: "standard",
+            unit: "m²",
+          },
+        ],
+      },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+
+    // --- identity & status ---
+    expect(typeof draft.id).toBe("number");
+    expect(draft.status).toBe("draft");
+
+    // --- customer snapshot copied onto the invoice ---
+    expect(draft.customerId).toBe(customerId);
+    expect(typeof draft.customerName).toBe("string");
+    expect(draft.customerName!.length).toBeGreaterThan(0);
+
+    // --- lines ---
+    expect(Array.isArray(draft.lines)).toBe(true);
+    expect(draft.lines).toHaveLength(1);
+    const line = draft.lines[0];
+    expect(line.description).toBe(`Lešení ${TAG}`);
+    expect(line.quantity).toBe(3);
+    expect(line.unitPriceWithoutVat).toBe(200);
+    expect(line.vatRate).toBe(21);
+    expect(line.unit).toBe("m²");
+    expect(typeof line.totalWithoutVat).toBe("number");
+    expect(typeof line.totalVat).toBe("number");
+    expect(typeof line.totalWithVat).toBe("number");
+
+    // --- aggregated totals (3 × 200 = 600 ex-VAT; 21 % → 726 incl.) ---
+    expect(draft.subtotalWithoutVat).toBe(600);
+    expect(draft.totalVat).toBe(126);
+    expect(draft.totalWithVat).toBe(726);
+
+    // --- no source links for a manual-only draft ---
+    expect(draft.sourceJobIds).toEqual([]);
+    expect(draft.sourceActivityIds).toEqual([]);
+  });
+});
+
 describe("findDuplicates", () => {
   it("flags an exact content-hash match", async () => {
     const sha = `sha-${TAG}`;

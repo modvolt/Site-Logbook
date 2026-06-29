@@ -20,6 +20,10 @@ author = "agent"
 task = "workflow.run"
 args = "migrate-test"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "invoice-tests"
+
 [[workflows.workflow]]
 name = "migrate-test"
 author = "agent"
@@ -30,6 +34,17 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash scripts/migrate-test-isolated.sh"
+
+[[workflows.workflow]]
+name = "invoice-tests"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server run test --reporter=verbose test/cost-document-billing.test.ts"
 
 [agent]
 stack = "PNPM_WORKSPACE"
