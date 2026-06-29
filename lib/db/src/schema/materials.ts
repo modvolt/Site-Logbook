@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 import { jobsTable } from "./jobs";
 import { billingDocumentsTable, billingDocumentLinesTable } from "./billing-documents";
 import { invoicesTable } from "./invoices";
+import { warehouseItemsTable } from "./warehouse-items";
 
 export const materialsTable = pgTable("materials", {
   id: serial("id").primaryKey(),
@@ -51,6 +52,14 @@ export const materialsTable = pgTable("materials", {
   invoicedAt: timestamp("invoiced_at"),
   invoicedInvoiceId: integer("invoiced_invoice_id").references(
     () => invoicesTable.id,
+    { onDelete: "set null" },
+  ),
+  // Stable FK to the matched warehouse card. Nullable: manually-added materials
+  // that don't match any card stay NULL; name-based display is preserved. Set on
+  // create/edit (route resolves the item from name or explicit warehouseItemId)
+  // and cleared (ON DELETE SET NULL) if the card is ever deleted.
+  warehouseItemId: integer("warehouse_item_id").references(
+    () => warehouseItemsTable.id,
     { onDelete: "set null" },
   ),
   createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -51,6 +51,7 @@ import {
   reconcileSourceMovements,
   reconcileMaterialStockMovement,
   backfillOutMovementCostPrices,
+  resolveWarehouseItemIdByName,
 } from "./warehouse-service";
 
 const objectStorage = new ObjectStorageService();
@@ -1723,6 +1724,8 @@ export async function syncJobMaterialsForDocument(
         : hasPrice
           ? "delivery_note"
           : "awaiting_invoice";
+      // Resolve stable FK to warehouse card for unambiguous matches.
+      const warehouseItemId = await resolveWarehouseItemIdByName(tx, line.description);
       const values = {
         jobId,
         name: line.description,
@@ -1737,6 +1740,7 @@ export async function syncJobMaterialsForDocument(
         priceSourceSupplierName: doc.supplierName ?? null,
         priceSourceDate: doc.issueDate ? new Date(doc.issueDate) : null,
         priceConfidence: isInvoiceDoc ? "1.00" : null,
+        warehouseItemId,
       };
       // Atomic upsert keyed on the partial unique index
       // (source_type, source_id) WHERE source_type IS NOT NULL, so concurrent

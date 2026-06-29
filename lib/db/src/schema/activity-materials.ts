@@ -2,6 +2,7 @@ import { pgTable, serial, text, numeric, boolean, integer, timestamp } from "dri
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { activitiesTable } from "./activities";
+import { warehouseItemsTable } from "./warehouse-items";
 
 export const activityMaterialsTable = pgTable("activity_materials", {
   id: serial("id").primaryKey(),
@@ -12,6 +13,11 @@ export const activityMaterialsTable = pgTable("activity_materials", {
   pricePerUnit: numeric("price_per_unit", { precision: 10, scale: 2 }),
   done: boolean("done").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
+  // Stable FK to the matched warehouse card. Nullable; name stays as description.
+  warehouseItemId: integer("warehouse_item_id").references(
+    () => warehouseItemsTable.id,
+    { onDelete: "set null" },
+  ),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

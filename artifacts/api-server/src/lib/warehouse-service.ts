@@ -313,6 +313,47 @@ export async function reconcileDocumentStockMovements(
   }
 }
 
+/**
+ * Find-or-create a warehouse item by name under a transaction-scoped advisory
+ * lock so that two concurrent transactions racing on the same name cannot each
+ * see "no match" and both insert a duplicate card.
+ *
+ * - Acquires `pg_advisory_xact_lock(hashtext(normalizedName))` before the
+ *   re-check INSERT so the critical section is serialised at the DB level.
+ * - Returns the existing item (possibly created by a concurrent transaction
+ *   that just committed) or the freshly-created one.
+ * - Exported so the advisory-lock + re-check behaviour can be tested directly.
+ */
+export async function resolveOrCreateWarehouseItemByName(
+  tx: DbTx,
+  name: string,
+  opts: { code?: string | null; unit?: string | null; purchasePrice?: string | null },
+): Promise<WarehouseItemRow> {
+  const normalizedName = name.trim().toLowerCase();
+
+  // Acquire advisory lock before the re-check to prevent concurrent duplicates.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedName}))`);
+
+  const [existing] = await tx
+    .select()
+    .from(warehouseItemsTable)
+    .where(sql`lower(${warehouseItemsTable.name}) = ${normalizedName}`)
+    .limit(1);
+  if (existing) return existing;
+
+  const [created] = await tx
+    .insert(warehouseItemsTable)
+    .values({
+      name: name.trim(),
+      code: opts.code ?? null,
+      unit: opts.unit ?? null,
+      quantity: "0",
+      purchasePrice: opts.purchasePrice ?? null,
+    })
+    .returning();
+  return created;
+}
+
 async function resolveOrCreateItemForLine(
   tx: DbTx,
   line: typeof billingDocumentLinesTable.$inferSelect,
@@ -325,19 +366,13 @@ async function resolveOrCreateItemForLine(
   if (!item) item = maps.byName.get(line.description.trim().toLowerCase());
   if (item) return item;
 
-  // Auto-create the item so receiving an unknown line still naskladní.
   const code = (line.supplierSku ?? line.ean ?? "")?.trim() || null;
-  const [created] = await tx
-    .insert(warehouseItemsTable)
-    .values({
-      name: line.description,
-      code,
-      unit: line.unit ?? null,
-      quantity: "0",
-      purchasePrice:
-        line.unitPriceWithoutVat == null ? null : String(round2(num(line.unitPriceWithoutVat))),
-    })
-    .returning();
+  const created = await resolveOrCreateWarehouseItemByName(tx, line.description, {
+    code,
+    unit: line.unit ?? null,
+    purchasePrice:
+      line.unitPriceWithoutVat == null ? null : String(round2(num(line.unitPriceWithoutVat))),
+  });
   if (code) maps.byCode.set(code.toLowerCase(), created);
   maps.byName.set(created.name.trim().toLowerCase(), created);
   return created;
@@ -353,6 +388,57 @@ interface MaterialLike {
   quantity: string | null;
   pricePerUnit: string | null;
   jobId: number | null;
+  /** Stable FK to a warehouse card, set on the DB row. When non-null the lookup
+   *  is ID-based so renames and name duplicates never mis-route the issue. */
+  warehouseItemId?: number | null;
+}
+
+/**
+ * Resolve which warehouse item should receive an issue movement for a given
+ * material.
+ *
+ * Resolution is strictly ID-based: if `warehouseItemId` is set the
+ * corresponding warehouse card is fetched; if it is null/undefined, no item is
+ * returned and reconcile will not issue any stock movement.
+ *
+ * Name-based resolution happens only at *save time* (via
+ * `resolveWarehouseItemIdByName` in the routes / import flow) so that the ID
+ * is persisted on the material row before reconcile is ever called. This
+ * design is immune to renames and duplicate names — once the FK is stored the
+ * movement target never changes unless the row is explicitly re-saved with a
+ * new ID.
+ */
+async function resolveItemForMaterial(
+  tx: DbTx,
+  material: MaterialLike,
+): Promise<WarehouseItemRow | undefined> {
+  if (material.warehouseItemId == null) return undefined;
+  const [row] = await tx
+    .select()
+    .from(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, material.warehouseItemId));
+  return row;
+}
+
+/**
+ * Given a material name, find the warehouse item ID for an unambiguous name
+ * match (exactly one item with that name). Returns null when there is no match
+ * or when there are two or more items with the same name (to avoid silent
+ * mis-linking).
+ *
+ * Callers (create/update routes) use this to populate `warehouseItemId` on the
+ * material row so future reconcile calls are ID-based.
+ */
+export async function resolveWarehouseItemIdByName(
+  tx: DbTx,
+  name: string,
+): Promise<number | null> {
+  const key = name.trim().toLowerCase();
+  const rows = await tx
+    .select({ id: warehouseItemsTable.id })
+    .from(warehouseItemsTable)
+    .where(sql`lower(${warehouseItemsTable.name}) = ${key}`);
+  return rows.length === 1 ? rows[0].id : null;
 }
 
 async function reconcileMaterialLike(
@@ -362,8 +448,7 @@ async function reconcileMaterialLike(
   actor: Actor,
 ): Promise<void> {
   if (!material) return;
-  const maps = await loadItemMaps(tx);
-  const item = maps.byName.get(material.name.trim().toLowerCase());
+  const item = await resolveItemForMaterial(tx, material);
   const qty = material.quantity == null ? 0 : round2(num(material.quantity));
   const desired: DesiredContribution | null =
     item && qty > 0
@@ -391,7 +476,7 @@ export async function reconcileMaterialStockMovement(
 /** Reconcile a single activity material's issue movement. */
 export async function reconcileActivityMaterialStockMovement(
   tx: DbTx,
-  material: { id: number; name: string; quantity: string | null; pricePerUnit: string | null; jobId: number | null } | null,
+  material: MaterialLike | null,
   actor: Actor,
 ): Promise<void> {
   await reconcileMaterialLike(tx, "activity_material", material, actor);

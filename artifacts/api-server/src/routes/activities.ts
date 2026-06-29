@@ -16,6 +16,7 @@ import {
 import {
   reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
+  resolveWarehouseItemIdByName,
   type Actor,
 } from "../lib/warehouse-service";
 import {
@@ -424,6 +425,7 @@ router.post("/activities/:activityId/materials", requireAuth, async (req, res): 
   const { quantity, pricePerUnit, ...rest } = parsed.data;
   const actor = actorOf(req);
   const m = await db.transaction(async (tx) => {
+    const warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
     const [created] = await tx
       .insert(activityMaterialsTable)
       .values({
@@ -431,11 +433,12 @@ router.post("/activities/:activityId/materials", requireAuth, async (req, res): 
         ...rest,
         quantity: toStr(quantity),
         pricePerUnit: toStr(pricePerUnit),
+        warehouseItemId,
       })
       .returning();
     await reconcileActivityMaterialStockMovement(
       tx,
-      { id: created.id, name: created.name, quantity: created.quantity, pricePerUnit: created.pricePerUnit, jobId: null },
+      { id: created.id, name: created.name, quantity: created.quantity, pricePerUnit: created.pricePerUnit, jobId: null, warehouseItemId: created.warehouseItemId },
       actor,
     );
     return created;
@@ -461,6 +464,9 @@ router.patch("/activities/:activityId/materials/:materialId", requireAuth, async
 
   const actor = actorOf(req);
   const m = await db.transaction(async (tx) => {
+    if (typeof rest.name === "string") {
+      updateData.warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
+    }
     const [updated] = await tx
       .update(activityMaterialsTable)
       .set(updateData)
@@ -474,7 +480,7 @@ router.patch("/activities/:activityId/materials/:materialId", requireAuth, async
     if (!updated) return null;
     await reconcileActivityMaterialStockMovement(
       tx,
-      { id: updated.id, name: updated.name, quantity: updated.quantity, pricePerUnit: updated.pricePerUnit, jobId: null },
+      { id: updated.id, name: updated.name, quantity: updated.quantity, pricePerUnit: updated.pricePerUnit, jobId: null, warehouseItemId: updated.warehouseItemId },
       actor,
     );
     return updated;

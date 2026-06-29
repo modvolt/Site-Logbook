@@ -21,6 +21,7 @@ import {
 import {
   reconcileMaterialStockMovement,
   reconcileSourceMovements,
+  resolveWarehouseItemIdByName,
   type Actor,
 } from "../lib/warehouse-service";
 import { requireRole } from "../middlewares/auth";
@@ -75,6 +76,9 @@ router.post("/jobs/:jobId/materials", async (req, res): Promise<void> => {
   // Insert the material and draw down any matching warehouse item (výdej) in one
   // transaction so stock and the job material can never drift apart.
   const material = await db.transaction(async (tx) => {
+    // Resolve warehouseItemId from name for unambiguous matches so future
+    // reconcile calls are ID-based (immune to renames & duplicate names).
+    const warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
     const [m] = await tx
       .insert(materialsTable)
       .values({
@@ -82,6 +86,7 @@ router.post("/jobs/:jobId/materials", async (req, res): Promise<void> => {
         ...rest,
         quantity: toStr(quantity),
         pricePerUnit: toStr(pricePerUnit),
+        warehouseItemId,
       })
       .returning();
     await reconcileMaterialStockMovement(tx, m, actor);
@@ -105,6 +110,11 @@ router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<voi
 
   const actor = actorOf(req);
   const material = await db.transaction(async (tx) => {
+    // When the name changes, re-resolve the warehouseItemId so the FK stays
+    // accurate. If name wasn't updated we leave the existing ID in place.
+    if (typeof rest.name === "string") {
+      updateData.warehouseItemId = await resolveWarehouseItemIdByName(tx, rest.name);
+    }
     const [m] = await tx
       .update(materialsTable)
       .set(updateData)
