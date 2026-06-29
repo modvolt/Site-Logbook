@@ -1,0 +1,230 @@
+Prompt pro Replit: oprava Site-Logbook po velkém release
+Jsi senior full-stack, DevOps a QA engineer. Pracuješ na aplikaci Stavba / Site-Logbook pro Modvolt s.r.o.
+Neprováděj další plošný redesign ani přidávání funkcí. Nejdříve oprav release proces a potvrzené regrese níže. Postupuj po fázích a po každé fázi proveď uvedené acceptance testy.
+Bezpečnostní pravidla
+Nemaž, neresetuj ani znovu nevytvářej existující databázi.
+Nemaž existující zákazníky, zaměstnance, zakázky, dokumenty, přílohy, faktury ani soubory v objektovém úložišti.
+Před aplikací migrací vytvoř externí snapshot databáze prostředky Replitu/PostgreSQL. Nespoléhej na nyní nefunkční aplikační zálohu.
+Nepoužívej drizzle-kit push proti existující databázi.
+Neměň zpětně hodnoty when již existujících migrací a nepřejmenovávej aplikované migrace.
+Neobcházej chyby tím, že endpoint vrátí prázdné pole nebo 200.
+Release neoznačuj jako hotový, dokud neprojde živé UI testování, API smoke test a PASS/FAIL tabulka.
+Kontext potvrzené chyby
+Aktuální Replit frontend je nový a PWA aktualizace funguje. Běžící API ale používá databázi bez nových migrací:
+/api/healthz vrací 200 a status: ok.
+/api/admin/health vrací:migrationParity: false
+expectedMigrations: 0
+appliedMigrations: 0
+missingMigrationTags: ["(journal unreadable)"]
+
+Migrační journal v repozitáři obsahuje 62 položek, poslední je nyní 0061_gigantic_runaways.
+Následující endpointy vracejí 500: nabídky, paušální faktury, zálohy, nastavení restore testu, zaměstnanci, dovolené, OOPP, dlouhodobé akce, zákaznické dokumenty, statistiky, relace a WebAuthn.
+Kořen problému je v rozdílu startu:
+artifacts/api-server/Dockerfile správně spouští dist/migrate.mjs před dist/index.mjs a nastavuje MIGRATIONS_DIR.
+artifacts/api-server/.replit-artifact/artifact.toml v production spouští přímo pouze:node --enable-source-maps artifacts/api-server/dist/index.mjs
+
+Migrátor se v Replit production vůbec nespustí a cesta k journalu není nastavená.
+Fáze 1 - P0: oprava Replit startu a migrací
+Požadovaná implementace
+Vytvoř jednoznačný produkční start script, například:
+scripts/start-api-production.sh
+Jeho logika musí být ekvivalentní:
+#!/usr/bin/env sh
+set -eu
+
+export MIGRATIONS_DIR="${MIGRATIONS_DIR:-$PWD/lib/db/migrations}"
+
+test -r "$MIGRATIONS_DIR/meta/_journal.json"
+
+node artifacts/api-server/dist/migrate.mjs
+exec node --enable-source-maps artifacts/api-server/dist/index.mjs
+Potom uprav artifacts/api-server/.replit-artifact/artifact.toml, aby production run používal tento script. Pokud Replit artifact nepřenáší scripts/ nebo lib/db/migrations/, uprav build krok tak, aby migrace byly součástí produkčního artifactu, a nastav MIGRATIONS_DIR na jejich skutečnou absolutní cestu.
+Při startu zaloguj bez secretů:
+absolutní použitou cestu k migracím,
+počet položek journalu,
+počet aplikovaných migrací před a po,
+počet nově aplikovaných migrací,
+poslední očekávaný tag,
+parity PASS/FAIL.
+Pokud journal nelze přečíst, migrace selže nebo parity není PASS, proces musí skončit nenulovým kódem a API se nesmí spustit.
+Acceptance testy
+Na kopii stávající DB spusť produkční start.
+Migrace se aplikují bez ručního zásahu a bez ztráty existujících dat.
+Druhý start je idempotentní a neaplikuje migrace podruhé.
+/api/admin/health ukazuje:migrationParity: true
+expectedMigrations === appliedMigrations
+latestExpectedTag odpovídá poslednímu tagu aktuálního journalu.
+
+Simuluj chybějící/nečitelný journal: API nesmí nastartovat.
+Simuluj vadnou migraci: API nesmí nastartovat.
+Fáze 2 - P0: pravdivý healthcheck a monitoring
+Odděl:
+liveness: proces žije,
+readiness: aplikace je připravená obsluhovat uživatele.
+Replit startup health musí používat readiness. Readiness musí vracet 503, pokud:
+journal není čitelný,
+DB migrace nejsou v paritě,
+databáze není dostupná.
+/api/healthz nesmí vracet status: ok, když migrace selhaly. Diagnostika nesmí zároveň ukazovat červený FAIL migrací a zelené „Žádné chyby“.
+Zaveď centrální počítání všech odpovědí 5xx podle route a request ID. V Diagnostice zobraz:
+počet 5xx za 24 hodin,
+posledních alespoň 10 chyb,
+čas, route a request ID,
+celkový stav OK / Degraded / Down.
+Do Replit buildu předej skutečné BUILD_SHA nebo jiné unikátní build ID. API, frontend a service worker musí v Diagnostice ukazovat konkrétní stejný release, ne pouze dev.
+Acceptance testy
+Parity FAIL => readiness 503.
+Parity PASS => readiness 200.
+Vyvolaná testovací 500 se objeví v Diagnostice.
+Frontend, API a SW ukazují konkrétní build ID.
+Fáze 3 - P0: chybu nikdy nezaměňovat za prázdná data
+Oprav minimálně:
+artifacts/stavba/src/pages/people.tsx
+Nyní se z useListPeople() čte pouze data a isLoading. Při 500 se zobrazí „Zatím žádní pracovníci“ a aktivní formulář Přidat.
+Požadavek:
+číst také isError, error, refetch,
+při chybě zobrazit QueryErrorState,
+nezobrazovat falešný empty state,
+do opravy načtení zakázat přidávání a mazání,
+zobrazit Retry a request ID.
+artifacts/stavba/src/pages/settings.tsx
+BackupCard a BackupScheduleCard musí rozlišovat:
+loading,
+error,
+success-empty,
+success-data.
+Při chybě GET:
+netvrdit „Žádné zálohy“,
+netvrdit, že automatický restore test je Vypnuto,
+zakázat Uložit nastavení,
+zobrazit Retry a request ID.
+Nabídky a ostatní nové moduly
+Použij jednotnou chybovou komponentu:
+srozumitelný český text,
+tlačítko Zkusit znovu,
+request ID,
+pro admina odkaz na Diagnostiku,
+zachování rozpracovaného formuláře, pokud chyba nastala při uložení.
+Acceptance testy
+Pro každý upravený seznam mockni nebo v testu vyvolej 500:
+Nikde se nesmí zobrazit prázdný stav.
+Zobrazí se Retry.
+Zápisové akce jsou bezpečně blokované.
+Po úspěšném Retry se data zobrazí bez reloadu celé aplikace.
+Fáze 4 - zprovoznění nových funkcí po migracích
+Po opravě migrací ověř přes skutečné UI a API:
+Modul	Povinný test
+Zaměstnanci	seznam, detail, dlouhé jméno, diakritika
+Dovolené	vytvořit, překryv, pracovní dny, limit, PDF/CSV
+OOPP	položka, přiřazení, podpis, PDF, historie, vrácení
+Nabídky	koncept, položky, PDF, sdílený odkaz, přijmout/odmítnout
+Paušální faktury	šablona, Generovat nyní, deduplikace, chyba v logu
+Dlouhodobé akce	více návštěv stejné stavby, materiál a práce po návštěvách
+Zákaznické dokumenty	PDF/fotka, provozovna, hledání, archiv/verze
+Statistiky	týden/měsíc/rok, zákazník, typ zakázky, PDF
+Relace	seznam, odvolání jiné relace, okamžité odhlášení
+WebAuthn	registrace, login, odebrání credentialu
+Podpis zakázky	token, podpis na mobilu, PDF protokol
+Offline	fotka, materiál a časovač offline, následná synchronizace
+
+Každý test musí mít PASS/FAIL a nesmí se označit PASS jen proto, že endpoint vrací 200. Ověř data po reloadu a v navazujícím modulu.
+Fáze 5 - kalendář
+Oprav potvrzené UX regrese v artifacts/stavba/src/pages/calendar.tsx.
+Povinné změny
+Samostatný název měsíce formátuj pomocí LLLL yyyy, aby bylo „Červen 2026“, ne „Června 2026“.
+Ulož view a datum do URL, například:/calendar?view=month&date=2026-06-29
+
+Browser Back musí po návratu z formuláře zachovat měsíc/týden/den i vybrané datum.
+Na mobilu:hlavičku rozděl do dvou stabilních řádků,
+datum nesmí být oříznuté,
+Dnes, zpět a vpřed musí zůstat dostupné,
+všechna ikonová tlačítka musí mít aria-label a tooltip.
+
+Kliknutí na den v měsíci má otevřít denní přehled. Založení zakázky dej na samostatné viditelné +, aby nešlo omylem otevřít formulář.
+Denní pohled:výchozí pracovní rozsah 06:00-20:00,
+možnost rozbalit celý den,
+automatický posun k aktuální hodině.
+
+Týden na mobilu:preferuj použitelný agenda/3denní pohled,
+pokud zůstane horizontální tabulka, jasně signalizuj horizontální posun a drž jméno pracovníka sticky.
+
+Drag & drop na dotyku prováděj přes viditelný úchyt; po přesunu nabídni Vrátit.
+Acceptance viewporty
+390 x 844
+412 x 915
+768 x 1024
+1280 x 720
+1440 x 900
+Na každém viewportu udělej screenshot týden/měsíc/den a ověř:
+žádné překrytí,
+žádné oříznuté ovládání,
+čitelný název,
+jasný aktuální den,
+funkční návrat.
+Fáze 6 - navigace Nabídek a Fakturace
+Nabídky nyní nejsou součástí fakturačního toku.
+Požadavek:
+odeber samostatnou položku Nabídky z hlavní provozní navigace,
+přidej Nabídky jako první položku rozcestníku Fakturace,
+případně přejmenuj sekci na Obchod a fakturace,
+zachovej přímou route /quotes,
+zachovej oprávnění admin/master,
+nepřidávej prioritizaci Fakturace do mobilní spodní lišty.
+Pořadí pracovního toku:
+Nabídky
+Hotové k fakturaci
+Doklady a dodací listy
+K vyřízení
+Faktury
+Platby z banky
+Import z e-mailu
+Paušální faktury
+Nastavení
+Fáze 7 - zálohy a automatický restore test
+Po migracích nejprve ověř, zda Replit runtime obsahuje pg_dump kompatibilní s PostgreSQL 16. Pokud ne, doplň jej do runtime.
+UI musí zobrazovat
+automatické zálohy Zapnuto/Vypnuto,
+cíl úložiště,
+interval nebo přesný plán,
+retenci,
+poslední pokus a výsledek,
+příští plánovaný běh,
+poslední ověřený restore test,
+poslední chybu s request ID.
+Funkční změna
+Nespoléhej pouze na setInterval uvnitř autoscale web procesu. Použij Replit Scheduled Deployment/cron nebo jiný persistentní scheduler. Operace musí být idempotentní a chráněná proti souběhu.
+Restore test musí:
+obnovovat pouze do dočasné izolované DB,
+nikdy nesahat na produkční schema,
+po testu dočasnou DB uklidit,
+uložit trvání a výsledek,
+při selhání odeslat notifikaci.
+Acceptance testy
+Ruční záloha vznikne a lze ji stáhnout.
+Automatická záloha proběhne plánovačem.
+Retence odstraní pouze staré zálohy podle pravidla.
+Restore test projde na poslední záloze.
+Vadná záloha vytvoří jasný FAIL a notifikaci.
+Restart web procesu nezruší plán.
+Fáze 8 - release gate
+Před dalším Publish musí automaticky projít:
+TypeScript všech workspace balíčků.
+Produkční build klienta a API.
+Fresh-DB migration smoke test.
+Upgrade test na kopii stávající DB.
+Kontrola expectedMigrations === appliedMigrations.
+API smoke test všech nových modulů.
+Playwright desktop a mobile smoke test.
+Ruční role test technik/admin/fakturace/majitel.
+Backup + restore test.
+Povinný závěrečný výstup Replitu
+Po implementaci vrať:
+Seznam změněných souborů.
+Seznam aplikovaných migrací.
+Přesný production start příkaz.
+Výsledek readiness a migration parity.
+PASS/FAIL tabulku všech modulů výše.
+Screenshoty kalendáře na desktopu a mobilu.
+Důkaz ruční zálohy a izolovaného restore testu.
+Seznam všeho, co zůstalo neověřené.
+Neuváděj „hotovo“, pokud je některý P0 bod FAIL nebo nebyl skutečně otestován v publikovaném Replit prostředí.
