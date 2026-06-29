@@ -15,6 +15,7 @@ import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye, Mon
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WebAuthnDeviceManager } from "@/components/webauthn-device-manager";
+import { QueryErrorState } from "@/components/query-error-state";
 
 const ROLE_META: Record<string, { label: string; color: string; icon: any; desc: string }> = {
   admin: { label: "Admin", color: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300", icon: ShieldCheck, desc: "Plný přístup + správa uživatelů" },
@@ -27,7 +28,7 @@ export default function UsersAdmin() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { openConfirm, dialogProps } = useConfirmDialog();
-  const { data: users, isLoading } = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
+  const { data: users, isLoading, isError, error, refetch } = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
 
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -124,7 +125,7 @@ export default function UsersAdmin() {
                 <Monitor className="w-4 h-4 mr-1" /> Aktivní přihlášení
               </Button>
             </Link>
-            <Button onClick={() => setShowCreate(s => !s)}>
+            <Button onClick={() => setShowCreate(s => !s)} disabled={isLoading || isError}>
               <Plus className="w-4 h-4 mr-1" /> Nový uživatel
             </Button>
           </div>
@@ -197,6 +198,13 @@ export default function UsersAdmin() {
         )}
 
         {/* Users list */}
+        {isError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst uživatele"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        ) : (
         <div className="bg-card border rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -304,6 +312,7 @@ export default function UsersAdmin() {
             </table>
           </div>
         </div>
+        )}
       </div>
       {/* Biometric device management per user */}
       <div className="mt-6">

@@ -47,6 +47,7 @@ import WarehouseCsvImport from "@/components/warehouse-csv-import";
 import { ItemMovementHistoryDialog, fmtQty } from "@/components/warehouse-movements";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
+import { QueryErrorState } from "@/components/query-error-state";
 
 type FormState = {
   name: string;
@@ -262,7 +263,7 @@ export default function Sklad() {
     return Object.keys(p).length ? p : undefined;
   }, [filterCategory, filterSupplier, filterBelowMin, filterNoPrice, filterNoPriceAtAll, filterMissingCostPrice, filterChangedAfter]);
 
-  const { data: items, isLoading } = useListWarehouseItems(listParams, {
+  const { data: items, isLoading, isError, error, refetch } = useListWarehouseItems(listParams, {
     query: { queryKey: getListWarehouseItemsQueryKey(listParams) },
   });
 
@@ -389,11 +390,11 @@ export default function Sklad() {
           </Link>
           {can("write") && (
             <>
-              <Button variant="outline" onClick={() => setShowImport(true)} className="h-10">
+              <Button variant="outline" onClick={() => setShowImport(true)} className="h-10" disabled={isLoading || isError}>
                 <FileUp className="h-5 w-5 md:mr-2" />
                 <span className="hidden md:inline">Import ceníku</span>
               </Button>
-              <Button onClick={() => setShowForm((s) => !s)} className="h-10">
+              <Button onClick={() => setShowForm((s) => !s)} className="h-10" disabled={isLoading || isError}>
                 <Plus className="h-5 w-5 md:mr-2" />
                 <span className="hidden md:inline">Přidat položku</span>
               </Button>
@@ -609,6 +610,12 @@ export default function Sklad() {
       <div className="space-y-3">
         {isLoading ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)
+        ) : isError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst sklad"
+            error={error}
+            onRetry={() => refetch()}
+          />
         ) : items && items.length > 0 ? (
           items.map((item) => {
             if (editId === item.id) {

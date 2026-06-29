@@ -12,9 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search, AlertCircle } from "lucide-react";
+import { Building2, Trash2, Plus, Edit3, Save, X, Phone, ChevronRight, Upload, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CustomerCsvImport from "@/components/customer-csv-import";
+import { QueryErrorState } from "@/components/query-error-state";
 
 type CustomerForm = {
   companyName: string;
@@ -62,7 +63,7 @@ export default function Customers() {
   const search_ = useSearch();
   const { openConfirm, dialogProps } = useConfirmDialog();
 
-  const { data: customers, isLoading, isError } = useListCustomers({
+  const { data: customers, isLoading, isError, error, refetch } = useListCustomers({
     query: { queryKey: getListCustomersQueryKey() }
   });
 
@@ -199,10 +200,10 @@ export default function Customers() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Zákazníci</h1>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowImport(true)} className="h-10">
+          <Button variant="outline" onClick={() => setShowImport(true)} className="h-10" disabled={isLoading || isError}>
             <Upload className="h-4 w-4 mr-2" /> Import CSV
           </Button>
-          <Button onClick={() => { setShowAddForm(true); setEditingId(null); }} className="h-10">
+          <Button onClick={() => { setShowAddForm(true); setEditingId(null); }} className="h-10" disabled={isLoading || isError}>
             <Plus className="h-4 w-4 mr-2" /> Přidat zákazníka
           </Button>
         </div>
@@ -323,11 +324,11 @@ export default function Customers() {
         {isLoading ? (
           [1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
-            <AlertCircle className="h-10 w-10 opacity-30" />
-            <p className="font-medium">Nepodařilo se načíst zákazníky</p>
-            <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
-          </div>
+          <QueryErrorState
+            title="Nepodařilo se načíst zákazníky"
+            error={error}
+            onRetry={() => refetch()}
+          />
         ) : filtered && filtered.length > 0 ? (
           filtered.map(customer => (
             <Card key={customer.id} className="hover:bg-muted/30 transition-colors">

@@ -19,6 +19,7 @@ import { Wrench, Plus, ChevronRight, QrCode, User, Hammer, Car, ShieldCheck, Sca
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { BarcodeScanner } from "@/components/barcode-scanner";
+import { QueryErrorState } from "@/components/query-error-state";
 
 export const MACHINE_KINDS: Record<string, { label: string; icon: typeof Wrench }> = {
   stroj: { label: "Stroj", icon: Wrench },
@@ -95,7 +96,7 @@ export default function Stroje() {
   const { can } = useAuth();
   const [, setLocation] = useLocation();
 
-  const { data: machines, isLoading } = useListMachines({
+  const { data: machines, isLoading, isError, error, refetch } = useListMachines({
     query: { queryKey: getListMachinesQueryKey() },
   });
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
@@ -203,7 +204,7 @@ export default function Stroje() {
             <span className="hidden md:inline">Skenovat</span>
           </Button>
           {can("write") && (
-            <Button onClick={() => setShowForm((s) => !s)} className="h-10">
+            <Button onClick={() => setShowForm((s) => !s)} className="h-10" disabled={isLoading || isError}>
               <Plus className="h-5 w-5 md:mr-2" />
               <span className="hidden md:inline">Přidat stroj</span>
             </Button>
@@ -391,6 +392,12 @@ export default function Stroje() {
       <div className="space-y-3">
         {isLoading ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)
+        ) : isError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst stroje"
+            error={error}
+            onRetry={() => refetch()}
+          />
         ) : filtered.length > 0 ? (
           filtered.map((m) => {
             const kindCfg = MACHINE_KINDS[m.kind] ?? MACHINE_KINDS.stroj;

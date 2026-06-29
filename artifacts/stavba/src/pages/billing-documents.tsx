@@ -44,7 +44,8 @@ import {
   expandZipArchive,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
-import { ArrowLeft, FileText, Inbox, Sparkles, Upload, AlertCircle } from "lucide-react";
+import { ArrowLeft, FileText, Inbox, Sparkles, Upload } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 
 const UPLOAD_ACCEPT =
   "application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp,image/gif,.gif,image/heic,.heic,image/heif,.heif,application/xml,text/xml,.xml,.isdoc,application/zip,.isdocx,.zip";
@@ -82,7 +83,7 @@ export default function BillingDocuments() {
   } | null>(null);
 
   const params = statusFilter === "all" ? undefined : { status: statusFilter };
-  const { data: docs, isLoading, isError } = useListCostDocuments(params, {
+  const { data: docs, isLoading, isError, error, refetch } = useListCostDocuments(params, {
     query: { queryKey: getListCostDocumentsQueryKey(params) },
   });
 
@@ -251,7 +252,7 @@ export default function BillingDocuments() {
       <div className="space-y-3 mb-5">
         <Button
           onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
+          disabled={isUploading || isLoading || isError}
           className="w-full h-12 text-base"
         >
           <Upload className="h-5 w-5 mr-2" />
@@ -271,7 +272,7 @@ export default function BillingDocuments() {
           onFiles={handleFiles}
           accept={UPLOAD_ACCEPT}
           multiple
-          disabled={isUploading}
+          disabled={isUploading || isLoading || isError}
           label="Sem přetáhněte doklady (PDF, foto, ISDOC/XML nebo ZIP)"
         />
       </div>
@@ -298,11 +299,11 @@ export default function BillingDocuments() {
           ))}
         </div>
       ) : isError ? (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
-          <AlertCircle className="h-10 w-10 opacity-30" />
-          <p className="font-medium">Nepodařilo se načíst doklady</p>
-          <p className="text-sm">Zkontrolujte připojení nebo zkuste stránku obnovit.</p>
-        </div>
+        <QueryErrorState
+          title="Nepodařilo se načíst doklady"
+          error={error}
+          onRetry={() => refetch()}
+        />
       ) : !docs || docs.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
           <FileText className="w-10 h-10 mx-auto mb-2 opacity-20" />
