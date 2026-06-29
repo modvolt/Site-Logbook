@@ -3,6 +3,7 @@ import {
   useGetWarehouseMaterialBackfillReport,
   getGetWarehouseMaterialBackfillReportQueryKey,
   useRunWarehouseMaterialBackfill,
+  useAssignWarehouseMaterialGroup,
 } from "@workspace/api-client-react";
 import type { WarehouseMaterialBackfillAmbiguousGroup } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -47,9 +48,41 @@ function StatCard({
   );
 }
 
-function AmbiguousGroup({ group }: { group: WarehouseMaterialBackfillAmbiguousGroup }) {
+function AmbiguousGroup({
+  group,
+  onAssigned,
+}: {
+  group: WarehouseMaterialBackfillAmbiguousGroup;
+  onAssigned: () => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | "">("");
+  const { toast } = useToast();
+  const assign = useAssignWarehouseMaterialGroup();
+
   const total = group.materialCount + group.activityMaterialCount;
+
+  const handleAssign = async () => {
+    if (!selectedId) return;
+    try {
+      const result = await assign.mutateAsync({
+        data: { name: group.name, warehouseItemId: Number(selectedId) },
+      });
+      const total = result.materialsAssigned + result.activityMaterialsAssigned;
+      toast({
+        title: `Přiřazeno ${total} ${total === 1 ? "řádek" : total < 5 ? "řádky" : "řádků"}`,
+        description: `${result.materialsAssigned} mat. zakázek, ${result.activityMaterialsAssigned} mat. aktivit → karta #${selectedId}`,
+      });
+      onAssigned();
+    } catch {
+      toast({
+        title: "Přiřazení selhalo",
+        description: "Zkuste to znovu nebo zkontrolujte připojení.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <button
@@ -79,6 +112,7 @@ function AmbiguousGroup({ group }: { group: WarehouseMaterialBackfillAmbiguousGr
               <p className="font-mono font-semibold">{group.activityMaterialCount}</p>
             </div>
           </div>
+
           <div>
             <p className="text-xs text-muted-foreground mb-2">Konfliktní skladové karty:</p>
             <div className="space-y-1">
@@ -93,10 +127,46 @@ function AmbiguousGroup({ group }: { group: WarehouseMaterialBackfillAmbiguousGr
               ))}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground italic">
-            Automatické propojení není možné — opravte duplikátní karty ve skladu nebo propojte
-            materiály ručně.
-          </p>
+
+          {/* Assign action */}
+          <div className="rounded-lg border bg-background p-3 space-y-2">
+            <p className="text-xs font-medium text-foreground">
+              Přiřadit všechny nepropojené řádky k vybrané kartě
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Všechna {total > 0 ? `${total} nepropojená ` : "nepropojená "}použití jména „{group.name}" budou přiřazena
+              k vybrané kartě a pohyby skladu budou zaregistrovány.
+            </p>
+            <div className="flex gap-2 flex-col sm:flex-row sm:items-center">
+              <select
+                className="flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                value={selectedId}
+                onChange={(e) =>
+                  setSelectedId(e.target.value ? Number(e.target.value) : "")
+                }
+              >
+                <option value="">-- Vyberte skladovou kartu --</option>
+                {group.warehouseItems.map((wi) => (
+                  <option key={wi.id} value={wi.id}>
+                    #{wi.id} — {wi.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                disabled={!selectedId || assign.isPending}
+                onClick={handleAssign}
+                className="shrink-0"
+              >
+                {assign.isPending ? (
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Přiřadit
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -135,6 +205,10 @@ export default function AdminWarehouseBackfill() {
     } finally {
       setRunning(false);
     }
+  };
+
+  const handleAssigned = () => {
+    queryClient.invalidateQueries({ queryKey: getGetWarehouseMaterialBackfillReportQueryKey() });
   };
 
   return (
@@ -235,12 +309,13 @@ export default function AdminWarehouseBackfill() {
                   Víceznačné shody – vyžadují ruční řešení ({data.ambiguousGroups.length})
                 </h2>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Tato jména odpovídají více než jedné skladové kartě. Opravte duplikáty ve skladu
-                  nebo propojte materiály ručně v detailu zakázky / aktivity.
+                  Tato jména odpovídají více než jedné skladové kartě. Vyberte správnou kartu u
+                  každé skupiny a klikněte na „Přiřadit" — všechna nepropojená použití daného
+                  jména budou nalinkovány najednou.
                 </p>
                 <div className="space-y-2">
                   {data.ambiguousGroups.map((g) => (
-                    <AmbiguousGroup key={g.name} group={g} />
+                    <AmbiguousGroup key={g.name} group={g} onAssigned={handleAssigned} />
                   ))}
                 </div>
               </div>

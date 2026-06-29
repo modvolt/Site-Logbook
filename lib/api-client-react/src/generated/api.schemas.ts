@@ -1980,6 +1980,20 @@ export interface WarehouseMaterialBackfillResult {
   activityMaterialsLinked: number;
 }
 
+export interface AssignWarehouseMaterialGroupBody {
+  /** The ambiguous material name (case-insensitive match used server-side) */
+  name: string;
+  /** ID of the warehouse card to assign all unlinked materials in this group to */
+  warehouseItemId: number;
+}
+
+export interface AssignWarehouseMaterialGroupResult {
+  /** Number of job material rows updated */
+  materialsAssigned: number;
+  /** Number of activity material rows updated */
+  activityMaterialsAssigned: number;
+}
+
 export interface DashboardSummary {
   todayCount: number;
   weekCount: number;

@@ -2456,6 +2456,20 @@ export const RunWarehouseMaterialBackfillResponse = zod.object({
 
 
 /**
+ * @summary Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+ */
+export const AssignWarehouseMaterialGroupBody = zod.object({
+  "name": zod.string().describe('The ambiguous material name (case-insensitive match used server-side)'),
+  "warehouseItemId": zod.number().describe('ID of the warehouse card to assign all unlinked materials in this group to')
+})
+
+export const AssignWarehouseMaterialGroupResponse = zod.object({
+  "materialsAssigned": zod.number().describe('Number of job material rows updated'),
+  "activityMaterialsAssigned": zod.number().describe('Number of activity material rows updated')
+})
+
+
+/**
  * @summary List all stock movements (kniha pohybů) with optional filters
  */
 export const ListWarehouseMovementsQueryParams = zod.object({

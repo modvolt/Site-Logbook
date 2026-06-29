@@ -39,6 +39,8 @@ import type {
   AnalyzeJobDocumentsResult,
   ApprovedCostLine,
   AssignWarehouseInput,
+  AssignWarehouseMaterialGroupBody,
+  AssignWarehouseMaterialGroupResult,
   AssignWarehouseResult,
   Attachment,
   AttachmentInput,
@@ -7777,6 +7779,77 @@ export const useRunWarehouseMaterialBackfill = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getRunWarehouseMaterialBackfillMutationOptions(options));
+    }
+
+export const getAssignWarehouseMaterialGroupUrl = () => {
+
+
+
+
+  return `/api/warehouse-material-backfill/assign`
+}
+
+/**
+ * @summary Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+ */
+export const assignWarehouseMaterialGroup = async (assignWarehouseMaterialGroupBody: AssignWarehouseMaterialGroupBody, options?: RequestInit): Promise<AssignWarehouseMaterialGroupResult> => {
+
+  return customFetch<AssignWarehouseMaterialGroupResult>(getAssignWarehouseMaterialGroupUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      assignWarehouseMaterialGroupBody,)
+  }
+);}
+
+
+
+
+export const getAssignWarehouseMaterialGroupMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignWarehouseMaterialGroup>>, TError,{data: BodyType<AssignWarehouseMaterialGroupBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof assignWarehouseMaterialGroup>>, TError,{data: BodyType<AssignWarehouseMaterialGroupBody>}, TContext> => {
+
+const mutationKey = ['assignWarehouseMaterialGroup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof assignWarehouseMaterialGroup>>, {data: BodyType<AssignWarehouseMaterialGroupBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  assignWarehouseMaterialGroup(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AssignWarehouseMaterialGroupMutationResult = NonNullable<Awaited<ReturnType<typeof assignWarehouseMaterialGroup>>>
+    export type AssignWarehouseMaterialGroupMutationBody = BodyType<AssignWarehouseMaterialGroupBody>
+    export type AssignWarehouseMaterialGroupMutationError = ErrorType<void>
+
+    /**
+ * @summary Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+ */
+export const useAssignWarehouseMaterialGroup = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignWarehouseMaterialGroup>>, TError,{data: BodyType<AssignWarehouseMaterialGroupBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof assignWarehouseMaterialGroup>>,
+        TError,
+        {data: BodyType<AssignWarehouseMaterialGroupBody>},
+        TContext
+      > => {
+      return useMutation(getAssignWarehouseMaterialGroupMutationOptions(options));
     }
 
 export const getListWarehouseMovementsUrl = (params?: ListWarehouseMovementsParams,) => {

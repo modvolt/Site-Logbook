@@ -2388,6 +2388,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/WarehouseMaterialBackfillResult"
 
+  /warehouse-material-backfill/assign:
+    post:
+      operationId: assignWarehouseMaterialGroup
+      tags: [warehouse]
+      summary: Manually assign all unlinked materials in an ambiguous group to a chosen warehouse card (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignWarehouseMaterialGroupBody"
+      responses:
+        "200":
+          description: Counts of materials updated and movements created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignWarehouseMaterialGroupResult"
+        "400":
+          description: Validation error
+        "404":
+          description: Warehouse item not found
+
   /warehouse-movements:
     get:
       operationId: listWarehouseMovements
@@ -10893,6 +10916,28 @@ components:
         activityMaterialsLinked:
           type: integer
           description: Number of activity material rows that had warehouse_item_id set by this run
+
+    AssignWarehouseMaterialGroupBody:
+      type: object
+      required: [name, warehouseItemId]
+      properties:
+        name:
+          type: string
+          description: The ambiguous material name (case-insensitive match used server-side)
+        warehouseItemId:
+          type: integer
+          description: ID of the warehouse card to assign all unlinked materials in this group to
+
+    AssignWarehouseMaterialGroupResult:
+      type: object
+      required: [materialsAssigned, activityMaterialsAssigned]
+      properties:
+        materialsAssigned:
+          type: integer
+          description: Number of job material rows updated
+        activityMaterialsAssigned:
+          type: integer
+          description: Number of activity material rows updated
 
     WarehouseSummary:
       type: object

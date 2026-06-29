@@ -19,11 +19,14 @@ import {
   ListWarehouseItemsQueryParams,
   ListWarehouseItemPriceHistoryParams,
   CancelLastWarehouseMovementParams,
+  AssignWarehouseMaterialGroupBody,
 } from "@workspace/api-zod";
 import {
   listItemMovements,
   listMovements,
   createManualMovement,
+  reconcileMaterialStockMovement,
+  reconcileActivityMaterialStockMovement,
   type Actor,
   type AppError,
 } from "../lib/warehouse-service";
@@ -903,6 +906,90 @@ router.get("/warehouse-material-backfill/report", requireRole("admin", "master")
   );
 
   res.json({ totalUnlinked, canLink, totalAmbiguous, ambiguousGroups });
+});
+
+router.post("/warehouse-material-backfill/assign", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const parsed = AssignWarehouseMaterialGroupBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { name, warehouseItemId } = parsed.data;
+  const actor = actorOf(req);
+
+  // Verify the target warehouse item exists.
+  const [targetItem] = await db
+    .select({ id: warehouseItemsTable.id, name: warehouseItemsTable.name })
+    .from(warehouseItemsTable)
+    .where(eq(warehouseItemsTable.id, warehouseItemId));
+
+  if (!targetItem) {
+    res.status(404).json({ error: "Skladová karta nenalezena." });
+    return;
+  }
+
+  let materialsAssigned = 0;
+  let activityMaterialsAssigned = 0;
+
+  await db.transaction(async (tx) => {
+    // Fetch all unlinked job materials with this name.
+    const jobMaterials = await tx
+      .select()
+      .from(materialsTable)
+      .where(
+        and(
+          isNull(materialsTable.warehouseItemId),
+          sql`lower(${materialsTable.name}) = lower(${name})`,
+        ),
+      );
+
+    for (const mat of jobMaterials) {
+      await tx
+        .update(materialsTable)
+        .set({ warehouseItemId })
+        .where(eq(materialsTable.id, mat.id));
+      await reconcileMaterialStockMovement(tx, { ...mat, warehouseItemId }, actor);
+      materialsAssigned++;
+    }
+
+    // Fetch all unlinked activity materials with this name.
+    const activityMaterials = await tx
+      .select()
+      .from(activityMaterialsTable)
+      .where(
+        and(
+          isNull(activityMaterialsTable.warehouseItemId),
+          sql`lower(${activityMaterialsTable.name}) = lower(${name})`,
+        ),
+      );
+
+    for (const mat of activityMaterials) {
+      await tx
+        .update(activityMaterialsTable)
+        .set({ warehouseItemId })
+        .where(eq(activityMaterialsTable.id, mat.id));
+      await reconcileActivityMaterialStockMovement(
+        tx,
+        { ...mat, warehouseItemId, jobId: null },
+        actor,
+      );
+      activityMaterialsAssigned++;
+    }
+  });
+
+  await db.insert(auditLogTable).values({
+    actorUserId: req.auth?.userId ?? null,
+    actorName: req.auth?.name ?? "Systém",
+    action: "warehouse_material_ambiguous_assign",
+    entityType: "warehouse",
+    entityId: warehouseItemId,
+    summary: `Ruční přiřazení skupiny „${name}": ${materialsAssigned} materiálů zakázek, ${activityMaterialsAssigned} materiálů aktivit → karta #${warehouseItemId} „${targetItem.name}"`,
+    method: req.method,
+    path: req.path,
+  });
+
+  res.json({ materialsAssigned, activityMaterialsAssigned });
 });
 
 router.post("/warehouse-material-backfill/run", requireRole("admin", "master"), async (req, res): Promise<void> => {
