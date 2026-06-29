@@ -39,10 +39,10 @@ export function domainsForPath(relPath: string): LiveDomain[] {
     for (const d of ds) domains.add(d);
   };
 
-  if (p.startsWith("/billing/invoices")) {
+  if (p.startsWith("/billing/recurring-templates")) {
+    add("billingRecurringTemplates", "billingInvoices");
+  } else if (p.startsWith("/billing/invoices")) {
     add("billingInvoices");
-  } else if (p.startsWith("/billing/recurring-templates")) {
-    add("billingRecurringTemplates");
   } else if (p.startsWith("/billing/documents")) {
     add("billingDocuments", "reviewQueue");
   } else if (p.startsWith("/billing/approved-lines")) {

@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { createDraft, type Actor } from "./invoice-service";
+import { publishDomains } from "./live-updates";
 
 type VatMode = "standard" | "reverse_charge" | "zero" | "non_vat";
 
@@ -273,6 +274,9 @@ export async function runRecurringGeneration(today: string): Promise<{
     try {
       await generateFromTemplate(template, period, today);
       created++;
+      // Emit after each successful generation so open billing/recurring-templates
+      // and billing/invoices screens refresh without a manual reload.
+      publishDomains(["billingRecurringTemplates", "billingInvoices", "customers"]);
     } catch (err) {
       if (err instanceof Error && err.message.includes("DEDUPE")) {
         skipped++;
@@ -325,6 +329,16 @@ export async function generateTemplateNow(id: number): Promise<{ invoiceId: numb
   return generateFromTemplate(template, period, today, true);
 }
 
+/** Returns true when a PostgreSQL error is a unique-constraint violation (23505). */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: unknown }).code === "23505"
+  );
+}
+
 async function generateFromTemplate(
   template: RecurringInvoiceTemplate,
   period: string,
@@ -335,113 +349,125 @@ async function generateFromTemplate(
   // generation attempts for the same template. The lock is held for the
   // duration of the outer transaction, so a second concurrent caller will
   // block on pg_advisory_xact_lock and only proceed after the first commits
-  // — at which point the dedup check will find the generation record and throw
-  // DEDUPE. This ensures only one draft invoice is created per template+period
-  // even if the scheduler and a manual trigger fire simultaneously.
-  const result = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(${template.id})`,
-    );
+  // — at which point the dedup check or the unique partial index on
+  // (template_id, period) will reject the duplicate.
+  // The unique index is the ultimate DB-level guarantee; the advisory lock +
+  // application-level dedup check avoid unnecessary work in the common case.
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${template.id})`);
 
-    // Dedupe: abort if a successful draft for this period already exists.
-    // Failure records (invoice_id IS NULL) are informational and don't block retries.
-    const [existing] = await tx
-      .select({ id: recurringInvoiceGenerationsTable.id })
-      .from(recurringInvoiceGenerationsTable)
-      .where(
-        and(
-          eq(recurringInvoiceGenerationsTable.templateId, template.id),
-          eq(recurringInvoiceGenerationsTable.period, period),
-          isNotNull(recurringInvoiceGenerationsTable.invoiceId),
-        ),
-      );
-    if (existing) {
-      if (manualTrigger) {
-        // For manual triggers, surface a 409 so the UI can show a clear message.
-        // Do NOT advance nextGenerationDate — the admin triggered this manually,
-        // so the scheduled date should remain intact.
-        throw appError(409, `Koncept faktury pro období ${period} již existuje.`);
+      // Dedupe: abort if a successful draft for this period already exists.
+      // Failure records (invoice_id IS NULL) are informational and don't block retries.
+      const [existing] = await tx
+        .select({ id: recurringInvoiceGenerationsTable.id })
+        .from(recurringInvoiceGenerationsTable)
+        .where(
+          and(
+            eq(recurringInvoiceGenerationsTable.templateId, template.id),
+            eq(recurringInvoiceGenerationsTable.period, period),
+            isNotNull(recurringInvoiceGenerationsTable.invoiceId),
+          ),
+        );
+      if (existing) {
+        if (manualTrigger) {
+          // For manual triggers, surface a 409 so the UI can show a clear message.
+          // Do NOT advance nextGenerationDate — the admin triggered this manually,
+          // so the scheduled date should remain intact.
+          throw appError(409, `Koncept faktury pro období ${period} již existuje.`);
+        }
+        // Scheduler path: advance nextGenerationDate so we don't get stuck
+        await tx
+          .update(recurringInvoiceTemplatesTable)
+          .set({
+            nextGenerationDate: nextDateAfter(
+              template.nextGenerationDate,
+              template.interval as "monthly" | "quarterly" | "yearly",
+              template.dayOfMonth,
+            ),
+            updatedAt: new Date(),
+          })
+          .where(eq(recurringInvoiceTemplatesTable.id, template.id));
+        throw new Error("DEDUPE");
       }
-      // Scheduler path: advance nextGenerationDate so we don't get stuck
+
+      // Build line items from template items
+      const lines = (template.items as RecurringTemplateItem[]).map((item) => ({
+        sourceType: "manual" as const,
+        description: item.description,
+        quantity: item.quantity,
+        unit: item.unit ?? undefined,
+        unitPriceWithoutVat: item.unitPriceWithoutVat,
+        vatRate: item.vatRate ?? undefined,
+        vatMode: item.vatMode as VatMode,
+        discountPercent: item.discountPercent ?? undefined,
+      }));
+
+      // Create the draft invoice within the same transaction so the whole
+      // generation is atomic: invoice, lines, generation record, and nextDate
+      // advance all commit together or all roll back.
+      const systemActor: Actor = { userId: null, name: "Systém (paušál)" };
+      const draft = await createDraft(
+        {
+          customerId: template.customerId,
+          vatModeDefault: template.vatModeDefault as
+            | "standard"
+            | "reverse_charge"
+            | "zero"
+            | "non_vat",
+          notes: template.notes ?? undefined,
+          lines,
+        },
+        systemActor,
+        tx,
+      );
+
+      if (!draft) throw new Error("createDraft returned null");
+
+      // Link the invoice to the template
+      await tx
+        .update(invoicesTable)
+        .set({ recurringTemplateId: template.id })
+        .where(eq(invoicesTable.id, draft.id));
+
+      // Record the generation for dedup.
+      // The unique partial index on (template_id, period) WHERE invoice_id IS NOT NULL
+      // guarantees at the DB level that only one successful generation exists per
+      // template+period, even under concurrent inserts.
+      await tx.insert(recurringInvoiceGenerationsTable).values({
+        templateId: template.id,
+        invoiceId: draft.id,
+        period,
+      });
+
+      // Advance nextGenerationDate
+      const next = nextDateAfter(
+        template.nextGenerationDate,
+        template.interval as "monthly" | "quarterly" | "yearly",
+        template.dayOfMonth,
+      );
       await tx
         .update(recurringInvoiceTemplatesTable)
         .set({
-          nextGenerationDate: nextDateAfter(
-            template.nextGenerationDate,
-            template.interval as "monthly" | "quarterly" | "yearly",
-            template.dayOfMonth,
-          ),
+          nextGenerationDate: next,
+          lastGeneratedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(recurringInvoiceTemplatesTable.id, template.id));
+
+      return { invoiceId: draft.id, period };
+    });
+  } catch (err) {
+    // Treat a unique-constraint violation on (template_id, period) as a
+    // successful dedup — the generation already happened concurrently.
+    if (isUniqueViolation(err)) {
+      if (manualTrigger) {
+        throw appError(409, `Koncept faktury pro období ${period} již existuje.`);
+      }
       throw new Error("DEDUPE");
     }
-
-    // Build line items from template items
-    const lines = (template.items as RecurringTemplateItem[]).map((item) => ({
-      sourceType: "manual" as const,
-      description: item.description,
-      quantity: item.quantity,
-      unit: item.unit ?? undefined,
-      unitPriceWithoutVat: item.unitPriceWithoutVat,
-      vatRate: item.vatRate ?? undefined,
-      vatMode: item.vatMode as VatMode,
-      discountPercent: item.discountPercent ?? undefined,
-    }));
-
-    // Create the draft invoice.
-    // createDraft() opens its own db.transaction() on a separate connection,
-    // which is fine here: the advisory lock prevents a second concurrent
-    // generateFromTemplate call for the same template from also calling
-    // createDraft simultaneously, so only one draft can be created.
-    const systemActor: Actor = { userId: null, name: "Systém (paušál)" };
-    const draft = await createDraft(
-      {
-        customerId: template.customerId,
-        vatModeDefault: template.vatModeDefault as
-          | "standard"
-          | "reverse_charge"
-          | "zero"
-          | "non_vat",
-        notes: template.notes ?? undefined,
-        lines,
-      },
-      systemActor,
-    );
-
-    if (!draft) throw new Error("createDraft returned null");
-
-    // Link the invoice to the template
-    await tx
-      .update(invoicesTable)
-      .set({ recurringTemplateId: template.id })
-      .where(eq(invoicesTable.id, draft.id));
-
-    // Record the generation for dedup
-    await tx.insert(recurringInvoiceGenerationsTable).values({
-      templateId: template.id,
-      invoiceId: draft.id,
-      period,
-    });
-
-    // Advance nextGenerationDate
-    const next = nextDateAfter(
-      template.nextGenerationDate,
-      template.interval as "monthly" | "quarterly" | "yearly",
-      template.dayOfMonth,
-    );
-    await tx
-      .update(recurringInvoiceTemplatesTable)
-      .set({
-        nextGenerationDate: next,
-        lastGeneratedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(recurringInvoiceTemplatesTable.id, template.id));
-
-    return { invoiceId: draft.id, period };
-  });
-  return result;
+    throw err;
+  }
 }
 
 let schedulerStarted = false;

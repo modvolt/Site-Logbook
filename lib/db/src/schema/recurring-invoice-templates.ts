@@ -9,6 +9,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { customersTable } from "./customers";
 
@@ -73,6 +74,9 @@ export const recurringInvoiceGenerationsTable = pgTable(
   },
   (t) => [
     index("rig_template_id_idx").on(t.templateId),
+    uniqueIndex("rig_template_period_success_udx")
+      .on(t.templateId, t.period)
+      .where(sql`${t.invoiceId} is not null`),
   ],
 );
 

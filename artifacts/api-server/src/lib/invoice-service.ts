@@ -1398,9 +1398,10 @@ export interface InvoiceCreateInput {
   lines?: InvoiceLineInput[];
 }
 
-export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
+export async function createDraft(input: InvoiceCreateInput, actor: Actor, outerTx?: Tx) {
+  const exec: DbOrTx = outerTx ?? db;
   const settings = await ensureBillingSettings();
-  const [customer] = await db
+  const [customer] = await exec
     .select()
     .from(customersTable)
     .where(eq(customersTable.id, input.customerId));
@@ -1439,7 +1440,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
     }
   }
 
-  const id = await db.transaction(async (tx) => {
+  const doCreate = async (tx: Tx) => {
     const categoryMarkupForName = await buildCategoryMarkupResolver(tx);
     const { lines: proposed, jobAmounts } = await buildProposedLines(
       tx,
@@ -1525,8 +1526,16 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor) {
     }
 
     return invoice.id;
-  });
+  };
 
+  if (outerTx) {
+    // The invoice is inserted but not yet committed; getInvoiceDetail runs on a
+    // separate connection and would see nothing. Return a minimal stub — callers
+    // that pass outerTx only need the invoice id.
+    const id = await doCreate(outerTx);
+    return { id } as NonNullable<Awaited<ReturnType<typeof getInvoiceDetail>>>;
+  }
+  const id = await db.transaction(doCreate);
   return getInvoiceDetail(id);
 }
 
