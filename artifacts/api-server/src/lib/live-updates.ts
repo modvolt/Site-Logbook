@@ -31,7 +31,8 @@ export type ServerInvalidationDomain =
   | "emailImport"
   | "reviewQueue"
   | "ppe"
-  | "sessions";
+  | "sessions"
+  | "quotes";
 
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
@@ -101,6 +102,10 @@ export function domainsForPath(relPath: string): ServerInvalidationDomain[] {
   } else if (p.startsWith("/auth/login") || p.startsWith("/auth/setup")) {
     // Successful login/first-admin-setup creates a new session.
     add("sessions");
+  } else if (p.startsWith("/quotes")) {
+    add("quotes");
+    // Converting a quote to a job creates a new job and may touch a customer.
+    if (p.includes("/convert-to-job")) add("jobs", "customers");
   }
 
   return [...domains];

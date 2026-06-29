@@ -590,31 +590,43 @@ export async function expireQuote(id: number) {
 }
 
 export async function convertQuoteToJob(id: number) {
-  const quote = await getQuoteDetail(id);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (quote.status !== "accepted") throw appError(409, "Převést na zakázku lze pouze přijatou nabídku.");
-  if (quote.convertedToJobId != null) throw appError(409, "Nabídka již byla převedena na zakázku.");
+  const jobId = await db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.id, id))
+      .for("update")
+      .limit(1);
 
-  const today = todayIso();
-  const noteLines = [`Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`];
-  if (quote.notes) noteLines.push(quote.notes);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (quote.status !== "accepted")
+      throw appError(409, "Převést na zakázku lze pouze přijatou nabídku.");
+    if (quote.convertedToJobId != null)
+      throw appError(409, "Nabídka již byla převedena na zakázku – zakázka existuje.");
 
-  const [job] = await db
-    .insert(jobsTable)
-    .values({
-      date: today,
-      title: quote.title,
-      customerId: quote.customerId ?? null,
-      notes: noteLines.join("\n"),
-      status: "planned",
-      sortOrder: 0,
-    })
-    .returning();
+    const today = todayIso();
+    const noteLines = [`Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`];
+    if (quote.notes) noteLines.push(quote.notes);
 
-  await db
-    .update(quotesTable)
-    .set({ convertedToJobId: job.id, updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
+    const [job] = await tx
+      .insert(jobsTable)
+      .values({
+        date: today,
+        title: quote.title,
+        customerId: quote.customerId ?? null,
+        notes: noteLines.join("\n"),
+        status: "planned",
+        sortOrder: 0,
+      })
+      .returning();
 
-  return { jobId: job.id };
+    await tx
+      .update(quotesTable)
+      .set({ convertedToJobId: job.id, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+
+    return job.id;
+  });
+
+  return { jobId };
 }
