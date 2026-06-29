@@ -10,6 +10,7 @@ import { attachAuth, requireAuth, requireWriteAccess } from "./middlewares/auth"
 import { auditMutations } from "./middlewares/audit";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
+import { record5xxError } from "./lib/server-errors";
 
 const app: Express = express();
 
@@ -46,6 +47,25 @@ app.use(
     },
   }),
 );
+
+// Track all 5xx responses in an in-memory ring buffer for the Diagnostica page.
+// MUST be registered early (before the router and error handler) so that
+// res.on('finish') is attached before the response is sent — a middleware
+// registered after the router is never reached for handled requests.
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.on("finish", () => {
+    if (res.statusCode >= 500) {
+      record5xxError({
+        timestamp: new Date().toISOString(),
+        route: _req.path,
+        method: _req.method,
+        requestId: String((_req as any).id ?? ""),
+        statusCode: res.statusCode,
+      });
+    }
+  });
+  next();
+});
 // Security headers. CSP is left off because this service only serves JSON and
 // proxied object streams (the SPA is served by nginx, which owns its own CSP);
 // CORP is relaxed so the browser can load object/image streams from /api.

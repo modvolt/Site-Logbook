@@ -122,7 +122,11 @@ export default defineConfig(async ({ command }) => {
       // Inject build-time git SHA so the health page can compare frontend vs API versions.
       // Set VITE_BUILD_SHA in CI / Coolify build args. Falls back to "dev" at runtime.
       "import.meta.env.VITE_BUILD_SHA": JSON.stringify(
-        process.env.VITE_BUILD_SHA ?? process.env.BUILD_SHA ?? process.env.COMMIT_SHA ?? "dev",
+        process.env.VITE_BUILD_SHA ??
+        process.env.BUILD_SHA ??
+        process.env.COMMIT_SHA ??
+        process.env.REPLIT_DEPLOYMENT_ID ??
+        "dev",
       ),
     },
     build: {

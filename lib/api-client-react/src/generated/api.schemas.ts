@@ -5,6 +5,14 @@
  * Stavba Job Tracker API
  * OpenAPI spec version: 0.1.0
  */
+export type HealthStatusStatus = typeof HealthStatusStatus[keyof typeof HealthStatusStatus];
+
+
+export const HealthStatusStatus = {
+  ok: 'ok',
+  degraded: 'degraded',
+} as const;
+
 export type HealthStatusDbStatus = typeof HealthStatusDbStatus[keyof typeof HealthStatusDbStatus];
 
 
@@ -31,7 +39,7 @@ export const HealthStatusSmtpStatus = {
 } as const;
 
 export interface HealthStatus {
-  status: string;
+  status: HealthStatusStatus;
   version?: string;
   uptimeSeconds?: number;
   dbStatus?: HealthStatusDbStatus;
@@ -39,6 +47,12 @@ export interface HealthStatus {
   dbLatencyMs?: number | null;
   storageStatus?: HealthStatusStorageStatus;
   smtpStatus?: HealthStatusSmtpStatus;
+  /**
+     * True when all expected migrations are applied. False or null when parity is broken (causes a 503 response).
+
+     * @nullable
+     */
+  migrationParity?: boolean | null;
 }
 
 export type AdminHealthStatusDbStatus = typeof AdminHealthStatusDbStatus[keyof typeof AdminHealthStatusDbStatus];
@@ -92,6 +106,19 @@ export const AdminHealthStatusImapStatus = {
   not_configured: 'not_configured',
 } as const;
 
+export interface ServerErrorEntry {
+  /** ISO 8601 timestamp of the error */
+  timestamp: string;
+  /** Express req.path at the time of the error */
+  route: string;
+  /** HTTP method (GET, POST, …) */
+  method: string;
+  /** pino-http request ID for log correlation */
+  requestId: string;
+  /** HTTP status code (500, 502, 503, …) */
+  statusCode: number;
+}
+
 export interface AdminHealthLastBackup {
   createdAt: string;
   status: string;
@@ -144,6 +171,10 @@ export interface AdminHealthStatus {
   frontendErrorCount24h: number;
   /** Number of backend processing failures (backup + email import) in the last 24 hours */
   backendErrorCount24h: number;
+  /** Number of HTTP 5xx responses tracked in the last 24 hours (in-memory ring buffer) */
+  server5xxErrors24h: number;
+  /** Most recent server 5xx errors (newest first, up to 10) */
+  recentServerErrors: ServerErrorEntry[];
   lastSuccessfulBackup?: AdminHealthLastBackup | null;
   lastBackupError?: AdminHealthLastBackup | null;
 }

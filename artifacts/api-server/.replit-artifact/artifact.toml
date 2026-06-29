@@ -21,12 +21,16 @@ args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
 NODE_ENV = "production"
 
 [services.production.run]
-# we don't run through pnpm to make startup faster in production
-args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
+# Run migrations first, then start the server (mirrors Docker CMD behaviour).
+# scripts/start-api-production.sh exits non-zero on migration failure so the
+# platform marks the deploy as failed instead of serving 500s.
+args = ["bash", "scripts/start-api-production.sh"]
 
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
+# lib/db/migrations is readable from the workspace root in Replit production.
+MIGRATIONS_DIR = "lib/db/migrations"
 
 [services.production.health.startup]
 path = "/api/healthz"

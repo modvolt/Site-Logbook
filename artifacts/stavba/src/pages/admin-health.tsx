@@ -7,7 +7,7 @@ import {
   useListHealthLog,
   getListHealthLogQueryKey,
 } from "@workspace/api-client-react";
-import type { AdminHealthStatus, HealthLogEntry } from "@workspace/api-client-react";
+import type { AdminHealthStatus, HealthLogEntry, ServerErrorEntry } from "@workspace/api-client-react";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle,
   RefreshCw, Minus, Info,
@@ -182,6 +182,40 @@ function Sparkline({ entries }: { entries: HealthLogEntry[] }) {
         <span>nyní</span>
       </div>
     </div>
+  );
+}
+
+function ServerErrorsCard({ count, recent }: { count: number; recent: ServerErrorEntry[] }) {
+  const status: CardStatus = count === 0 ? "ok" : count > 20 ? "error" : "warning";
+  return (
+    <Card title="HTTP 5xx chyby (24 h)" status={status}>
+      <Row label="Celkem 5xx" value={String(count)} />
+      {count === 0 && (
+        <p className="text-xs text-emerald-700 dark:text-emerald-400">Žádné 5xx chyby za posledních 24 h.</p>
+      )}
+      {recent.length > 0 && (
+        <div className="mt-2 space-y-1">
+          <p className="text-xs text-muted-foreground/70 mb-1">Posledních {recent.length}:</p>
+          {recent.map((e, i) => (
+            <div key={i} className="flex flex-col gap-0.5 pb-1 border-b border-border/30 last:border-0 last:pb-0">
+              <div className="flex items-center gap-1 text-[11px] font-mono">
+                <span className="text-rose-600 dark:text-rose-400 shrink-0 font-semibold">{e.statusCode}</span>
+                <span className="text-muted-foreground/60 shrink-0">{e.method}</span>
+                <span className="truncate flex-1">{e.route}</span>
+                <span className="text-muted-foreground/50 shrink-0 ml-auto">
+                  {format(new Date(e.timestamp), "HH:mm:ss")}
+                </span>
+              </div>
+              {e.requestId && (
+                <div className="text-[10px] text-muted-foreground/40 font-mono ml-0 truncate">
+                  req: {e.requestId}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -405,6 +439,9 @@ function HealthContent({ data }: { data: AdminHealthStatus }) {
           </p>
         )}
       </Card>
+
+      {/* Server 5xx errors */}
+      <ServerErrorsCard count={data.server5xxErrors24h} recent={data.recentServerErrors} />
 
       {/* Backup */}
       <Card

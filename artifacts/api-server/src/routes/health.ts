@@ -18,6 +18,9 @@ import { diagnoseS3 } from "../lib/objectStorage";
 import { resolveEmailConfig } from "../lib/email";
 import { resolveOpenAiConfig } from "../lib/openai-extraction";
 import { resolveImapConfig } from "../lib/email-import";
+import { countServerErrors, getRecentServerErrors } from "../lib/server-errors";
+
+const WINDOW_24H = 24 * 60 * 60 * 1000;
 
 interface JournalEntry {
   idx: number;
@@ -94,6 +97,34 @@ async function checkMigrationParity(): Promise<{
     latestExpectedTag: expected.at(-1)?.tag ?? null,
     missingTags,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cached migration parity — re-checked at most once per minute.
+// Migrations are applied at startup; this cache prevents a DB query on every
+// liveness probe while still surfacing drift quickly after a broken deploy.
+// ---------------------------------------------------------------------------
+
+interface ParityCache {
+  parity: boolean;
+  expectedCount: number;
+  appliedCount: number;
+  latestExpectedTag: string | null;
+  missingTags: string[];
+  checkedAt: number;
+}
+
+let parityCache: ParityCache | null = null;
+const PARITY_CACHE_TTL_MS = 60_000;
+
+async function getCachedMigrationParity(): Promise<ParityCache> {
+  const now = Date.now();
+  if (parityCache && now - parityCache.checkedAt < PARITY_CACHE_TTL_MS) {
+    return parityCache;
+  }
+  const result = await checkMigrationParity();
+  parityCache = { ...result, checkedAt: now };
+  return parityCache;
 }
 
 async function checkDbLatency(): Promise<{ status: "ok" | "error"; latencyMs: number | null }> {
@@ -256,7 +287,7 @@ async function getErrorCounts(): Promise<{
   frontendErrors: number;
   backendErrors: number;
 }> {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - WINDOW_24H);
   try {
     // Frontend JS errors logged by the PageErrorBoundary / global handler
     const [feRow] = await db
@@ -295,32 +326,45 @@ async function getErrorCounts(): Promise<{
   }
 }
 
-const router: IRouter = Router();
-
-router.get("/healthz", async (_req, res) => {
-  const apiVersion =
+function resolveApiVersion(): string {
+  return (
     process.env.BUILD_SHA ||
     process.env.COMMIT_SHA ||
     process.env.GIT_COMMIT ||
-    "dev";
+    process.env.REPLIT_DEPLOYMENT_ID ||
+    "dev"
+  );
+}
+
+const router: IRouter = Router();
+
+router.get("/healthz", async (_req, res) => {
+  const apiVersion = resolveApiVersion();
   const uptimeSeconds = process.uptime();
 
-  const [dbPing, storage, smtp] = await Promise.all([
+  const [dbPing, storage, smtp, migration] = await Promise.all([
     checkDbLatency(),
     checkStorage(),
     checkSmtp(),
+    getCachedMigrationParity(),
   ]);
 
+  // Readiness: DB must be reachable AND all expected migrations must be applied.
+  // Return 503 when not ready so the platform's startup health probe fails fast
+  // instead of routing traffic to a broken instance.
+  const ready = dbPing.status === "ok" && migration.parity;
+
   const data = HealthCheckResponse.parse({
-    status: dbPing.status === "ok" ? "ok" : "degraded",
+    status: ready ? "ok" : "degraded",
     version: apiVersion,
     uptimeSeconds,
     dbStatus: dbPing.status,
     dbLatencyMs: dbPing.latencyMs,
     storageStatus: storage.status,
     smtpStatus: smtp.status,
+    migrationParity: migration.parity,
   });
-  res.json(data);
+  res.status(ready ? 200 : 503).json(data);
 });
 
 router.get(
@@ -341,11 +385,10 @@ router.get(
         getErrorCounts(),
       ]);
 
-    const apiVersion =
-      process.env.BUILD_SHA ||
-      process.env.COMMIT_SHA ||
-      process.env.GIT_COMMIT ||
-      "dev";
+    const apiVersion = resolveApiVersion();
+
+    const server5xxErrors24h = countServerErrors(WINDOW_24H);
+    const recentServerErrors = getRecentServerErrors(WINDOW_24H, 10);
 
     const payload = GetAdminHealthResponse.parse({
       apiVersion,
@@ -368,6 +411,8 @@ router.get(
       imapStatus: imap.status,
       frontendErrorCount24h: errors.frontendErrors,
       backendErrorCount24h: errors.backendErrors,
+      server5xxErrors24h,
+      recentServerErrors,
       lastSuccessfulBackup: backups.lastSuccessful,
       lastBackupError: backups.lastError,
     });
@@ -379,6 +424,7 @@ router.get(
         dbStatus: dbPing.status,
         frontendErrors: errors.frontendErrors,
         backendErrors: errors.backendErrors,
+        server5xxErrors24h,
       },
       "admin health check",
     );
@@ -400,7 +446,7 @@ router.get(
   requireAuth,
   requireRole("master", "admin"),
   async (_req, res) => {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since = new Date(Date.now() - WINDOW_24H);
     const rows = await db
       .select()
       .from(healthLogTable)

@@ -9,16 +9,19 @@ import * as zod from 'zod';
 
 
 /**
- * @summary Health check
+ * Returns 200 when the service is fully ready (DB reachable + all expected migrations applied). Returns 503 when the DB is unreachable or migration parity is broken so the platform's startup probe can fail fast instead of routing traffic to a degraded instance.
+
+ * @summary Health check (readiness + liveness)
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string(),
+  "status": zod.enum(['ok', 'degraded']),
   "version": zod.string().optional(),
   "uptimeSeconds": zod.number().optional(),
   "dbStatus": zod.enum(['ok', 'error']).optional(),
   "dbLatencyMs": zod.number().nullish(),
   "storageStatus": zod.enum(['ok', 'error', 'not_configured']).optional(),
-  "smtpStatus": zod.enum(['configured', 'not_configured']).optional()
+  "smtpStatus": zod.enum(['configured', 'not_configured']).optional(),
+  "migrationParity": zod.boolean().nullish().describe('True when all expected migrations are applied. False or null when parity is broken (causes a 503 response).\n')
 })
 
 
@@ -46,6 +49,14 @@ export const GetAdminHealthResponse = zod.object({
   "imapStatus": zod.enum(['configured', 'not_configured']),
   "frontendErrorCount24h": zod.number().describe('Number of frontend JS errors logged in the last 24 hours'),
   "backendErrorCount24h": zod.number().describe('Number of backend processing failures (backup + email import) in the last 24 hours'),
+  "server5xxErrors24h": zod.number().describe('Number of HTTP 5xx responses tracked in the last 24 hours (in-memory ring buffer)'),
+  "recentServerErrors": zod.array(zod.object({
+  "timestamp": zod.string().describe('ISO 8601 timestamp of the error'),
+  "route": zod.string().describe('Express req.path at the time of the error'),
+  "method": zod.string().describe('HTTP method (GET, POST, …)'),
+  "requestId": zod.string().describe('pino-http request ID for log correlation'),
+  "statusCode": zod.number().describe('HTTP status code (500, 502, 503, …)')
+})).describe('Most recent server 5xx errors (newest first, up to 10)'),
   "lastSuccessfulBackup": zod.union([zod.object({
   "createdAt": zod.string(),
   "status": zod.string(),
