@@ -19,8 +19,9 @@ import type { LiveDomain } from "@workspace/live-events";
  *
  * Použití:
  *   import { invalidateData } from "@/lib/query-invalidation";
- *   invalidateData(queryClient, "jobs");               // po změně zakázky
- *   invalidateData(queryClient, "jobs", "warehouse");  // materiál mění i sklad
+ *   await invalidateData(queryClient, "jobs");               // po změně zakázky
+ *   await invalidateData(queryClient, "jobs", "warehouse");  // materiál mění i sklad
+ *   void invalidateData(queryClient, "machines");            // fire-and-forget bez await
  *
  * Při přidání nové mutace zvolte dotčené domény z `InvalidationDomain`. Pokud
  * žádná nesedí, přidejte novou doménu zde (a její URL prefix) – ať tohle
@@ -47,16 +48,18 @@ const DOMAIN_PREFIXES: Record<LiveDomain, readonly string[]> = {
     "/api/me/visits",
     "/api/stats/overview",
   ],
-  // Činnosti se promítají do statistik.
+  // Činnosti se promítají do statistik a výjezdového kalendáře.
   activities: ["/api/activities", "/api/me/stats", "/api/me/visits", "/api/stats/overview"],
-  // Skladové položky i kniha pohybů (vč. pohybů jedné položky).
-  warehouse: ["/api/warehouse-items", "/api/warehouse-movements"],
-  // Zákazníci, jejich místa, kontakty, přístupové údaje + detail místa.
-  customers: ["/api/customers", "/api/customer-sites"],
+  // Skladové položky, kniha pohybů i souhrnný přehled skladu.
+  warehouse: ["/api/warehouse-items", "/api/warehouse-movements", "/api/warehouse-summary"],
+  // Zákazníci, jejich místa, kontakty, přístupové údaje, detailní finanční
+  // souhrn i rizika zákazníka.
+  customers: ["/api/customers", "/api/customer-sites", "/api/risks/summary"],
   people: ["/api/people", "/api/ppe/assignments"],
   ppe: ["/api/ppe", "/api/me/ppe"],
   quotes: ["/api/quotes"],
   machines: ["/api/machines"],
+  // Dovolené a jejich souhrny; dovolené ovlivňují i personální přehled.
   leaves: ["/api/leaves"],
   // Faktury: seznam, detail, souhrn fakturace i nevyfakturovaní zákazníci.
   billingInvoices: [
@@ -90,11 +93,23 @@ const DOMAIN_RELATED: Partial<Record<LiveDomain, readonly LiveDomain[]>> = {
   bankImport: ["billingInvoices"],
   emailImport: ["billingDocuments"],
   reviewQueue: ["billingDocuments"],
+  // Přijaté doklady ovlivňují zákaznický detail a rizika (dokumenty → zákazníci).
+  billingDocuments: ["customers"],
+  // Vydané faktury a zakázky mění finanční souhrn zákazníka.
+  billingInvoices: ["customers"],
+  jobs: ["customers"],
+  // Nabídky se propíší do finančního souhrnu zákazníka.
+  quotes: ["customers"],
+  // Dovolené ovlivňují personální přehled.
+  leaves: ["people"],
 };
 
 function collectPrefixes(domains: readonly LiveDomain[]): string[] {
   const prefixes = new Set<string>();
+  const visited = new Set<LiveDomain>();
   const visit = (domain: LiveDomain) => {
+    if (visited.has(domain)) return;
+    visited.add(domain);
     for (const prefix of DOMAIN_PREFIXES[domain]) prefixes.add(prefix);
     for (const related of DOMAIN_RELATED[domain] ?? []) visit(related);
   };
@@ -106,14 +121,18 @@ function collectPrefixes(domains: readonly LiveDomain[]): string[] {
  * Označí jako neaktuální (a u zobrazených dotazů znovu načte) všechna data
  * navázaná na zadané domény. Bezpečné volat i s více doménami – prefixy se
  * sloučí a odduplikují.
+ *
+ * Vrací `Promise<void>`, takže lze volat s `await` vždy, kdy je třeba počkat
+ * na dokončení invalidace před navigací nebo dalším krokem. Pro fire-and-forget
+ * použijte `void invalidateData(...)`.
  */
 export function invalidateData(
   queryClient: QueryClient,
   ...domains: LiveDomain[]
-): void {
+): Promise<void> {
   const prefixes = collectPrefixes(domains);
-  if (prefixes.length === 0) return;
-  void queryClient.invalidateQueries({
+  if (prefixes.length === 0) return Promise.resolve();
+  return queryClient.invalidateQueries({
     predicate: (query) => {
       const head = query.queryKey[0];
       if (typeof head !== "string") return false;

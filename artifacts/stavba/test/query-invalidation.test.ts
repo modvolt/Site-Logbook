@@ -15,10 +15,15 @@ import {
   getListWarehouseItemsQueryKey,
   getListWarehouseItemMovementsQueryKey,
   getListWarehouseMovementsQueryKey,
+  getGetWarehouseSummaryQueryKey,
   getListCustomersQueryKey,
   getListCustomerSitesQueryKey,
+  getGetCustomerFinancialSummaryQueryKey,
+  getGetRisksSummaryQueryKey,
   getListPeopleQueryKey,
+  getListPpeAssignmentsQueryKey,
   getListMachinesQueryKey,
+  getListLeavesQueryKey,
   getListInvoicesQueryKey,
   getGetInvoiceQueryKey,
   getGetBillingSummaryQueryKey,
@@ -28,6 +33,10 @@ import {
   getListApprovedCostLinesQueryKey,
   getGetEmailImportStatusQueryKey,
   getListEmailImportLogQueryKey,
+  getListRecurringTemplatesQueryKey,
+  getListAllSessionsQueryKey,
+  getListMySessionsQueryKey,
+  getListQuotesQueryKey,
 } from "@workspace/api-client-react";
 import {
   invalidateData,
@@ -82,6 +91,22 @@ const KEYS = {
   // email import
   emailImportStatus: getGetEmailImportStatusQueryKey(),
   emailImportLog: getListEmailImportLogQueryKey(),
+  // warehouse summary
+  warehouseSummary: getGetWarehouseSummaryQueryKey(),
+  // customer financial summary + risks
+  customerFinancialSummary: getGetCustomerFinancialSummaryQueryKey(1),
+  risksSummary: getGetRisksSummaryQueryKey(),
+  // leaves
+  leavesList: getListLeavesQueryKey(),
+  // ppe assignments
+  ppeAssignments: getListPpeAssignmentsQueryKey(),
+  // recurring templates
+  recurringTemplates: getListRecurringTemplatesQueryKey(),
+  // sessions
+  allSessions: getListAllSessionsQueryKey({}),
+  mySessions: getListMySessionsQueryKey(),
+  // quotes
+  quotesList: getListQuotesQueryKey(),
 } as const;
 
 type KeyName = keyof typeof KEYS;
@@ -125,14 +150,21 @@ describe("invalidateData – prefix predikát", () => {
     expect(hit.has("statsOverview")).toBe(true);
   });
 
-  it("nezasáhne cizí domény", () => {
+  it("nezasáhne zcela cizí domény (stroje, sklad, email import)", () => {
     const hit = invalidatedNames("jobs");
-    expect(hit.has("customersList")).toBe(false);
+    // jobs → customers kaskáda obnovuje finanční souhrn zákazníka; ostatní domény ne.
     expect(hit.has("warehouseItems")).toBe(false);
     expect(hit.has("invoicesList")).toBe(false);
     expect(hit.has("costDocumentsList")).toBe(false);
     expect(hit.has("peopleList")).toBe(false);
     expect(hit.has("machinesList")).toBe(false);
+    expect(hit.has("emailImportStatus")).toBe(false);
+  });
+
+  it("jobs kaskáduje do customers, aby se obnovil finanční souhrn zákazníka", () => {
+    const hit = invalidatedNames("jobs");
+    expect(hit.has("customersList")).toBe(true);
+    expect(hit.has("customerSites")).toBe(true);
   });
 
   it("warehouse zasáhne položky i knihu pohybů (vč. pohybů jedné položky)", () => {
@@ -253,6 +285,130 @@ describe("invalidateData – ostatní chování", () => {
         .isInvalidated,
     ).toBe(false);
   });
+
+  it("vrací Promise<void>", async () => {
+    const qc = new QueryClient();
+    const result = invalidateData(qc, "machines");
+    expect(result).toBeInstanceOf(Promise);
+    await expect(result).resolves.toBeUndefined();
+  });
+});
+
+describe("invalidateData – warehouse summary", () => {
+  it("warehouse zasáhne i /api/warehouse-summary", () => {
+    const hit = invalidatedNames("warehouse");
+    expect(hit.has("warehouseSummary")).toBe(true);
+  });
+});
+
+describe("invalidateData – risks/summary a finanční souhrn zákazníka", () => {
+  it("customers zasáhne /api/risks/summary", () => {
+    const hit = invalidatedNames("customers");
+    expect(hit.has("risksSummary")).toBe(true);
+  });
+
+  it("customers zasáhne /api/customers/:id/financial-summary", () => {
+    const hit = invalidatedNames("customers");
+    expect(hit.has("customerFinancialSummary")).toBe(true);
+  });
+
+  it("billingDocuments → customers kaskáda zasáhne /api/risks/summary", () => {
+    const hit = invalidatedNames("billingDocuments");
+    expect(hit.has("risksSummary")).toBe(true);
+    expect(hit.has("customerFinancialSummary")).toBe(true);
+  });
+
+  it("billingInvoices → customers kaskáda zasáhne finanční souhrn zákazníka", () => {
+    const hit = invalidatedNames("billingInvoices");
+    expect(hit.has("customerFinancialSummary")).toBe(true);
+    expect(hit.has("risksSummary")).toBe(true);
+  });
+
+  it("quotes → customers kaskáda zasáhne finanční souhrn zákazníka", () => {
+    const hit = invalidatedNames("quotes");
+    expect(hit.has("customerFinancialSummary")).toBe(true);
+    expect(hit.has("risksSummary")).toBe(true);
+  });
+
+  it("jobs → customers kaskáda zasáhne finanční souhrn zákazníka", () => {
+    const hit = invalidatedNames("jobs");
+    expect(hit.has("customerFinancialSummary")).toBe(true);
+    expect(hit.has("risksSummary")).toBe(true);
+  });
+});
+
+describe("invalidateData – dovolené a personální přehled", () => {
+  it("leaves zasáhne seznam dovolených", () => {
+    const hit = invalidatedNames("leaves");
+    expect(hit.has("leavesList")).toBe(true);
+  });
+
+  it("leaves → people kaskáda zasáhne personální přehled", () => {
+    const hit = invalidatedNames("leaves");
+    expect(hit.has("peopleList")).toBe(true);
+    expect(hit.has("ppeAssignments")).toBe(true);
+  });
+
+  it("leaves neovlivní zakázky ani faktury", () => {
+    const hit = invalidatedNames("leaves");
+    expect(hit.has("jobsList")).toBe(false);
+    expect(hit.has("invoicesList")).toBe(false);
+    expect(hit.has("machinesList")).toBe(false);
+  });
+});
+
+describe("invalidateData – paušální šablony (billingRecurringTemplates)", () => {
+  it("billingRecurringTemplates zasáhne /api/billing/recurring-templates", () => {
+    const hit = invalidatedNames("billingRecurringTemplates");
+    expect(hit.has("recurringTemplates")).toBe(true);
+  });
+
+  it("billingRecurringTemplates nezasáhne faktury ani doklady", () => {
+    const hit = invalidatedNames("billingRecurringTemplates");
+    expect(hit.has("invoicesList")).toBe(false);
+    expect(hit.has("costDocumentsList")).toBe(false);
+  });
+});
+
+describe("invalidateData – fronta ke schválení (reviewQueue)", () => {
+  it("reviewQueue zasáhne /api/billing/review-queue a přijaté doklady", () => {
+    const hit = invalidatedNames("reviewQueue");
+    expect(hit.has("costDocumentsList")).toBe(true);
+    expect(hit.has("approvedLines")).toBe(true);
+  });
+
+  it("reviewQueue → billingDocuments → customers: zasáhne i rizika zákazníka", () => {
+    const hit = invalidatedNames("reviewQueue");
+    expect(hit.has("risksSummary")).toBe(true);
+    expect(hit.has("customerFinancialSummary")).toBe(true);
+  });
+});
+
+describe("invalidateData – sessions", () => {
+  it("sessions zasáhne admin přehled i vlastní session", () => {
+    const hit = invalidatedNames("sessions");
+    expect(hit.has("allSessions")).toBe(true);
+    expect(hit.has("mySessions")).toBe(true);
+  });
+
+  it("sessions nezasáhne zakázky ani zákazníky", () => {
+    const hit = invalidatedNames("sessions");
+    expect(hit.has("jobsList")).toBe(false);
+    expect(hit.has("customersList")).toBe(false);
+  });
+});
+
+describe("invalidateData – nabídky (quotes)", () => {
+  it("quotes zasáhne seznam nabídek", () => {
+    const hit = invalidatedNames("quotes");
+    expect(hit.has("quotesList")).toBe(true);
+  });
+
+  it("quotes nezasáhne faktury ani doklady přímo", () => {
+    const hit = invalidatedNames("quotes");
+    expect(hit.has("invoicesList")).toBe(false);
+    expect(hit.has("costDocumentsList")).toBe(false);
+  });
 });
 
 /**
@@ -266,7 +422,7 @@ describe("invalidateData – e2e: změna zakázky obnoví seznam i dashboard", (
     return new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  it("aktivní seznam zakázek a dashboard se po mutaci znovu načtou, zákazníci ne", async () => {
+  it("aktivní seznam zakázek, dashboard i zákazníci se po mutaci znovu načtou, stroje ne", async () => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: Infinity } },
     });
@@ -274,6 +430,7 @@ describe("invalidateData – e2e: změna zakázky obnoví seznam i dashboard", (
     let jobsFetches = 0;
     let dashboardFetches = 0;
     let customersFetches = 0;
+    let machinesFetches = 0;
 
     const jobsObserver = new QueryObserver(qc, {
       queryKey: getListJobsQueryKey(),
@@ -296,19 +453,28 @@ describe("invalidateData – e2e: změna zakázky obnoví seznam i dashboard", (
         return [];
       },
     });
+    const machinesObserver = new QueryObserver(qc, {
+      queryKey: getListMachinesQueryKey(),
+      queryFn: async () => {
+        machinesFetches += 1;
+        return [];
+      },
+    });
 
     const unsub = [
       jobsObserver.subscribe(() => {}),
       dashboardObserver.subscribe(() => {}),
       customersObserver.subscribe(() => {}),
+      machinesObserver.subscribe(() => {}),
     ];
 
-    // Počkej na úvodní načtení všech tří obrazovek.
+    // Počkej na úvodní načtení všech čtyř obrazovek.
     await flush();
     await flush();
     expect(jobsFetches).toBe(1);
     expect(dashboardFetches).toBe(1);
     expect(customersFetches).toBe(1);
+    expect(machinesFetches).toBe(1);
 
     // Simulace onSuccess po vytvoření/smazání zakázky.
     invalidateData(qc, "jobs");
@@ -318,8 +484,10 @@ describe("invalidateData – e2e: změna zakázky obnoví seznam i dashboard", (
     await flush();
     expect(jobsFetches).toBe(2);
     expect(dashboardFetches).toBe(2);
-    // Nesouvisející obrazovka zůstává nedotčená.
-    expect(customersFetches).toBe(1);
+    // jobs → customers kaskáda: finanční souhrn zákazníka se obnoví také.
+    expect(customersFetches).toBe(2);
+    // Zcela nesouvisející obrazovka zůstává nedotčená.
+    expect(machinesFetches).toBe(1);
 
     for (const u of unsub) u();
   });

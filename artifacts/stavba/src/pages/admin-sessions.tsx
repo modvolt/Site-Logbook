@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { format, formatDistanceToNow } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
@@ -143,7 +142,6 @@ function SessionRow({
 }
 
 export default function AdminSessions() {
-  useLiveUpdates();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { openConfirm, dialogProps } = useConfirmDialog();
