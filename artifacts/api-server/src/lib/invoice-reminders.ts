@@ -17,6 +17,7 @@ import {
   type AppError,
 } from "./invoice-service";
 import { num } from "./invoice-calc";
+import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
 
 const objectStorage = new ObjectStorageService();
 
@@ -293,7 +294,9 @@ export function startReminderScheduler(): void {
   const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 12) * 60 * 60 * 1000;
 
   const tick = () =>
-    runAutomaticReminders().catch((err) =>
+    withSchedulerLock(SCHEDULER_LOCK_KEYS.invoiceReminders, async () => {
+      await runAutomaticReminders();
+    }).catch((err) =>
       logger.error({ err }, "Automatic reminder sweep failed"),
     );
 

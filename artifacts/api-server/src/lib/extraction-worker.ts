@@ -31,6 +31,10 @@ import {
   extractFromFile,
 } from "./openai-extraction";
 import { applyAiSuggestion, getDocumentFileBuffer } from "./cost-document-service";
+import { publishLiveEvent } from "./live-events-service";
+
+/** Domains emitted by this worker on every state change. */
+const WORKER_DOMAINS = ["billingDocuments", "reviewQueue", "emailImport"] as const;
 
 let schedulerStarted = false;
 let draining = false;
@@ -52,6 +56,7 @@ async function markSkipped(jobId: number, note: string): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(extractionJobsTable.id, jobId));
+  publishLiveEvent(WORKER_DOMAINS).catch(() => {});
 }
 
 async function processOne(jobId: number): Promise<void> {
@@ -73,6 +78,8 @@ async function processOne(jobId: number): Promise<void> {
     .returning();
   if (!claimed.length) return;
   const job = claimed[0];
+  // Notify: extraction job is now running (queued → running state change).
+  publishLiveEvent(WORKER_DOMAINS).catch(() => {});
 
   try {
     const [doc] = await db
@@ -89,6 +96,7 @@ async function processOne(jobId: number): Promise<void> {
           updatedAt: new Date(),
         })
         .where(eq(extractionJobsTable.id, job.id));
+      publishLiveEvent(WORKER_DOMAINS).catch(() => {});
       return;
     }
 
@@ -179,6 +187,7 @@ async function processOne(jobId: number): Promise<void> {
       { extractionJobId: job.id, documentId: doc.id, confidence: result.confidence },
       "AI extraction completed",
     );
+    publishLiveEvent(WORKER_DOMAINS).catch(() => {});
   } catch (err) {
     const message = err instanceof Error ? err.message : "neznámá chyba";
     const exhausted = job.attempts >= job.maxAttempts;
@@ -195,10 +204,11 @@ async function processOne(jobId: number): Promise<void> {
       { err, extractionJobId: job.id, documentId: job.documentId, exhausted },
       "Extraction job failed",
     );
+    publishLiveEvent(WORKER_DOMAINS).catch(() => {});
   }
 }
 
-async function drainQueue(): Promise<void> {
+export async function drainQueue(): Promise<void> {
   if (draining) return;
   draining = true;
   try {

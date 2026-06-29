@@ -17,6 +17,7 @@ import { logger } from "./logger";
 import { ObjectStorageService } from "./objectStorage";
 import { resolveEmailConfig } from "./email";
 import nodemailer from "nodemailer";
+import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
 
 const objectStorage = new ObjectStorageService();
 
@@ -848,7 +849,9 @@ export function startBackupScheduler(): void {
   const intervalMs = backupIntervalHours() * 60 * 60 * 1000;
 
   const tick = () => {
-    triggerAutoBackupIfDue().catch((err) =>
+    withSchedulerLock(SCHEDULER_LOCK_KEYS.backupAuto, async () => {
+      await triggerAutoBackupIfDue();
+    }).catch((err) =>
       logger.error({ err }, "Scheduled backup tick failed"),
     );
   };
@@ -929,7 +932,12 @@ export function startRestoreTestScheduler(): void {
     }
   };
 
-  const timer = setInterval(tick, CHECK_INTERVAL_MS);
+  const wrappedTick = () =>
+    withSchedulerLock(SCHEDULER_LOCK_KEYS.backupRestoreTest, tick).catch((err) =>
+      logger.error({ err }, "Restore-test scheduler tick failed"),
+    );
+
+  const timer = setInterval(wrappedTick, CHECK_INTERVAL_MS);
   if (timer.unref) timer.unref();
 
   logger.info("Restore-test scheduler started (checks hourly)");

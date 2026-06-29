@@ -3,6 +3,7 @@ import { and, eq, lte, or, isNotNull, inArray } from "drizzle-orm";
 import { db, ppeAssignmentsTable, ppeItemsTable, peopleTable, usersTable } from "@workspace/db";
 import { logger } from "./logger";
 import { resolveEmailConfig } from "./email";
+import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -191,7 +192,9 @@ export function startPpeOverdueScheduler(): void {
   const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
 
   const tick = () =>
-    runPpeOverdueNotification().catch((err) =>
+    withSchedulerLock(SCHEDULER_LOCK_KEYS.ppeOverdue, async () => {
+      await runPpeOverdueNotification();
+    }).catch((err) =>
       logger.error({ err }, "PPE overdue notification sweep failed"),
     );
 

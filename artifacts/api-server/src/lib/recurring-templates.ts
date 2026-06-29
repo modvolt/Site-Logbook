@@ -10,7 +10,8 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { createDraft, type Actor } from "./invoice-service";
-import { publishDomains } from "./live-updates";
+import { publishLiveEvent } from "./live-events-service";
+import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
 
 type VatMode = "standard" | "reverse_charge" | "zero" | "non_vat";
 
@@ -274,9 +275,8 @@ export async function runRecurringGeneration(today: string): Promise<{
     try {
       await generateFromTemplate(template, period, today);
       created++;
-      // Emit after each successful generation so open billing/recurring-templates
-      // and billing/invoices screens refresh without a manual reload.
-      publishDomains(["billingRecurringTemplates", "billingInvoices", "customers"]);
+      // Notify after commit: new draft invoice, updated template, customer context.
+      publishLiveEvent(["billingRecurringTemplates", "billingInvoices", "customers"]).catch(() => {});
     } catch (err) {
       if (err instanceof Error && err.message.includes("DEDUPE")) {
         skipped++;
@@ -483,21 +483,19 @@ export function startRecurringInvoiceScheduler(): void {
   const hours = Number(process.env.RECURRING_CHECK_INTERVAL_HOURS);
   const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
 
-  const tick = () => {
-    const today = new Date().toISOString().split("T")[0]!;
-    return runRecurringGeneration(today)
-      .then(({ processed, created, skipped, failed }) => {
-        if (processed > 0) {
-          logger.info(
-            { processed, created, skipped, failed },
-            "Recurring invoice generation sweep",
-          );
-        }
-      })
-      .catch((err) =>
-        logger.error({ err }, "Recurring invoice generation sweep failed"),
-      );
-  };
+  const tick = () =>
+    withSchedulerLock(SCHEDULER_LOCK_KEYS.recurringInvoices, async () => {
+      const today = new Date().toISOString().split("T")[0]!;
+      const { processed, created, skipped, failed } = await runRecurringGeneration(today);
+      if (processed > 0) {
+        logger.info(
+          { processed, created, skipped, failed },
+          "Recurring invoice generation sweep",
+        );
+      }
+    }).catch((err) =>
+      logger.error({ err }, "Recurring invoice generation sweep failed"),
+    );
 
   const timer = setInterval(tick, intervalMs);
   timer.unref();

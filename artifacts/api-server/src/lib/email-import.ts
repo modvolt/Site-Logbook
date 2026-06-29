@@ -31,6 +31,8 @@ import {
 } from "@workspace/db";
 import { ingestFile } from "./cost-document-service";
 import { logger } from "./logger";
+import { publishLiveEvent } from "./live-events-service";
+import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
 
 const SINGLETON_ID = 1;
 
@@ -740,6 +742,10 @@ export async function pollAndRecord(): Promise<PollResult> {
       .update(emailImportSettingsTable)
       .set({ lastPolledAt: now, lastStatus: summary, lastError: null })
       .where(eq(emailImportSettingsTable.id, SINGLETON_ID));
+    // Notify browsers: new documents or import-log entries were written.
+    if (result.imported > 0 || result.processed > 0) {
+      publishLiveEvent(["emailImport", "billingDocuments", "reviewQueue"]).catch(() => {});
+    }
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -803,7 +809,10 @@ async function tick(): Promise<void> {
 
   polling = true;
   try {
-    await pollAndRecord();
+    // DB advisory lock: only one API instance runs the poll at a time.
+    await withSchedulerLock(SCHEDULER_LOCK_KEYS.emailImport, async () => {
+      await pollAndRecord();
+    });
   } catch (err) {
     logger.error({ err }, "Email import poll failed");
   } finally {
