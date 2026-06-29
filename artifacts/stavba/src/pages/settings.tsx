@@ -32,10 +32,13 @@ import {
   useTestBackupRestore,
   useGetBackupSettings,
   useUpdateBackupSettings,
+  useGetBackupStatus,
   getListBackupsQueryKey,
   getGetBackupSettingsQueryKey,
+  getGetBackupStatusQueryKey,
   downloadBackup,
   type Backup,
+  type BackupStatus,
   type BackupSettingsInput,
   useGetSecurityQuestionsStatus,
   useSetSecurityQuestions,
@@ -482,11 +485,89 @@ function BackupCard() {
   );
 }
 
+function BackupSystemStatusPanel({ status }: { status: BackupStatus }) {
+  return (
+    <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+      <div className="font-medium text-xs uppercase tracking-wide text-muted-foreground mb-1">Stav zálohovacího systému</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Automatické zálohy</span>
+          {status.enabled ? (
+            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Zapnuto
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <XCircle className="h-3.5 w-3.5" /> Vypnuto
+            </span>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">pg_dump</span>
+          {status.pgDumpAvailable ? (
+            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400" title={status.pgDumpVersion ?? undefined}>
+              <CheckCircle2 className="h-3.5 w-3.5" /> Dostupný
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-destructive" title={status.pgDumpVersion ?? "pg_dump nebyl nalezen nebo nesplňuje verzi 16+"}>
+              <AlertTriangle className="h-3.5 w-3.5" /> Nedostupný
+            </span>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Interval zálohy</span>
+          <span className="text-xs font-medium">{status.intervalHours}h</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Příští plánovaná záloha</span>
+          <span className="text-xs font-medium">
+            {status.nextScheduledAt ? formatDateTime(status.nextScheduledAt) : "—"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Poslední pokus</span>
+          <span className="text-xs font-medium">
+            {status.lastAttemptAt ? (
+              <>
+                {formatDateTime(status.lastAttemptAt)}
+                {status.lastAttemptStatus && (
+                  <span className={`ml-1 ${status.lastAttemptStatus === "success" ? "text-green-600 dark:text-green-400" : status.lastAttemptStatus === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
+                    ({status.lastAttemptStatus === "success" ? "OK" : status.lastAttemptStatus === "failed" ? "chyba" : "probíhá"})
+                  </span>
+                )}
+              </>
+            ) : "—"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Poslední ověřený restore</span>
+          <span className="text-xs font-medium">
+            {status.lastVerifiedRestoreAt ? formatDateTime(status.lastVerifiedRestoreAt) : "—"}
+          </span>
+        </div>
+      </div>
+      {!status.pgDumpAvailable && (
+        <div className="flex items-start gap-2 rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive mt-2">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            Binárka <code>pg_dump</code> nebyla nalezena nebo nesplňuje požadovanou verzi PostgreSQL 16+.
+            Zálohy nebudou fungovat, dokud nebude nainstalována kompatibilní verze.
+            {status.pgDumpVersion && <> Detekováno: <em>{status.pgDumpVersion}</em>.</>}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BackupScheduleCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data, isLoading } = useGetBackupSettings({
     query: { queryKey: getGetBackupSettingsQueryKey() },
+  });
+  const { data: status } = useGetBackupStatus({
+    query: { queryKey: getGetBackupStatusQueryKey(), refetchInterval: 30_000 },
   });
   const updateMutation = useUpdateBackupSettings();
 
@@ -531,6 +612,8 @@ function BackupScheduleCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {status && <BackupSystemStatusPanel status={status} />}
+
         <p className="text-sm text-muted-foreground">
           Každý týden server automaticky ověří, že nejnovější záloha je skutečně obnovitelná,
           a to bez dotyku produkčních dat (restore do dočasné DB). Při selhání odešle e-mail.
@@ -553,7 +636,10 @@ function BackupScheduleCard() {
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                Test se spustí jednou týdně ve zvolený den. Čas spuštění závisí na tom, kdy byl server naposledy restartován.
+                Test se spustí jednou týdně ve zvolený den. Pro plně persistentní zálohy nastavte
+                v Replit Scheduled Deployment POST na{" "}
+                <code className="text-xs bg-muted px-1 py-0.5 rounded">/api/internal/backup-trigger</code>{" "}
+                s hlavičkou <code className="text-xs bg-muted px-1 py-0.5 rounded">Authorization: Bearer BACKUP_TRIGGER_SECRET</code>.
               </p>
             </div>
 

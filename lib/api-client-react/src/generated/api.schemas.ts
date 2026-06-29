@@ -3237,10 +3237,10 @@ export interface ActivityVisitUpdate {
   nextStep?: string | null;
 }
 
-export type BackupStatus = typeof BackupStatus[keyof typeof BackupStatus];
+export type BackupStatusProperty = typeof BackupStatusProperty[keyof typeof BackupStatusProperty];
 
 
-export const BackupStatus = {
+export const BackupStatusProperty = {
   running: 'running',
   success: 'success',
   failed: 'failed',
@@ -3278,7 +3278,7 @@ export interface Backup {
   filename: string;
   /** @nullable */
   sizeBytes: number | null;
-  status: BackupStatus;
+  status: BackupStatusProperty;
   trigger: BackupTrigger;
   /** @nullable */
   error: string | null;
@@ -3347,6 +3347,40 @@ export interface BackupSettingsInput {
      * @nullable
      */
   restoreNotifyEmail?: string | null;
+}
+
+export interface BackupStatus {
+  /** Whether automatic backups are enabled (storage configured and not disabled) */
+  enabled: boolean;
+  /** Whether pg_dump is available and compatible with PostgreSQL 16 */
+  pgDumpAvailable: boolean;
+  /**
+     * pg_dump version string detected at startup; null if not available
+     * @nullable
+     */
+  pgDumpVersion?: string | null;
+  /** Backup interval in hours (from BACKUP_INTERVAL_HOURS or default 24) */
+  intervalHours: number;
+  /**
+     * ISO timestamp of the most recent backup attempt (any status)
+     * @nullable
+     */
+  lastAttemptAt: string | null;
+  /**
+     * Status of the most recent backup attempt (success/failed/running)
+     * @nullable
+     */
+  lastAttemptStatus: string | null;
+  /**
+     * ISO timestamp of the most recent successful restore test across all backups
+     * @nullable
+     */
+  lastVerifiedRestoreAt: string | null;
+  /**
+     * Approximate ISO timestamp of the next scheduled auto backup; null if not determinable
+     * @nullable
+     */
+  nextScheduledAt: string | null;
 }
 
 export interface BillingSummary {
@@ -5770,6 +5804,11 @@ from: string;
  * ISO date (YYYY-MM-DD)
  */
 to: string;
+};
+
+export type TriggerBackup200 = {
+  triggered: boolean;
+  reason: string;
 };
 
 export type ListInvoicesParams = {

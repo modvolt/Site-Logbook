@@ -9,6 +9,8 @@ import {
   testBackupRestore,
   getBackupSettings,
   upsertBackupSettings,
+  getBackupStatus,
+  triggerAutoBackupIfDue,
 } from "../lib/backup";
 import type { BackupLog } from "@workspace/db";
 
@@ -163,6 +165,53 @@ router.put("/backups/settings", async (req, res): Promise<void> => {
     restoreTestDayOfWeek: settings.restoreTestDayOfWeek ?? null,
     restoreNotifyEmail: settings.restoreNotifyEmail ?? null,
   });
+});
+
+router.get("/backups/status", async (_req, res): Promise<void> => {
+  try {
+    const status = await getBackupStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Status query failed.",
+    });
+  }
+});
+
+// ─── Internal trigger endpoint ────────────────────────────────────────────────
+// Protected by BACKUP_TRIGGER_SECRET (Bearer token in Authorization header).
+// Designed for external cron schedulers / Replit Scheduled Deployments.
+// Auth is verified in the handler (not via requireRole) because this path is
+// in the PUBLIC_PREFIXES allowlist (no session cookie required).
+
+router.post("/internal/backup-trigger", async (req, res): Promise<void> => {
+  const secret = process.env.BACKUP_TRIGGER_SECRET;
+  if (!secret) {
+    res.status(503).json({ error: "BACKUP_TRIGGER_SECRET not configured on this server." });
+    return;
+  }
+
+  const authHeader = req.headers.authorization ?? "";
+  const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!provided || provided !== secret) {
+    res.status(401).json({ error: "Invalid or missing Authorization: Bearer <secret>." });
+    return;
+  }
+
+  if (!process.env.DATABASE_URL) {
+    res.status(503).json({ error: "DATABASE_URL not configured." });
+    return;
+  }
+
+  try {
+    const result = await triggerAutoBackupIfDue();
+    res.json(result);
+  } catch (err) {
+    req.log.error({ err }, "Internal backup trigger failed");
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Trigger failed.",
+    });
+  }
 });
 
 export default router;

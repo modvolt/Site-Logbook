@@ -4821,6 +4821,30 @@ export const UpdateBackupSettingsResponse = zod.object({
 
 
 /**
+ * @summary Get backup system operational status (admin only)
+ */
+export const GetBackupStatusResponse = zod.object({
+  "enabled": zod.boolean().describe('Whether automatic backups are enabled (storage configured and not disabled)'),
+  "pgDumpAvailable": zod.boolean().describe('Whether pg_dump is available and compatible with PostgreSQL 16'),
+  "pgDumpVersion": zod.string().nullish().describe('pg_dump version string detected at startup; null if not available'),
+  "intervalHours": zod.number().describe('Backup interval in hours (from BACKUP_INTERVAL_HOURS or default 24)'),
+  "lastAttemptAt": zod.string().nullable().describe('ISO timestamp of the most recent backup attempt (any status)'),
+  "lastAttemptStatus": zod.string().nullable().describe('Status of the most recent backup attempt (success\/failed\/running)'),
+  "lastVerifiedRestoreAt": zod.string().nullable().describe('ISO timestamp of the most recent successful restore test across all backups'),
+  "nextScheduledAt": zod.string().nullable().describe('Approximate ISO timestamp of the next scheduled auto backup; null if not determinable')
+})
+
+
+/**
+ * @summary Trigger an automatic backup (internal — protected by BACKUP_TRIGGER_SECRET)
+ */
+export const TriggerBackupResponse = zod.object({
+  "triggered": zod.boolean(),
+  "reason": zod.string()
+})
+
+
+/**
  * @summary Billing dashboard summary cards (admin only)
  */
 export const GetBillingSummaryResponse = zod.object({

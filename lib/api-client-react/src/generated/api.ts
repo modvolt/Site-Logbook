@@ -48,6 +48,7 @@ import type {
   BackupListResponse,
   BackupSettings,
   BackupSettingsInput,
+  BackupStatus,
   BankPaymentsConfirmInput,
   BankPaymentsConfirmResult,
   BankStatementParseInput,
@@ -256,6 +257,7 @@ import type {
   TimeEntry,
   TimeEntryInput,
   TimeEntryUpdate,
+  TriggerBackup200,
   UnbilledCustomer,
   UnbilledCustomerDetail,
   UpdateQuoteInput,
@@ -16256,6 +16258,153 @@ export const useUpdateBackupSettings = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getUpdateBackupSettingsMutationOptions(options));
+    }
+
+export const getGetBackupStatusUrl = () => {
+
+
+
+
+  return `/api/backups/status`
+}
+
+/**
+ * @summary Get backup system operational status (admin only)
+ */
+export const getBackupStatus = async ( options?: RequestInit): Promise<BackupStatus> => {
+
+  return customFetch<BackupStatus>(getGetBackupStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBackupStatusQueryKey = () => {
+    return [
+    `/api/backups/status`
+    ] as const;
+    }
+
+
+export const getGetBackupStatusQueryOptions = <TData = Awaited<ReturnType<typeof getBackupStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBackupStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBackupStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBackupStatus>>> = ({ signal }) => getBackupStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBackupStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBackupStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getBackupStatus>>>
+export type GetBackupStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get backup system operational status (admin only)
+ */
+
+export function useGetBackupStatus<TData = Awaited<ReturnType<typeof getBackupStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBackupStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBackupStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getTriggerBackupUrl = () => {
+
+
+
+
+  return `/api/internal/backup-trigger`
+}
+
+/**
+ * @summary Trigger an automatic backup (internal — protected by BACKUP_TRIGGER_SECRET)
+ */
+export const triggerBackup = async ( options?: RequestInit): Promise<TriggerBackup200> => {
+
+  return customFetch<TriggerBackup200>(getTriggerBackupUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTriggerBackupMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerBackup>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof triggerBackup>>, TError,void, TContext> => {
+
+const mutationKey = ['triggerBackup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof triggerBackup>>, void> = () => {
+
+
+          return  triggerBackup(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TriggerBackupMutationResult = NonNullable<Awaited<ReturnType<typeof triggerBackup>>>
+
+    export type TriggerBackupMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Trigger an automatic backup (internal — protected by BACKUP_TRIGGER_SECRET)
+ */
+export const useTriggerBackup = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof triggerBackup>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof triggerBackup>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTriggerBackupMutationOptions(options));
     }
 
 export const getGetBillingSummaryUrl = () => {

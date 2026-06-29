@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { desc, eq, lt, and, inArray } from "drizzle-orm";
+import { desc, eq, lt, and, inArray, isNotNull } from "drizzle-orm";
 import pg from "pg";
 import {
   db,
@@ -20,14 +20,60 @@ import nodemailer from "nodemailer";
 
 const objectStorage = new ObjectStorageService();
 
-// pg_dump binary; override with PG_DUMP_PATH if it lives elsewhere.
+// pg_dump / pg_restore binaries; override with PG_DUMP_PATH / PG_RESTORE_PATH.
 const PG_DUMP = process.env.PG_DUMP_PATH || "pg_dump";
+const PG_RESTORE = process.env.PG_RESTORE_PATH || "pg_restore";
 
-// How many successful backups to keep in object storage; older ones are pruned.
-function retentionCount(): number {
-  const n = Number(process.env.BACKUP_RETENTION);
-  return Number.isInteger(n) && n > 0 ? n : 14;
+// ─── pg_dump availability check ──────────────────────────────────────────────
+
+let pgDumpAvailable = false;
+let pgDumpVersion: string | null = null;
+
+/**
+ * Run `pg_dump --version` at startup to verify the binary exists and is
+ * PostgreSQL 16-compatible. Sets module-level flags used by getBackupStatus().
+ * Logs a warning (never throws) so startup is never blocked by a missing binary.
+ */
+export async function checkPgDumpAvailability(): Promise<void> {
+  try {
+    const version = await new Promise<string>((resolve, reject) => {
+      const child = spawn(PG_DUMP, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      child.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve(out.trim());
+        else reject(new Error(`pg_dump --version exited with code ${code}`));
+      });
+    });
+
+    pgDumpVersion = version;
+
+    // Output: "pg_dump (PostgreSQL) 16.10" — major version is the first number AFTER "PostgreSQL"
+    // The closing paren comes right after "PostgreSQL" so we match \)\s+(\d+) as well.
+    const match = version.match(/PostgreSQL[^0-9]*(\d+)/i);
+    const major = match ? Number(match[1]) : 0;
+    if (major < 16) {
+      logger.warn(
+        { version, major },
+        `pg_dump version ${major} detected — PostgreSQL 16+ required for full compatibility`,
+      );
+      pgDumpAvailable = false;
+    } else {
+      pgDumpAvailable = true;
+      logger.info({ version }, "pg_dump availability check passed");
+    }
+  } catch (err) {
+    pgDumpAvailable = false;
+    pgDumpVersion = null;
+    logger.warn(
+      { err, pgDumpPath: PG_DUMP },
+      "pg_dump binary not found or failed — automatic backups will not run",
+    );
+  }
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Whether scheduled automatic backups should run (storage must be available). */
 export function backupsEnabled(): boolean {
@@ -41,8 +87,18 @@ export function backupsEnabled(): boolean {
   return hasS3 || hasReplit;
 }
 
+function backupIntervalHours(): number {
+  const h = Number(process.env.BACKUP_INTERVAL_HOURS);
+  return Number.isFinite(h) && h > 0 ? h : 24;
+}
+
+// How many successful backups to keep in object storage; older ones are pruned.
+function retentionCount(): number {
+  const n = Number(process.env.BACKUP_RETENTION);
+  return Number.isInteger(n) && n > 0 ? n : 14;
+}
+
 function timestampName(): string {
-  // 2026-05-31T00-53-34 → filesystem/URL friendly.
   return new Date().toISOString().replace(/[:.]/g, "-").replace("Z", "");
 }
 
@@ -52,16 +108,13 @@ async function runPgDump(databaseUrl: string): Promise<Buffer> {
   const filePath = join(dir, "dump.pgcustom");
   try {
     await new Promise<void>((resolve, reject) => {
-      // -Fc = custom format (compressed, restorable with pg_restore).
       const child = spawn(
         PG_DUMP,
         ["--no-owner", "--no-acl", "-Fc", "-f", filePath, databaseUrl],
         { stdio: ["ignore", "ignore", "pipe"] },
       );
       let stderr = "";
-      child.stderr.on("data", (d) => {
-        stderr += d.toString();
-      });
+      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
@@ -100,6 +153,124 @@ async function pruneOldBackups(): Promise<void> {
     .delete(backupLogTable)
     .where(lt(backupLogTable.createdAt, cutoff));
 }
+
+// ─── Failure notification hysteresis ─────────────────────────────────────────
+
+/**
+ * We track the last time we sent a "backup failed" notification so we don't
+ * spam admins if the scheduled backup fails on every run. We only re-notify
+ * once per 24 hours regardless of how many consecutive failures there are.
+ */
+let lastBackupFailNotifiedAt: Date | null = null;
+
+/** Collect admin/master e-mail addresses for failure notifications. */
+async function collectAdminEmails(): Promise<string[]> {
+  const rows = await db
+    .select({ email: usersTable.email })
+    .from(usersTable)
+    .where(
+      and(
+        eq(usersTable.isActive, true),
+        inArray(usersTable.role, ["admin", "master"]),
+      ),
+    );
+  return rows
+    .map((r) => (r.email ?? "").trim())
+    .filter((e) => e.length > 0 && e.includes("@"));
+}
+
+async function sendFailureEmail(opts: {
+  subject: string;
+  body: string;
+  notifyEmail: string | null;
+  backupId?: number;
+}): Promise<void> {
+  let cfg;
+  try {
+    cfg = await resolveEmailConfig();
+  } catch (err) {
+    logger.warn({ err }, "Failure notification email skipped — email not configured");
+    return;
+  }
+
+  const recipients = opts.notifyEmail
+    ? [opts.notifyEmail]
+    : await collectAdminEmails();
+
+  if (recipients.length === 0) {
+    logger.warn({ backupId: opts.backupId }, "Failure notification: no recipient configured");
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
+  });
+
+  try {
+    await transporter.sendMail({
+      from: cfg.from,
+      to: recipients,
+      subject: opts.subject,
+      text: opts.body,
+    });
+    logger.info(
+      { backupId: opts.backupId, recipients: recipients.length },
+      "Backup failure notification email sent",
+    );
+  } catch (err) {
+    logger.error({ err, backupId: opts.backupId }, "Failed to send backup failure email");
+  }
+}
+
+/**
+ * Send a notification about a failed automatic backup (with hysteresis).
+ * Skips if a notification was already sent within the last 24 hours.
+ */
+async function notifyAutoBackupFailed(opts: {
+  errorMessage: string;
+  notifyEmail: string | null;
+}): Promise<void> {
+  const now = new Date();
+  const hysteresisMs = 24 * 60 * 60 * 1000;
+  if (
+    lastBackupFailNotifiedAt &&
+    now.getTime() - lastBackupFailNotifiedAt.getTime() < hysteresisMs
+  ) {
+    logger.info("Auto-backup failure notification suppressed by hysteresis");
+    return;
+  }
+
+  const dateStr = now.toLocaleString("cs-CZ", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const subject = `[Stavba] Automatická záloha databáze selhala – ${dateStr}`;
+  const body = [
+    "Dobrý den,",
+    "",
+    "automatická záloha databáze Stavba selhala.",
+    "",
+    `Čas pokusu: ${dateStr}`,
+    `Chyba:      ${opts.errorMessage}`,
+    "",
+    "Prosíme o kontrolu nastavení v administraci aplikace Stavba (Nastavení → Zálohy).",
+    "Zvažte ruční zálohu, dokud nebude problém vyřešen.",
+    "",
+    "Tato zpráva byla vygenerována automaticky.",
+  ].join("\n");
+
+  await sendFailureEmail({ subject, body, notifyEmail: opts.notifyEmail });
+  lastBackupFailNotifiedAt = now;
+}
+
+// ─── Create backup ────────────────────────────────────────────────────────────
 
 /**
  * Create a database backup: dump → object storage → recorded in backup_log.
@@ -167,20 +338,14 @@ export async function createBackup(opts: {
   }
 }
 
-/** pg_restore binary; override with PG_RESTORE_PATH if it lives elsewhere. */
-const PG_RESTORE = process.env.PG_RESTORE_PATH || "pg_restore";
+// ─── Restore (destructive) ────────────────────────────────────────────────────
 
 /**
  * Restore the database from a previously created backup.
  *
- * The dump bytes are streamed from object storage to a temp file, then applied
- * with `pg_restore --clean --if-exists --single-transaction`. `--single-transaction`
- * makes the whole restore atomic: if anything fails the database is rolled back
- * to its previous state, so a failed restore never leaves a half-restored DB.
- *
- * This is destructive: it drops and recreates every object captured in the dump,
- * overwriting all current data (including the session table — the user is logged
- * out afterwards).
+ * Destructive: drops and recreates every object captured in the dump,
+ * overwriting all current data (including the session table — users are
+ * logged out afterwards). Uses --single-transaction for atomicity.
  */
 let restoreInProgress = false;
 
@@ -188,8 +353,6 @@ export async function restoreBackup(id: number): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL not set");
 
-  // A restore overwrites the whole database; never let two run concurrently
-  // (e.g. two admins, or a double-click that slips past the UI guard).
   if (restoreInProgress) {
     throw new Error("Obnovení už právě probíhá. Počkejte na jeho dokončení.");
   }
@@ -222,9 +385,7 @@ export async function restoreBackup(id: number): Promise<void> {
         { stdio: ["ignore", "ignore", "pipe"] },
       );
       let stderr = "";
-      child.stderr.on("data", (d) => {
-        stderr += d.toString();
-      });
+      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
@@ -232,8 +393,6 @@ export async function restoreBackup(id: number): Promise<void> {
       });
     });
 
-    // Record when this backup was last successfully restored so the health page
-    // can display the last restore-test timestamp.
     await db
       .update(backupLogTable)
       .set({ restoredAt: new Date() })
@@ -258,27 +417,22 @@ const VERIFY_TABLES = [
   "activities",
 ] as const;
 
+/** Default timeout for the whole restore-test operation (10 minutes). */
+const RESTORE_TEST_TIMEOUT_MS = Number(process.env.BACKUP_RESTORE_TEST_TIMEOUT_MS) || 10 * 60 * 1000;
+
 /** In-process guard: only one restore-test at a time. */
 let restoreTestInProgress = false;
 
-/**
- * Parse a Postgres connection URL and return a URL pointing to the "postgres"
- * maintenance database on the same server (used for CREATE/DROP DATABASE).
- */
 function postgresAdminUrl(databaseUrl: string): string {
   try {
     const u = new URL(databaseUrl);
     u.pathname = "/postgres";
     return u.toString();
   } catch {
-    // Fallback: strip the path and append /postgres.
     return databaseUrl.replace(/\/[^/?#]*(\?|#|$)/, "/postgres$1");
   }
 }
 
-/**
- * Derive a DB URL for connecting to a named temp database on the same server.
- */
 function tempDbUrl(databaseUrl: string, dbName: string): string {
   try {
     const u = new URL(databaseUrl);
@@ -293,8 +447,9 @@ function tempDbUrl(databaseUrl: string, dbName: string): string {
  * Run a non-destructive restore test for a given backup into a temporary
  * isolated PostgreSQL database, verify key table row counts, then clean up.
  *
- * Updates the backup_log row with the test result (restoreStatus, restoreDurationMs,
- * restoreVerifiedTables, restoreTestedAt, restoreError) and returns the updated row.
+ * Always drops the temp DB in a finally block (even on failure).
+ * Has a configurable timeout (default 10 minutes).
+ * Updates the backup_log row atomically with the test result.
  */
 export async function testBackupRestore(id: number): Promise<BackupLog> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -324,10 +479,19 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
   const filePath = join(tmpDir, "dump.pgcustom");
 
   let tempDbCreated = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
-  try {
+  // Wrap the entire operation in a timeout.
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`Restore test překročil časový limit ${RESTORE_TEST_TIMEOUT_MS / 1000}s`)),
+      RESTORE_TEST_TIMEOUT_MS,
+    );
+  });
+
+  const doTest = async (): Promise<BackupLog> => {
     // 1. Download the dump from object storage.
-    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath);
+    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath!);
     await writeFile(filePath, buffer);
 
     // 2. Create the ephemeral database.
@@ -355,13 +519,10 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
         { stdio: ["ignore", "ignore", "pipe"] },
       );
       let stderr = "";
-      child.stderr.on("data", (d) => {
-        stderr += d.toString();
-      });
+      child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
       child.on("error", reject);
       child.on("close", (code) => {
         // pg_restore exits 1 for warnings (e.g. role does not exist); 0 = clean.
-        // We treat exit code 1 as OK if stderr only contains harmless warnings.
         if (code === 0 || code === 1) resolve();
         else reject(new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`));
       });
@@ -376,7 +537,6 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
           const result = await testPool.query(`SELECT COUNT(*)::integer AS c FROM "${table}"`);
           verifiedTables[table] = result.rows[0]?.c ?? 0;
         } catch {
-          // Table might not exist in an empty/partial dump — treat as 0.
           verifiedTables[table] = 0;
         }
       }
@@ -404,6 +564,11 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
     );
 
     return updated;
+  };
+
+  try {
+    const result = await Promise.race([doTest(), timeoutPromise]);
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const durationMs = Date.now() - startedAt;
@@ -425,6 +590,7 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
     return updated ?? pending;
   } finally {
     restoreTestInProgress = false;
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     await rm(tmpDir, { recursive: true, force: true });
 
     // Always drop the temp database (in the finally block so it runs even on error).
@@ -472,7 +638,7 @@ export async function upsertBackupSettings(data: {
   return row;
 }
 
-// ─── Schedulers ──────────────────────────────────────────────────────────────
+// ─── Backup log queries ───────────────────────────────────────────────────────
 
 export async function listBackups(limit = 50): Promise<Array<BackupLog>> {
   return db
@@ -487,12 +653,189 @@ export async function getBackup(id: number): Promise<BackupLog | undefined> {
   return row;
 }
 
+// ─── Backup status ────────────────────────────────────────────────────────────
+
+/** Track when the last auto backup completed (success or fail) for nextScheduledAt. */
+let lastAutoBackupCompletedAt: Date | null = null;
+
+export interface BackupStatusInfo {
+  enabled: boolean;
+  pgDumpAvailable: boolean;
+  pgDumpVersion: string | null;
+  intervalHours: number;
+  lastAttemptAt: string | null;
+  lastAttemptStatus: string | null;
+  lastVerifiedRestoreAt: string | null;
+  nextScheduledAt: string | null;
+}
+
+/**
+ * Compute current backup system status from DB + in-process state.
+ * Called by the /backups/status endpoint.
+ */
+export async function getBackupStatus(): Promise<BackupStatusInfo> {
+  const intervalHours = backupIntervalHours();
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+
+  // Most recent backup attempt (any status).
+  const [lastAttempt] = await db
+    .select()
+    .from(backupLogTable)
+    .orderBy(desc(backupLogTable.createdAt))
+    .limit(1);
+
+  // Most recent successful restore test.
+  const [lastVerified] = await db
+    .select()
+    .from(backupLogTable)
+    .where(and(eq(backupLogTable.restoreStatus, "ok"), isNotNull(backupLogTable.restoreTestedAt)))
+    .orderBy(desc(backupLogTable.restoreTestedAt))
+    .limit(1);
+
+  // nextScheduledAt: if we know when the last auto backup completed, add the interval.
+  // Otherwise fall back to lastAttempt.createdAt + interval.
+  let nextScheduledAt: string | null = null;
+  const baseTime = lastAutoBackupCompletedAt ?? lastAttempt?.createdAt ?? null;
+  if (baseTime) {
+    nextScheduledAt = new Date(baseTime.getTime() + intervalMs).toISOString();
+  }
+
+  return {
+    enabled: backupsEnabled(),
+    pgDumpAvailable,
+    pgDumpVersion,
+    intervalHours,
+    lastAttemptAt: lastAttempt?.createdAt.toISOString() ?? null,
+    lastAttemptStatus: lastAttempt?.status ?? null,
+    lastVerifiedRestoreAt: lastVerified?.restoreTestedAt?.toISOString() ?? null,
+    nextScheduledAt,
+  };
+}
+
+// ─── Persistent trigger (idempotent) ─────────────────────────────────────────
+
+/**
+ * Trigger an auto backup if one has not already run within the configured
+ * interval. Used by the /api/internal/backup-trigger endpoint so that an
+ * external scheduler (cron, Replit Scheduled Deployment) can fire it without
+ * risking duplicate backups.
+ *
+ * Returns { triggered: true } when a backup is started, or
+ *         { triggered: false, reason } when skipped.
+ */
+export async function triggerAutoBackupIfDue(): Promise<{ triggered: boolean; reason: string }> {
+  if (!backupsEnabled()) {
+    return { triggered: false, reason: "Object storage not configured" };
+  }
+
+  const intervalHours = backupIntervalHours();
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+
+  // Look at the latest backup (any trigger) to decide if we're due.
+  const [lastBackup] = await db
+    .select()
+    .from(backupLogTable)
+    .where(eq(backupLogTable.status, "success"))
+    .orderBy(desc(backupLogTable.createdAt))
+    .limit(1);
+
+  if (lastBackup) {
+    const msSinceLast = Date.now() - lastBackup.createdAt.getTime();
+    if (msSinceLast < intervalMs) {
+      const remainingMin = Math.round((intervalMs - msSinceLast) / 60_000);
+      return {
+        triggered: false,
+        reason: `Last backup was ${Math.round(msSinceLast / 60_000)} min ago; next due in ${remainingMin} min`,
+      };
+    }
+  }
+
+  // Also skip if a backup is currently running (status=running and recent).
+  const [running] = await db
+    .select()
+    .from(backupLogTable)
+    .where(eq(backupLogTable.status, "running"))
+    .orderBy(desc(backupLogTable.createdAt))
+    .limit(1);
+  if (running) {
+    const ageMs = Date.now() - running.createdAt.getTime();
+    if (ageMs < 30 * 60 * 1000) {
+      return { triggered: false, reason: "A backup is already running" };
+    }
+  }
+
+  // Fire the backup asynchronously so the HTTP response is immediate.
+  const settings = await getBackupSettings();
+  const notifyEmail = settings?.restoreNotifyEmail ?? process.env.BACKUP_RESTORE_NOTIFY_EMAIL ?? null;
+
+  setImmediate(() => {
+    createBackup({ trigger: "auto" })
+      .then(() => {
+        lastAutoBackupCompletedAt = new Date();
+      })
+      .catch(async (err) => {
+        lastAutoBackupCompletedAt = new Date();
+        logger.error({ err }, "Triggered auto-backup failed");
+        const msg = err instanceof Error ? err.message : String(err);
+        await notifyAutoBackupFailed({ errorMessage: msg, notifyEmail }).catch(() => {});
+      });
+  });
+
+  return { triggered: true, reason: "Backup started" };
+}
+
+// ─── Restore-test failure notification ───────────────────────────────────────
+
+/** Send a failure e-mail to the configured recipient(s) for restore-test failures. */
+export async function sendRestoreTestFailureEmail(opts: {
+  backupId: number;
+  backupCreatedAt: Date;
+  errorMessage: string;
+  notifyEmail: string | null;
+}): Promise<void> {
+  const dateStr = opts.backupCreatedAt.toLocaleString("cs-CZ", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const subject = `[Stavba] Restore test zálohy selhal – záloha ze ${dateStr}`;
+  const body = [
+    "Dobrý den,",
+    "",
+    "automatický restore test zálohy databáze selhal.",
+    "",
+    `Záloha:  #${opts.backupId}, vytvořena ${dateStr}`,
+    `Chyba:   ${opts.errorMessage}`,
+    "",
+    "Prosíme o manuální kontrolu zálohy v administraci aplikace Stavba (Nastavení → Zálohy).",
+    "",
+    "Tato zpráva byla vygenerována automaticky.",
+  ].join("\n");
+
+  await sendFailureEmail({
+    subject,
+    body,
+    notifyEmail: opts.notifyEmail,
+    backupId: opts.backupId,
+  });
+}
+
+// ─── Schedulers ──────────────────────────────────────────────────────────────
+
 let schedulerStarted = false;
 
 /**
  * Start the periodic automatic backup. Idempotent. Interval is
  * BACKUP_INTERVAL_HOURS (default 24h). Does nothing when backups are disabled
  * or storage is not configured.
+ *
+ * This setInterval is kept as a fallback for environments without an external
+ * cron scheduler. In production, use /api/internal/backup-trigger via a
+ * Replit Scheduled Deployment or system cron (both approaches coexist safely
+ * because triggerAutoBackupIfDue() is idempotent).
  */
 export function startBackupScheduler(): void {
   if (schedulerStarted) return;
@@ -502,95 +845,27 @@ export function startBackupScheduler(): void {
   }
   schedulerStarted = true;
 
-  const hours = Number(process.env.BACKUP_INTERVAL_HOURS);
-  const intervalMs = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+  const intervalMs = backupIntervalHours() * 60 * 60 * 1000;
 
-  const timer = setInterval(() => {
-    createBackup({ trigger: "auto" }).catch((err) =>
-      logger.error({ err }, "Scheduled backup failed"),
+  const tick = () => {
+    triggerAutoBackupIfDue().catch((err) =>
+      logger.error({ err }, "Scheduled backup tick failed"),
     );
-  }, intervalMs);
-  // Don't keep the process alive solely for the backup timer.
-  timer.unref();
+  };
 
-  logger.info({ intervalHours: intervalMs / (60 * 60 * 1000) }, "Backup scheduler started");
-}
+  // Run once shortly after startup (staggered 5 min to let the server warm up)
+  // then on the normal interval.
+  const warmupDelay = 5 * 60 * 1000;
+  const warmup = setTimeout(tick, warmupDelay);
+  if (warmup.unref) warmup.unref();
 
-/** Collect admin/master e-mail addresses for failure notifications. */
-async function collectAdminEmails(): Promise<string[]> {
-  const rows = await db
-    .select({ email: usersTable.email })
-    .from(usersTable)
-    .where(
-      and(
-        eq(usersTable.isActive, true),
-        inArray(usersTable.role, ["admin", "master"]),
-      ),
-    );
-  return rows
-    .map((r) => (r.email ?? "").trim())
-    .filter((e) => e.length > 0 && e.includes("@"));
-}
+  const timer = setInterval(tick, intervalMs);
+  if (timer.unref) timer.unref();
 
-/** Send a failure e-mail to the configured recipient(s). */
-async function sendRestoreTestFailureEmail(opts: {
-  backupId: number;
-  backupCreatedAt: Date;
-  errorMessage: string;
-  notifyEmail: string | null;
-}): Promise<void> {
-  let cfg;
-  try {
-    cfg = await resolveEmailConfig();
-  } catch (err) {
-    logger.warn({ err }, "Restore-test failure email skipped — email not configured");
-    return;
-  }
-
-  const recipients = opts.notifyEmail
-    ? [opts.notifyEmail]
-    : await collectAdminEmails();
-
-  if (recipients.length === 0) {
-    logger.warn({ backupId: opts.backupId }, "Restore-test failure: no recipient configured");
-    return;
-  }
-
-  const dateStr = opts.backupCreatedAt.toLocaleString("cs-CZ", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  const transporter = nodemailer.createTransport({
-    host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
-    auth: cfg.user ? { user: cfg.user, pass: cfg.pass } : undefined,
-  });
-
-  const subject = `[Stavba] Restore test zálohy selhal – záloha ze ${dateStr}`;
-  const text = [
-    `Dobrý den,`,
-    ``,
-    `automatický restore test zálohy databáze selhal.`,
-    ``,
-    `Záloha:  #${opts.backupId}, vytvořena ${dateStr}`,
-    `Chyba:   ${opts.errorMessage}`,
-    ``,
-    `Prosíme o manuální kontrolu zálohy v administraci aplikace Stavba (Nastavení → Zálohy).`,
-    ``,
-    `Tato zpráva byla vygenerována automaticky.`,
-  ].join("\n");
-
-  try {
-    await transporter.sendMail({ from: cfg.from, to: recipients, subject, text });
-    logger.info({ backupId: opts.backupId, recipients: recipients.length }, "Restore-test failure email sent");
-  } catch (err) {
-    logger.error({ err, backupId: opts.backupId }, "Failed to send restore-test failure email");
-  }
+  logger.info(
+    { intervalHours: intervalMs / (60 * 60 * 1000) },
+    "Backup scheduler started (setInterval fallback)",
+  );
 }
 
 let restoreTestSchedulerStarted = false;
@@ -606,28 +881,23 @@ export function startRestoreTestScheduler(): void {
   if (!backupsEnabled()) return;
   restoreTestSchedulerStarted = true;
 
-  // Check every hour whether it's time to run the weekly restore test.
   const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
   const tick = async () => {
     try {
       const settings = await getBackupSettings();
 
-      // Which day of the week to run the test?
-      // DB setting → env var → default Sunday (0).
       let targetDay: number | null = settings?.restoreTestDayOfWeek ?? null;
       if (targetDay === null) {
         const envDay = Number(process.env.BACKUP_RESTORE_TEST_DAY_OF_WEEK);
         targetDay = Number.isInteger(envDay) && envDay >= 0 && envDay <= 6 ? envDay : null;
       }
 
-      // null means the scheduled test is disabled.
       if (targetDay === null) return;
 
       const now = new Date();
       if (now.getDay() !== targetDay) return;
 
-      // Find the latest successful backup.
       const [latest] = await db
         .select()
         .from(backupLogTable)
@@ -637,8 +907,6 @@ export function startRestoreTestScheduler(): void {
 
       if (!latest) return;
 
-      // Skip if already tested within the last 6 days (prevents double-runs on
-      // the same day if the process restarts multiple times).
       if (latest.restoreTestedAt) {
         const msSinceLast = now.getTime() - latest.restoreTestedAt.getTime();
         if (msSinceLast < 6 * 24 * 60 * 60 * 1000) return;
@@ -662,7 +930,7 @@ export function startRestoreTestScheduler(): void {
   };
 
   const timer = setInterval(tick, CHECK_INTERVAL_MS);
-  timer.unref();
+  if (timer.unref) timer.unref();
 
   logger.info("Restore-test scheduler started (checks hourly)");
 }

@@ -5194,6 +5194,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /backups/status:
+    get:
+      operationId: getBackupStatus
+      tags: [backups]
+      summary: Get backup system operational status (admin only)
+      responses:
+        "200":
+          description: Current backup system status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupStatus"
+
+  /internal/backup-trigger:
+    post:
+      operationId: triggerBackup
+      tags: [internal]
+      summary: Trigger an automatic backup (internal — protected by BACKUP_TRIGGER_SECRET)
+      responses:
+        "200":
+          description: Backup triggered or skipped (idempotent)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [triggered, reason]
+                properties:
+                  triggered:
+                    type: boolean
+                  reason:
+                    type: string
+        "401":
+          description: Missing or invalid secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Backups not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/summary:
     get:
       operationId: getBillingSummary
@@ -11158,6 +11202,35 @@ components:
         restoreNotifyEmail:
           type: ["string", "null"]
           description: E-mail to notify on failure; null = all admins
+
+    BackupStatus:
+      type: object
+      required: [enabled, pgDumpAvailable, intervalHours, lastAttemptAt, lastAttemptStatus, lastVerifiedRestoreAt, nextScheduledAt]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether automatic backups are enabled (storage configured and not disabled)
+        pgDumpAvailable:
+          type: boolean
+          description: Whether pg_dump is available and compatible with PostgreSQL 16
+        pgDumpVersion:
+          type: ["string", "null"]
+          description: pg_dump version string detected at startup; null if not available
+        intervalHours:
+          type: number
+          description: Backup interval in hours (from BACKUP_INTERVAL_HOURS or default 24)
+        lastAttemptAt:
+          type: ["string", "null"]
+          description: ISO timestamp of the most recent backup attempt (any status)
+        lastAttemptStatus:
+          type: ["string", "null"]
+          description: Status of the most recent backup attempt (success/failed/running)
+        lastVerifiedRestoreAt:
+          type: ["string", "null"]
+          description: ISO timestamp of the most recent successful restore test across all backups
+        nextScheduledAt:
+          type: ["string", "null"]
+          description: Approximate ISO timestamp of the next scheduled auto backup; null if not determinable
 
     BackupSettingsInput:
       type: object
