@@ -41,6 +41,8 @@ import {
   ToggleRight,
 } from "lucide-react";
 import { fmtDate } from "@/lib/billing-format";
+import { useAuth } from "@/hooks/use-auth";
+import { QueryErrorState } from "@/components/query-error-state";
 
 const INTERVAL_LABELS: Record<string, string> = {
   monthly: "Měsíčně",
@@ -65,9 +67,10 @@ export default function BillingRecurringTemplates() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { can } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
 
-  const { data, isLoading, isError } = useListRecurringTemplates({
+  const { data, isLoading, isError, error, refetch } = useListRecurringTemplates({
     query: { queryKey: getListRecurringTemplatesQueryKey() },
   });
 
@@ -88,7 +91,7 @@ export default function BillingRecurringTemplates() {
 
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-bold">Šablony paušálních faktur</h1>
-        <Button onClick={() => setShowCreate(true)} className="h-10">
+        <Button onClick={() => setShowCreate(true)} className="h-10" disabled={isError}>
           <Plus className="h-4 w-4 mr-2" /> Nová šablona
         </Button>
       </div>
@@ -102,10 +105,12 @@ export default function BillingRecurringTemplates() {
         {isLoading ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
-            <AlertCircle className="h-10 w-10 opacity-30" />
-            <p className="font-medium">Nepodařilo se načíst šablony</p>
-          </div>
+          <QueryErrorState
+            title="Nepodařilo se načíst šablony paušálních faktur"
+            error={error}
+            onRetry={() => refetch()}
+            diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+          />
         ) : templates.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
             <CalendarClock className="h-12 w-12 mx-auto mb-4 opacity-20" />

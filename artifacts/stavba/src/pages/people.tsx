@@ -34,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon, Shield, AlertCircle, Download, FileText, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { QueryErrorState } from "@/components/query-error-state";
 
 function triggerLeavesExport(params: { year: number; personId?: number; format: "csv" | "pdf" }) {
   const qs = new URLSearchParams();
@@ -646,7 +647,7 @@ export default function People() {
   const canWrite = can("write");
   const [allExportYear, setAllExportYear] = useState(CURRENT_YEAR);
 
-  const { data: people, isLoading: loadingPeople } = useListPeople({
+  const { data: people, isLoading: loadingPeople, isError: peopleError, error: peopleErr, refetch: refetchPeople } = useListPeople({
     query: { queryKey: getListPeopleQueryKey() },
   });
 
@@ -779,7 +780,7 @@ export default function People() {
                   aria-invalid={!!nameError}
                 />
               </div>
-              <Button type="submit" disabled={createPerson.isPending} className="h-14 px-6">
+              <Button type="submit" disabled={createPerson.isPending || peopleError} className="h-14 px-6">
                 <Plus className="h-5 w-5 md:mr-2" />
                 <span className="hidden md:inline">Přidat</span>
               </Button>
@@ -794,6 +795,13 @@ export default function People() {
       <div className="space-y-3">
         {loadingPeople ? (
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)
+        ) : peopleError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst pracovníky"
+            error={peopleErr}
+            onRetry={() => refetchPeople()}
+            diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+          />
         ) : people && people.length > 0 ? (
           people.map((person) => (
             <PersonCard

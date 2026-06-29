@@ -39,6 +39,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { QueryErrorState } from "@/components/query-error-state";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import {
   PPE_CATEGORY_LABELS,
@@ -511,11 +512,11 @@ export default function Oopp() {
   const { openConfirm, dialogProps } = useConfirmDialog();
   const [, setLocation] = useLocation();
 
-  const { data: items, isLoading: itemsLoading } = useListPpeItems(
+  const { data: items, isLoading: itemsLoading, isError: itemsError, error: itemsErr, refetch: refetchItems } = useListPpeItems(
     { includeArchived },
     { query: { queryKey: getListPpeItemsQueryKey({ includeArchived }) } },
   );
-  const { data: assignments, isLoading: assignmentsLoading } = useListPpeAssignments(
+  const { data: assignments, isLoading: assignmentsLoading, isError: assignmentsError, error: assignmentsErr, refetch: refetchAssignments } = useListPpeAssignments(
     {},
     { query: { queryKey: getListPpeAssignmentsQueryKey({}) } },
   );
@@ -581,6 +582,7 @@ export default function Oopp() {
   const returningAssignment = assignments?.find((a) => a.id === returningId) ?? null;
 
   const handleCreateItem = (data: Parameters<typeof createItem.mutate>[0]["data"]) => {
+    if (itemsError) return;
     createItem.mutate({ data }, {
       onSuccess: () => {
         setShowItemForm(false);
@@ -628,6 +630,7 @@ export default function Oopp() {
   };
 
   const handleCreateAssignment = (data: Parameters<typeof createAssignment.mutate>[0]["data"]) => {
+    if (assignmentsError || itemsError) return;
     createAssignment.mutate({ data }, {
       onSuccess: () => {
         setShowAssignForm(false);
@@ -709,12 +712,20 @@ export default function Oopp() {
           <ShieldCheck className="h-6 w-6 text-primary" /> OOPP
         </h1>
         {can("write") && tab === "vydeje" && activeItems.length > 0 && (
-          <Button onClick={() => setShowAssignForm((s) => !s)} className="h-10">
+          <Button
+            onClick={() => setShowAssignForm((s) => !s)}
+            className="h-10"
+            disabled={assignmentsError || itemsError}
+          >
             <Plus className="h-5 w-5 mr-2" /> Vydat OOPP
           </Button>
         )}
         {can("write") && tab === "katalog" && (
-          <Button onClick={() => { setShowItemForm((s) => !s); setEditingItem(null); }} className="h-10">
+          <Button
+            onClick={() => { setShowItemForm((s) => !s); setEditingItem(null); }}
+            className="h-10"
+            disabled={itemsError}
+          >
             <Plus className="h-5 w-5 mr-2" /> Přidat pomůcku
           </Button>
         )}
@@ -921,6 +932,13 @@ export default function Oopp() {
           {/* Assignment list */}
           {assignmentsLoading ? (
             [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full mb-3" />)
+          ) : assignmentsError ? (
+            <QueryErrorState
+              title="Nepodařilo se načíst výdeje OOPP"
+              error={assignmentsErr}
+              onRetry={() => refetchAssignments()}
+              diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+            />
           ) : filteredAssignments.length > 0 ? (
             <div className="space-y-3">
               {filteredAssignments.map((a) => (
@@ -1152,6 +1170,13 @@ export default function Oopp() {
 
           {itemsLoading ? (
             [1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full mb-3" />)
+          ) : itemsError ? (
+            <QueryErrorState
+              title="Nepodařilo se načíst katalog OOPP"
+              error={itemsErr}
+              onRetry={() => refetchItems()}
+              diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+            />
           ) : (items ?? []).length > 0 ? (
             <div className="space-y-3">
               {(items ?? []).map((item) => (

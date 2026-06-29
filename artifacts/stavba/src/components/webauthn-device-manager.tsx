@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Fingerprint, Plus, Trash2, Loader2, Smartphone } from "lucide-react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
+import { QueryErrorState } from "@/components/query-error-state";
+import { useAuth } from "@/hooks/use-auth";
 
 interface WebAuthnDeviceManagerProps {
   userId?: number;
@@ -27,11 +29,12 @@ export function WebAuthnDeviceManager({ userId, readOnly = false, title = "Biome
   const { toast } = useToast();
   const qc = useQueryClient();
   const { openConfirm, dialogProps } = useConfirmDialog();
+  const { can } = useAuth();
 
   const queryParams = userId ? { userId } : undefined;
   const queryKey = getListWebAuthnCredentialsQueryKey(queryParams);
 
-  const { data: credentials, isLoading } = useListWebAuthnCredentials(queryParams, {
+  const { data: credentials, isLoading, isError: credsError, error: credsErr, refetch: refetchCreds } = useListWebAuthnCredentials(queryParams, {
     query: { queryKey },
   });
 
@@ -116,7 +119,13 @@ export function WebAuthnDeviceManager({ userId, readOnly = false, title = "Biome
           {title}
         </h3>
         {!readOnly && !adding && !userId && (
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setAdding(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setAdding(true)}
+            disabled={credsError}
+          >
             <Plus className="h-3 w-3 mr-1" /> Přidat toto zařízení
           </Button>
         )}
@@ -165,6 +174,13 @@ export function WebAuthnDeviceManager({ userId, readOnly = false, title = "Biome
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground py-2">Načítám…</p>
+      ) : credsError ? (
+        <QueryErrorState
+          title="Nepodařilo se načíst zařízení"
+          error={credsErr}
+          onRetry={() => refetchCreds()}
+          diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+        />
       ) : credentials?.length === 0 ? (
         <p className="text-sm text-muted-foreground py-2">Žádná biometrická zařízení nejsou registrována.</p>
       ) : (

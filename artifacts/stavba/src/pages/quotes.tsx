@@ -22,6 +22,8 @@ import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Plus, ChevronRight, FileText, Building2, CalendarCheck } from "lucide-react";
 import { QuoteStatusBadge } from "@/components/quote-status-badge";
+import { useAuth } from "@/hooks/use-auth";
+import { QueryErrorState } from "@/components/query-error-state";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "Všechny stavy" },
@@ -36,10 +38,11 @@ export default function Quotes() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { can } = useAuth();
   const [status, setStatus] = useState("all");
 
   const params = status === "all" ? undefined : { status: status as "draft" | "sent" | "accepted" | "rejected" | "expired" };
-  const { data, isLoading, isError } = useListQuotes(params, {
+  const { data, isLoading, isError, error, refetch } = useListQuotes(params, {
     query: { queryKey: getListQuotesQueryKey(params) },
   });
 
@@ -56,9 +59,19 @@ export default function Quotes() {
 
   if (isError) {
     return (
-      <div className="p-8 text-center">
-        <p className="text-destructive">Načtení nabídek selhalo.</p>
-        <Button className="mt-4" onClick={() => setLocation("/")}>Zpět</Button>
+      <div className="p-4 max-w-3xl mx-auto space-y-4">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => setLocation("/")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-xl font-bold">Nabídky</h1>
+        </div>
+        <QueryErrorState
+          title="Nepodařilo se načíst nabídky"
+          error={error}
+          onRetry={() => refetch()}
+          diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+        />
       </div>
     );
   }
@@ -86,7 +99,7 @@ export default function Quotes() {
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={() => setLocation("/quotes/new")} size="sm">
+          <Button onClick={() => setLocation("/quotes/new")} size="sm" disabled={isError}>
             <Plus className="h-4 w-4 mr-1" /> Nová nabídka
           </Button>
         </div>

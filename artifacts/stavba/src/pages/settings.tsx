@@ -3,6 +3,7 @@ import { useTheme } from "next-themes";
 import { formatDistanceToNow } from "date-fns";
 import { cs } from "date-fns/locale";
 import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays, Smartphone, Laptop, LogOut, FlaskConical, Clock } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -214,7 +215,7 @@ const DAY_NAMES = ["Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "P�
 function BackupCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data, isLoading } = useListBackups({
+  const { data, isLoading, isError: backupsError, error: backupsErr, refetch: refetchBackups } = useListBackups({
     query: { queryKey: getListBackupsQueryKey() },
   });
   const createMutation = useCreateBackup();
@@ -335,17 +336,19 @@ function BackupCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-muted-foreground">
-            {lastSuccessAt ? (
-              <>
-                Poslední úspěšná záloha:{" "}
-                <span className="font-medium text-foreground">{formatDateTime(lastSuccessAt)}</span>
-              </>
-            ) : (
-              "Zatím nebyla vytvořena žádná úspěšná záloha."
-            )}
-          </div>
-          <Button type="button" onClick={handleCreate} disabled={createMutation.isPending} className="gap-2">
+          {!backupsError && (
+            <div className="text-sm text-muted-foreground">
+              {lastSuccessAt ? (
+                <>
+                  Poslední úspěšná záloha:{" "}
+                  <span className="font-medium text-foreground">{formatDateTime(lastSuccessAt)}</span>
+                </>
+              ) : (
+                "Zatím nebyla vytvořena žádná úspěšná záloha."
+              )}
+            </div>
+          )}
+          <Button type="button" onClick={handleCreate} disabled={createMutation.isPending || backupsError} className="gap-2 ml-auto">
             {createMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -362,6 +365,13 @@ function BackupCard() {
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Načítání…</p>
+        ) : backupsError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst zálohy"
+            error={backupsErr}
+            onRetry={() => refetchBackups()}
+            diagnosticsLink="/admin/health"
+          />
         ) : items.length === 0 ? (
           <p className="text-sm text-muted-foreground">Žádné zálohy.</p>
         ) : (
@@ -563,7 +573,7 @@ function BackupSystemStatusPanel({ status }: { status: BackupStatus }) {
 function BackupScheduleCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data, isLoading } = useGetBackupSettings({
+  const { data, isLoading, isError: settingsError, error: settingsErr, refetch: refetchSettings } = useGetBackupSettings({
     query: { queryKey: getGetBackupSettingsQueryKey() },
   });
   const { data: status } = useGetBackupStatus({
@@ -621,6 +631,13 @@ function BackupScheduleCard() {
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Načítání…</p>
+        ) : settingsError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst nastavení záloh"
+            error={settingsErr}
+            onRetry={() => refetchSettings()}
+            diagnosticsLink="/admin/health"
+          />
         ) : (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -660,7 +677,7 @@ function BackupScheduleCard() {
             <Button
               type="button"
               onClick={handleSave}
-              disabled={updateMutation.isPending}
+              disabled={updateMutation.isPending || settingsError}
               className="gap-2"
             >
               <Save className="h-4 w-4" />
@@ -1364,9 +1381,10 @@ function EmailImportCard() {
 }
 
 function MySessionsCard() {
+  const { can } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: sessions, isLoading } = useListMySessions({
+  const { data: sessions, isLoading, isError: sessionsError, error: sessionsErr, refetch: refetchSessions } = useListMySessions({
     query: { queryKey: getListMySessionsQueryKey() },
   });
   const deleteSession = useDeleteSession();
@@ -1403,6 +1421,13 @@ function MySessionsCard() {
           <div className="space-y-2">
             {[1, 2].map(i => <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />)}
           </div>
+        ) : sessionsError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst přihlášení"
+            error={sessionsErr}
+            onRetry={() => refetchSessions()}
+            diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+          />
         ) : !sessions?.length ? (
           <p className="text-sm text-muted-foreground">Žádné aktivní session.</p>
         ) : (

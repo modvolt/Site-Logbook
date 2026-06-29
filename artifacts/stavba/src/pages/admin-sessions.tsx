@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Monitor, Smartphone, Laptop, LogOut, Trash2, AlertTriangle } from "lucide-react";
+import { QueryErrorState } from "@/components/query-error-state";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
@@ -149,7 +150,7 @@ export default function AdminSessions() {
   const [search, setSearch] = useState("");
 
   const queryKey = getListAllSessionsQueryKey({});
-  const { data: sessions, isLoading, error } = useListAllSessions({}, { query: { queryKey } });
+  const { data: sessions, isLoading, isError, error: sessionsErr, refetch: refetchSessions } = useListAllSessions({}, { query: { queryKey } });
 
   const deleteSession = useDeleteSession();
   const deleteUserSessions = useDeleteUserSessions();
@@ -239,7 +240,7 @@ export default function AdminSessions() {
           <div className="flex items-center gap-3">
             <Monitor className="w-7 h-7 text-rose-600" />
             <h1 className="text-2xl font-bold">Aktivní přihlášení</h1>
-            {!isLoading && !error && (
+            {!isLoading && !isError && (
               <span className="text-sm text-muted-foreground font-normal">
                 ({totalSessions})
               </span>
@@ -256,7 +257,7 @@ export default function AdminSessions() {
               variant="outline"
               size="sm"
               onClick={handlePurge}
-              disabled={purgeExpired.isPending}
+              disabled={purgeExpired.isPending || isError}
               className="h-9 text-muted-foreground"
             >
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
@@ -275,8 +276,13 @@ export default function AdminSessions() {
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
           </div>
-        ) : error ? (
-          <div className="text-destructive text-sm">Nepodařilo se načíst session.</div>
+        ) : isError ? (
+          <QueryErrorState
+            title="Nepodařilo se načíst přihlášení"
+            error={sessionsErr}
+            onRetry={() => refetchSessions()}
+            diagnosticsLink="/admin/health"
+          />
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             {search ? "Žádné výsledky pro daný filtr." : "Žádné aktivní přihlášení."}
