@@ -204,6 +204,13 @@ export default function Billing() {
       </h2>
       <div className="space-y-2">
         <NavCard
+          icon={FileEdit}
+          color="text-sky-500"
+          title="Nabídky"
+          subtitle="Cenové nabídky pro zákazníky"
+          onClick={() => setLocation("/quotes")}
+        />
+        <NavCard
           icon={Building2}
           color="text-amber-500"
           title="Hotové k fakturaci"
