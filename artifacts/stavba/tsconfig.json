@@ -21,6 +21,9 @@
     },
     {
       "path": "../../lib/object-storage-web"
+    },
+    {
+      "path": "../../lib/live-events"
     }
   ]
 }

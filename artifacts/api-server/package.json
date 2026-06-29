@@ -16,6 +16,7 @@
     "@simplewebauthn/server": "^13.3.2",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/live-events": "workspace:*",
     "bcryptjs": "^3.0.3",
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",

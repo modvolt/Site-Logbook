@@ -9,6 +9,7 @@ import { describeObjectStorageConfig } from "./lib/objectStorage";
 import { startPpeOverdueScheduler } from "./lib/ppe-overdue-notifier";
 import { startHealthWatchdog } from "./lib/health-watchdog";
 import { startRecurringInvoiceScheduler } from "./lib/recurring-templates";
+import { startLiveEventsService, shutdownLiveEventsService } from "./lib/live-events-service";
 
 const rawPort = process.env["PORT"];
 
@@ -24,7 +25,7 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+const server = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -42,4 +43,25 @@ app.listen(port, (err) => {
   startPpeOverdueScheduler();
   startHealthWatchdog();
   startRecurringInvoiceScheduler();
+
+  // Start the PG LISTEN service for cross-instance SSE event broadcasting.
+  startLiveEventsService().catch((e) =>
+    logger.warn({ err: e }, "Failed to start live-events PG LISTEN service"),
+  );
 });
+
+// Graceful shutdown: give in-flight requests 10s to finish, then close.
+const shutdown = () => {
+  logger.info("SIGTERM received — shutting down gracefully");
+  void shutdownLiveEventsService();
+  server.close(() => {
+    logger.info("HTTP server closed");
+    process.exit(0);
+  });
+  setTimeout(() => {
+    logger.warn("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10_000).unref();
+};
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

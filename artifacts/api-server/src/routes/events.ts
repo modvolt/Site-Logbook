@@ -13,8 +13,13 @@ const HEARTBEAT_MS = 25_000;
  * (it sits behind the global requireAuth gate). The client opens this with an
  * `EventSource` and listens for `invalidate` events; see
  * `artifacts/stavba/src/hooks/use-live-updates.ts`.
+ *
+ * The browser may pass its `clientId` as a query parameter so the server can
+ * skip sending the event back to the browser that triggered the mutation —
+ * that browser already has fresh data from the mutation response.
  */
 router.get("/events", (req, res) => {
+  const clientId = typeof req.query.clientId === "string" ? req.query.clientId : undefined;
   res.status(200).set({
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
@@ -29,7 +34,7 @@ router.get("/events", (req, res) => {
   res.write("retry: 5000\n\n");
   res.write(": connected\n\n");
 
-  const unregister = registerClient(res);
+  const unregister = registerClient(res, clientId);
 
   const heartbeat = setInterval(() => {
     try {

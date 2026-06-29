@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { LiveDomain } from "@workspace/live-events";
 
 /**
  * Jediné dokumentované místo pro automatickou obnovu (invalidaci) dat napříč
@@ -24,31 +25,19 @@ import type { QueryClient } from "@tanstack/react-query";
  * Při přidání nové mutace zvolte dotčené domény z `InvalidationDomain`. Pokud
  * žádná nesedí, přidejte novou doménu zde (a její URL prefix) – ať tohle
  * zůstává jediné místo, kde jsou vazby mezi dotazy popsané.
+ *
+ * Domain type comes from @workspace/live-events — the single source of truth
+ * shared with the API server. Re-exported here so callers that imported it
+ * from this file don't need to change their imports.
  */
-export type InvalidationDomain =
-  | "jobs"
-  | "activities"
-  | "warehouse"
-  | "customers"
-  | "people"
-  | "machines"
-  | "leaves"
-  | "billingInvoices"
-  | "billingDocuments"
-  | "billingRecurringTemplates"
-  | "bankImport"
-  | "emailImport"
-  | "reviewQueue"
-  | "ppe"
-  | "quotes"
-  | "sessions";
+export type { LiveDomain as InvalidationDomain } from "@workspace/live-events";
 
 /**
  * URL prefixy, které daná doména „vlastní". Invaliduje se každý dotaz, jehož
  * první prvek klíče je roven prefixu nebo začíná `prefix + "/"` (tedy i detaily
  * a pod-seznamy jako `/materials` nebo `/time-entries`).
  */
-const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
+const DOMAIN_PREFIXES: Record<LiveDomain, readonly string[]> = {
   // Zakázky táhnou i dashboard a statistiky (počty, odpracované hodiny).
   jobs: [
     "/api/jobs",
@@ -97,17 +86,15 @@ const DOMAIN_PREFIXES: Record<InvalidationDomain, readonly string[]> = {
  * Doménové kaskády: změna v jedné doméně musí obnovit i navázané domény.
  * (Vlastní prefixy domény se přidávají vždy; tady jsou jen mezidoménové vazby.)
  */
-const DOMAIN_RELATED: Partial<
-  Record<InvalidationDomain, readonly InvalidationDomain[]>
-> = {
+const DOMAIN_RELATED: Partial<Record<LiveDomain, readonly LiveDomain[]>> = {
   bankImport: ["billingInvoices"],
   emailImport: ["billingDocuments"],
   reviewQueue: ["billingDocuments"],
 };
 
-function collectPrefixes(domains: readonly InvalidationDomain[]): string[] {
+function collectPrefixes(domains: readonly LiveDomain[]): string[] {
   const prefixes = new Set<string>();
-  const visit = (domain: InvalidationDomain) => {
+  const visit = (domain: LiveDomain) => {
     for (const prefix of DOMAIN_PREFIXES[domain]) prefixes.add(prefix);
     for (const related of DOMAIN_RELATED[domain] ?? []) visit(related);
   };
@@ -122,7 +109,7 @@ function collectPrefixes(domains: readonly InvalidationDomain[]): string[] {
  */
 export function invalidateData(
   queryClient: QueryClient,
-  ...domains: InvalidationDomain[]
+  ...domains: LiveDomain[]
 ): void {
   const prefixes = collectPrefixes(domains);
   if (prefixes.length === 0) return;
