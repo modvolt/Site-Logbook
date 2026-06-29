@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, count, eq, isNull, lte, sql, desc, ilike, inArray } from "drizzle-orm";
-import { db, warehouseItemsTable, auditLogTable } from "@workspace/db";
+import { db, warehouseItemsTable, auditLogTable, materialsTable, activityMaterialsTable } from "@workspace/db";
 import { warehouseMovementsTable } from "@workspace/db";
 import { warehousePriceHistoryTable } from "@workspace/db";
 import { billingDocumentsTable, billingDocumentLinesTable } from "@workspace/db";
@@ -819,6 +819,130 @@ router.get("/warehouse-movements", async (req, res): Promise<void> => {
     return;
   }
   res.json(await listMovements(db, query.data));
+});
+
+// ---------------------------------------------------------------------------
+// Warehouse ↔ material backfill report & safe re-run (admin only)
+// ---------------------------------------------------------------------------
+
+router.get("/warehouse-material-backfill/report", requireRole("admin", "master"), async (_req, res): Promise<void> => {
+  // 1. Unlinked materials whose name matches EXACTLY ONE warehouse item (can auto-link).
+  const canLinkMaterials = (await db.execute(sql`
+    SELECT count(*) AS n
+    FROM ${materialsTable} m
+    WHERE m.warehouse_item_id IS NULL
+      AND (SELECT count(*) FROM ${warehouseItemsTable} wi WHERE lower(wi.name) = lower(m.name)) = 1
+  `)) as unknown as { rows: Array<{ n: string }> };
+
+  const canLinkActivity = (await db.execute(sql`
+    SELECT count(*) AS n
+    FROM ${activityMaterialsTable} am
+    WHERE am.warehouse_item_id IS NULL
+      AND (SELECT count(*) FROM ${warehouseItemsTable} wi WHERE lower(wi.name) = lower(am.name)) = 1
+  `)) as unknown as { rows: Array<{ n: string }> };
+
+  const canLink = Number(canLinkMaterials.rows[0]?.n ?? 0) + Number(canLinkActivity.rows[0]?.n ?? 0);
+
+  // 2. Total unlinked (regardless of whether a match exists).
+  const totalUnlinkedMaterials = (await db.execute(sql`
+    SELECT count(*) AS n FROM ${materialsTable} WHERE warehouse_item_id IS NULL
+  `)) as unknown as { rows: Array<{ n: string }> };
+
+  const totalUnlinkedActivity = (await db.execute(sql`
+    SELECT count(*) AS n FROM ${activityMaterialsTable} WHERE warehouse_item_id IS NULL
+  `)) as unknown as { rows: Array<{ n: string }> };
+
+  const totalUnlinked = Number(totalUnlinkedMaterials.rows[0]?.n ?? 0) + Number(totalUnlinkedActivity.rows[0]?.n ?? 0);
+
+  // 3. Ambiguous names: warehouse has >1 item with that name AND at least one unlinked material uses it.
+  const ambiguousRows = (await db.execute(sql`
+    WITH ambiguous_items AS (
+      SELECT lower(name) AS lname, count(*) AS item_count
+      FROM ${warehouseItemsTable}
+      GROUP BY lower(name)
+      HAVING count(*) > 1
+    ),
+    unlinked_names AS (
+      SELECT lower(name) AS lname FROM ${materialsTable}      WHERE warehouse_item_id IS NULL
+      UNION ALL
+      SELECT lower(name) AS lname FROM ${activityMaterialsTable} WHERE warehouse_item_id IS NULL
+    ),
+    affected AS (
+      SELECT ai.lname
+      FROM ambiguous_items ai
+      WHERE EXISTS (SELECT 1 FROM unlinked_names un WHERE un.lname = ai.lname)
+    )
+    SELECT
+      a.lname AS name,
+      (SELECT count(*) FROM ${materialsTable}         WHERE warehouse_item_id IS NULL AND lower(name) = a.lname)::int AS material_count,
+      (SELECT count(*) FROM ${activityMaterialsTable} WHERE warehouse_item_id IS NULL AND lower(name) = a.lname)::int AS activity_material_count,
+      json_agg(json_build_object('id', wi.id, 'name', wi.name) ORDER BY wi.id) AS warehouse_items
+    FROM affected a
+    JOIN ${warehouseItemsTable} wi ON lower(wi.name) = a.lname
+    GROUP BY a.lname
+    ORDER BY a.lname
+  `)) as unknown as {
+    rows: Array<{
+      name: string;
+      material_count: number;
+      activity_material_count: number;
+      warehouse_items: Array<{ id: number; name: string }>;
+    }>;
+  };
+
+  const ambiguousGroups = ambiguousRows.rows.map((r) => ({
+    name: r.name,
+    materialCount: Number(r.material_count),
+    activityMaterialCount: Number(r.activity_material_count),
+    warehouseItems: r.warehouse_items,
+  }));
+
+  const totalAmbiguous = ambiguousGroups.reduce(
+    (s, g) => s + g.materialCount + g.activityMaterialCount,
+    0,
+  );
+
+  res.json({ totalUnlinked, canLink, totalAmbiguous, ambiguousGroups });
+});
+
+router.post("/warehouse-material-backfill/run", requireRole("admin", "master"), async (req, res): Promise<void> => {
+  const mResult = (await db.execute(sql`
+    UPDATE ${materialsTable} m
+    SET warehouse_item_id = wi.id
+    FROM ${warehouseItemsTable} wi
+    WHERE lower(m.name) = lower(wi.name)
+      AND m.warehouse_item_id IS NULL
+      AND (
+        SELECT count(*) FROM ${warehouseItemsTable} wi2 WHERE lower(wi2.name) = lower(wi.name)
+      ) = 1
+  `)) as unknown as { rowCount?: number | null };
+
+  const amResult = (await db.execute(sql`
+    UPDATE ${activityMaterialsTable} am
+    SET warehouse_item_id = wi.id
+    FROM ${warehouseItemsTable} wi
+    WHERE lower(am.name) = lower(wi.name)
+      AND am.warehouse_item_id IS NULL
+      AND (
+        SELECT count(*) FROM ${warehouseItemsTable} wi2 WHERE lower(wi2.name) = lower(wi.name)
+      ) = 1
+  `)) as unknown as { rowCount?: number | null };
+
+  const materialsLinked = mResult.rowCount ?? 0;
+  const activityMaterialsLinked = amResult.rowCount ?? 0;
+
+  await db.insert(auditLogTable).values({
+    actorUserId: req.auth?.userId ?? null,
+    actorName: req.auth?.name ?? "Systém",
+    action: "warehouse_material_backfill",
+    entityType: "warehouse",
+    entityId: null,
+    summary: `Backfill skladu: ${materialsLinked} materiálů zakázek, ${activityMaterialsLinked} materiálů aktivit propojeno`,
+    method: req.method,
+    path: req.path,
+  });
+
+  res.json({ materialsLinked, activityMaterialsLinked });
 });
 
 export default router;

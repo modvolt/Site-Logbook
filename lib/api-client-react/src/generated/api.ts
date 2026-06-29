@@ -275,6 +275,8 @@ import type {
   WarehouseJobMarginSummary,
   WarehouseJobMarginTrend,
   WarehouseJobsMarginSummary,
+  WarehouseMaterialBackfillReport,
+  WarehouseMaterialBackfillResult,
   WarehouseMovement,
   WarehouseMovementInput,
   WarehouseMovementPatch,
@@ -7629,6 +7631,153 @@ export function useGetWarehouseActivityMarginTrend<TData = Awaited<ReturnType<ty
 
 
 
+
+export const getGetWarehouseMaterialBackfillReportUrl = () => {
+
+
+
+
+  return `/api/warehouse-material-backfill/report`
+}
+
+/**
+ * @summary Report on materials not yet linked to a warehouse card (admin only)
+ */
+export const getWarehouseMaterialBackfillReport = async ( options?: RequestInit): Promise<WarehouseMaterialBackfillReport> => {
+
+  return customFetch<WarehouseMaterialBackfillReport>(getGetWarehouseMaterialBackfillReportUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWarehouseMaterialBackfillReportQueryKey = () => {
+    return [
+    `/api/warehouse-material-backfill/report`
+    ] as const;
+    }
+
+
+export const getGetWarehouseMaterialBackfillReportQueryOptions = <TData = Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWarehouseMaterialBackfillReportQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>> = ({ signal }) => getWarehouseMaterialBackfillReport({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWarehouseMaterialBackfillReportQueryResult = NonNullable<Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>>
+export type GetWarehouseMaterialBackfillReportQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Report on materials not yet linked to a warehouse card (admin only)
+ */
+
+export function useGetWarehouseMaterialBackfillReport<TData = Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWarehouseMaterialBackfillReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWarehouseMaterialBackfillReportQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getRunWarehouseMaterialBackfillUrl = () => {
+
+
+
+
+  return `/api/warehouse-material-backfill/run`
+}
+
+/**
+ * @summary Re-run the safe name-based backfill for unlinked materials (admin only)
+ */
+export const runWarehouseMaterialBackfill = async ( options?: RequestInit): Promise<WarehouseMaterialBackfillResult> => {
+
+  return customFetch<WarehouseMaterialBackfillResult>(getRunWarehouseMaterialBackfillUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRunWarehouseMaterialBackfillMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>, TError,void, TContext> => {
+
+const mutationKey = ['runWarehouseMaterialBackfill'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>, void> = () => {
+
+
+          return  runWarehouseMaterialBackfill(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunWarehouseMaterialBackfillMutationResult = NonNullable<Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>>
+
+    export type RunWarehouseMaterialBackfillMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Re-run the safe name-based backfill for unlinked materials (admin only)
+ */
+export const useRunWarehouseMaterialBackfill = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runWarehouseMaterialBackfill>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRunWarehouseMaterialBackfillMutationOptions(options));
+    }
 
 export const getListWarehouseMovementsUrl = (params?: ListWarehouseMovementsParams,) => {
   const normalizedParams = new URLSearchParams();

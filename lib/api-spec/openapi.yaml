@@ -2362,6 +2362,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/WarehouseActivityMarginTrend"
 
+  /warehouse-material-backfill/report:
+    get:
+      operationId: getWarehouseMaterialBackfillReport
+      tags: [warehouse]
+      summary: Report on materials not yet linked to a warehouse card (admin only)
+      responses:
+        "200":
+          description: Backfill report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseMaterialBackfillReport"
+
+  /warehouse-material-backfill/run:
+    post:
+      operationId: runWarehouseMaterialBackfill
+      tags: [warehouse]
+      summary: Re-run the safe name-based backfill for unlinked materials (admin only)
+      responses:
+        "200":
+          description: Counts of rows updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseMaterialBackfillResult"
+
   /warehouse-movements:
     get:
       operationId: listWarehouseMovements
@@ -10812,6 +10838,61 @@ components:
           type: ["integer", "null"]
         notes:
           type: ["string", "null"]
+
+    WarehouseMaterialBackfillReport:
+      type: object
+      required: [totalUnlinked, canLink, totalAmbiguous, ambiguousGroups]
+      properties:
+        totalUnlinked:
+          type: integer
+          description: Total materials (jobs + activities) with no warehouse_item_id
+        canLink:
+          type: integer
+          description: Materials that would be resolved by a safe re-run (exactly 1 warehouse item matches the name)
+        totalAmbiguous:
+          type: integer
+          description: Materials whose name maps to multiple warehouse items and cannot be auto-resolved
+        ambiguousGroups:
+          type: array
+          description: One entry per ambiguous name; lists the conflicting warehouse item IDs/names for manual resolution
+          items:
+            $ref: "#/components/schemas/WarehouseMaterialBackfillAmbiguousGroup"
+
+    WarehouseMaterialBackfillAmbiguousGroup:
+      type: object
+      required: [name, materialCount, activityMaterialCount, warehouseItems]
+      properties:
+        name:
+          type: string
+          description: The material name that matches multiple warehouse cards
+        materialCount:
+          type: integer
+          description: Number of job materials with this name and no warehouse link
+        activityMaterialCount:
+          type: integer
+          description: Number of activity materials with this name and no warehouse link
+        warehouseItems:
+          type: array
+          description: The conflicting warehouse cards (id + name) so an admin can decide which is correct
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+
+    WarehouseMaterialBackfillResult:
+      type: object
+      required: [materialsLinked, activityMaterialsLinked]
+      properties:
+        materialsLinked:
+          type: integer
+          description: Number of job material rows that had warehouse_item_id set by this run
+        activityMaterialsLinked:
+          type: integer
+          description: Number of activity material rows that had warehouse_item_id set by this run
 
     WarehouseSummary:
       type: object

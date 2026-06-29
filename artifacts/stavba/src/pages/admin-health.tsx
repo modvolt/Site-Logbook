@@ -10,12 +10,13 @@ import {
 import type { AdminHealthStatus, HealthLogEntry, ServerErrorEntry } from "@workspace/api-client-react";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle,
-  RefreshCw, Minus, Info,
+  RefreshCw, Minus, Info, PackageSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 import { cs } from "date-fns/locale";
+import { Link } from "wouter";
 
 const FRONTEND_BUILD_SHA: string =
   (import.meta.env as Record<string, string>)["VITE_BUILD_SHA"] ?? "dev";
@@ -442,6 +443,23 @@ function HealthContent({ data }: { data: AdminHealthStatus }) {
 
       {/* Server 5xx errors */}
       <ServerErrorsCard count={data.server5xxErrors24h} recent={data.recentServerErrors} />
+
+      {/* Maintenance tools */}
+      <div className="rounded-xl border bg-card p-4 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <PackageSearch className="w-5 h-5 text-muted-foreground shrink-0" />
+          <span className="font-semibold text-sm">Údržba skladu</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Zobrazit report nepropojených materiálů a spustit bezpečný backfill propojení
+          zakázkových/aktivitních materiálů se skladovými kartami.
+        </p>
+        <Link href="/admin/warehouse-backfill">
+          <Button size="sm" variant="outline" className="w-full">
+            Propojení materiálů skladu
+          </Button>
+        </Link>
+      </div>
 
       {/* Backup */}
       <Card

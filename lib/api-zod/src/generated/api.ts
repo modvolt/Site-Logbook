@@ -2428,6 +2428,34 @@ export const GetWarehouseActivityMarginTrendResponse = zod.object({
 
 
 /**
+ * @summary Report on materials not yet linked to a warehouse card (admin only)
+ */
+export const GetWarehouseMaterialBackfillReportResponse = zod.object({
+  "totalUnlinked": zod.number().describe('Total materials (jobs + activities) with no warehouse_item_id'),
+  "canLink": zod.number().describe('Materials that would be resolved by a safe re-run (exactly 1 warehouse item matches the name)'),
+  "totalAmbiguous": zod.number().describe('Materials whose name maps to multiple warehouse items and cannot be auto-resolved'),
+  "ambiguousGroups": zod.array(zod.object({
+  "name": zod.string().describe('The material name that matches multiple warehouse cards'),
+  "materialCount": zod.number().describe('Number of job materials with this name and no warehouse link'),
+  "activityMaterialCount": zod.number().describe('Number of activity materials with this name and no warehouse link'),
+  "warehouseItems": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})).describe('The conflicting warehouse cards (id + name) so an admin can decide which is correct')
+})).describe('One entry per ambiguous name; lists the conflicting warehouse item IDs\/names for manual resolution')
+})
+
+
+/**
+ * @summary Re-run the safe name-based backfill for unlinked materials (admin only)
+ */
+export const RunWarehouseMaterialBackfillResponse = zod.object({
+  "materialsLinked": zod.number().describe('Number of job material rows that had warehouse_item_id set by this run'),
+  "activityMaterialsLinked": zod.number().describe('Number of activity material rows that had warehouse_item_id set by this run')
+})
+
+
+/**
  * @summary List all stock movements (kniha pohybů) with optional filters
  */
 export const ListWarehouseMovementsQueryParams = zod.object({

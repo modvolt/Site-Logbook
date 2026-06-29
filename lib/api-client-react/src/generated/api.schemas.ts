@@ -1946,6 +1946,40 @@ export interface WarehouseActivityMarginTrend {
   points: WarehouseJobMarginTrendPoint[];
 }
 
+export type WarehouseMaterialBackfillAmbiguousGroupWarehouseItemsItem = {
+  id: number;
+  name: string;
+};
+
+export interface WarehouseMaterialBackfillAmbiguousGroup {
+  /** The material name that matches multiple warehouse cards */
+  name: string;
+  /** Number of job materials with this name and no warehouse link */
+  materialCount: number;
+  /** Number of activity materials with this name and no warehouse link */
+  activityMaterialCount: number;
+  /** The conflicting warehouse cards (id + name) so an admin can decide which is correct */
+  warehouseItems: WarehouseMaterialBackfillAmbiguousGroupWarehouseItemsItem[];
+}
+
+export interface WarehouseMaterialBackfillReport {
+  /** Total materials (jobs + activities) with no warehouse_item_id */
+  totalUnlinked: number;
+  /** Materials that would be resolved by a safe re-run (exactly 1 warehouse item matches the name) */
+  canLink: number;
+  /** Materials whose name maps to multiple warehouse items and cannot be auto-resolved */
+  totalAmbiguous: number;
+  /** One entry per ambiguous name; lists the conflicting warehouse item IDs/names for manual resolution */
+  ambiguousGroups: WarehouseMaterialBackfillAmbiguousGroup[];
+}
+
+export interface WarehouseMaterialBackfillResult {
+  /** Number of job material rows that had warehouse_item_id set by this run */
+  materialsLinked: number;
+  /** Number of activity material rows that had warehouse_item_id set by this run */
+  activityMaterialsLinked: number;
+}
+
 export interface DashboardSummary {
   todayCount: number;
   weekCount: number;

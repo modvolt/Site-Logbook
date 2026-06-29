@@ -64,6 +64,7 @@ import BillingRecurringTemplates from "@/pages/billing-recurring-templates";
 import BillingRecurringTemplateDetail from "@/pages/billing-recurring-template-detail";
 import AdminHealth from "@/pages/admin-health";
 import AdminSessions from "@/pages/admin-sessions";
+import AdminWarehouseBackfill from "@/pages/admin-warehouse-backfill";
 import Quotes from "@/pages/quotes";
 import QuoteDetail from "@/pages/quote-detail";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
@@ -234,6 +235,7 @@ function AuthenticatedApp() {
         <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
         <Route path="/admin/health">{() => <WriteOnly component={AdminHealth} />}</Route>
         <Route path="/admin/sessions">{() => <AdminOnly component={AdminSessions} />}</Route>
+        <Route path="/admin/warehouse-backfill">{() => <AdminOnly component={AdminWarehouseBackfill} />}</Route>
         <Route path="/quotes/new">{() => <AdminOnly component={QuoteDetail} />}</Route>
         <Route path="/quotes/:id">{() => <AdminOnly component={QuoteDetail} />}</Route>
         <Route path="/quotes">{() => <AdminOnly component={Quotes} />}</Route>
