@@ -1,0 +1,257 @@
+PŘEHLED ZMĚN ZA POSLEDNÍCH 12 HODIN
+Stavba – Evidence zakázek (Modvolt s.r.o.)
+Vygenerováno: 2026-06-29
+Celkem commitů: ~90 (hromadné mergování task agentů)
+Okno: 2026-06-28 16:16 UTC – 2026-06-29 00:08 UTC
+================================================================================
+
+
+DATABÁZOVÉ MIGRACE (nové tabulky/sloupce v produkci)
+-----------------------------------------------------
+Toto je nejriskantnější oblast — každá mění schéma.
+
+  0037  employee_leaves          Dovolená zaměstnanců
+  0038  ppe_assignments          OOPP přiřazení + material.purchase_price
+  0039  jobs.pricing_mode        Cenový režim zakázky
+  0040  materiály                Další sloupce k ceníku materiálů
+  0045  people.email             E-mail zaměstnance + ppe_confirm_email
+  0046  ppe_confirm_token        Tokeny pro self-service podpis OOPP
+  0047  user_sessions            Správa aktivních přihlášení
+  0048  jobs.signature_*         Digitální podpis zákazníka na protokolu
+
+
+NOVÉ FUNKCE
+-----------
+
+OOPP / PPE (osobní ochranné pracovní prostředky)
+  - Celý modul přiřazení OOPP zaměstnancům
+  - PDF a CSV export registru pro BOZP audity
+  - Digitální podpis zaměstnancem (kreslení na telefonu)
+  - Token pro self-service podpis (odkaz zaslaný e-mailem)
+  - Potvrzovací e-mail zaměstnanci při vygenerování odkazu
+  - Historie eventů (timeline) na každém přiřazení
+  - Denní e-mailová notifikace o expirovaných OOPP
+  - Revokace podpisového tokenu
+  - Blokace smazání zaměstnance s OOPP záznamy (BOZP zpráva v UI)
+  - Blokace archivace OOPP položky s aktivními přiřazeními
+  - Blokace smazání potvrzeného přiřazení
+  - Nastavitelná expirace odkazu (počet dní)
+  - Filtr dle data vydání (+ bez data vydání)
+  - Filtr dle zaměstnance na OOPP seznamu
+
+Dovolená zaměstnanců
+  - Evidence dovolené, nemocné, náhradního volna
+  - Počítání pracovních dnů (ne kalendářních)
+  - Ročně konfigurovatelné limity na typ dovolené
+  - Export přehledu do PDF nebo CSV pro mzdy
+  - Zobrazení absence inline ve formuláři zakázky/výjezdu
+  - Kontrola překryvu při plánování zakázky
+
+Cenové nabídky (quotes)
+  - Kompletní modul nabídek zákazníkům
+  - Veřejné sdílené odkazy pro přijetí/odmítnutí zákazníkem
+  - Celkové částky a počet nabídek na finančním přehledu zákazníka
+
+Paušální faktury (recurring)
+  - Šablony pro automatické opakované faktury
+  - Ruční tlačítko „Generovat nyní" per šablona
+  - Odznak „Paušál" na fakturách z šablon
+  - Záznam chyb při generování do logu
+
+Digitální podpis zákazníka
+  - Podpis předávacího protokolu zákazníkem
+  - Zobrazení podpisu na PDF zakázkového listu
+
+Passkey / WebAuthn
+  - Přihlášení otiskem prstu / Face ID bez hesla
+  - Discoverable credentials (bez nutnosti zadávat uživatelské jméno)
+  - Oprava: chybný stav tlačítka „Přidat toto zařízení" v admin pohledu
+
+Kalendář
+  - Zobrazení týden / měsíc / den
+  - Drag & drop přeplánování na denním i týdenním pohledu
+
+Správa relací (sessions)
+  - Přehled všech aktivních přihlášení v admin UI
+  - Okamžité odhlášení konkrétního zařízení
+  - Live aktualizace přehledu přes SSE
+  - Čistění starých anonymních relací
+
+Statistika / vedení
+  - KPI panel pro vedení na dashboardu
+  - Přepínač periody týden / měsíc / rok
+  - Filtr KPI grafu dle zákazníka nebo typu zakázky
+  - Graf typů zakázek v čase (stacked bar)
+  - Přidání breakdown typů zakázek do PDF reportu
+  - OOPP widget na statistice
+
+Offline PWA
+  - Fotky, materiály, časovače bez internetu
+  - Synchronizace front po obnovení připojení
+
+Zákaznická dokumentace
+  - Nahrávání PDF a fotek ke zákazníkům a provozovnám
+  - Centrální přehled dokumentů zákazníka
+
+Saldo zákazníka
+  - Finanční přehled (saldo) na kartě zákazníka
+  - Upomínky nevyfakturované práce
+
+Healthcheck a zálohy
+  - API healthcheck alerting – interní self-monitoring
+  - Automatické ověřování záloh (restore test)
+
+
+OPRAVY
+------
+
+  64fbf68  KRITICKÉ: Crash-loop produkce — 5 přeskočených migrací
+           (drizzle přeskakoval migrace s nižším when než strop)
+           → runMigrations() nyní dohání chybějící migrace automaticky
+
+  13c0e88  Tlačítko „Aktualizovat" (PWA update prompt) nefungovalo
+           → přidán SKIP_WAITING handler do service workeru
+
+  8d07461  Oprava Drizzle snapshot chainu (generování migrací)
+
+  98052cc  Race condition — dvojí podpis OOPP tokenu
+           → FOR UPDATE zámek na sign endpoint
+
+  b258688  Osiřelé soubory v S3 při souběžném pokusu o podpis
+
+  62e1189  500 → 404 při chybějícím objektu podpisu v S3
+
+  d34f55c  Filtr data neskrýval záznamy bez data vydání (export parity)
+
+  117fabd  4 blokátory z code review: pricingMode + material linking
+
+
+MODIFIKOVANÉ OBLASTI (soubory)
+-------------------------------
+  artifacts/api-server/src/routes/          Většina route souborů
+  artifacts/api-server/src/lib/             Nové služby (PPE, leaves, quotes, invoice, backup)
+  artifacts/stavba/src/pages/               Většina stránek
+  artifacts/stavba/src/sw.ts               Service worker
+  artifacts/stavba/src/hooks/              Offline queue, online status
+  lib/db/migrations/                        0037–0048 (nové migrace)
+  lib/db/src/schema/                        Nová schémata
+  lib/db/src/migrate.ts                     Self-heal logika
+  lib/api-spec/openapi.yaml                 Nové endpointy
+  lib/api-client-react/src/generated/       Přegenerováno
+  lib/api-zod/src/generated/               Přegenerováno
+  e2e/tests/                               Nové Playwright testy
+  artifacts/api-server/test/               Nové Vitest testy
+
+
+COMMIT HISTORY (chronologicky, nejstarší → nejnovější)
+-------------------------------------------------------
+  3a0032c  2026-06-28 16:16  E2E: review-queue bulk-confirm dialog flow
+  f6a558d  2026-06-28 16:16  feat: sklad – karta + inline přiřazení v review queue
+  ad7a0f6  2026-06-28 19:36  feat: systém OOPP (základ)
+  ca4ec0c  2026-06-28 19:38  Přechod Plan → Build mode
+  b49b615  2026-06-28 19:52  feat: saldo zákazníka a upomínky nevyfakturované práce
+  8bc8d38  2026-06-28 20:08  feat: dovolená zaměstnanců (vacation/sick/other)
+  a792f3a  2026-06-28 20:15  feat: absence inline ve formuláři zakázky/výjezdu
+  0289604  2026-06-28 20:18  fix: reviewer-flagged issues in OOPP
+  8243038  2026-06-28 20:21  feat: kontrola překryvu dovolené na celý rozsah zakázky
+  3a090b1  2026-06-28 20:23  feat: export dovolené do PDF/CSV
+  ee43e6e  2026-06-28 20:23  feat: absence v dropdownu při přiřazení
+  1ada686  2026-06-28 20:24  fix: blokace smazání zaměstnance s OOPP záznamy
+  117fabd  2026-06-28 20:24  fix: 4 blokátory pricingMode + material linking
+  fa3c3eb  2026-06-28 20:24  feat: denní e-mail pro expirované OOPP
+  d8dea8c  2026-06-28 20:30  feat: pracovní dny místo kalendářních pro dovolenou
+  629b0b8  2026-06-28 20:31  fix: update leave tracking (business days)
+  d5b6f85  2026-06-28 20:31  feat: OOPP export do PDF/CSV
+  c8a74c3  2026-06-28 20:32  test: /leaves/export endpoint
+  464f4a5  2026-06-28 20:33  feat: BOZP zpráva při smazání zaměstnance
+  58bc7fb  2026-06-28 20:34  feat: filtr datumů v OOPP exportu
+  6d9ed0b  2026-06-28 20:36  feat: PPE digitální potvrzení – self-service flow
+  bd435a8  2026-06-28 20:38  feat: PPE token-based self-service flow
+  fc6458a  2026-06-28 20:39  feat: filtr data na OOPP seznamu
+  396170b  2026-06-28 20:44  feat: blokace archivace OOPP s aktivními přiřazeními
+  e18aac6  2026-06-28 20:44  test: OOPP/PPE export endpoint filters
+  0cb9b34  2026-06-28 20:47  fix: cleanup E2E test workers
+  f522320  2026-06-28 20:49  feat: expirace OOPP potvrzovacích odkazů
+  83196fe  2026-06-28 20:49  feat: statistika – KPI panel vedení
+  af32e24  2026-06-28 20:49  feat: řídicí přehled vedení
+  9b0ec48  2026-06-28 20:51  fix: warehouse delete UI test
+  60a29ef  2026-06-28 20:51  test: empty-result coverage OOPP PDF/CSV
+  d34f55c  2026-06-28 20:51  fix: filtr data neskrýval záznamy bez data vydání
+  054b1f7  2026-06-28 20:51  Git commit prior to merge
+  f10ae3e  2026-06-28 20:52  feat: health status endpoint + types
+  4628f64  2026-06-28 20:52  test: PPE signature bypass tests
+  b365429  2026-06-28 20:55  feat: digitální podpis zaměstnancem OOPP
+  e346e1a  2026-06-28 20:56  fix: E2E cleanup pattern
+  e6f47ab  2026-06-28 20:56  feat: KPI panel na dashboardu
+  e2b79f5  2026-06-28 20:59  feat: OOPP handover podpisový protokol + PDF
+  acd9456  2026-06-28 21:00  feat: blokace smazání potvrzeného OOPP přiřazení
+  e23c723  2026-06-28 21:00  feat: KPI graf – filtr zákazník/typ zakázky
+  Prevent sign links after return/close
+  af3aad6  2026-06-28 21:03  feat: revokace podpisového tokenu
+  20a5905  2026-06-28 21:03  feat: blokace odkazu po vrácení/uzavření OOPP
+  d57bda3  2026-06-28 21:05  feat: admin vidí podpis na potvrzených OOPP
+  631cc1b  2026-06-28 21:06  feat: přepínač periody na KPI panelu
+  0ca47f7  2026-06-28 21:07  fix: guard dvojího podpisu OOPP
+  2987ab1  2026-06-28 21:07  Git commit prior to merge
+  bed8b66  2026-06-28 21:09  e2e: OOPP filtr „bez data vydání"
+  a065403  2026-06-28 21:09  feat: timeline eventů na OOPP přiřazení
+  5ba311e  2026-06-28 21:10  feat: e-mail zaměstnanci při vygenerování OOPP odkazu
+  4c66a1d  2026-06-28 21:11  fix: sync PPE journal + dev DB
+  7a05f83  2026-06-28 21:15  feat: prev/next navigace na KPI panelu
+  62e1189  2026-06-28 21:15  fix: 500 → 404 pro chybějící objekt podpisu
+  4f5e1dc  2026-06-28 21:15  feat: stacked bar graf typů zakázek
+  1dc2d11  2026-06-28 21:16  test: OOPP export contract tests
+  d86e445  2026-06-28 21:16  test: PPE sign-off flow + fix useParams bug
+  4ce78c6  2026-06-28 21:16  test: concurrent double-sign race tests
+  9d6244f  2026-06-28 21:16  Git commit prior to merge
+  e1d2083  2026-06-28 21:22  test: OOPP combined person + date filter (Playwright)
+  cae0c80  2026-06-28 21:22  test: trend chart filter tests (Vitest)
+  eafa990  2026-06-28 21:22  Git commit prior to merge
+  2116f09  2026-06-28 21:22  feat: e-mail zaměstnance na OOPP kartě
+  0d68092  2026-06-28 21:22  feat: health status endpoint (API client)
+  f805a36  2026-06-28 21:25  test: PPE confirmation email send path
+  dd5e88e  2026-06-28 21:25  fix: blokace duplicitního conf. e-mailu
+  6a56218  2026-06-28 21:25  feat: centrální dokumentace zákazníků
+  c8b1b21  2026-06-28 21:37  fix: pre-existing type errors
+  4078bfa  2026-06-28 21:37  feat: nahrávání souborů ke zákazníkům
+  98052cc  2026-06-28 21:37  fix: FOR UPDATE lock na sign token endpoint
+  a65b112  2026-06-28 21:37  Git commit prior to merge
+  47cb8bf  2026-06-28 21:37  fix: fresh-DB migration smoke test + journal corruption
+  7d29f6e  2026-06-28 21:38  feat: health check endpoints
+  b81d224  2026-06-28 21:42  feat: CI validační krok pro migrace
+  f0c6cdc  2026-06-28 21:57  feat: isolated migration smoke-test (Docker Postgres)
+  95e661d  2026-06-28 21:57  feat: self-service PPE podpis pro přihlášené uživatele
+  8d07461  2026-06-28 21:57  fix: Drizzle snapshot chain
+  7082e91  2026-06-28 22:00  feat: kalendář (technician scheduling, week/month/day)
+  c5c6016  2026-06-28 22:04  feat: správa aktivních relací
+  72cbdee  2026-06-28 22:08  feat: offline mode PWA
+  16ea3d2  2026-06-28 22:08  feat: digitální podpis zákazníka (předávací protokol)
+  5c72935  2026-06-28 22:12  feat: cenové nabídky (quotes)
+  c5c4ff1  2026-06-28 22:14  feat: live-update admin sessions přes SSE
+  ebe353c  2026-06-28 22:14  feat: API healthcheck alerting
+  e3ba253  2026-06-28 22:17  feat: paušální faktury (recurring)
+  67aa0e9  2026-06-28 22:18  e2e: revokace relace = okamžité odhlášení
+  6e28bb3  2026-06-28 22:18  feat: drag & drop přeplánování (week view)
+  28b2038  2026-06-28 22:21  feat: automatické ověřování záloh (restore test)
+  e431e74  2026-06-28 22:23  feat: čistění anonymních relací
+  280f5be  2026-06-28 22:23  feat: odznak „Paušál" na fakturách
+  890b427  2026-06-28 22:23  feat: podpis zákazníka na PDF zakázkového listu
+  06d9315  2026-06-28 22:36  feat: drag & drop (day view)
+  a3b2f0e  2026-06-28 22:36  test: quote send flow (Vitest DB)
+  fe02549  2026-06-28 22:36  feat: celkové částky nabídek na fin. přehledu zákazníka
+  b7a1998  2026-06-28 22:37  feat: ruční „Generovat nyní" pro paušální faktury
+  9b7a9d8  2026-06-28 22:37  e2e: Playwright kalendář testy
+  241da55  2026-06-28 22:37  feat: záznam chyb při generování paušální faktury
+  0318a74  2026-06-28 22:55  feat: passkey / WebAuthn login
+  97c3b2f  2026-06-28 22:55  e2e: job signature flow
+  a4d0c51  2026-06-28 22:55  test: backup/restore integration test
+  cdc4a90  2026-06-28 22:57  feat: veřejné sdílené odkazy nabídek
+  c1c9792  2026-06-28 22:59  fix: chybný stav tlačítka „Přidat zařízení" (WebAuthn)
+  f580664  2026-06-28 23:00  fix: Drizzle journal corruption + rebase conflict
+  976ab3f  2026-06-28 23:00  e2e: job-export signature display
+  55034c1  2026-06-28 23:06  feat: WebAuthn residentKey = "preferred"
+  48fc962  2026-06-28 23:20  e2e: calendar drag & drop + migration collisions fix
+  3b470b2  2026-06-28 23:20  test: WebAuthn passkey login (Vitest)
+  64fbf68  2026-06-28 23:45  fix: KRITICKÉ – self-heal přeskočených migrací (crash-loop)
+  13c0e88  2026-06-28 23:53  fix: tlačítko „Aktualizovat" v PWA update promptu
+  0d037c9  2026-06-29 00:08  Published your App (deploy)

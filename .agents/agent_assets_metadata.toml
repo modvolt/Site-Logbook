@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "ul16vEemIT_ElYv2Ei3lm"
+uri = "file://zmeny-posledni-12h.txt"
+type = "text"
+title = "Změny za posledních 12 hodin"
