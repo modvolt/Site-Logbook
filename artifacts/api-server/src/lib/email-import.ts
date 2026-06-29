@@ -476,9 +476,11 @@ export type PollResult = {
 export async function pollOnce(): Promise<PollResult> {
   const cfg = await resolveImapConfig();
   if (!cfg) {
-    throw new Error(
-      "Příjem e-mailů není nakonfigurován. Vyplňte nastavení (nebo proměnné IMAP_*).",
-    );
+    // IMAP not configured — return an empty result so callers (both the
+    // background worker and the manual-poll route) can complete cleanly and
+    // record the "no-op" poll in the settings row. The caller is responsible
+    // for surfacing the unconfigured state to the user if needed.
+    return { processed: 0, imported: 0, skipped: 0, failed: 0, noAttachments: 0 };
   }
 
   const result: PollResult = {
@@ -742,10 +744,12 @@ export async function pollAndRecord(): Promise<PollResult> {
       .update(emailImportSettingsTable)
       .set({ lastPolledAt: now, lastStatus: summary, lastError: null })
       .where(eq(emailImportSettingsTable.id, SINGLETON_ID));
-    // Notify browsers: new documents or import-log entries were written.
-    if (result.imported > 0 || result.processed > 0) {
-      publishLiveEvent(["emailImport", "billingDocuments", "reviewQueue"]).catch(() => {});
-    }
+    // Notify browsers: the poll completed — lastPolledAt always changes, so the
+    // email-import page should refresh its "last polled" timestamp regardless of
+    // whether any messages were imported. Publishing unconditionally also means
+    // the manual "Poll Now" action reliably triggers a UI refresh even when the
+    // mailbox is empty or IMAP is not yet configured.
+    publishLiveEvent(["emailImport", "billingDocuments", "reviewQueue"]).catch(() => {});
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
