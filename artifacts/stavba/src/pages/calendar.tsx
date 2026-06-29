@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   format,
   startOfWeek,
@@ -11,9 +11,10 @@ import {
   addMonths,
   subMonths,
   subDays,
-  isSameDay,
   isSameMonth,
   getDay,
+  parseISO,
+  isValid,
 } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
@@ -59,6 +60,7 @@ import {
   LayoutGrid,
   Palmtree,
   Check,
+  ChevronsUpDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -69,9 +71,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { QueryErrorState } from "@/components/query-error-state";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { invalidateData } from "@/lib/query-invalidation";
 
 type View = "week" | "month" | "day";
@@ -435,6 +438,9 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
     const sameSlot = job.date === target.dateStr && job.assignedPersonId === target.personId;
     if (sameSlot) return;
 
+    const originalDate = job.date;
+    const originalPersonId = job.assignedPersonId;
+
     setOptimisticOverrides((prev) => {
       const next = new Map(prev);
       next.set(job.id, { date: target.dateStr, assignedPersonId: target.personId });
@@ -457,7 +463,22 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
             return next;
           });
           invalidateData(queryClient, "jobs");
-          toast({ title: "Zakázka přeřazena" });
+          toast({
+            title: "Zakázka přeřazena",
+            action: (
+              <ToastAction
+                altText="Vrátit přesun"
+                onClick={() => {
+                  updateJob.mutate(
+                    { id: job.id, data: { date: originalDate, assignedPersonId: originalPersonId } },
+                    { onSuccess: () => { invalidateData(queryClient, "jobs"); } },
+                  );
+                }}
+              >
+                Vrátit
+              </ToastAction>
+            ),
+          });
         },
         onError: (err: unknown) => {
           setOptimisticOverrides((prev) => {
@@ -498,13 +519,14 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto relative">
+        <div className="absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-background/60 to-transparent pointer-events-none z-10 sm:hidden" />
         <div className="min-w-[680px]">
           <div
             className="grid border-b bg-card"
             style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}
           >
-            <div className="px-2 py-2 text-xs font-medium text-muted-foreground border-r" />
+            <div className="px-2 py-2 text-xs font-medium text-muted-foreground border-r sticky left-0 bg-card z-10" />
             {days.map((d, i) => {
               const ds = dayStrs[i];
               const isToday = ds === today;
@@ -538,7 +560,7 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
               className="grid border-b last:border-b-0"
               style={{ gridTemplateColumns: "140px repeat(7, 1fr)" }}
             >
-              <div className="px-2 py-2 border-r bg-muted/30 flex items-start">
+              <div className="px-2 py-2 border-r bg-muted/30 flex items-start sticky left-0 z-10">
                 <span className="text-xs font-semibold text-foreground leading-tight break-words">
                   {label}
                 </span>
@@ -639,9 +661,10 @@ interface MonthViewProps {
   monthDate: Date;
   onNavigate: (path: string) => void;
   onRequestCreateVisit: (date: string, personId: number | null) => void;
+  onDayClick: (dateStr: string) => void;
 }
 
-function MonthView({ jobs, activityVisits, holidays, monthDate, onNavigate, onRequestCreateVisit }: MonthViewProps) {
+function MonthView({ jobs, activityVisits, holidays, monthDate, onNavigate, onRequestCreateVisit, onDayClick }: MonthViewProps) {
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const today = format(new Date(), "yyyy-MM-dd");
 
@@ -694,30 +717,35 @@ function MonthView({ jobs, activityVisits, holidays, monthDate, onNavigate, onRe
           return (
             <div
               key={ds}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                if (expandedDay === ds) {
-                  setExpandedDay(null);
-                  return;
-                }
-                onNavigate(`/jobs/new?date=${ds}`);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") onNavigate(`/jobs/new?date=${ds}`);
-              }}
-              className={`min-h-[80px] p-1 cursor-pointer transition-colors hover:bg-muted/60 ${cellBg} ${!inMonth ? "opacity-50" : ""}`}
+              className={`min-h-[80px] p-1 transition-colors ${cellBg} ${!inMonth ? "opacity-50" : ""}`}
             >
               <div className="flex items-center justify-between mb-0.5">
-                <div className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full
-                  ${isToday ? "bg-primary text-primary-foreground" : isWeekend ? "text-gray-400" : "text-foreground"}`}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  title="Otevřít denní přehled"
+                  onClick={() => onDayClick(ds)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onDayClick(ds); }}
+                  className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all
+                    ${isToday ? "bg-primary text-primary-foreground" : isWeekend ? "text-gray-400" : "text-foreground"}`}
+                >
                   {format(d, "d")}
                 </div>
-                {holiday && inMonth && (
-                  <span className="text-[8px] text-amber-700 dark:text-amber-400 font-medium truncate max-w-[50px]" title={holiday}>
-                    {truncate(holiday, 8)}
-                  </span>
-                )}
+                <div className="flex items-center gap-0.5">
+                  {holiday && inMonth && (
+                    <span className="text-[8px] text-amber-700 dark:text-amber-400 font-medium truncate max-w-[40px]" title={holiday}>
+                      {truncate(holiday, 6)}
+                    </span>
+                  )}
+                  <button
+                    title="Přidat zakázku"
+                    aria-label="Přidat zakázku"
+                    onClick={(e) => { e.stopPropagation(); onNavigate(`/jobs/new?date=${ds}`); }}
+                    className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
               </div>
               <div className="space-y-0.5">
                 {visibleItems.map((item) =>
@@ -780,6 +808,8 @@ function MonthView({ jobs, activityVisits, holidays, monthDate, onNavigate, onRe
 
 const HOUR_HEIGHT = 56;
 const TIMELINE_HOURS = 24;
+const DAY_VIEW_START = 6;
+const DAY_VIEW_END = 20;
 
 function parseTimeDecimal(t: string): number {
   const parts = t.split(":");
@@ -803,15 +833,11 @@ function nowOffsetPx(): number | null {
 interface DraggableDayJobCardProps {
   job: CalendarJob;
   onNavigate: (path: string) => void;
+  top: number;
+  height: number;
 }
 
-function DraggableDayJobCard({ job, onNavigate }: DraggableDayJobCardProps) {
-  const startH = parseTimeDecimal(job.startTime!);
-  const endH = job.endTime ? parseTimeDecimal(job.endTime) : startH + 1;
-  const duration = Math.max(0.5, endH - startH);
-  const top = startH * HOUR_HEIGHT;
-  const height = duration * HOUR_HEIGHT - 2;
-
+function DraggableDayJobCard({ job, onNavigate, top, height }: DraggableDayJobCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `dayjob-${job.id}`,
     data: { job },
@@ -888,6 +914,9 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const [showFullDay, setShowFullDay] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const [optimisticOverrides, setOptimisticOverrides] = useState<
     Map<number, { startTime: string; endTime: string | null }>
   >(new Map());
@@ -897,6 +926,20 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
+
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const now = new Date();
+    let targetHour: number;
+    if (isToday) {
+      targetHour = Math.max(DAY_VIEW_START, now.getHours() - 1);
+    } else {
+      targetHour = DAY_VIEW_START;
+    }
+    const displayStart = showFullDay ? 0 : DAY_VIEW_START;
+    const relativeHour = Math.max(0, targetHour - displayStart);
+    scrollRef.current.scrollTop = relativeHour * HOUR_HEIGHT;
+  }, [ds, showFullDay]);
 
   const effectiveJobs = useMemo(() => {
     if (optimisticOverrides.size === 0) return jobs;
@@ -918,6 +961,9 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
 
     const job = active.data.current?.job as CalendarJob | undefined;
     if (!job || !job.startTime) return;
+
+    const originalStartTime = job.startTime;
+    const originalEndTime = job.endTime ?? null;
 
     const startH = parseTimeDecimal(job.startTime);
     const deltaH = delta.y / HOUR_HEIGHT;
@@ -956,7 +1002,28 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
             return next;
           });
           invalidateData(queryClient, "jobs");
-          toast({ title: "Čas zakázky upraven" });
+          toast({
+            title: "Čas zakázky upraven",
+            action: (
+              <ToastAction
+                altText="Vrátit přesun"
+                onClick={() => {
+                  updateJob.mutate(
+                    {
+                      id: job.id,
+                      data: {
+                        startTime: originalStartTime,
+                        ...(originalEndTime !== null ? { endTime: originalEndTime } : {}),
+                      },
+                    },
+                    { onSuccess: () => { invalidateData(queryClient, "jobs"); } },
+                  );
+                }}
+              >
+                Vrátit
+              </ToastAction>
+            ),
+          });
         },
         onError: () => {
           setOptimisticOverrides((prev) => {
@@ -986,7 +1053,13 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
     : null;
 
   const nowPx = isToday ? nowOffsetPx() : null;
-  const hours = Array.from({ length: TIMELINE_HOURS }, (_, i) => i);
+
+  const displayStart = showFullDay ? 0 : DAY_VIEW_START;
+  const displayEnd = showFullDay ? TIMELINE_HOURS : DAY_VIEW_END;
+  const displayHours = Array.from({ length: displayEnd - displayStart }, (_, i) => i + displayStart);
+  const timelineHeight = (displayEnd - displayStart) * HOUR_HEIGHT;
+
+  const offsetPx = (absoluteHour: number) => (absoluteHour - displayStart) * HOUR_HEIGHT;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -1057,38 +1130,73 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
         )}
 
         <div className="px-2 pt-3">
+          <div className="flex items-center justify-between mb-1.5 px-1">
+            <span className="text-xs text-muted-foreground">
+              {showFullDay ? "Celý den (0:00–24:00)" : `Pracovní čas (${DAY_VIEW_START}:00–${DAY_VIEW_END}:00)`}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] gap-1 text-muted-foreground"
+              onClick={() => setShowFullDay((v) => !v)}
+              title={showFullDay ? "Zobrazit pouze pracovní dobu" : "Zobrazit celý den"}
+            >
+              <ChevronsUpDown className="w-3 h-3" />
+              {showFullDay ? "Pracovní čas" : "Celý den"}
+            </Button>
+          </div>
           <div
-            className="relative bg-card border rounded-lg overflow-hidden"
-            style={{ height: `${TIMELINE_HOURS * HOUR_HEIGHT}px` }}
+            ref={scrollRef}
+            className="relative bg-card border rounded-lg overflow-y-auto"
+            style={{ height: "min(60vh, 480px)" }}
           >
-            {hours.map((h) => (
-              <div
-                key={h}
-                className="absolute left-0 right-0 border-t border-border/30 flex"
-                style={{ top: `${h * HOUR_HEIGHT}px`, height: `${HOUR_HEIGHT}px` }}
-              >
-                <span className="text-[10px] text-muted-foreground w-10 pt-0.5 pl-1 shrink-0 select-none">
-                  {String(h).padStart(2, "0")}:00
-                </span>
-                <DroppableTimeSlot hour={h} dateStr={ds} onNavigate={onNavigate} />
-              </div>
-            ))}
-
-            {nowPx !== null && (
-              <div
-                className="absolute left-0 right-0 z-20 pointer-events-none"
-                style={{ top: `${nowPx}px` }}
-              >
-                <div className="ml-10 h-0.5 bg-red-500/80 relative">
-                  <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
+            <div
+              className="relative"
+              style={{ height: `${timelineHeight}px` }}
+            >
+              {displayHours.map((h) => (
+                <div
+                  key={h}
+                  className="absolute left-0 right-0 border-t border-border/30 flex"
+                  style={{ top: `${offsetPx(h)}px`, height: `${HOUR_HEIGHT}px` }}
+                >
+                  <span className="text-[10px] text-muted-foreground w-10 pt-0.5 pl-1 shrink-0 select-none">
+                    {String(h).padStart(2, "0")}:00
+                  </span>
+                  <DroppableTimeSlot hour={h} dateStr={ds} onNavigate={onNavigate} />
                 </div>
-              </div>
-            )}
-
-            <div className="absolute inset-0 pointer-events-none" style={{ left: "40px" }}>
-              {timedJobs.map((job) => (
-                <DraggableDayJobCard key={job.id} job={job} onNavigate={onNavigate} />
               ))}
+
+              {nowPx !== null && nowPx >= offsetPx(displayStart) && nowPx <= offsetPx(displayEnd) && (
+                <div
+                  className="absolute left-0 right-0 z-20 pointer-events-none"
+                  style={{ top: `${nowPx - offsetPx(displayStart)}px` }}
+                >
+                  <div className="ml-10 h-0.5 bg-red-500/80 relative">
+                    <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500" />
+                  </div>
+                </div>
+              )}
+
+              <div className="absolute inset-0 pointer-events-none" style={{ left: "40px" }}>
+                {timedJobs.map((job) => {
+                  const startH = parseTimeDecimal(job.startTime!);
+                  if (startH < displayStart || startH >= displayEnd) return null;
+                  const endH = job.endTime ? parseTimeDecimal(job.endTime) : startH + 1;
+                  const duration = Math.max(0.5, endH - startH);
+                  const top = offsetPx(startH);
+                  const height = duration * HOUR_HEIGHT - 2;
+                  return (
+                    <DraggableDayJobCard
+                      key={job.id}
+                      job={job}
+                      onNavigate={onNavigate}
+                      top={top}
+                      height={height}
+                    />
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -1133,13 +1241,49 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
   );
 }
 
+function defaultView(): View {
+  if (typeof window !== "undefined" && window.innerWidth < 768) return "day";
+  return "week";
+}
+
 export default function CalendarPage() {
   const [, navigate] = useLocation();
-  const [view, setView] = useState<View>(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) return "day";
-    return "week";
-  });
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const search = useSearch();
+
+  const { view, currentDate } = useMemo(() => {
+    const params = new URLSearchParams(search);
+    const viewParam = params.get("view");
+    const dateParam = params.get("date");
+
+    const parsedView: View =
+      viewParam === "week" || viewParam === "month" || viewParam === "day"
+        ? viewParam
+        : defaultView();
+
+    let parsedDate = new Date();
+    if (dateParam) {
+      const d = parseISO(dateParam);
+      if (isValid(d)) parsedDate = d;
+    }
+
+    return { view: parsedView, currentDate: parsedDate };
+  }, [search]);
+
+  function pushState(newView: View, newDate: Date) {
+    const params = new URLSearchParams();
+    params.set("view", newView);
+    params.set("date", format(newDate, "yyyy-MM-dd"));
+    navigate(`/calendar?${params.toString()}`);
+  }
+
+  function setView(newView: View) {
+    pushState(newView, currentDate);
+  }
+
+  function setCurrentDate(newDate: Date) {
+    pushState(view, newDate);
+  }
+
   const [createVisitCtx, setCreateVisitCtx] = useState<{ date: string; personId: number | null } | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -1229,19 +1373,23 @@ export default function CalendarPage() {
   const safeActivityVisits = activityVisitsData ?? [];
 
   function goBack() {
-    if (view === "week") setCurrentDate((d) => subWeeks(d, 1));
-    else if (view === "month") setCurrentDate((d) => subMonths(d, 1));
-    else setCurrentDate((d) => subDays(d, 1));
+    if (view === "week") setCurrentDate(subWeeks(currentDate, 1));
+    else if (view === "month") setCurrentDate(subMonths(currentDate, 1));
+    else setCurrentDate(subDays(currentDate, 1));
   }
 
   function goForward() {
-    if (view === "week") setCurrentDate((d) => addWeeks(d, 1));
-    else if (view === "month") setCurrentDate((d) => addMonths(d, 1));
-    else setCurrentDate((d) => addDays(d, 1));
+    if (view === "week") setCurrentDate(addWeeks(currentDate, 1));
+    else if (view === "month") setCurrentDate(addMonths(currentDate, 1));
+    else setCurrentDate(addDays(currentDate, 1));
   }
 
   function goToday() {
     setCurrentDate(new Date());
+  }
+
+  function handleDayClick(dateStr: string) {
+    pushState("day", parseISO(dateStr));
   }
 
   const headerTitle = useMemo(() => {
@@ -1249,65 +1397,103 @@ export default function CalendarPage() {
       const ws = startOfWeek(currentDate, { weekStartsOn: 1 });
       const we = endOfWeek(currentDate, { weekStartsOn: 1 });
       if (ws.getMonth() === we.getMonth()) {
-        return format(ws, "MMMM yyyy", { locale: cs });
+        return format(ws, "LLLL yyyy", { locale: cs });
       }
       return `${format(ws, "d. MMM", { locale: cs })} – ${format(we, "d. MMM yyyy", { locale: cs })}`;
     }
     if (view === "month") {
-      return format(currentDate, "MMMM yyyy", { locale: cs });
+      return format(currentDate, "LLLL yyyy", { locale: cs });
     }
-    return format(currentDate, "EEEE d. MMMM yyyy", { locale: cs });
+    return format(currentDate, "EEEE d. LLLL yyyy", { locale: cs });
   }, [view, currentDate]);
+
+  const viewSwitcher = (
+    <div className="flex items-center rounded-lg border bg-muted/40 p-0.5 gap-0.5">
+      <Button
+        variant={view === "week" ? "default" : "ghost"}
+        size="sm"
+        className={`h-7 px-2 text-xs gap-1 ${view === "week" ? "" : "text-muted-foreground"}`}
+        onClick={() => setView("week")}
+        aria-label="Týdenní pohled"
+        title="Týdenní pohled"
+      >
+        <Rows3 className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Týden</span>
+      </Button>
+      <Button
+        variant={view === "month" ? "default" : "ghost"}
+        size="sm"
+        className={`h-7 px-2 text-xs gap-1 ${view === "month" ? "" : "text-muted-foreground"}`}
+        onClick={() => setView("month")}
+        aria-label="Měsíční pohled"
+        title="Měsíční pohled"
+      >
+        <LayoutGrid className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Měsíc</span>
+      </Button>
+      <Button
+        variant={view === "day" ? "default" : "ghost"}
+        size="sm"
+        className={`h-7 px-2 text-xs gap-1 ${view === "day" ? "" : "text-muted-foreground"}`}
+        onClick={() => setView("day")}
+        aria-label="Denní pohled"
+        title="Denní pohled"
+      >
+        <CalendarDays className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Den</span>
+      </Button>
+    </div>
+  );
+
+  const navButtons = (
+    <div className="flex items-center gap-1 shrink-0">
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        onClick={goBack}
+        aria-label="Předchozí"
+        title="Předchozí"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={goToday} title="Přejít na dnešek">
+        Dnes
+      </Button>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        onClick={goForward}
+        aria-label="Následující"
+        title="Následující"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-3 flex items-center justify-between border-b bg-card z-10 sticky top-0 gap-2 flex-wrap">
-        <div>
-          <h1 className="text-lg font-bold capitalize leading-tight">{headerTitle}</h1>
+      {/* Desktop header — single row */}
+      <div className="hidden md:flex p-3 items-center justify-between border-b bg-card z-10 sticky top-0 gap-2">
+        <h1 className="text-lg font-bold capitalize leading-tight">{headerTitle}</h1>
+        <div className="flex items-center gap-2">
+          {viewSwitcher}
+          {navButtons}
         </div>
+      </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <div className="flex items-center rounded-lg border bg-muted/40 p-0.5 gap-0.5">
-            <Button
-              variant={view === "week" ? "default" : "ghost"}
-              size="sm"
-              className={`h-7 px-2 text-xs gap-1 ${view === "week" ? "" : "text-muted-foreground"}`}
-              onClick={() => setView("week")}
-            >
-              <Rows3 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Týden</span>
-            </Button>
-            <Button
-              variant={view === "month" ? "default" : "ghost"}
-              size="sm"
-              className={`h-7 px-2 text-xs gap-1 ${view === "month" ? "" : "text-muted-foreground"}`}
-              onClick={() => setView("month")}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Měsíc</span>
-            </Button>
-            <Button
-              variant={view === "day" ? "default" : "ghost"}
-              size="sm"
-              className={`h-7 px-2 text-xs gap-1 ${view === "day" ? "" : "text-muted-foreground"}`}
-              onClick={() => setView("day")}
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Den</span>
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={goBack} title="Zpět">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={goToday}>
-              Dnes
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={goForward} title="Vpřed">
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+      {/* Mobile header — two stable rows */}
+      <div className="md:hidden border-b bg-card z-10 sticky top-0">
+        <div className="px-3 pt-2 pb-1 flex items-center gap-2">
+          <h1 className="text-sm font-bold capitalize leading-tight flex-1 min-w-0 truncate" title={headerTitle}>
+            {headerTitle}
+          </h1>
+          {navButtons}
+        </div>
+        <div className="px-3 pb-2">
+          {viewSwitcher}
         </div>
       </div>
 
@@ -1337,6 +1523,7 @@ export default function CalendarPage() {
               monthDate={currentDate}
               onNavigate={navigate}
               onRequestCreateVisit={handleRequestCreateVisit}
+              onDayClick={handleDayClick}
             />
           )}
           {view === "day" && (
