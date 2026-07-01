@@ -1,3 +1,4 @@
+- [Health check migrations folder path](health-migrations-folder-path.md) — resolveMigrationsFolder must go up 3× (not 4×) from import.meta.url; esbuild bundle is dist/index.mjs, only 3 levels deep from workspace root.
 - [Job visits & technician person link](job-visits-person-link.md) — výjezdy are per-job visits separate from assignedPersonId; /me/visits maps user→person ONLY by users.name===people.name (handle 0/>1 matches).
 - [Wouter useParams outside Route](wouter-useparams-outside-route.md) — useParams() returns {} when rendered via manual startsWith check; extract token from useLocation() path slice instead.
 - [Object storage setup](object-storage.md) — dual backend: S3-compatible (prod) else GCS/Replit (dev), chosen by s3Configured(); url column holds backend-agnostic /objects/... paths; legacy base64 still displays via getAttachmentUrl() fallback.

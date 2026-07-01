@@ -34,11 +34,11 @@ interface Journal {
 
 function resolveMigrationsFolder(): string {
   if (process.env.MIGRATIONS_DIR) return process.env.MIGRATIONS_DIR;
-  // In dev (Replit source tree), walk up from this file to the workspace root.
-  // artifacts/api-server/src/routes → up 4 → workspace root → lib/db/migrations
+  // The bundled entry point is at artifacts/api-server/dist/index.mjs.
+  // From dist/ → up 3 → workspace root → lib/db/migrations.
+  // (In source the file is deeper, but esbuild bundles everything into dist/index.mjs.)
   return path.join(
     path.dirname(fileURLToPath(import.meta.url)),
-    "..",
     "..",
     "..",
     "..",
