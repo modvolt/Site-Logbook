@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   billingSettingsTable,
@@ -172,7 +172,7 @@ export async function listQuotes(opts?: {
     const customers = await db
       .select({ id: customersTable.id, companyName: customersTable.companyName, email: customersTable.email })
       .from(customersTable)
-      .where(sql`${customersTable.id} = any(${sql`array[${sql.join(customerIds.map((id) => sql`${id}`), sql`, `)}]`})`);
+      .where(inArray(customersTable.id, customerIds));
     for (const c of customers) customersMap.set(c.id, { companyName: c.companyName, email: c.email });
   }
 

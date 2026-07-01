@@ -1,0 +1,49 @@
+PostgreSQL Database directory appears to contain a database; Skipping initialization
+2026-07-01 11:59:47.070 UTC [1] LOG:  starting PostgreSQL 16.14 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-07-01 11:59:47.070 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-07-01 11:59:47.070 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-07-01 11:59:47.072 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-07-01 11:59:47.077 UTC [29] LOG:  database system was shut down at 2026-07-01 11:59:45 UTC
+2026-07-01 11:59:47.081 UTC [1] LOG:  database system is ready to accept connections
+2026-07-01 12:00:08.644 UTC [43] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:08.644 UTC [43] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:08.644 UTC [43] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:10.878 UTC [56] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:10.878 UTC [56] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:10.878 UTC [56] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:12.198 UTC [44] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:12.198 UTC [44] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:12.198 UTC [44] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:14.469 UTC [42] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:14.469 UTC [42] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:14.469 UTC [42] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:18.723 UTC [65] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:18.723 UTC [65] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:18.723 UTC [65] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:21.026 UTC [66] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:21.026 UTC [66] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:21.026 UTC [66] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:22.210 UTC [67] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:22.210 UTC [67] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:22.210 UTC [67] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:34.717 UTC [74] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:34.717 UTC [74] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:34.717 UTC [74] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:00:36.083 UTC [73] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:00:36.083 UTC [73] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:00:36.083 UTC [73] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:01:41.450 UTC [131] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:01:41.450 UTC [131] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:01:41.450 UTC [131] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:01:45.917 UTC [143] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:01:45.917 UTC [143] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:01:45.917 UTC [143] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:01:47.099 UTC [144] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:01:47.099 UTC [144] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:01:47.099 UTC [144] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:01:49.298 UTC [108] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:01:49.298 UTC [108] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:01:49.298 UTC [108] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
+2026-07-01 12:01:53.830 UTC [153] ERROR:  operator does not exist: integer = text at character 78
+2026-07-01 12:01:53.830 UTC [153] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+2026-07-01 12:01:53.830 UTC [153] STATEMENT:  select "id", "company_name", "email" from "customers" where "customers"."id" = any(array[$1])
