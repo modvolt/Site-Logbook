@@ -2978,6 +2978,18 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
   const [pricingMode, setPricingMode] = useState<string>(job.pricingMode ?? "time_material");
   const [contractPrice, setContractPrice] = useState(job.contractPrice?.toString() || "");
 
+  // Sync local state whenever the server-side job data changes (e.g. after a
+  // time-entry stop triggers syncJobHoursFromEntries and the query refetches).
+  // Server is source of truth — any unsaved local edits will be overwritten on
+  // refetch, which is acceptable and consistent with other sections in this page.
+  useEffect(() => {
+    setHoursVasek(job.hoursVasek?.toString() || "");
+    setHoursJonas(job.hoursJonas?.toString() || "");
+    setPrice(job.price?.toString() || "");
+    setPricingMode(job.pricingMode ?? "time_material");
+    setContractPrice(job.contractPrice?.toString() || "");
+  }, [job.hoursVasek, job.hoursJonas, job.price, job.pricingMode, job.contractPrice]);
+
   const totalHours = (parseDecimal(hoursVasek) ?? 0) + (parseDecimal(hoursJonas) ?? 0);
 
   const hoursVasekErr = decimalError(hoursVasek);

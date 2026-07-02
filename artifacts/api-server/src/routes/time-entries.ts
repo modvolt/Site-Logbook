@@ -158,6 +158,49 @@ async function remove(kind: Kind, parentId: number, personId: number) {
   return !!entry;
 }
 
+/**
+ * After any job time-entry mutation, recompute hours_vasek / hours_jonas /
+ * hours_spent on the job from the current time_entries rows and update jobs in
+ * one atomic UPDATE. This is the single source of truth — the work-summary
+ * fields always reflect the actual recorded hours of every tracked person.
+ *
+ * Name matching (case-insensitive, handles diacritics variants):
+ *   hours_vasek  — person name contains "vašek" or "vasek"
+ *   hours_jonas  — person name contains "jonáš" or "jonas"
+ *   hours_spent  — sum across all persons
+ */
+export async function syncJobHoursFromEntries(jobId: number): Promise<void> {
+  const rows = await db
+    .select({ name: peopleTable.name, hours: timeEntriesTable.hours })
+    .from(timeEntriesTable)
+    .innerJoin(peopleTable, eq(timeEntriesTable.personId, peopleTable.id))
+    .where(eq(timeEntriesTable.jobId, jobId));
+
+  let hoursVasek = 0;
+  let hoursJonas = 0;
+  let hoursSpent = 0;
+
+  for (const row of rows) {
+    const h = Math.round(Number(row.hours) * 100) / 100;
+    if (!h) continue;
+    hoursSpent += h;
+    const nameLower = row.name.toLowerCase();
+    if (nameLower.includes("vašek") || nameLower.includes("vasek")) hoursVasek += h;
+    if (nameLower.includes("jonáš") || nameLower.includes("jonas")) hoursJonas += h;
+  }
+
+  const round2 = (n: number) => String(Math.round(n * 100) / 100);
+
+  await db
+    .update(jobsTable)
+    .set({
+      hoursVasek: hoursVasek > 0 ? round2(hoursVasek) : null,
+      hoursJonas: hoursJonas > 0 ? round2(hoursJonas) : null,
+      hoursSpent: hoursSpent > 0 ? round2(hoursSpent) : null,
+    })
+    .where(eq(jobsTable.id, jobId));
+}
+
 // ---- Activity routes ----
 router.get("/activities/:activityId/time-entries", async (req, res): Promise<void> => {
   const params = ListActivityTimeEntriesParams.safeParse(req.params);
@@ -227,7 +270,9 @@ router.post("/jobs/:jobId/time-entries/:personId/start", async (req, res): Promi
   const params = StartJobTimeEntryParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   if (!(await parentExists("job", params.data.jobId))) { res.status(404).json({ error: "Job not found" }); return; }
-  res.json(await start("job", params.data.jobId, params.data.personId));
+  const result = await start("job", params.data.jobId, params.data.personId);
+  await syncJobHoursFromEntries(params.data.jobId);
+  res.json(result);
 });
 
 router.post("/jobs/:jobId/time-entries/:personId/stop", async (req, res): Promise<void> => {
@@ -235,6 +280,7 @@ router.post("/jobs/:jobId/time-entries/:personId/stop", async (req, res): Promis
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const result = await stop("job", params.data.jobId, params.data.personId);
   if (!result) { res.status(404).json({ error: "Time entry not found" }); return; }
+  await syncJobHoursFromEntries(params.data.jobId);
   res.json(result);
 });
 
@@ -245,6 +291,7 @@ router.patch("/jobs/:jobId/time-entries/:personId", async (req, res): Promise<vo
   if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
   const result = await setHours("job", params.data.jobId, params.data.personId, body.data.hours);
   if (!result) { res.status(404).json({ error: "Time entry not found" }); return; }
+  await syncJobHoursFromEntries(params.data.jobId);
   res.json(result);
 });
 
@@ -253,6 +300,7 @@ router.delete("/jobs/:jobId/time-entries/:personId", async (req, res): Promise<v
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const ok = await remove("job", params.data.jobId, params.data.personId);
   if (!ok) { res.status(404).json({ error: "Time entry not found" }); return; }
+  await syncJobHoursFromEntries(params.data.jobId);
   res.sendStatus(204);
 });
 
