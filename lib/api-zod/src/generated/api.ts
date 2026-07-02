@@ -5226,7 +5226,12 @@ export const ListInvoicesResponseItem = zod.object({
   "cancelledAt": zod.string().nullish(),
   "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
-  "updatedAt": zod.string()
+  "updatedAt": zod.string(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional()
 })
 export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
 
@@ -5337,7 +5342,16 @@ export const GetInvoiceResponse = zod.object({
   "sortOrder": zod.number()
 })),
   "sourceJobIds": zod.array(zod.number()),
-  "sourceActivityIds": zod.array(zod.number()).optional()
+  "sourceActivityIds": zod.array(zod.number()).optional(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional(),
+  "sourceActivities": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})).optional()
 })
 
 
@@ -5432,7 +5446,16 @@ export const UpdateInvoiceResponse = zod.object({
   "sortOrder": zod.number()
 })),
   "sourceJobIds": zod.array(zod.number()),
-  "sourceActivityIds": zod.array(zod.number()).optional()
+  "sourceActivityIds": zod.array(zod.number()).optional(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional(),
+  "sourceActivities": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})).optional()
 })
 
 
@@ -5505,7 +5528,16 @@ export const RecalculateInvoiceResponse = zod.object({
   "sortOrder": zod.number()
 })),
   "sourceJobIds": zod.array(zod.number()),
-  "sourceActivityIds": zod.array(zod.number()).optional()
+  "sourceActivityIds": zod.array(zod.number()).optional(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional(),
+  "sourceActivities": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})).optional()
 })
 
 
@@ -5570,7 +5602,16 @@ export const IssueInvoiceResponse = zod.object({
   "sortOrder": zod.number()
 })),
   "sourceJobIds": zod.array(zod.number()),
-  "sourceActivityIds": zod.array(zod.number()).optional()
+  "sourceActivityIds": zod.array(zod.number()).optional(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional(),
+  "sourceActivities": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})).optional()
 })
 
 
@@ -5639,7 +5680,16 @@ export const CancelInvoiceResponse = zod.object({
   "sortOrder": zod.number()
 })),
   "sourceJobIds": zod.array(zod.number()),
-  "sourceActivityIds": zod.array(zod.number()).optional()
+  "sourceActivityIds": zod.array(zod.number()).optional(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional(),
+  "sourceActivities": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})).optional()
 })
 
 
@@ -5689,7 +5739,12 @@ export const UpdateInvoiceStatusResponse = zod.object({
   "cancelledAt": zod.string().nullish(),
   "recurringTemplateId": zod.number().nullish().describe('ID of the recurring template that generated this invoice (if any)'),
   "createdAt": zod.string(),
-  "updatedAt": zod.string()
+  "updatedAt": zod.string(),
+  "sourceJobs": zod.array(zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string()
+})).optional()
 })
 
 

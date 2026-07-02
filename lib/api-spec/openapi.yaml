@@ -11727,6 +11727,30 @@ components:
           type: string
         updatedAt:
           type: string
+        sourceJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceSourceJob"
+
+    InvoiceSourceJob:
+      type: object
+      required: [id, title, date]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        date:
+          type: string
+
+    InvoiceSourceActivity:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
 
     InvoiceLine:
       type: object
@@ -11878,6 +11902,14 @@ components:
           type: array
           items:
             type: integer
+        sourceJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceSourceJob"
+        sourceActivities:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvoiceSourceActivity"
 
     InvoiceLineInput:
       type: object

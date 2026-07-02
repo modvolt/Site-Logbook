@@ -171,6 +171,11 @@ export default function BillingInvoices() {
                       {inv.issueDate ? ` · ${fmtDate(inv.issueDate)}` : ""}
                       {inv.dueDate ? ` · splatnost ${fmtDate(inv.dueDate)}` : ""}
                     </p>
+                    {inv.sourceJobs && inv.sourceJobs.length > 0 && (
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {inv.sourceJobs.map((j) => j.title).join(", ")}
+                      </p>
+                    )}
                   </button>
                   <div className="flex items-center gap-2 shrink-0">
                     <button

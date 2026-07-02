@@ -917,13 +917,30 @@ export async function getInvoiceDetail(id: number) {
     })
     .from(invoiceSourceLinksTable)
     .where(eq(invoiceSourceLinksTable.invoiceId, id));
+
+  const linkedJobIds = links.map((l) => l.jobId).filter((x): x is number => x != null);
+  const linkedActivityIds = links.map((l) => l.activityId).filter((x): x is number => x != null);
+
+  const sourceJobs = linkedJobIds.length
+    ? await db
+        .select({ id: jobsTable.id, title: jobsTable.title, date: jobsTable.date })
+        .from(jobsTable)
+        .where(inArray(jobsTable.id, linkedJobIds))
+    : [];
+  const sourceActivities = linkedActivityIds.length
+    ? await db
+        .select({ id: activitiesTable.id, name: activitiesTable.name })
+        .from(activitiesTable)
+        .where(inArray(activitiesTable.id, linkedActivityIds))
+    : [];
+
   return {
     ...serializeInvoice(invoice),
     lines: lines.map(serializeLine),
-    sourceJobIds: links.map((l) => l.jobId).filter((x): x is number => x != null),
-    sourceActivityIds: links
-      .map((l) => l.activityId)
-      .filter((x): x is number => x != null),
+    sourceJobIds: linkedJobIds,
+    sourceActivityIds: linkedActivityIds,
+    sourceJobs,
+    sourceActivities,
   };
 }
 
@@ -938,7 +955,32 @@ export async function listInvoices(filter: { status?: string; customerId?: numbe
     .from(invoicesTable)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(invoicesTable.createdAt));
-  return rows.map(serializeInvoice);
+
+  const invoiceIds = rows.map((r) => r.id);
+  const sourceJobRows = invoiceIds.length
+    ? await db
+        .select({
+          invoiceId: invoiceSourceLinksTable.invoiceId,
+          id: jobsTable.id,
+          title: jobsTable.title,
+          date: jobsTable.date,
+        })
+        .from(invoiceSourceLinksTable)
+        .innerJoin(jobsTable, eq(invoiceSourceLinksTable.jobId, jobsTable.id))
+        .where(inArray(invoiceSourceLinksTable.invoiceId, invoiceIds))
+    : [];
+
+  const sourceJobsByInvoice = new Map<number, { id: number; title: string; date: string }[]>();
+  for (const row of sourceJobRows) {
+    const list = sourceJobsByInvoice.get(row.invoiceId) ?? [];
+    list.push({ id: row.id, title: row.title, date: row.date });
+    sourceJobsByInvoice.set(row.invoiceId, list);
+  }
+
+  return rows.map((r) => ({
+    ...serializeInvoice(r),
+    sourceJobs: sourceJobsByInvoice.get(r.id) ?? [],
+  }));
 }
 
 // ---------------------------------------------------------------------------

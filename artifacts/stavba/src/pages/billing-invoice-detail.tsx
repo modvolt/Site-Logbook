@@ -70,6 +70,7 @@ import {
   Loader2,
   AlertCircle,
   CalendarClock,
+  Briefcase,
 } from "lucide-react";
 
 export default function BillingInvoiceDetail() {
@@ -543,6 +544,38 @@ export default function BillingInvoiceDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Linked jobs / activities */}
+      {((inv.sourceJobs && inv.sourceJobs.length > 0) || (inv.sourceActivities && inv.sourceActivities.length > 0)) && (
+        <Card className="mb-4">
+          <CardContent className="p-4 flex flex-wrap gap-2 items-center">
+            <span className="text-xs font-medium text-muted-foreground flex items-center gap-1 mr-1">
+              <Briefcase className="h-3.5 w-3.5" /> Zakázky:
+            </span>
+            {(inv.sourceJobs ?? []).map((job) => (
+              <button
+                key={job.id}
+                type="button"
+                onClick={() => setLocation(`/jobs/${job.id}`)}
+                className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-muted hover:bg-accent transition-colors"
+              >
+                {job.title}
+                {job.date && <span className="text-muted-foreground">· {fmtDate(job.date)}</span>}
+              </button>
+            ))}
+            {(inv.sourceActivities ?? []).map((act) => (
+              <button
+                key={act.id}
+                type="button"
+                onClick={() => setLocation(`/activities/${act.id}`)}
+                className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 hover:opacity-80 transition-opacity"
+              >
+                {act.name}
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Lines */}
       <Card className="mb-4">

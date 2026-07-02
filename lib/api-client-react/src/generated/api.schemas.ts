@@ -3813,6 +3813,12 @@ export const InvoiceVatModeDefault = {
   non_vat: 'non_vat',
 } as const;
 
+export interface InvoiceSourceJob {
+  id: number;
+  title: string;
+  date: string;
+}
+
 export interface Invoice {
   id: number;
   /** @nullable */
@@ -3880,6 +3886,7 @@ export interface Invoice {
   recurringTemplateId?: number | null;
   createdAt: string;
   updatedAt: string;
+  sourceJobs?: InvoiceSourceJob[];
 }
 
 export type InvoiceCreateInputVatModeDefault = typeof InvoiceCreateInputVatModeDefault[keyof typeof InvoiceCreateInputVatModeDefault];
@@ -4074,6 +4081,11 @@ export interface InvoiceLine {
   sortOrder: number;
 }
 
+export interface InvoiceSourceActivity {
+  id: number;
+  name: string;
+}
+
 export interface InvoiceDetail {
   id: number;
   /** @nullable */
@@ -4144,6 +4156,8 @@ export interface InvoiceDetail {
   lines: InvoiceLine[];
   sourceJobIds: number[];
   sourceActivityIds?: number[];
+  sourceJobs?: InvoiceSourceJob[];
+  sourceActivities?: InvoiceSourceActivity[];
 }
 
 export type InvoiceUpdateInputVatModeDefault = typeof InvoiceUpdateInputVatModeDefault[keyof typeof InvoiceUpdateInputVatModeDefault];
