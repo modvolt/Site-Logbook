@@ -559,6 +559,7 @@ export default function BillingInvoiceDetail() {
                 onClick={() => setLocation(`/jobs/${job.id}`)}
                 className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-muted hover:bg-accent transition-colors"
               >
+                {job.jobNumber != null && <span className="text-muted-foreground font-mono">#{job.jobNumber}</span>}
                 {job.title}
                 {job.date && <span className="text-muted-foreground">· {fmtDate(job.date)}</span>}
               </button>

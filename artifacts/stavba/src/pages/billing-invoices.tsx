@@ -173,7 +173,7 @@ export default function BillingInvoices() {
                     </p>
                     {inv.sourceJobs && inv.sourceJobs.length > 0 && (
                       <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {inv.sourceJobs.map((j) => j.title).join(", ")}
+                        {inv.sourceJobs.map((j) => j.jobNumber != null ? `#${j.jobNumber} ${j.title}` : j.title).join(", ")}
                       </p>
                     )}
                   </button>

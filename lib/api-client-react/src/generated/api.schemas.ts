@@ -227,6 +227,8 @@ export const JobPricingMode = {
 
 export interface Job {
   id: number;
+  /** Sequential job number assigned on creation (unique, auto-increment) */
+  jobNumber: number;
   title: string;
   /**
      * Short internal identifier / reference number shown on cards
@@ -451,6 +453,8 @@ export interface BulkUpdateResult {
 
 export interface CalendarJob {
   id: number;
+  /** Sequential job number */
+  jobNumber: number;
   title: string;
   /** site_visit | consultation | planned_work | service_call | change | other */
   type: string;
@@ -3738,6 +3742,11 @@ export interface UnbilledJobMaterial {
 
 export interface UnbilledJob {
   id: number;
+  /**
+     * Sequential job number
+     * @nullable
+     */
+  jobNumber?: number | null;
   title: string;
   /** @nullable */
   date?: string | null;
@@ -3815,6 +3824,11 @@ export const InvoiceVatModeDefault = {
 
 export interface InvoiceSourceJob {
   id: number;
+  /**
+     * Sequential job number
+     * @nullable
+     */
+  jobNumber?: number | null;
   title: string;
   date: string;
 }

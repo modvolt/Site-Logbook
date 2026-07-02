@@ -186,12 +186,17 @@ export function JobCard({ job, selected, onSelect, marginPercent, marginThreshol
               </div>
             )}
             <div className="flex-1 min-w-0">
-              {shortName && (
-                <div className="flex items-center gap-1 mb-0.5">
-                  <Tag className="w-3 h-3 text-muted-foreground shrink-0" />
-                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{shortName}</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                {job.jobNumber != null && (
+                  <span className="text-xs font-mono font-semibold text-muted-foreground">#{job.jobNumber}</span>
+                )}
+                {shortName && (
+                  <div className="flex items-center gap-1">
+                    <Tag className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{shortName}</span>
+                  </div>
+                )}
+              </div>
               <h3 className="font-bold text-lg leading-tight truncate">{job.title}</h3>
             </div>
           </div>

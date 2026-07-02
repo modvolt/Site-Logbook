@@ -117,6 +117,7 @@ export const ListJobsQueryParams = zod.object({
 
 export const ListJobsResponseItem = zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
   "title": zod.string(),
   "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
@@ -232,6 +233,7 @@ export const GetJobsCalendarQueryParams = zod.object({
 
 export const GetJobsCalendarResponseItem = zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number'),
   "title": zod.string(),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
   "status": zod.string().describe('planned | in_progress | done | cancelled | vyfakturovano'),
@@ -253,6 +255,7 @@ export const GetJobParams = zod.object({
 
 export const GetJobResponse = zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
   "title": zod.string(),
   "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
@@ -339,6 +342,7 @@ export const UpdateJobBody = zod.object({
 
 export const UpdateJobResponse = zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
   "title": zod.string(),
   "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
@@ -405,6 +409,7 @@ export const UpdateJobStatusBody = zod.object({
 
 export const UpdateJobStatusResponse = zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
   "title": zod.string(),
   "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
@@ -2533,6 +2538,7 @@ export const GetDashboardSummaryResponse = zod.object({
  */
 export const GetTodayJobsResponseItem = zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
   "title": zod.string(),
   "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
   "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
@@ -5145,6 +5151,7 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "email": zod.string().nullish(),
   "jobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string().nullish(),
   "type": zod.string().nullish(),
@@ -5229,6 +5236,7 @@ export const ListInvoicesResponseItem = zod.object({
   "updatedAt": zod.string(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional()
@@ -5345,6 +5353,7 @@ export const GetInvoiceResponse = zod.object({
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional(),
@@ -5449,6 +5458,7 @@ export const UpdateInvoiceResponse = zod.object({
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional(),
@@ -5531,6 +5541,7 @@ export const RecalculateInvoiceResponse = zod.object({
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional(),
@@ -5605,6 +5616,7 @@ export const IssueInvoiceResponse = zod.object({
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional(),
@@ -5683,6 +5695,7 @@ export const CancelInvoiceResponse = zod.object({
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional(),
@@ -5742,6 +5755,7 @@ export const UpdateInvoiceStatusResponse = zod.object({
   "updatedAt": zod.string(),
   "sourceJobs": zod.array(zod.object({
   "id": zod.number(),
+  "jobNumber": zod.number().nullish().describe('Sequential job number'),
   "title": zod.string(),
   "date": zod.string()
 })).optional()

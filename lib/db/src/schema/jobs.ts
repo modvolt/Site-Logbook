@@ -37,6 +37,7 @@ export const jobsTable = pgTable("jobs", {
   pricingMode: text("pricing_mode").notNull().default("time_material"),
   // The agreed-upon fixed price for the job (only used when pricingMode = 'fixed_price').
   contractPrice: numeric("contract_price", { precision: 10, scale: 2 }),
+  jobNumber: integer("job_number").unique(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   // Customer digital-signature handover protocol
   signatureToken: text("signature_token"),

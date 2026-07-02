@@ -494,6 +494,7 @@ router.get("/jobs/calendar", async (req, res): Promise<void> => {
   const rows = await db
     .select({
       id: jobsTable.id,
+      jobNumber: jobsTable.jobNumber,
       title: jobsTable.title,
       type: jobsTable.type,
       status: jobsTable.status,

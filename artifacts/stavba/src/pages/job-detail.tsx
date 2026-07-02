@@ -364,12 +364,17 @@ export default function JobDetail() {
               <ArrowLeft className="h-6 w-6" />
             </Button>
             <div className="flex-1 min-w-0">
-              {(job as any).shortName && (
-                <div className="flex items-center gap-1 mb-0.5">
-                  <Tag className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{(job as any).shortName}</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                {job.jobNumber != null && (
+                  <span className="text-xs font-mono font-semibold text-muted-foreground">#{job.jobNumber}</span>
+                )}
+                {(job as any).shortName && (
+                  <div className="flex items-center gap-1">
+                    <Tag className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{(job as any).shortName}</span>
+                  </div>
+                )}
+              </div>
               <h1 className="text-xl font-bold truncate leading-tight">{job.title}</h1>
             </div>
             <div className="shrink-0 flex flex-col items-end gap-1">

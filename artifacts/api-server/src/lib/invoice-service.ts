@@ -745,6 +745,7 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   const detailTodayStr = todayIso();
   const jobs = rows.map(({ job }) => ({
     id: job.id,
+    jobNumber: job.jobNumber,
     title: job.title,
     date: job.date,
     type: job.type,
@@ -923,7 +924,7 @@ export async function getInvoiceDetail(id: number) {
 
   const sourceJobs = linkedJobIds.length
     ? await db
-        .select({ id: jobsTable.id, title: jobsTable.title, date: jobsTable.date })
+        .select({ id: jobsTable.id, jobNumber: jobsTable.jobNumber, title: jobsTable.title, date: jobsTable.date })
         .from(jobsTable)
         .where(inArray(jobsTable.id, linkedJobIds))
     : [];
@@ -962,6 +963,7 @@ export async function listInvoices(filter: { status?: string; customerId?: numbe
         .select({
           invoiceId: invoiceSourceLinksTable.invoiceId,
           id: jobsTable.id,
+          jobNumber: jobsTable.jobNumber,
           title: jobsTable.title,
           date: jobsTable.date,
         })
@@ -970,10 +972,10 @@ export async function listInvoices(filter: { status?: string; customerId?: numbe
         .where(inArray(invoiceSourceLinksTable.invoiceId, invoiceIds))
     : [];
 
-  const sourceJobsByInvoice = new Map<number, { id: number; title: string; date: string }[]>();
+  const sourceJobsByInvoice = new Map<number, { id: number; jobNumber: number | null; title: string; date: string }[]>();
   for (const row of sourceJobRows) {
     const list = sourceJobsByInvoice.get(row.invoiceId) ?? [];
-    list.push({ id: row.id, title: row.title, date: row.date });
+    list.push({ id: row.id, jobNumber: row.jobNumber, title: row.title, date: row.date });
     sourceJobsByInvoice.set(row.invoiceId, list);
   }
 

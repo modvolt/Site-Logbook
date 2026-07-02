@@ -332,7 +332,8 @@ export default function Jobs() {
       j.title.toLowerCase().includes(search.toLowerCase()) ||
       (j.clientSite || "").toLowerCase().includes(search.toLowerCase()) ||
       (j.customerCompanyName || "").toLowerCase().includes(search.toLowerCase()) ||
-      ((j as any).shortName || "").toLowerCase().includes(search.toLowerCase());
+      ((j as any).shortName || "").toLowerCase().includes(search.toLowerCase()) ||
+      (j.jobNumber != null && `#${j.jobNumber}`.includes(search.replace(/\s/g, "")));
     if (!matchesSearch) return false;
     if (lowMarginOnly && !isLowMargin(j.id)) return false;
     return true;

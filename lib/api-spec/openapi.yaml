@@ -7924,10 +7924,13 @@ components:
   schemas:
     CalendarJob:
       type: object
-      required: [id, title, type, status, date]
+      required: [id, jobNumber, title, type, status, date]
       properties:
         id:
           type: integer
+        jobNumber:
+          type: integer
+          description: Sequential job number
         title:
           type: string
         type:
@@ -9103,10 +9106,13 @@ components:
 
     Job:
       type: object
-      required: [id, title, type, date, status, sortOrder, createdAt, billingLinked]
+      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked]
       properties:
         id:
           type: integer
+        jobNumber:
+          type: integer
+          description: Sequential job number assigned on creation (unique, auto-increment)
         title:
           type: string
         shortName:
@@ -11738,6 +11744,9 @@ components:
       properties:
         id:
           type: integer
+        jobNumber:
+          type: ["integer", "null"]
+          description: Sequential job number
         title:
           type: string
         date:
@@ -12288,6 +12297,9 @@ components:
       properties:
         id:
           type: integer
+        jobNumber:
+          type: ["integer", "null"]
+          description: Sequential job number
         title:
           type: string
         date:
