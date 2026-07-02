@@ -1,0 +1,38 @@
+Stack trace
+
+TypeError: (e ?? "").trim is not a function
+    at fr (https://modvoltapp.cz/assets/index-CK-MxbTi.js:241:66872)
+    at cbt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:300:81990)
+    at Pl (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:34340)
+    at x_ (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:63185)
+    at tz (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:73900)
+    at kz (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:108224)
+    at Zxe (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:107270)
+    at q_ (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:107096)
+    at Nz (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:104155)
+    at qz (https://modvoltapp.cz/assets/index-CK-MxbTi.js:8:115944)
+Component stack
+
+
+    at cbt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:300:80864)
+    at div (<anonymous>)
+    at div (<anonymous>)
+    at Yyt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:300:31441)
+    at Gn (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:39160)
+    at b1e (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:39978)
+    at kPt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:403:143761)
+    at main (<anonymous>)
+    at div (<anonymous>)
+    at Mze (https://modvoltapp.cz/assets/index-CK-MxbTi.js:55:34874)
+    at GUe (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:320811)
+    at aqe (https://modvoltapp.cz/assets/index-CK-MxbTi.js:55:46046)
+    at BPt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:403:145972)
+    at TPt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:403:149260)
+    at VUe (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:320062)
+    at tre (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:38463)
+    at u (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:83342)
+    at Zae (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:206608)
+    at G1e (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:73577)
+    at hye (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:77048)
+    at dye (https://modvoltapp.cz/assets/index-CK-MxbTi.js:9:76922)
+    at OPt (https://modvoltapp.cz/assets/index-CK-MxbTi.js:403:149717)
