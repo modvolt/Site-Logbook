@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useLocation, useRoute } from "wouter";
@@ -149,13 +149,19 @@ export default function BillingDocumentDetail() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [splitLine, setSplitLine] = useState<CostDocumentLine | null>(null);
 
+  const lineCardsRef = useRef<Map<number, LineCardRef>>(new Map());
+
   const invalidate = () => {
     invalidateData(queryClient, "billingDocuments", "jobs", "warehouse");
   };
 
+  const handleBulkSave = () => {
+    lineCardsRef.current.forEach((cardRef) => cardRef.save());
+  };
+
   const doc = data?.document;
 
-  if (isLoading || isRefetching) {
+  if (isLoading) {
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-3">
         <Skeleton className="h-8 w-48" />
@@ -494,7 +500,14 @@ export default function BillingDocumentDetail() {
         saving={updateDoc.isPending}
       />
 
-      <h2 className="text-lg font-semibold mt-6 mb-3">Položky dokladu</h2>
+      <div className="flex items-center justify-between mt-6 mb-3">
+        <h2 className="text-lg font-semibold">Položky dokladu</h2>
+        {data.lines.length > 0 && (
+          <Button size="sm" onClick={handleBulkSave}>
+            <Save className="h-4 w-4 mr-1" /> Uložit vše
+          </Button>
+        )}
+      </div>
       {data.lines.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
           <p className="text-sm">Doklad zatím nemá žádné položky.</p>
@@ -504,6 +517,10 @@ export default function BillingDocumentDetail() {
           {data.lines.map((line) => (
             <LineCard
               key={line.id}
+              ref={(el) => {
+                if (el) lineCardsRef.current.set(line.id, el);
+                else lineCardsRef.current.delete(line.id);
+              }}
               documentId={id}
               line={line}
               jobs={jobs ?? []}
@@ -793,19 +810,23 @@ function Field({
 // Line card (edit + match)
 // ---------------------------------------------------------------------------
 
-function LineCard({
-  documentId,
-  line,
-  jobs,
-  onChanged,
-  onSplit,
-}: {
+export interface LineCardRef {
+  save: () => void;
+}
+
+const LineCard = forwardRef<LineCardRef, {
   documentId: number;
   line: CostDocumentLine;
   jobs: Job[];
   onChanged: () => void;
   onSplit: () => void;
-}) {
+}>(function LineCard({
+  documentId,
+  line,
+  jobs,
+  onChanged,
+  onSplit,
+}, ref) {
   const { toast } = useToast();
   const updateLine = useUpdateCostDocumentLine();
 
@@ -828,7 +849,7 @@ function LineCard({
   const priceError = decimalError(form.unitPriceWithoutVat);
   const lineHasErrors = !!(qtyError || priceError);
 
-  const save = (overrides?: Partial<typeof form>) => {
+  const save = useCallback((overrides?: Partial<typeof form>) => {
     if (lineHasErrors) return;
     const f = { ...form, ...overrides };
     const data: CostDocumentLineUpdateInput = {
@@ -858,7 +879,10 @@ function LineCard({
           }),
       },
     );
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, lineHasErrors, documentId, line.id]);
+
+  useImperativeHandle(ref, () => ({ save }), [save]);
 
   const confidencePct =
     line.matchConfidence != null ? Math.round(line.matchConfidence * 100) : null;
@@ -998,7 +1022,7 @@ function LineCard({
       </CardContent>
     </Card>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Split dialog
