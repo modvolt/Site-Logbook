@@ -22,6 +22,17 @@ export const VAT_MODE_LABELS: Record<string, string> = {
   non_vat: "Neplátce DPH",
 };
 
+export const VAT_RATE_OPTIONS = [
+  { label: "21 %", vatMode: "standard" as const, vatRate: 21 },
+  { label: "12 %", vatMode: "standard" as const, vatRate: 12 },
+  { label: "PDP", vatMode: "reverse_charge" as const, vatRate: null },
+] as const;
+
+export const VAT_HEADER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "standard", label: "Standardní (DPH)" },
+  { value: "reverse_charge", label: "PDP (přenesená daňová povinnost)" },
+];
+
 export function vatModeLabel(mode: string | null | undefined): string {
   if (!mode) return "—";
   return VAT_MODE_LABELS[mode] ?? mode;

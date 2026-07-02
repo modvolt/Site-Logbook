@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fmtKc, VAT_MODE_LABELS } from "@/lib/billing-format";
+import { fmtKc, VAT_RATE_OPTIONS, VAT_HEADER_OPTIONS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Plus, Trash2, AlertCircle } from "lucide-react";
 
@@ -305,7 +305,7 @@ export default function BillingInvoiceEdit() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(VAT_MODE_LABELS).map(([value, label]) => (
+                  {VAT_HEADER_OPTIONS.map(({ value, label }) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -376,24 +376,29 @@ export default function BillingInvoiceEdit() {
                 <LabeledInput label="MJ" value={r.unit} onChange={(v) => setRow(r.key, { unit: v })} />
                 <LabeledInput label="Cena/MJ" value={r.unitPriceWithoutVat} onChange={(v) => setRow(r.key, { unitPriceWithoutVat: v })} type="number" />
                 <LabeledInput label="Sleva %" value={r.discountPercent} onChange={(v) => setRow(r.key, { discountPercent: v })} type="number" />
-                <LabeledInput label="DPH %" value={r.vatRate} onChange={(v) => setRow(r.key, { vatRate: v })} type="number" />
-              </div>
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="w-full md:w-56">
-                  <Label className="text-xs text-muted-foreground mb-1 block">Režim DPH</Label>
-                  <Select value={r.vatMode} onValueChange={(v) => setRow(r.key, { vatMode: v as LineRow["vatMode"] })}>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Sazba DPH</Label>
+                  <Select
+                    value={r.vatMode === "reverse_charge" ? "pdp" : (r.vatRate === "12" ? "12" : "21")}
+                    onValueChange={(v) => {
+                      if (v === "pdp") setRow(r.key, { vatMode: "reverse_charge", vatRate: "" });
+                      else if (v === "12") setRow(r.key, { vatMode: "standard", vatRate: "12" });
+                      else setRow(r.key, { vatMode: "standard", vatRate: "21" });
+                    }}
+                  >
                     <SelectTrigger className="h-9">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(VAT_MODE_LABELS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
+                      {VAT_RATE_OPTIONS.map((opt) => {
+                        const val = opt.vatMode === "reverse_charge" ? "pdp" : String(opt.vatRate);
+                        return <SelectItem key={val} value={val}>{opt.label}</SelectItem>;
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="flex justify-end">
                 <div className="text-sm text-right">
                   <span className="text-muted-foreground">Bez DPH: </span>
                   <span className="font-semibold">{fmtKc(rowBaseTotal(r))}</span>

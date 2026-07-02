@@ -319,7 +319,7 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     doc.setFont(PDF_FONT, "normal");
     doc.setFontSize(9);
     const note =
-      "Daň odvede zákazník. Režim přenesení daňové povinnosti podle § 92e zákona o DPH.";
+      "Daň odvede zákazník. V režimu přenesené daňové povinnosti podle § 92e zákona o DPH.";
     const wrapped = doc.splitTextToSize(note, pageWidth - marginX * 2);
     doc.text(wrapped, marginX, y);
     y += wrapped.length * 5 + 2;

@@ -56,7 +56,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { QuoteStatusBadge } from "@/components/quote-status-badge";
-import { fmtKc, fmtDate } from "@/lib/billing-format";
+import { fmtKc, fmtDate, VAT_RATE_OPTIONS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -189,7 +189,7 @@ export default function QuoteDetail() {
         quantity: parseNum(i.quantity) ?? 1,
         unit: i.unit.trim() || null,
         unitPrice: parseNum(i.unitPrice) ?? 0,
-        vatRate: parseNum(i.vatRate),
+        vatRate: i.vatRate === "pdp" ? 0 : parseNum(i.vatRate),
         position: idx,
       })),
   });
@@ -579,13 +579,21 @@ export default function QuoteDetail() {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs">DPH %</Label>
-                        <Input
-                          value={item.vatRate}
-                          onChange={(e) => updateItem(idx, "vatRate", e.target.value)}
-                          placeholder="21"
-                          className="mt-0.5 h-8 text-sm"
-                        />
+                        <Label className="text-xs">Sazba DPH</Label>
+                        <Select
+                          value={item.vatRate === "pdp" || item.vatRate === "0" ? "pdp" : (item.vatRate === "12" ? "12" : "21")}
+                          onValueChange={(v) => updateItem(idx, "vatRate", v)}
+                        >
+                          <SelectTrigger className="mt-0.5 h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VAT_RATE_OPTIONS.map((opt) => {
+                              const val = opt.vatMode === "reverse_charge" ? "pdp" : String(opt.vatRate);
+                              return <SelectItem key={val} value={val}>{opt.label}</SelectItem>;
+                            })}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </div>

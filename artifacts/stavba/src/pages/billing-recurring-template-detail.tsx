@@ -49,7 +49,7 @@ import {
   Zap,
   XCircle,
 } from "lucide-react";
-import { fmtDate, fmtKc } from "@/lib/billing-format";
+import { fmtDate, fmtKc, VAT_RATE_OPTIONS, VAT_HEADER_OPTIONS, VAT_MODE_LABELS } from "@/lib/billing-format";
 import { InvoiceStatusBadge } from "@/components/badges";
 
 const INTERVAL_LABELS: Record<string, string> = {
@@ -58,12 +58,6 @@ const INTERVAL_LABELS: Record<string, string> = {
   yearly: "Ročně",
 };
 
-const VAT_MODE_LABELS: Record<string, string> = {
-  standard: "Standardní DPH",
-  reverse_charge: "Přenesená daňová povinnost",
-  zero: "Nulové DPH",
-  non_vat: "Bez DPH",
-};
 
 export default function BillingRecurringTemplateDetail() {
   const [, params] = useRoute("/billing/recurring-templates/:id");
@@ -338,8 +332,8 @@ export default function BillingRecurringTemplateDetail() {
                   <Select value={vatModeDefault} onValueChange={setVatModeDefault}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {Object.entries(VAT_MODE_LABELS).map(([v, l]) => (
-                        <SelectItem key={v} value={v}>{l}</SelectItem>
+                      {VAT_HEADER_OPTIONS.map(({ value, label }) => (
+                        <SelectItem key={value} value={value}>{label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -397,8 +391,30 @@ export default function BillingRecurringTemplateDetail() {
                       <Input type="number" step="0.01" value={line.unitPriceWithoutVat} onChange={(e) => updateLine(idx, "unitPriceWithoutVat", e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Sazba DPH (%)</Label>
-                      <Input type="number" step="1" value={line.vatRate} onChange={(e) => updateLine(idx, "vatRate", e.target.value)} />
+                      <Label className="text-xs">Sazba DPH</Label>
+                      <Select
+                        value={line.vatMode === "reverse_charge" ? "pdp" : (line.vatRate === "12" ? "12" : "21")}
+                        onValueChange={(v) => {
+                          if (v === "pdp") {
+                            updateLine(idx, "vatMode", "reverse_charge");
+                            updateLine(idx, "vatRate", "0");
+                          } else if (v === "12") {
+                            updateLine(idx, "vatMode", "standard");
+                            updateLine(idx, "vatRate", "12");
+                          } else {
+                            updateLine(idx, "vatMode", "standard");
+                            updateLine(idx, "vatRate", "21");
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {VAT_RATE_OPTIONS.map((opt) => {
+                            const val = opt.vatMode === "reverse_charge" ? "pdp" : String(opt.vatRate);
+                            return <SelectItem key={val} value={val}>{opt.label}</SelectItem>;
+                          })}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>
