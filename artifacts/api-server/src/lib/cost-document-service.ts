@@ -19,6 +19,8 @@ import {
   extractionJobsTable,
   attachmentsTable,
   jobsTable,
+  activitiesTable,
+  activityMaterialsTable,
   customersTable,
   materialsTable,
   warehouseItemsTable,
@@ -314,6 +316,7 @@ function serializeLine(row: BillingDocumentLine) {
     totalVat: num(row.totalVat),
     totalWithVat: num(row.totalWithVat),
     jobId: row.jobId,
+    activityId: row.activityId,
     allocationType: row.allocationType,
     matchConfidence: row.matchConfidence == null ? null : num(row.matchConfidence),
     matchConfirmed: row.matchConfirmed === 1,
@@ -1387,6 +1390,7 @@ export interface LineUpdateInput {
   unitPriceWithoutVat?: number | null;
   vatRate?: number | null;
   jobId?: number | null;
+  activityId?: number | null;
   allocationType?: string | null;
   matchConfirmed?: boolean | null;
   approved?: boolean | null;
@@ -1463,7 +1467,16 @@ export async function updateLine(
       patch.vatRate = input.vatRate == null ? null : String(round2(num(input.vatRate)));
       recompute = true;
     }
-    if (input.jobId !== undefined) patch.jobId = input.jobId;
+    if (input.jobId !== undefined) {
+      patch.jobId = input.jobId;
+      // Mutually exclusive: setting a job clears the activity assignment.
+      if (input.jobId != null) patch.activityId = null;
+    }
+    if (input.activityId !== undefined) {
+      patch.activityId = input.activityId;
+      // Mutually exclusive: setting an activity clears the job assignment.
+      if (input.activityId != null) patch.jobId = null;
+    }
     if (input.allocationType !== undefined && input.allocationType && VALID_ALLOC.has(input.allocationType))
       patch.allocationType = input.allocationType;
     if (input.matchConfirmed !== undefined && input.matchConfirmed != null)
@@ -1496,6 +1509,7 @@ export async function updateLine(
 export interface SplitPart {
   quantity: number;
   jobId?: number | null;
+  activityId?: number | null;
   allocationType?: string | null;
 }
 
@@ -1591,10 +1605,21 @@ export async function splitLine(
         },
         baseSort,
       );
+      // Resolve jobId / activityId with mutual exclusion.
+      // Part-level setting takes priority; fall back to the original line's values
+      // only when the part carries neither override.
+      const hasPartJobOrActivity = p.jobId !== undefined || p.activityId !== undefined;
+      const resolvedJobId = hasPartJobOrActivity
+        ? (p.activityId != null ? null : (p.jobId ?? null))
+        : (line.activityId != null ? null : (line.jobId ?? null));
+      const resolvedActivityId = hasPartJobOrActivity
+        ? (p.jobId != null ? null : (p.activityId ?? null))
+        : (line.jobId != null ? null : (line.activityId ?? null));
       return {
         ...vals,
         parentLineId: null,
-        jobId: p.jobId ?? line.jobId ?? null,
+        jobId: resolvedJobId,
+        activityId: resolvedActivityId,
         allocationType:
           p.allocationType && VALID_ALLOC.has(p.allocationType)
             ? p.allocationType
@@ -1709,6 +1734,45 @@ export async function syncJobMaterialsForDocument(
       // (delivery-note) material — creating a second material here would
       // duplicate the item and double-issue stock.
       if (exclude.has(line.id)) continue;
+
+      // Activity-assigned lines: propagate to activity_materials, not job materials.
+      if (line.activityId != null) {
+        desired.add(line.id);
+        const priceNum =
+          line.unitPriceWithoutVat == null ? 0 : num(line.unitPriceWithoutVat);
+        const hasPrice = priceNum > 0;
+        // Upsert keyed on activityId + name (stable for re-runs).
+        // activity_materials has no sourceType/sourceId; use a simple name match.
+        const existingActMat = await tx
+          .select()
+          .from(activityMaterialsTable)
+          .where(
+            and(
+              eq(activityMaterialsTable.activityId, line.activityId),
+              eq(activityMaterialsTable.name, line.description),
+            ),
+          )
+          .limit(1);
+        const actValues = {
+          activityId: line.activityId,
+          name: line.description,
+          quantity:
+            line.quantity == null ? null : String(round2(num(line.quantity))),
+          unit: line.unit ?? null,
+          pricePerUnit:
+            isInvoiceDoc || hasPrice ? String(round2(priceNum)) : null,
+        };
+        if (existingActMat.length > 0) {
+          await tx
+            .update(activityMaterialsTable)
+            .set(actValues)
+            .where(eq(activityMaterialsTable.id, existingActMat[0].id));
+        } else {
+          await tx.insert(activityMaterialsTable).values(actValues);
+        }
+        continue;
+      }
+
       const jobId = line.jobId ?? fallbackJobId;
       if (jobId == null) continue;
 

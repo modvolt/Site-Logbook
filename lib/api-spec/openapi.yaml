@@ -12884,6 +12884,8 @@ components:
           type: number
         jobId:
           type: ["integer", "null"]
+        activityId:
+          type: ["integer", "null"]
         allocationType:
           type: string
           enum: [rebill, internal, stock, not_rebilled]
@@ -13143,6 +13145,8 @@ components:
           type: ["number", "null"]
         jobId:
           type: ["integer", "null"]
+        activityId:
+          type: ["integer", "null"]
         allocationType:
           type: ["string", "null"]
           enum: [rebill, internal, stock, not_rebilled]
@@ -13158,6 +13162,8 @@ components:
         quantity:
           type: number
         jobId:
+          type: ["integer", "null"]
+        activityId:
           type: ["integer", "null"]
         allocationType:
           type: ["string", "null"]

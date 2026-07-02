@@ -4562,6 +4562,8 @@ export interface CostDocumentLine {
   totalWithVat: number;
   /** @nullable */
   jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
   allocationType: CostDocumentLineAllocationType;
   /** @nullable */
   matchConfidence?: number | null;
@@ -4793,6 +4795,8 @@ export interface CostDocumentLineUpdateInput {
   /** @nullable */
   jobId?: number | null;
   /** @nullable */
+  activityId?: number | null;
+  /** @nullable */
   allocationType?: CostDocumentLineUpdateInputAllocationType;
   /** @nullable */
   matchConfirmed?: boolean | null;
@@ -4817,6 +4821,8 @@ export interface CostDocumentLineSplitPart {
   quantity: number;
   /** @nullable */
   jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
   /** @nullable */
   allocationType?: CostDocumentLineSplitPartAllocationType;
 }

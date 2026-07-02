@@ -51,7 +51,7 @@ import {
   testConfiguration as testAiConfiguration,
   DEFAULT_SYSTEM_PROMPT,
 } from "../lib/openai-extraction";
-import { db, openaiSettingsTable, documentLinkingSettingsTable } from "@workspace/db";
+import { db, openaiSettingsTable, documentLinkingSettingsTable, activitiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   UpdateDocumentExtractionBody,
@@ -527,6 +527,17 @@ router.patch(
       return;
     }
     const d = parsed.data;
+    // Validate activity exists when provided.
+    if (d.activityId != null) {
+      const [act] = await db
+        .select({ id: activitiesTable.id })
+        .from(activitiesTable)
+        .where(eq(activitiesTable.id, d.activityId));
+      if (!act) {
+        res.status(400).json({ error: `Akce #${d.activityId} nenalezena.` });
+        return;
+      }
+    }
     try {
       const detail = await updateLine(
         id,
@@ -539,6 +550,7 @@ router.patch(
           unitPriceWithoutVat: d.unitPriceWithoutVat,
           vatRate: d.vatRate,
           jobId: d.jobId,
+          activityId: d.activityId,
           allocationType: d.allocationType,
           matchConfirmed: d.matchConfirmed,
           approved: d.approved,
@@ -573,6 +585,7 @@ router.post(
         parsed.data.parts.map((p) => ({
           quantity: p.quantity,
           jobId: p.jobId,
+          activityId: p.activityId,
           allocationType: p.allocationType,
         })),
         actorOf(req),

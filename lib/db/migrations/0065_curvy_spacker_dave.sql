@@ -1,0 +1,3 @@
+ALTER TABLE "billing_document_lines" ADD COLUMN "activity_id" integer;--> statement-breakpoint
+ALTER TABLE "billing_document_lines" ADD CONSTRAINT "billing_document_lines_activity_id_activities_id_fk" FOREIGN KEY ("activity_id") REFERENCES "public"."activities"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "billing_document_lines_activity_id_idx" ON "billing_document_lines" USING btree ("activity_id");

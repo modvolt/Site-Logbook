@@ -23,6 +23,8 @@ import {
   getListCustomersQueryKey,
   useListJobs,
   getListJobsQueryKey,
+  useListActivities,
+  getListActivitiesQueryKey,
   getGetBillingSummaryQueryKey,
   type CostDocument,
   type CostDocumentDetail,
@@ -35,6 +37,7 @@ import {
   type CostDocumentLineSplitInput,
   type Customer,
   type Job,
+  type Activity,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -139,6 +142,10 @@ export default function BillingDocumentDetail() {
   const { data: jobs } = useListJobs(undefined, {
     query: { queryKey: getListJobsQueryKey() },
   });
+  const { data: activities } = useListActivities(
+    { archived: false },
+    { query: { queryKey: getListActivitiesQueryKey({ archived: false }) } },
+  );
 
   const updateDoc = useUpdateCostDocument();
   const deleteDoc = useDeleteCostDocument();
@@ -524,6 +531,7 @@ export default function BillingDocumentDetail() {
               documentId={id}
               line={line}
               jobs={jobs ?? []}
+              activities={activities ?? []}
               onChanged={invalidate}
               onSplit={() => setSplitLine(line)}
             />
@@ -559,6 +567,7 @@ export default function BillingDocumentDetail() {
           documentId={id}
           line={splitLine}
           jobs={jobs ?? []}
+          activities={activities ?? []}
           onClose={() => setSplitLine(null)}
           onDone={() => {
             setSplitLine(null);
@@ -818,12 +827,14 @@ const LineCard = forwardRef<LineCardRef, {
   documentId: number;
   line: CostDocumentLine;
   jobs: Job[];
+  activities: Activity[];
   onChanged: () => void;
   onSplit: () => void;
 }>(function LineCard({
   documentId,
   line,
   jobs,
+  activities,
   onChanged,
   onSplit,
 }, ref) {
@@ -838,12 +849,19 @@ const LineCard = forwardRef<LineCardRef, {
     lineType: line.lineType as string,
     allocationType: line.allocationType as string,
     jobId: line.jobId != null ? String(line.jobId) : NONE,
+    activityId: line.activityId != null ? String(line.activityId) : NONE,
     matchConfirmed: line.matchConfirmed,
     approved: line.approved,
   });
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
+
+  // Mutual exclusion helpers
+  const setJob = (v: string) =>
+    setForm((p) => ({ ...p, jobId: v, activityId: v !== NONE ? NONE : p.activityId }));
+  const setActivity = (v: string) =>
+    setForm((p) => ({ ...p, activityId: v, jobId: v !== NONE ? NONE : p.jobId }));
 
   const qtyError = decimalError(form.quantity);
   const priceError = decimalError(form.unitPriceWithoutVat);
@@ -859,6 +877,7 @@ const LineCard = forwardRef<LineCardRef, {
       unit: f.unit || null,
       unitPriceWithoutVat: numOrNull(f.unitPriceWithoutVat),
       jobId: f.jobId === NONE ? null : Number(f.jobId),
+      activityId: f.activityId === NONE ? null : Number(f.activityId),
       allocationType:
         f.allocationType as CostDocumentLineUpdateInput["allocationType"],
       matchConfirmed: f.matchConfirmed,
@@ -970,7 +989,7 @@ const LineCard = forwardRef<LineCardRef, {
                 </span>
               )}
             </Label>
-            <Select value={form.jobId} onValueChange={(v) => set("jobId", v)}>
+            <Select value={form.jobId} onValueChange={setJob}>
               <SelectTrigger>
                 <SelectValue placeholder="Žádná" />
               </SelectTrigger>
@@ -979,6 +998,22 @@ const LineCard = forwardRef<LineCardRef, {
                 {jobs.map((j) => (
                   <SelectItem key={j.id} value={String(j.id)}>
                     {j.title} ({fmtDate(j.date)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Dlouhodobá akce</Label>
+            <Select value={form.activityId} onValueChange={setActivity}>
+              <SelectTrigger>
+                <SelectValue placeholder="Žádná" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Žádná</SelectItem>
+                {activities.map((a) => (
+                  <SelectItem key={a.id} value={String(a.id)}>
+                    {a.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1031,6 +1066,7 @@ const LineCard = forwardRef<LineCardRef, {
 interface SplitPart {
   quantity: string;
   jobId: string;
+  activityId: string;
   allocationType: string;
 }
 
@@ -1038,12 +1074,14 @@ function SplitDialog({
   documentId,
   line,
   jobs,
+  activities,
   onClose,
   onDone,
 }: {
   documentId: number;
   line: CostDocumentLine;
   jobs: Job[];
+  activities: Activity[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -1052,8 +1090,8 @@ function SplitDialog({
 
   const half = line.quantity / 2;
   const [parts, setParts] = useState<SplitPart[]>([
-    { quantity: String(half), jobId: NONE, allocationType: line.allocationType },
-    { quantity: String(line.quantity - half), jobId: NONE, allocationType: line.allocationType },
+    { quantity: String(half), jobId: NONE, activityId: NONE, allocationType: line.allocationType },
+    { quantity: String(line.quantity - half), jobId: NONE, activityId: NONE, allocationType: line.allocationType },
   ]);
 
   const partErrors = parts.map((p) => {
@@ -1072,7 +1110,7 @@ function SplitDialog({
   const addPart = () =>
     setParts((p) => [
       ...p,
-      { quantity: "0", jobId: NONE, allocationType: line.allocationType },
+      { quantity: "0", jobId: NONE, activityId: NONE, allocationType: line.allocationType },
     ]);
 
   const removePart = (i: number) =>
@@ -1087,6 +1125,7 @@ function SplitDialog({
           parts: parts.map((p) => ({
             quantity: parseDecimal(p.quantity) ?? 0,
             jobId: p.jobId === NONE ? null : Number(p.jobId),
+            activityId: p.activityId === NONE ? null : Number(p.activityId),
             allocationType:
               p.allocationType as CostDocumentLineSplitInput["parts"][number]["allocationType"],
           })),
@@ -1115,7 +1154,7 @@ function SplitDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           „{line.description}" — celkové množství {line.quantity}
-          {line.unit ? ` ${line.unit}` : ""}. Rozdělte množství mezi zakázky.
+          {line.unit ? ` ${line.unit}` : ""}. Rozdělte množství mezi zakázky nebo akce.
         </p>
         <div className="space-y-3 max-h-[50vh] overflow-y-auto">
           {parts.map((part, i) => (
@@ -1167,7 +1206,9 @@ function SplitDialog({
                 <Label className="text-xs text-muted-foreground">Zakázka</Label>
                 <Select
                   value={part.jobId}
-                  onValueChange={(v) => setPart(i, { jobId: v })}
+                  onValueChange={(v) =>
+                    setPart(i, { jobId: v, activityId: v !== NONE ? NONE : part.activityId })
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Žádná" />
@@ -1177,6 +1218,27 @@ function SplitDialog({
                     {jobs.map((j) => (
                       <SelectItem key={j.id} value={String(j.id)}>
                         {j.title} ({fmtDate(j.date)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Dlouhodobá akce</Label>
+                <Select
+                  value={part.activityId}
+                  onValueChange={(v) =>
+                    setPart(i, { activityId: v, jobId: v !== NONE ? NONE : part.jobId })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Žádná" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Žádná</SelectItem>
+                    {activities.map((a) => (
+                      <SelectItem key={a.id} value={String(a.id)}>
+                        {a.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

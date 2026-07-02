@@ -13,6 +13,7 @@ import { z } from "zod/v4";
 import { customersTable } from "./customers";
 import { usersTable } from "./users";
 import { jobsTable } from "./jobs";
+import { activitiesTable } from "./activities";
 import { invoicesTable } from "./invoices";
 import { attachmentsTable } from "./attachments";
 
@@ -243,6 +244,11 @@ export const billingDocumentLinesTable = pgTable(
 
     // Matching / allocation.
     jobId: integer("job_id").references(() => jobsTable.id, { onDelete: "set null" }),
+    // Mutually exclusive with jobId: assign the line to a long-term activity
+    // instead of a one-off job. Only one of the two may be non-null.
+    activityId: integer("activity_id").references(() => activitiesTable.id, {
+      onDelete: "set null",
+    }),
     allocationType: text("allocation_type").notNull().default("rebill"),
     matchConfidence: numeric("match_confidence", { precision: 5, scale: 2 }),
     matchConfirmed: integer("match_confirmed").notNull().default(0),
@@ -262,6 +268,7 @@ export const billingDocumentLinesTable = pgTable(
   (t) => [
     index("billing_document_lines_document_id_idx").on(t.documentId),
     index("billing_document_lines_job_id_idx").on(t.jobId),
+    index("billing_document_lines_activity_id_idx").on(t.activityId),
     index("billing_document_lines_invoiced_invoice_id_idx").on(t.invoicedInvoiceId),
     index("billing_document_lines_ean_idx").on(t.ean),
     index("billing_document_lines_supplier_sku_idx").on(t.supplierSku),
