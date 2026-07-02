@@ -703,7 +703,7 @@ export default function QuoteDetail() {
                           <TableCell className="text-right">{qty}</TableCell>
                           <TableCell>{item.unit ?? ""}</TableCell>
                           <TableCell className="text-right">{fmtKc(up)}</TableCell>
-                          <TableCell className="text-right">{item.vatRate != null ? `${vr} %` : "—"}</TableCell>
+                          <TableCell className="text-right">{vr === 0 ? "PDP" : item.vatRate != null ? `${vr} %` : "—"}</TableCell>
                           <TableCell className="text-right font-medium">{fmtKc(total)}</TableCell>
                         </TableRow>
                       );
