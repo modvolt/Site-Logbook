@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   db,
   billingDocumentsTable,
@@ -129,5 +129,22 @@ describe("applyAiSuggestion docType", () => {
     await applyAiSuggestion(id, suggestion("proforma"));
     const doc = await getDocument(id);
     expect(doc?.document.docType).toBe("receipt");
+  });
+
+  it("persists a visible alarm and line confidence below 80 percent", async () => {
+    const id = await makeDoc("invoice");
+    await applyAiSuggestion(id, {
+      ...suggestion("invoice"),
+      confidence: 0.79,
+      lines: [{ description: `Kabel ${TAG}`, quantity: 1 }],
+    });
+    const doc = await getDocument(id);
+    expect(doc?.document.warnings).toContain("ALARM");
+    expect(doc?.document.warnings).toContain("79 %");
+    const [line] = await db
+      .select()
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, id));
+    expect(line.confidence).toBe("0.79");
   });
 });

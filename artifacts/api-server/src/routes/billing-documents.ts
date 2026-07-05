@@ -36,6 +36,7 @@ import {
   updateReference,
   deleteReference,
   matchDocumentReferences,
+  reconcileDocumentRelationships,
   suggestDocumentMatches,
   updateWarehousePricesFromDocument,
   listReviewQueue,
@@ -646,7 +647,12 @@ router.patch(
       return;
     }
     try {
-      const detail = await updateReference(id, referenceId, parsed.data);
+      const detail = await updateReference(
+        id,
+        referenceId,
+        parsed.data,
+        actorOf(req),
+      );
       res.json(detail);
     } catch (error) {
       handleError(error, "Referenci se nepodařilo upravit.", res);
@@ -681,6 +687,7 @@ router.post(
       return;
     }
     try {
+      await reconcileDocumentRelationships(id, actorOf(req));
       const result = await matchDocumentReferences(id);
       res.json(result);
     } catch (error) {

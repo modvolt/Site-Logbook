@@ -7,12 +7,10 @@
  *    invoice price onto an existing job material) once the match score reaches
  *    `autoLinkMinScore`. On by default — it only suggests, never confirms.
  *  - AUTO-CONFIRM: additionally set `matchConfirmed = 1` automatically once the
- *    score reaches `autoConfirmMinScore`. OFF by default, so confirmation stays
- *    100% manual unless an operator opts in.
+ *    score reaches `autoConfirmMinScore`. ON by default at 0.8, matching the
+ *    boundary between an alarm and a sufficiently reliable match.
  *
- * The defaults are deliberately conservative: links are suggested, never
- * auto-confirmed, and a mere partial name similarity (which scores below
- * `autoLinkMinScore`) is never applied — it stays a suggestion for a human.
+ * A partial name similarity never auto-confirms; confirmation requires 0.8.
  */
 
 import { db, documentLinkingSettingsTable } from "@workspace/db";
@@ -29,9 +27,9 @@ export interface DocumentLinkingConfig {
 
 const DEFAULTS: DocumentLinkingConfig = {
   autoLinkEnabled: true,
-  autoConfirmEnabled: false,
+  autoConfirmEnabled: true,
   autoLinkMinScore: 0.6,
-  autoConfirmMinScore: 0.9,
+  autoConfirmMinScore: 0.8,
 };
 
 function envBool(value: string | undefined, fallback: boolean): boolean {

@@ -30,7 +30,11 @@ import {
   isSupportedForAi,
   extractFromFile,
 } from "./openai-extraction";
-import { applyAiSuggestion, getDocumentFileBuffer } from "./cost-document-service";
+import {
+  applyAiSuggestion,
+  getDocumentFileBuffer,
+  reconcileAllDocumentRelationships,
+} from "./cost-document-service";
 import { publishLiveEvent } from "./live-events-service";
 
 /** Domains emitted by this worker on every state change. */
@@ -38,6 +42,7 @@ const WORKER_DOMAINS = ["billingDocuments", "reviewQueue", "emailImport"] as con
 
 let schedulerStarted = false;
 let draining = false;
+let relationshipBackfillStarted = false;
 
 const POLL_MS = 5_000;
 const BATCH = 5;
@@ -243,4 +248,21 @@ export function startExtractionWorker(): void {
   timer.unref();
 
   logger.info({ pollMs: POLL_MS }, "Extraction worker started");
+
+  if (!relationshipBackfillStarted) {
+    relationshipBackfillStarted = true;
+    void reconcileAllDocumentRelationships()
+      .then((result) => {
+        logger.info(result, "Historical billing-document reconciliation completed");
+        if (result.withLinks > 0) {
+          publishLiveEvent(WORKER_DOMAINS).catch(() => {});
+        }
+      })
+      .catch((err) => {
+        logger.error(
+          { err },
+          "Historical billing-document reconciliation could not start",
+        );
+      });
+  }
 }

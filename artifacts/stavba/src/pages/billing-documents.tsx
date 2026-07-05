@@ -36,6 +36,7 @@ import {
   COST_DOC_TYPE_LABELS,
   CostDocStatusBadge,
   MaterialStateBadge,
+  AiConfidenceBadge,
 } from "@/lib/cost-document-format";
 import {
   uploadCostDocument,
@@ -402,6 +403,9 @@ function DocumentCard({
                 </p>
                 <CostDocStatusBadge status={doc.status} />
                 <MaterialStateBadge state={doc.materialState} />
+                {doc.aiConfidence != null && (
+                  <AiConfidenceBadge confidence={doc.aiConfidence} />
+                )}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}

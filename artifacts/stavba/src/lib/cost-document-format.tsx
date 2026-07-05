@@ -1,8 +1,8 @@
 /** Czech labels + badge styling shared by the cost-document pages. */
-import { Sparkles } from "lucide-react";
+import { AlertTriangle, Sparkles } from "lucide-react";
 
 /** AI confidence below this is treated as low and flagged for closer review. */
-export const AI_CONFIDENCE_LOW = 0.7;
+export const AI_CONFIDENCE_LOW = 0.8;
 
 export const COST_DOC_STATUS_LABELS: Record<string, string> = {
   uploaded: "Nahráno",
@@ -101,6 +101,7 @@ export const COST_DOC_REFERENCE_SOURCE_LABELS: Record<string, string> = {
   ai: "AI",
   manual: "Ručně",
   email: "E-mail",
+  automatic_match: "Automatické párování",
 };
 
 export function CostDocStatusBadge({ status }: { status: string }) {
@@ -149,7 +150,7 @@ export function MaterialStateBadge({
   );
 }
 
-/** Compact badge showing the AI extraction confidence; amber when low (<0.7). */
+/** Compact badge showing the AI extraction confidence; red when below 80 %. */
 export function AiConfidenceBadge({
   confidence,
   className = "",
@@ -159,15 +160,16 @@ export function AiConfidenceBadge({
 }) {
   const low = confidence < AI_CONFIDENCE_LOW;
   const cls = low
-    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+    ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
     : "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300";
+  const Icon = low ? AlertTriangle : Sparkles;
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cls} ${className}`}
       title={`Důvěryhodnost AI ${Math.round(confidence * 100)} %`}
     >
-      <Sparkles className="h-3 w-3 shrink-0" />
-      AI {Math.round(confidence * 100)} %
+      <Icon className="h-3 w-3 shrink-0" />
+      {low ? "Kontrola" : "AI"} {Math.round(confidence * 100)} %
     </span>
   );
 }

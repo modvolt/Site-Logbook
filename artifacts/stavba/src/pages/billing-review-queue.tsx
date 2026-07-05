@@ -63,6 +63,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { invalidateData } from "@/lib/query-invalidation";
+import { AI_CONFIDENCE_LOW } from "@/lib/cost-document-format";
 
 // ---------------------------------------------------------------------------
 // Reason badge config
@@ -78,9 +79,9 @@ const REASON_CONFIG: Record<
     icon: AlertTriangle,
   },
   low_confidence: {
-    label: "Nízká jistota AI",
-    color: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
-    icon: Sparkles,
+    label: "Alarm: AI pod 80 %",
+    color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+    icon: AlertTriangle,
   },
   missing_job: {
     label: "Chybí zakázka",
@@ -858,8 +859,8 @@ function LineRow({
         {item.confidence != null ? (
           <span
             className={
-              item.confidence < 0.7
-                ? "text-violet-600 dark:text-violet-400 font-medium"
+              item.confidence < AI_CONFIDENCE_LOW
+                ? "text-red-600 dark:text-red-400 font-semibold"
                 : "text-muted-foreground"
             }
           >

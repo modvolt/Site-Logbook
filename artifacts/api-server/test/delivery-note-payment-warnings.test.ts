@@ -58,4 +58,15 @@ describe("normalizeResult on delivery notes", () => {
     );
     expect(result.warnings).toEqual(["Dodavatel je nečitelný"]);
   });
+
+  it("adds a review warning below the default 80 percent threshold", () => {
+    const result = normalizeResult(baseResult({ confidence: 0.79 }));
+    expect(result.warnings.join(" ")).toContain("Nízká důvěryhodnost");
+    expect(result.warnings.join(" ")).toContain("79 %");
+  });
+
+  it("does not add the confidence warning at exactly 80 percent", () => {
+    const result = normalizeResult(baseResult({ confidence: 0.8 }));
+    expect(result.warnings).toEqual([]);
+  });
 });

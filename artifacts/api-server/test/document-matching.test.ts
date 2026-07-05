@@ -4,6 +4,7 @@ import {
   scoreDeliveryNoteToInvoice,
   scoreReferenceToJob,
   rankJobsForReference,
+  selectAutomaticDocumentMatches,
   type MatchableDocument,
   type MatchableJob,
 } from "../src/lib/document-matching";
@@ -62,6 +63,80 @@ describe("scoreDeliveryNoteToInvoice", () => {
     const r = scoreDeliveryNoteToInvoice(dn, inv);
     expect(r.score).toBeGreaterThan(0);
     expect(r.reasons).toContain("Shodné číslo objednávky");
+  });
+
+  it("keeps a strong match when an invoice arrives a week later", () => {
+    const result = scoreDeliveryNoteToInvoice(
+      {
+        supplierIc: "12345678",
+        documentNumber: "DL-2026-071",
+        issueDate: "2026-07-01",
+      },
+      {
+        supplierIc: "12345678",
+        issueDate: "2026-07-08",
+        references: [
+          { referenceType: "delivery_note", referenceNumber: "DL-2026-071" },
+        ],
+      },
+    );
+    expect(result.score).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it("keeps an explicit delivery-note match even after two months", () => {
+    const result = scoreDeliveryNoteToInvoice(
+      {
+        supplierIc: "12345678",
+        documentNumber: "DL-2026-071",
+        issueDate: "2026-07-01",
+      },
+      {
+        supplierIc: "12345678",
+        issueDate: "2026-09-01",
+        references: [
+          { referenceType: "delivery_note", referenceNumber: "DL-2026-071" },
+        ],
+      },
+    );
+    expect(result.score).toBeGreaterThanOrEqual(0.7);
+  });
+});
+
+describe("selectAutomaticDocumentMatches", () => {
+  it("keeps multiple explicitly referenced delivery notes", () => {
+    const selected = selectAutomaticDocumentMatches(
+      [
+        { documentId: 10, score: 0.95, exactReferenceMatch: true },
+        { documentId: 11, score: 0.9, exactReferenceMatch: true },
+        { documentId: 12, score: 0.85, exactReferenceMatch: false },
+      ],
+      0.6,
+    );
+    expect(selected.map((candidate) => candidate.documentId)).toEqual([10, 11]);
+  });
+
+  it("rejects similarly scored candidates without an exact reference", () => {
+    expect(
+      selectAutomaticDocumentMatches(
+        [
+          { documentId: 10, score: 0.8, exactReferenceMatch: false },
+          { documentId: 11, score: 0.78, exactReferenceMatch: false },
+        ],
+        0.6,
+      ),
+    ).toEqual([]);
+  });
+
+  it("accepts one unambiguous candidate above the threshold", () => {
+    expect(
+      selectAutomaticDocumentMatches(
+        [
+          { documentId: 10, score: 0.85, exactReferenceMatch: false },
+          { documentId: 11, score: 0.65, exactReferenceMatch: false },
+        ],
+        0.6,
+      ).map((candidate) => candidate.documentId),
+    ).toEqual([10]);
   });
 });
 

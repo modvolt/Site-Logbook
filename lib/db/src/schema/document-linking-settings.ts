@@ -17,13 +17,12 @@ export const documentLinkingSettingsTable = pgTable("document_linking_settings",
   // Write a *suggested* job link once a match reaches autoLinkMinScore. ON by
   // default — it only suggests, never confirms.
   autoLinkEnabled: boolean("auto_link_enabled").notNull().default(true),
-  // Additionally CONFIRM a link automatically once a match reaches
-  // autoConfirmMinScore. OFF by default, so confirmation stays manual.
-  autoConfirmEnabled: boolean("auto_confirm_enabled").notNull().default(false),
+  // Confirm automatically only after the deliberately high score threshold.
+  autoConfirmEnabled: boolean("auto_confirm_enabled").notNull().default(true),
   // 0..1 thresholds. NULL falls back to the DOCUMENT_*_MIN_SCORE env var or the
   // built-in default.
   autoLinkMinScore: real("auto_link_min_score"),
-  autoConfirmMinScore: real("auto_confirm_min_score"),
+  autoConfirmMinScore: real("auto_confirm_min_score").default(0.8),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

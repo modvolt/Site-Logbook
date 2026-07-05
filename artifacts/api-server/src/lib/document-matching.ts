@@ -22,6 +22,35 @@ export interface ScoredMatch {
   reasons: string[];
 }
 
+export interface AutomaticDocumentMatchCandidate {
+  documentId: number;
+  score: number;
+  exactReferenceMatch: boolean;
+}
+
+/**
+ * Keep all explicitly referenced delivery notes. Without an exact reference,
+ * accept only one clearly better candidate above the configured threshold.
+ */
+export function selectAutomaticDocumentMatches<
+  T extends AutomaticDocumentMatchCandidate,
+>(
+  candidates: T[],
+  minScore: number,
+  ambiguityMargin = 0.05,
+): T[] {
+  const eligible = candidates
+    .filter((candidate) => candidate.score >= minScore)
+    .sort((a, b) => b.score - a.score);
+  const exact = eligible.filter((candidate) => candidate.exactReferenceMatch);
+  if (exact.length > 0) return exact;
+  const best = eligible[0];
+  if (!best) return [];
+  const second = eligible[1];
+  if (second && best.score - second.score < ambiguityMargin) return [];
+  return [best];
+}
+
 export function strengthFromScore(score: number): MatchStrength {
   if (score >= 0.8) return "strong";
   if (score >= 0.5) return "medium";
