@@ -693,12 +693,20 @@ async function mergeRelatedDocumentsTx(
           or(...identityConds),
         ),
       );
+    // Never auto-merge into (or absorb) an already-APPROVED document: approval
+    // already fired price-propagation/warehouse/material side effects, so
+    // flipping it to status="duplicate" here would silently orphan that state
+    // with nothing left to re-run it (the new doc stays unapproved). Flag for
+    // manual review instead, same as `markDocumentAsDuplicate` already does
+    // for the manual pairing path (409 on an approved side).
+    const approvedMatch = candidates.find((c) => c.status === "approved");
+    const mergeCandidates = candidates.filter((c) => c.status !== "approved");
     // Prefer a candidate that differs in format (ISDOC vs PDF) — that's the pair
     // we want to merge. Fall back to the first candidate otherwise.
     const other =
-      candidates.find(
+      mergeCandidates.find(
         (c) => priorityRank(c.sourcePriority) !== priorityRank(doc.sourcePriority),
-      ) ?? candidates[0];
+      ) ?? mergeCandidates[0];
     if (other) {
       const primary =
         priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
@@ -711,6 +719,18 @@ async function mergeRelatedDocumentsTx(
           priorityRank(primary.sourcePriority) >= 4 ? "ISDOC" : "PDF"
         }).`,
       );
+      return;
+    }
+    if (approvedMatch) {
+      const explanation = `Možná duplicita se schváleným dokladem #${approvedMatch.id} – vyžaduje kontrolu (schválený doklad nelze automaticky sloučit, spárujte ručně po případném zrušení schválení).`;
+      await tx
+        .update(billingDocumentsTable)
+        .set({
+          status: "needs_review",
+          warnings: [doc.warnings, explanation].filter(Boolean).join("\n"),
+          updatedAt: new Date(),
+        })
+        .where(eq(billingDocumentsTable.id, doc.id));
       return;
     }
   }
@@ -746,7 +766,11 @@ async function mergeRelatedDocumentsTx(
   }
   if (!best || best.score.score < FUZZY_MERGE_REVIEW_THRESHOLD) return;
 
-  if (best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD) {
+  // Same approved-document guard as the identity-match path above: a fuzzy
+  // match good enough to auto-merge must never absorb (or be absorbed by) an
+  // already-APPROVED sibling — that would silently orphan its already-applied
+  // price/warehouse effects. Flag for manual review instead.
+  if (best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD && best.sibling.status !== "approved") {
     const other = best.sibling;
     const primary =
       priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
@@ -757,6 +781,18 @@ async function mergeRelatedDocumentsTx(
       secondary,
       `Sloučeno s dokladem #${primary.id} (${best.score.reasons.join(", ")}).`,
     );
+    return;
+  }
+  if (best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD && best.sibling.status === "approved") {
+    const explanation = `Možná duplicita se schváleným dokladem #${best.sibling.id} – vyžaduje kontrolu (${best.score.reasons.join(", ")}; shoda ${Math.round(best.score.score * 100)} %). Schválený doklad nelze automaticky sloučit.`;
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "needs_review",
+        warnings: [doc.warnings, explanation].filter(Boolean).join("\n"),
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, doc.id));
     return;
   }
 
@@ -2297,6 +2333,13 @@ export async function syncJobMaterialsForDocument(
     : [];
   const desired = new Set<number>();
   const affectedMaterialIds = new Set<number>();
+  // Materials already issued on a customer invoice are frozen: a re-sync
+  // (e.g. "Aktualizovat ceny" or a bulk-confirm re-run on the same approved
+  // document) must never rewrite their price nor delete them, even though
+  // their sourceId still ties them to this document's line.
+  const invoicedBySourceId = new Map(
+    existing.filter((m) => m.invoicedInvoiceId != null).map((m) => [m.sourceId, m]),
+  );
 
   // Only an approved document propagates; otherwise the loop is skipped and any
   // previously-sourced materials below are reconciled away.
@@ -2352,6 +2395,13 @@ export async function syncJobMaterialsForDocument(
       if (jobId == null) continue;
 
       desired.add(line.id);
+      // Frozen: this line's material is already on an issued customer
+      // invoice — keep it as-is (still "desired" so it survives the
+      // toDelete pass below, but never rewritten).
+      if (invoicedBySourceId.has(line.id)) {
+        affectedMaterialIds.add(invoicedBySourceId.get(line.id)!.id);
+        continue;
+      }
       // `unit_price_without_vat` is NOT NULL (default 0), so a delivery note
       // with no price arrives as 0 — treat 0 as "no price yet". An invoice
       // prices authoritatively (even a genuine 0).
@@ -2402,8 +2452,15 @@ export async function syncJobMaterialsForDocument(
     }
   }
 
+  // Never delete a material already issued on a customer invoice — e.g. when
+  // the document is un-approved after invoicing, its lines drop out of
+  // `desired` entirely, but the billed material must survive for audit and
+  // to keep the invoice's job-material trail intact.
   const toDelete = existing
-    .filter((m) => m.sourceId == null || !desired.has(m.sourceId))
+    .filter(
+      (m) =>
+        m.invoicedInvoiceId == null && (m.sourceId == null || !desired.has(m.sourceId)),
+    )
     .map((m) => m.id);
   if (toDelete.length) {
     // Reverse the stock issue of each propagated material before removing it,
@@ -2513,6 +2570,13 @@ export async function propagateInvoicePricesToJobMaterials(
 
   // Existing materials of the target jobs that came from a DIFFERENT document
   // (i.e. the earlier delivery note), so we fill them rather than duplicate.
+  // A material already issued on a CUSTOMER invoice (invoicedInvoiceId set) is
+  // frozen — its billed price must never be rewritten by a later approval or
+  // review-queue confirmation. It still stays in the match pool below so a
+  // matching invoice line is correctly consumed (see consumedLineIds); dropping
+  // it here would leave the line "unconsumed" and cause
+  // syncJobMaterialsForDocument to create a brand-new duplicate material for
+  // the same item.
   const jobMaterials = (
     await tx
       .select()
@@ -2580,6 +2644,21 @@ export async function propagateInvoicePricesToJobMaterials(
     if (!best) continue;
 
     const m = best.material;
+
+    // A material already billed to the customer is frozen: ANY later
+    // matching invoice line (even a different, later-arriving supplier
+    // invoice) must consume the line so `syncJobMaterialsForDocument` never
+    // creates a duplicate material for the same item — but the frozen
+    // material's price/provenance must never be rewritten. This check must
+    // run BEFORE the "different invoice line" stability check below, or a
+    // frozen material that was originally priced by one invoice line would
+    // fail to consume a different invoice line matching it later.
+    if (m.invoicedInvoiceId != null) {
+      usedMaterialIds.add(m.id);
+      consumedLineIds.add(line.id);
+      continue;
+    }
+
     // Leave a material already priced from another invoice line untouched
     // (stable + idempotent). Re-running with the same line refreshes in place.
     if (
@@ -2592,6 +2671,7 @@ export async function propagateInvoicePricesToJobMaterials(
 
     usedMaterialIds.add(m.id);
     consumedLineIds.add(line.id);
+
     await tx
       .update(materialsTable)
       .set({
@@ -2704,6 +2784,20 @@ export async function approveDocument(id: number, actor: Actor) {
       .from(billingDocumentsTable)
       .where(eq(billingDocumentsTable.id, id));
     if (!doc) throw appError(404, "Doklad nenalezen.");
+    // Task #685 (risk #5): a document already merged away as a duplicate
+    // (status="duplicate", primaryDocumentId set) must never be approved
+    // directly — its lines are dead weight kept only for traceability. If it
+    // were approved here it would run the SAME price-propagation/material
+    // sync/warehouse-movement pipeline as the primary that absorbed it,
+    // double-writing stock and prices for what is logically one document.
+    if (doc.status === "duplicate") {
+      throw appError(
+        409,
+        doc.primaryDocumentId
+          ? `Doklad je sloučen jako duplicita dokladu #${doc.primaryDocumentId} – schvalte tento hlavní doklad, ne duplicitu.`
+          : "Doklad je označen jako duplicita a nelze jej samostatně schválit.",
+      );
+    }
     await tx
       .update(billingDocumentsTable)
       .set({
@@ -3923,15 +4017,23 @@ export async function bulkConfirmReviewLines(
     );
 
   // Batch-load doc statuses for lines (needed for needs_review reason)
-  const docIds = [...new Set(lines.map((l) => l.documentId))];
+  const allDocIds = [...new Set(lines.map((l) => l.documentId))];
   const docStatusMap = new Map<number, string>();
-  if (docIds.length > 0) {
+  if (allDocIds.length > 0) {
     const docs = await db
       .select({ id: billingDocumentsTable.id, status: billingDocumentsTable.status })
       .from(billingDocumentsTable)
-      .where(inArray(billingDocumentsTable.id, docIds));
+      .where(inArray(billingDocumentsTable.id, allDocIds));
     for (const d of docs) docStatusMap.set(d.id, d.status);
   }
+
+  // Task #685 (risk #5): lines belonging to a document already merged away
+  // as a duplicate must never be bulk-confirmed — that would re-run price
+  // propagation/material sync for a dead document and double-write the
+  // primary's already-applied stock/price effects. Silently drop them
+  // (never count as toConfirm) rather than 500 the whole batch over stale
+  // line ids a client happened to still have selected.
+  const liveLines = lines.filter((l) => docStatusMap.get(l.documentId) !== "duplicate");
 
   // Resolve warehouse matches to compute accurate diff fields
   const warehouseMaps = await loadWarehouseLookupMaps();
@@ -3943,7 +4045,7 @@ export async function bulkConfirmReviewLines(
   let withJobAssigned = 0;
   const affectedJobIdSet = new Set<number>();
 
-  for (const l of lines) {
+  for (const l of liveLines) {
     const unitPrice = num(l.unitPriceWithoutVat);
     const warehouseMatch = matchLineToWarehouse(l, warehouseMaps);
     const docStatus = docStatusMap.get(l.documentId) ?? "";
@@ -3963,8 +4065,8 @@ export async function bulkConfirmReviewLines(
     if (persistingReasons.length > 0) stillUnresolved++;
   }
 
-  const alreadyConfirmed = lines.filter((l) => !!l.matchConfirmed).length;
-  const toConfirmLines = lines.filter((l) => !l.matchConfirmed);
+  const alreadyConfirmed = liveLines.filter((l) => !!l.matchConfirmed).length;
+  const toConfirmLines = liveLines.filter((l) => !l.matchConfirmed);
   const toConfirm = toConfirmLines.length;
 
   if (!dryRun && toConfirm > 0) {

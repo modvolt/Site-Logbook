@@ -128,10 +128,15 @@ describe("domainsForPath — billing", () => {
     expect(domains("/billing/email-import/sync")).toContain("emailImport");
   });
 
-  it("review-queue → reviewQueue + billingDocuments", () => {
+  it("review-queue → reviewQueue + billingDocuments + jobs + warehouse", () => {
+    // Task #685 fix: bulkConfirmReviewLines runs the same job-material /
+    // warehouse price-propagation as approveDocument, so clients subscribed to
+    // "jobs"/"warehouse" (not just the review-queue screen) must also refresh.
     const d = domains("/billing/review-queue");
     expect(d).toContain("reviewQueue");
     expect(d).toContain("billingDocuments");
+    expect(d).toContain("jobs");
+    expect(d).toContain("warehouse");
   });
 });
 

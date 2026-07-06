@@ -59,6 +59,11 @@ export function domainsForPath(relPath: string): LiveDomain[] {
     add("emailImport");
   } else if (p.startsWith("/billing/review-queue")) {
     add("reviewQueue", "billingDocuments");
+    // Confirming (or bulk-confirming) review-queue lines re-runs the same
+    // invoice→job-material price propagation as approveDocument for every
+    // affected document — so open job and warehouse screens must refresh too,
+    // or they show a stale price after this mutation's SSE event.
+    add("jobs", "warehouse");
   } else if (p.startsWith("/jobs")) {
     add("jobs");
     if (p.includes("/materials")) add("warehouse");

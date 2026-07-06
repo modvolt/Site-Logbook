@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   db,
   billingDocumentsTable,
@@ -224,5 +224,45 @@ describe("mergeRelatedDocumentsTx fuzzy fallback (no matching document number)",
     expect(refreshedSecond.status).not.toBe("duplicate");
     expect(refreshedFirst.primaryDocumentId).toBeNull();
     expect(refreshedSecond.primaryDocumentId).toBeNull();
+  });
+
+  it("Task #685: never auto-merges an already-APPROVED document — flags the new one for review instead", async () => {
+    const ic = icoFor(5);
+    const lines = [
+      { desc: "Omítka jádrová", amount: 800 },
+      { desc: "Sádra", amount: 400 },
+    ];
+    const first = await ingest(
+      isdoc({ id: `${TAG}-D1`, ic, issueDate: "2024-08-01", total: 1200, lines }),
+      "approved-a",
+    );
+    // Approve the first document — it now carries applied price/warehouse
+    // effects that a silent auto-merge would orphan.
+    await db
+      .update(billingDocumentsTable)
+      .set({ status: "approved" })
+      .where(eq(billingDocumentsTable.id, first.id));
+
+    const second = await ingest(
+      isdoc({ id: `${TAG}-D2-DIFFERENT`, ic, issueDate: "2024-08-01", total: 1200, lines }),
+      "approved-b",
+    );
+
+    const [refreshedFirst] = await db
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, [first.id]));
+    const [refreshedSecond] = await db
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, [second.id]));
+
+    // The approved document is untouched — never flipped to "duplicate".
+    expect(refreshedFirst.status).toBe("approved");
+    expect(refreshedFirst.primaryDocumentId).toBeNull();
+    // The new document is flagged for a human instead of being silently merged.
+    expect(refreshedSecond.status).toBe("needs_review");
+    expect(refreshedSecond.primaryDocumentId).toBeNull();
+    expect(refreshedSecond.warnings).toMatch(/schváleným dokladem/);
   });
 });

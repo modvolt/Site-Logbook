@@ -1,3 +1,4 @@
+- [Cost-doc pipeline double-write guards](cost-doc-pipeline-double-write-guards.md) — merge/duplicate/bulk-confirm/frozen-invoice seams where the ingest→approve→warehouse pipeline can re-run and double-write; 4 structural guards close them.
 - [Manual duplicate pairing direction](manual-duplicate-pairing-direction.md) — "pair candidate as duplicate" on a doc's own page must mark the CANDIDATE dup, current record primary — easy to flip the mutation args.
 - [Duplicate pairing own-file vs files table](duplicate-pairing-own-file-vs-files-table.md) — a single-file doc's file lives in its own top-level objectPath/fileName, NOT billingDocumentFilesTable; querying only that table shows "no file" for linked duplicates.
 - [Health check migrations folder path](health-migrations-folder-path.md) — resolveMigrationsFolder must go up 3× (not 4×) from import.meta.url; esbuild bundle is dist/index.mjs, only 3 levels deep from workspace root.

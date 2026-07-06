@@ -687,6 +687,199 @@ describe("invoice price propagation", () => {
     expect(Number(itemB!.pricePerUnit)).toBe(80);
   });
 
+  it("Task #685: a re-approve/bulk-confirm resync never rewrites or deletes an already-invoiced material's price", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Konektor ${TAG}`,
+      ean: "9555555555555",
+      quantity: "2",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+    const inv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Konektor ${TAG}`,
+      ean: "9555555555555",
+      quantity: "2",
+      unitPrice: "40",
+    });
+    await approveDocument(inv.docId, actor);
+
+    const [filled] = await jobMaterials(jobId);
+    expect(Number(filled.pricePerUnit)).toBe(40);
+
+    // Bill the material to the customer — it is now frozen (invoicedInvoiceId set).
+    await db.update(jobsTable).set({ status: "done" }).where(eq(jobsTable.id, jobId));
+    const invoice = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(invoice.id);
+    const [reserved] = await jobMaterials(jobId);
+    expect(reserved.invoicedInvoiceId).toBe(invoice.id);
+
+    // Someone later edits the invoice line's price upward AFTER the material was
+    // already billed. The already-issued invoice line item keeps its own
+    // captured amount regardless, but the underlying job material must stay
+    // frozen at its billed price/state too — never silently rewritten.
+    await updateLine(inv.docId, inv.lineId, { unitPriceWithoutVat: 999 }, actor);
+    let [afterEdit] = await jobMaterials(jobId);
+    expect(Number(afterEdit.pricePerUnit)).toBe(40);
+    expect(afterEdit.invoicedInvoiceId).toBe(invoice.id);
+
+    // A manual "Aktualizovat ceny" resync (or an equivalent bulk-confirm
+    // re-run) on the same approved invoice must also leave it untouched —
+    // never rewritten, never deleted (still present for audit).
+    await updateWarehousePricesFromDocument(inv.docId, actor);
+    [afterEdit] = await jobMaterials(jobId);
+    expect(afterEdit).toBeDefined();
+    expect(Number(afterEdit.pricePerUnit)).toBe(40);
+    expect(afterEdit.invoicedInvoiceId).toBe(invoice.id);
+
+    // Cleanup: release the reservation so afterEach can delete the draft cleanly.
+    await deleteDraft(invoice.id);
+    invoiceIds.pop();
+  });
+
+  it("Task #685: a supplier invoice approved AFTER a material was already billed to the customer must consume (not duplicate) that material", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Rozvaděč ${TAG}`,
+      ean: "9777777777777",
+      quantity: "1",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+    const [awaiting] = await jobMaterials(jobId);
+    expect(awaiting.priceSource).toBe("awaiting_invoice");
+
+    // An earlier supplier invoice for the SAME item fills its price (first
+    // real-world purchase), before it gets billed to the customer.
+    const firstSupplierInv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Rozvaděč ${TAG}`,
+      ean: "9777777777777",
+      quantity: "1",
+      unitPrice: "300",
+    });
+    await approveDocument(firstSupplierInv.docId, actor);
+    const [priced] = await jobMaterials(jobId);
+    expect(Number(priced.pricePerUnit)).toBe(300);
+
+    // Bill the material to the customer — it is now frozen (invoicedInvoiceId set).
+    await db.update(jobsTable).set({ status: "done" }).where(eq(jobsTable.id, jobId));
+    const invoice = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(invoice.id);
+    const [reserved] = await jobMaterials(jobId);
+    expect(reserved.invoicedInvoiceId).toBe(invoice.id);
+
+    // The supplier invoice for the same item arrives and is approved
+    // afterward — it must consume the already-billed material (matched by
+    // EAN) instead of creating a second, duplicate material row.
+    const supplierInv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Rozvaděč ${TAG}`,
+      ean: "9777777777777",
+      quantity: "1",
+      unitPrice: "500",
+    });
+    await approveDocument(supplierInv.docId, actor);
+
+    const mats = await jobMaterials(jobId);
+    expect(mats).toHaveLength(1);
+    // The frozen material keeps its billed state — never rewritten by the
+    // later-arriving supplier invoice.
+    expect(mats[0].id).toBe(reserved.id);
+    expect(mats[0].invoicedInvoiceId).toBe(invoice.id);
+    expect(Number(mats[0].pricePerUnit)).toBe(300);
+    expect(mats[0].priceSourceDocumentId).toBe(firstSupplierInv.docId);
+
+    // Cleanup: release the reservation so afterEach can delete the draft cleanly.
+    await deleteDraft(invoice.id);
+    invoiceIds.pop();
+  });
+
+  it("Task #685 (risk #5): a merged-away duplicate document can never be approved or bulk-confirmed into a double warehouse/material write", async () => {
+    const jobId = await makeJob();
+    const [item] = await db
+      .insert(warehouseItemsTable)
+      .values({ name: `Svorka ${TAG}`, ean: "9666666666666", unit: "ks" })
+      .returning();
+    itemIds.push(item.id);
+    const primary = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Svorka ${TAG}`,
+      ean: "9666666666666",
+      quantity: "3",
+      unitPrice: "50",
+    });
+    await approveDocument(primary.docId, actor);
+
+    const [matAfterPrimary] = await jobMaterials(jobId);
+    expect(matAfterPrimary).toBeDefined();
+    expect(Number(matAfterPrimary.pricePerUnit)).toBe(50);
+
+    // A second doc (e.g. a duplicate scan of the same invoice) that has
+    // already been merged away — status="duplicate", primaryDocumentId set —
+    // same shape performMergeTx leaves behind. Its own line is still present
+    // for traceability, but it must be structurally dead for approval/sync.
+    const secondary = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Svorka ${TAG}`,
+      ean: "9666666666666",
+      quantity: "3",
+      unitPrice: "50",
+    });
+    await db
+      .update(billingDocumentsTable)
+      .set({ status: "duplicate", primaryDocumentId: primary.docId })
+      .where(eq(billingDocumentsTable.id, secondary.docId));
+
+    // Direct approve on the duplicate must be rejected outright (409), never
+    // silently run propagation/sync a second time.
+    await expect(approveDocument(secondary.docId, actor)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+
+    // A stale bulk-confirm request against the duplicate's own line must be a
+    // no-op: not counted as confirmable, and no second material/movement.
+    const diff = await bulkConfirmReviewLines([secondary.lineId], actor);
+    expect(diff.toConfirm).toBe(0);
+
+    const matsAfter = await jobMaterials(jobId);
+    expect(matsAfter).toHaveLength(1);
+    expect(Number(matsAfter[0].pricePerUnit)).toBe(50);
+    expect(Number(matsAfter[0].quantity)).toBe(3);
+
+    const movements = await db
+      .select()
+      .from(warehouseMovementsTable)
+      .where(eq(warehouseMovementsTable.jobId, jobId));
+    // Exactly one issue movement for this job's material — never doubled by
+    // the duplicate silently re-running the sync pipeline a second time.
+    expect(
+      movements.filter((m) => m.sourceType === "material" && m.direction === "out"),
+    ).toHaveLength(1);
+    const netForJob = movements.reduce(
+      (sum, m) => sum + (m.direction === "out" ? -Number(m.quantity) : Number(m.quantity)),
+      0,
+    );
+    expect(netForJob).toBeCloseTo(-3, 2);
+  });
+
   it("scenario 9: material API serialization exposes the price-source provenance fields", async () => {
     const jobId = await makeJob();
     const dn = await makeDoc({
