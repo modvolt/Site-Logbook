@@ -79,6 +79,7 @@ import {
   ArrowLeft,
   AlertTriangle,
   Check,
+  CheckCheck,
   CheckCircle2,
   EyeOff,
   FileText,
@@ -164,6 +165,10 @@ export default function BillingDocumentDetail() {
 
   const handleBulkSave = () => {
     lineCardsRef.current.forEach((cardRef) => cardRef.save());
+  };
+
+  const handleApproveAll = () => {
+    lineCardsRef.current.forEach((cardRef) => cardRef.save({ approved: true }));
   };
 
   const doc = data?.document;
@@ -510,9 +515,14 @@ export default function BillingDocumentDetail() {
       <div className="flex items-center justify-between mt-6 mb-3">
         <h2 className="text-lg font-semibold">Položky dokladu</h2>
         {data.lines.length > 0 && (
-          <Button size="sm" onClick={handleBulkSave}>
-            <Save className="h-4 w-4 mr-1" /> Uložit vše
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleApproveAll}>
+              <CheckCheck className="h-4 w-4 mr-1" /> Schválit vše
+            </Button>
+            <Button size="sm" onClick={handleBulkSave}>
+              <Save className="h-4 w-4 mr-1" /> Uložit vše
+            </Button>
+          </div>
         )}
       </div>
       {data.lines.length === 0 ? (
@@ -820,7 +830,7 @@ function Field({
 // ---------------------------------------------------------------------------
 
 export interface LineCardRef {
-  save: () => void;
+  save: (overrides?: { approved?: boolean }) => void;
 }
 
 const LineCard = forwardRef<LineCardRef, {
@@ -870,6 +880,7 @@ const LineCard = forwardRef<LineCardRef, {
   const save = useCallback((overrides?: Partial<typeof form>) => {
     if (lineHasErrors) return;
     const f = { ...form, ...overrides };
+    if (overrides) setForm(f);
     const data: CostDocumentLineUpdateInput = {
       lineType: f.lineType as CostDocumentLineUpdateInput["lineType"],
       description: f.description,
