@@ -486,14 +486,15 @@ export default function PristupoveUdaje() {
     const list = customers ?? [];
     const nameCounts = new Map<string, number>();
     for (const c of list) {
-      const key = c.companyName.trim().toLowerCase();
+      const key = String(c.companyName ?? "").trim().toLowerCase();
       nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
     }
     return list.map((c) => {
-      const isDup = (nameCounts.get(c.companyName.trim().toLowerCase()) ?? 0) > 1;
+      const companyName = String(c.companyName ?? "");
+      const isDup = (nameCounts.get(companyName.trim().toLowerCase()) ?? 0) > 1;
       const label = isDup
-        ? `${c.companyName}${c.address ? ` — ${c.address}` : ` (#${c.id})`}`
-        : c.companyName;
+        ? `${companyName}${c.address ? ` — ${c.address}` : ` (#${c.id})`}`
+        : companyName;
       return { id: c.id, label };
     });
   }, [customers]);
@@ -1322,13 +1323,13 @@ export default function PristupoveUdaje() {
             onValueChange={(v) => {
               setCustomerQuery(v);
               const match = customerOptions.find(
-                (o) => o.label.trim().toLowerCase() === v.trim().toLowerCase(),
+                (o) => String(o.label ?? "").trim().toLowerCase() === v.trim().toLowerCase(),
               );
               setCustomerId(match ? match.id : null);
               setShowAdd(false);
               setEditingId(null);
             }}
-            suggestions={customerOptions.map((o) => o.label)}
+            suggestions={customerOptions.map((o) => String(o.label ?? ""))}
             maxItems={12}
             placeholder="Začněte psát název zákazníka…"
             className="h-11"

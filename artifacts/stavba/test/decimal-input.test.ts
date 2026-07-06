@@ -134,3 +134,33 @@ describe("job-form material validation — combined newMatHasErrors logic", () =
     expect(canAdd("Beton", "10", "")).toBe(true);
   });
 });
+
+describe("decimalError — non-string input hardening", () => {
+  /**
+   * Regression guard for the "(e ?? \"\").trim is not a function" crash:
+   * `??` only substitutes for null/undefined, so a stray number/boolean/object
+   * value (e.g. from mis-typed data) used to throw here. decimalError() must
+   * coerce with String(...) before calling .trim().
+   */
+  it("does not throw and treats a numeric value as its string form", () => {
+    expect(() => decimalError(5 as unknown as string)).not.toThrow();
+    expect(decimalError(5 as unknown as string)).toBeUndefined();
+  });
+
+  it("does not throw and treats a boolean value safely", () => {
+    expect(() => decimalError(true as unknown as string)).not.toThrow();
+    expect(decimalError(true as unknown as string)).toBe("Neplatné číslo");
+  });
+
+  it("does not throw and treats an object value safely", () => {
+    expect(() => decimalError({} as unknown as string)).not.toThrow();
+    expect(decimalError({} as unknown as string)).toBe("Neplatné číslo");
+  });
+
+  it("does not throw for null or undefined", () => {
+    expect(() => decimalError(null as unknown as string)).not.toThrow();
+    expect(() => decimalError(undefined as unknown as string)).not.toThrow();
+    expect(decimalError(null as unknown as string)).toBeUndefined();
+    expect(decimalError(undefined as unknown as string)).toBeUndefined();
+  });
+});

@@ -162,14 +162,14 @@ export default function CustomerCsvImport({ open, onOpenChange, onImported }: Pr
     for (const row of rows) {
       const nameCol = mapping.companyName;
       const companyName =
-        nameCol && nameCol !== IGNORE ? (row[nameCol] ?? "").trim() : "";
+        nameCol && nameCol !== IGNORE ? String(row[nameCol] ?? "").trim() : "";
       const item: CustomerImportItem = { companyName };
       const bag = item as unknown as Record<string, unknown>;
       for (const f of FIELDS) {
         if (f.key === "companyName") continue;
         const col = mapping[f.key];
         if (!col || col === IGNORE) continue;
-        const value = (row[col] ?? "").trim();
+        const value = String(row[col] ?? "").trim();
         if (value === "") continue;
         bag[f.key] = value;
       }

@@ -76,7 +76,7 @@ export function decimalError(
   v: string,
   opts?: { allowNegative?: boolean; positiveOnly?: boolean; integerOnly?: boolean; max?: number },
 ): string | undefined {
-  const t = (v ?? "").trim();
+  const t = String(v ?? "").trim();
   if (t === "") return undefined;
   const n = parseDecimal(v);
   if (n === null) return "Neplatné číslo";

@@ -768,7 +768,7 @@ function MaterialsSection({
     { activityId },
     { query: { queryKey: getGetWarehouseActivityMarginTrendQueryKey({ activityId }) } },
   );
-  const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
+  const materialSuggestions = (warehouseItems ?? []).map((w: any) => String(w.name ?? ""));
   // Name-keyed map for resolving warehouseItemId from the autocomplete selection.
   // Only entries with a UNIQUE lowercase name are stored — duplicate names produce no
   // explicit ID so the backend's ambiguity guard remains effective.

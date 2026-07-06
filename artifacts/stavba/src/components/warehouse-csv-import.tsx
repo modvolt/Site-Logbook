@@ -175,14 +175,14 @@ export default function WarehouseCsvImport({ open, onOpenChange, onImported }: P
     const out: WarehouseImportItem[] = [];
     for (const row of rows) {
       const nameCol = mapping.name;
-      const name = nameCol && nameCol !== IGNORE ? (row[nameCol] ?? "").trim() : "";
+      const name = nameCol && nameCol !== IGNORE ? String(row[nameCol] ?? "").trim() : "";
       const item: WarehouseImportItem = { name };
       const bag = item as unknown as Record<string, unknown>;
       for (const f of FIELDS) {
         if (f.key === "name") continue;
         const col = mapping[f.key];
         if (!col || col === IGNORE) continue;
-        const value = (row[col] ?? "").trim();
+        const value = String(row[col] ?? "").trim();
         if (value === "") continue;
         if (f.numeric) {
           const n = parseCzNumber(value);

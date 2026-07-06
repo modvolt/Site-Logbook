@@ -28,7 +28,7 @@ const H_GAP = 26;
 const V_GAP = 58;
 const PAD = 16;
 
-const norm = (s: string) => s.trim().toLowerCase();
+export const norm = (s: string) => String(s ?? "").trim().toLowerCase();
 
 function iconFor(deviceType: string): LucideIcon {
   const t = norm(deviceType);
@@ -83,7 +83,7 @@ type BuiltTopology = {
   height: number;
 };
 
-function buildTopology(topology: NetworkDevice[]): BuiltTopology {
+export function buildTopology(topology: NetworkDevice[]): BuiltTopology {
   const devices = topology.filter((d) => d);
 
   // Lookup by normalized name then ip address.
@@ -111,9 +111,12 @@ function buildTopology(topology: NetworkDevice[]): BuiltTopology {
 
   for (const d of devices) {
     for (const p of d.ports ?? []) {
-      const conn = (p.connectedDevice ?? "").trim();
+      const conn = String(p.connectedDevice ?? "").trim();
       if (!conn) continue;
-      const label = [p.portNumber, p.name].filter((s) => s && s.trim()).join(" · ");
+      const label = [p.portNumber, p.name]
+        .map((s) => String(s ?? "").trim())
+        .filter((s) => s)
+        .join(" · ");
       const target = resolve(conn);
       if (target) {
         if (target.id === d.id) continue; // ignore self loops

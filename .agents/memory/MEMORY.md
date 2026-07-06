@@ -71,3 +71,4 @@
 - [PPE handover signature protocol](ppe-handover-protocol.md) — InlineSignaturePad: use callback-ref (not useEffect+rAF) + mouse AND pointer events; canvas data-testid for Playwright; setPointerCapture must be try/caught.
 - [Secret field leakage via enrichJob spread](secret-field-leakage.md) — enrichJob() spreads the full DB row; any new secret column (e.g. signatureToken) leaks to all job endpoints. Pattern: destructure secrets out before spread: `const { secretCol: _, ...safe } = job`.
 - [Job signature atomic update](job-signature-atomic.md) — POST /sign/:token must do conditional UPDATE WHERE signed_at IS NULL + expiry guard in one statement (.returning); pre-check + separate UPDATE has a TOCTOU race window.
+- [Nullish-coalescing trim crash pattern](nullish-trim-crash.md) — `(x ?? "").trim()` only guards null/undefined; non-string DB/CSV values still throw. Always `String(x ?? "").trim()`.

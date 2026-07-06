@@ -2045,7 +2045,7 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     trendParams,
     { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
   );
-  const materialSuggestions = (warehouseItems ?? []).map((w: any) => w.name);
+  const materialSuggestions = (warehouseItems ?? []).map((w: any) => String(w.name ?? ""));
   // Name-keyed map for resolving warehouseItemId when user picks from autocomplete.
   // Only entries with a UNIQUE lowercase name are stored — duplicate names produce no
   // explicit ID so the backend's ambiguity guard (resolveWarehouseItemIdByName returns

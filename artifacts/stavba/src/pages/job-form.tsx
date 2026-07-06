@@ -47,8 +47,8 @@ export default function JobForm() {
   const { data: existingJobs } = useListJobs(undefined, { query: { queryKey: getListJobsQueryKey() } });
   const { data: warehouseItems } = useListWarehouseItems(undefined, { query: { queryKey: getListWarehouseItemsQueryKey() } });
 
-  const titleSuggestions = (existingJobs ?? []).map(j => j.title);
-  const materialSuggestions = (warehouseItems ?? []).map(w => w.name);
+  const titleSuggestions = (existingJobs ?? []).map(j => String(j.title ?? ""));
+  const materialSuggestions = (warehouseItems ?? []).map(w => String(w.name ?? ""));
 
   const [formData, setFormData] = useState({
     title: "",

@@ -25,11 +25,12 @@ export function Autocomplete({
   const [highlight, setHighlight] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const q = value.trim().toLowerCase();
+  const safeValue = String(value ?? "");
+  const q = safeValue.trim().toLowerCase();
   const filtered: string[] = [];
   const seen = new Set<string>();
   for (const raw of suggestions) {
-    const name = (raw ?? "").trim();
+    const name = String(raw ?? "").trim();
     if (!name) continue;
     const low = name.toLowerCase();
     if (seen.has(low)) continue;
@@ -96,9 +97,9 @@ export function Autocomplete({
       <Input
         {...inputProps}
         className={className}
-        value={value}
+        value={safeValue}
         onChange={e => { onValueChange(e.target.value); setOpen(true); setHighlight(-1); }}
-        onFocus={e => { if (value.trim()) setOpen(true); onFocus?.(e); }}
+        onFocus={e => { if (safeValue.trim()) setOpen(true); onFocus?.(e); }}
         onKeyDown={handleKeyDown}
         autoComplete="off"
         role="combobox"
