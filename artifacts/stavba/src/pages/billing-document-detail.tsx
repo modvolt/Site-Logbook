@@ -11,6 +11,8 @@ import {
   useDeleteCostDocument,
   useApproveCostDocument,
   useSetCostDocumentStatus,
+  useMarkCostDocumentDuplicate,
+  useUnmarkCostDocumentDuplicate,
   useRequeueCostDocumentExtraction,
   useUpdateCostDocumentLine,
   useSplitCostDocumentLine,
@@ -81,6 +83,8 @@ import {
   Check,
   CheckCheck,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   EyeOff,
   FileText,
   Link2,
@@ -95,6 +99,11 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 const DOC_TYPE_OPTIONS = ["receipt", "delivery_note", "invoice", "credit_note"];
 const LINE_TYPE_OPTIONS = ["material", "work", "transport", "other"];
@@ -152,10 +161,13 @@ export default function BillingDocumentDetail() {
   const deleteDoc = useDeleteCostDocument();
   const approveDoc = useApproveCostDocument();
   const setStatus = useSetCostDocumentStatus();
+  const markDuplicate = useMarkCostDocumentDuplicate();
+  const unmarkDuplicate = useUnmarkCostDocumentDuplicate();
   const requeue = useRequeueCostDocumentExtraction();
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [splitLine, setSplitLine] = useState<CostDocumentLine | null>(null);
+  const [linkedDuplicatesOpen, setLinkedDuplicatesOpen] = useState(true);
 
   const lineCardsRef = useRef<Map<number, LineCardRef>>(new Map());
 
@@ -240,6 +252,42 @@ export default function BillingDocumentDetail() {
           toast({
             title: "Schválení selhalo",
             description: err instanceof Error ? err.message : undefined,
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const handleMarkDuplicate = (duplicateDocumentId: number) => {
+    markDuplicate.mutate(
+      { id: duplicateDocumentId, data: { primaryDocumentId: id } },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Doklad spárován jako duplicita" });
+        },
+        onError: (error) =>
+          toast({
+            title: "Párování se nezdařilo",
+            description: saveErrorMessage(error),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const handleUnmarkDuplicate = () => {
+    unmarkDuplicate.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "Párování zrušeno" });
+        },
+        onError: (error) =>
+          toast({
+            title: "Zrušení párování se nezdařilo",
+            description: saveErrorMessage(error),
             variant: "destructive",
           }),
       },
@@ -464,26 +512,152 @@ export default function BillingDocumentDetail() {
         </Card>
       )}
 
+      {data.duplicateOf && (
+        <Card className="mb-4 border-red-300 bg-red-50 dark:bg-red-900/20">
+          <CardContent className="p-4 text-sm flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-start gap-2 text-red-800 dark:text-red-200">
+              <Link2 className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">
+                  Toto je duplicita dokladu{" "}
+                  <button
+                    className="underline hover:no-underline"
+                    onClick={() => setLocation(`/billing/documents/${data.duplicateOf!.id}`)}
+                  >
+                    #{data.duplicateOf.id}
+                  </button>
+                </p>
+                <p className="text-red-700/80 dark:text-red-300/80">
+                  {data.duplicateOf.supplierName || "Neznámý dodavatel"}
+                  {data.duplicateOf.documentNumber ? ` · ${data.duplicateOf.documentNumber}` : ""}
+                </p>
+                {(data.duplicateOf.files ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {(data.duplicateOf.files ?? []).map((f) => {
+                      const href = attachmentUrl(f.objectPath);
+                      if (!href) return null;
+                      return (
+                        <a
+                          key={f.id}
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs underline hover:no-underline"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          {f.originalFileName || `Soubor #${f.id}`}
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleUnmarkDuplicate}
+              disabled={unmarkDuplicate.isPending}
+            >
+              <X className="h-4 w-4 mr-1" /> Zrušit párování
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {data.duplicates.length > 0 && (
         <Card className="mb-4 border-red-300 bg-red-50 dark:bg-red-900/20">
           <CardContent className="p-4 text-sm">
             <div className="flex items-center gap-2 font-medium text-red-800 dark:text-red-200 mb-2">
               <AlertTriangle className="h-4 w-4" /> Možné duplicity
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               {data.duplicates.map((d) => (
-                <button
+                <div
                   key={d.id}
-                  className="block text-left hover:underline"
-                  onClick={() => setLocation(`/billing/documents/${d.id}`)}
+                  className="flex items-center justify-between gap-2 flex-wrap"
                 >
-                  {d.supplierName || "Neznámý dodavatel"}
-                  {d.documentNumber ? ` · ${d.documentNumber}` : ""} —{" "}
-                  <span className="text-muted-foreground">{d.reason}</span>
-                </button>
+                  <button
+                    className="text-left hover:underline"
+                    onClick={() => setLocation(`/billing/documents/${d.id}`)}
+                  >
+                    {d.supplierName || "Neznámý dodavatel"}
+                    {d.documentNumber ? ` · ${d.documentNumber}` : ""} —{" "}
+                    <span className="text-muted-foreground">{d.reason}</span>
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleMarkDuplicate(d.id)}
+                    disabled={markDuplicate.isPending}
+                  >
+                    <Link2 className="h-3.5 w-3.5 mr-1" /> Spárovat jako duplicitu
+                  </Button>
+                </div>
               ))}
             </div>
           </CardContent>
+        </Card>
+      )}
+
+      {data.linkedDuplicates.length > 0 && (
+        <Card className="mb-4">
+          <Collapsible open={linkedDuplicatesOpen} onOpenChange={setLinkedDuplicatesOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 font-medium text-sm p-4 text-left"
+              >
+                {linkedDuplicatesOpen ? (
+                  <ChevronDown className="h-4 w-4 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0" />
+                )}
+                <Link2 className="h-4 w-4 shrink-0" /> Spárované duplicity (
+                {data.linkedDuplicates.length})
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="pt-0 pb-4 px-4 text-sm space-y-3">
+                {data.linkedDuplicates.map((d) => (
+                  <div key={d.id} className="rounded border p-3 space-y-2">
+                    <button
+                      className="block text-left hover:underline text-muted-foreground"
+                      onClick={() => setLocation(`/billing/documents/${d.id}`)}
+                    >
+                      #{d.id} — {d.supplierName || "Neznámý dodavatel"}
+                      {d.documentNumber ? ` · ${d.documentNumber}` : ""}
+                      {d.totalWithVat ? ` · ${fmtKc(Number(d.totalWithVat))}` : ""}
+                    </button>
+                    {(d.files ?? []).length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {(d.files ?? []).map((f) => {
+                          const href = attachmentUrl(f.objectPath);
+                          if (!href) return null;
+                          return (
+                            <a
+                              key={f.id}
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              {f.originalFileName || `Soubor #${f.id}`}
+                            </a>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Doklad nemá žádný soubor.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
       )}
 

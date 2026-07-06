@@ -6194,8 +6194,56 @@ export const UploadCostDocumentResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -6344,8 +6392,56 @@ export const GetCostDocumentResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -6514,8 +6610,56 @@ export const UpdateCostDocumentResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -6672,8 +6816,56 @@ export const ApproveCostDocumentResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -6826,8 +7018,456 @@ export const SetCostDocumentStatusResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Manually pair a document as a duplicate of another document (admin only)
+ */
+export const MarkCostDocumentDuplicateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const MarkCostDocumentDuplicateBody = zod.object({
+  "primaryDocumentId": zod.number().describe('The document this one should be paired as a duplicate of.')
+})
+
+export const MarkCostDocumentDuplicateResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Undo a duplicate pairing, returning the document to needs_review (admin only)
+ */
+export const UnmarkCostDocumentDuplicateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UnmarkCostDocumentDuplicateResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -6976,8 +7616,56 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -7141,8 +7829,56 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -7301,8 +8037,56 @@ export const SplitCostDocumentLineResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -7458,8 +8242,56 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -7620,8 +8452,56 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -7771,8 +8651,56 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
   "references": zod.array(zod.object({
   "id": zod.number(),
   "documentId": zod.number(),
@@ -7921,7 +8849,17 @@ export const MatchCostDocumentReferencesResponse = zod.object({
   "supplierName": zod.string().nullish(),
   "totalWithVat": zod.string().nullish(),
   "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
   "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
   "references": zod.array(zod.object({
   "id": zod.number(),

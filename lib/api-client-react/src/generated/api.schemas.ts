@@ -4646,6 +4646,20 @@ export interface CostDocumentLine {
   sortOrder: number;
 }
 
+export interface CostDocumentFile {
+  id: number;
+  documentId: number;
+  role: string;
+  /** @nullable */
+  originalFileName?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  objectPath: string;
+  /** @nullable */
+  sizeBytes?: number | null;
+  createdAt: string;
+}
+
 export interface CostDocumentDuplicate {
   id: number;
   reason: string;
@@ -4657,6 +4671,8 @@ export interface CostDocumentDuplicate {
   totalWithVat?: string | null;
   status: string;
   createdAt: string;
+  /** Populated only for confirmed linked duplicates (linkedDuplicates / duplicateOf), so the paired document's files can be previewed without navigating away. Omitted for heuristic candidates. */
+  files?: CostDocumentFile[];
 }
 
 export interface CostDocumentReference {
@@ -4703,24 +4719,14 @@ export interface CostDocumentLinkedMaterial {
   invoicedInvoiceId?: number | null;
 }
 
-export interface CostDocumentFile {
-  id: number;
-  documentId: number;
-  role: string;
-  /** @nullable */
-  originalFileName?: string | null;
-  /** @nullable */
-  mimeType?: string | null;
-  objectPath: string;
-  /** @nullable */
-  sizeBytes?: number | null;
-  createdAt: string;
-}
-
 export interface CostDocumentDetail {
   document: CostDocument;
   lines: CostDocumentLine[];
   duplicates: CostDocumentDuplicate[];
+  /** Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary. */
+  linkedDuplicates: CostDocumentDuplicate[];
+  /** Set when this document itself was paired as a duplicate of another document — summary of that primary document. */
+  duplicateOf: CostDocumentDuplicate | null;
   references: CostDocumentReference[];
   linkedMaterials?: CostDocumentLinkedMaterial[];
   files: CostDocumentFile[];
@@ -4788,6 +4794,11 @@ export const CostDocumentStatusInputStatus = {
 
 export interface CostDocumentStatusInput {
   status: CostDocumentStatusInputStatus;
+}
+
+export interface MarkCostDocumentDuplicateInput {
+  /** The document this one should be paired as a duplicate of. */
+  primaryDocumentId: number;
 }
 
 /**

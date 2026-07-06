@@ -8,6 +8,7 @@ import express, {
 import {
   UpdateCostDocumentBody,
   SetCostDocumentStatusBody,
+  MarkCostDocumentDuplicateBody,
   UpdateCostDocumentLineBody,
   SplitCostDocumentLineBody,
   AddCostDocumentReferenceBody,
@@ -28,6 +29,8 @@ import {
   splitLine,
   approveDocument,
   setDocumentStatus,
+  markDocumentAsDuplicate,
+  unmarkDocumentDuplicate,
   requeueExtraction,
   deleteDocument,
   analyzeJobDocuments,
@@ -491,6 +494,43 @@ router.post("/billing/documents/:id/status", async (req, res): Promise<void> => 
     res.json(detail);
   } catch (error) {
     handleError(error, "Stav dokladu se nepodařilo změnit.", res);
+  }
+});
+
+router.post("/billing/documents/:id/mark-duplicate", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id == null) {
+    res.status(404).json({ error: "Doklad nenalezen." });
+    return;
+  }
+  const parsed = MarkCostDocumentDuplicateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  try {
+    const detail = await markDocumentAsDuplicate(
+      id,
+      parsed.data.primaryDocumentId,
+      actorOf(req),
+    );
+    res.json(detail);
+  } catch (error) {
+    handleError(error, "Doklad se nepodařilo spárovat jako duplicitu.", res);
+  }
+});
+
+router.post("/billing/documents/:id/unmark-duplicate", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id == null) {
+    res.status(404).json({ error: "Doklad nenalezen." });
+    return;
+  }
+  try {
+    const detail = await unmarkDocumentDuplicate(id, actorOf(req));
+    res.json(detail);
+  } catch (error) {
+    handleError(error, "Zrušení párování se nezdařilo.", res);
   }
 });
 

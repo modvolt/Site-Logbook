@@ -191,6 +191,7 @@ import type {
   Machine,
   MachineInput,
   MachineUpdate,
+  MarkCostDocumentDuplicateInput,
   Material,
   MaterialInput,
   MaterialLinkDocumentInput,
@@ -19132,6 +19133,148 @@ export const useSetCostDocumentStatus = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getSetCostDocumentStatusMutationOptions(options));
+    }
+
+export const getMarkCostDocumentDuplicateUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/mark-duplicate`
+}
+
+/**
+ * @summary Manually pair a document as a duplicate of another document (admin only)
+ */
+export const markCostDocumentDuplicate = async (id: number,
+    markCostDocumentDuplicateInput: MarkCostDocumentDuplicateInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getMarkCostDocumentDuplicateUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      markCostDocumentDuplicateInput,)
+  }
+);}
+
+
+
+
+export const getMarkCostDocumentDuplicateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markCostDocumentDuplicate>>, TError,{id: number;data: BodyType<MarkCostDocumentDuplicateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markCostDocumentDuplicate>>, TError,{id: number;data: BodyType<MarkCostDocumentDuplicateInput>}, TContext> => {
+
+const mutationKey = ['markCostDocumentDuplicate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markCostDocumentDuplicate>>, {id: number;data: BodyType<MarkCostDocumentDuplicateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  markCostDocumentDuplicate(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkCostDocumentDuplicateMutationResult = NonNullable<Awaited<ReturnType<typeof markCostDocumentDuplicate>>>
+    export type MarkCostDocumentDuplicateMutationBody = BodyType<MarkCostDocumentDuplicateInput>
+    export type MarkCostDocumentDuplicateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Manually pair a document as a duplicate of another document (admin only)
+ */
+export const useMarkCostDocumentDuplicate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markCostDocumentDuplicate>>, TError,{id: number;data: BodyType<MarkCostDocumentDuplicateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markCostDocumentDuplicate>>,
+        TError,
+        {id: number;data: BodyType<MarkCostDocumentDuplicateInput>},
+        TContext
+      > => {
+      return useMutation(getMarkCostDocumentDuplicateMutationOptions(options));
+    }
+
+export const getUnmarkCostDocumentDuplicateUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/unmark-duplicate`
+}
+
+/**
+ * @summary Undo a duplicate pairing, returning the document to needs_review (admin only)
+ */
+export const unmarkCostDocumentDuplicate = async (id: number, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getUnmarkCostDocumentDuplicateUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getUnmarkCostDocumentDuplicateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unmarkCostDocumentDuplicate>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unmarkCostDocumentDuplicate>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['unmarkCostDocumentDuplicate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unmarkCostDocumentDuplicate>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  unmarkCostDocumentDuplicate(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnmarkCostDocumentDuplicateMutationResult = NonNullable<Awaited<ReturnType<typeof unmarkCostDocumentDuplicate>>>
+
+    export type UnmarkCostDocumentDuplicateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Undo a duplicate pairing, returning the document to needs_review (admin only)
+ */
+export const useUnmarkCostDocumentDuplicate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unmarkCostDocumentDuplicate>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unmarkCostDocumentDuplicate>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getUnmarkCostDocumentDuplicateMutationOptions(options));
     }
 
 export const getRequeueCostDocumentExtractionUrl = (id: number,) => {

@@ -6597,6 +6597,92 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /billing/documents/{id}/mark-duplicate:
+    post:
+      operationId: markCostDocumentDuplicate
+      tags: [billing]
+      summary: Manually pair a document as a duplicate of another document (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkCostDocumentDuplicateInput"
+      responses:
+        "200":
+          description: Updated (now duplicate) document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Conflict (already paired, or a party is approved/duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/unmark-duplicate:
+    post:
+      operationId: unmarkCostDocumentDuplicate
+      tags: [billing]
+      summary: Undo a duplicate pairing, returning the document to needs_review (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Conflict (document is not currently a duplicate)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/documents/{id}/extract:
     post:
       operationId: requeueCostDocumentExtraction
@@ -13123,10 +13209,18 @@ components:
           type: string
         createdAt:
           type: string
+        files:
+          description: >-
+            Populated only for confirmed linked duplicates (linkedDuplicates /
+            duplicateOf), so the paired document's files can be previewed
+            without navigating away. Omitted for heuristic candidates.
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentFile"
 
     CostDocumentDetail:
       type: object
-      required: [document, lines, duplicates, references, files]
+      required: [document, lines, duplicates, linkedDuplicates, duplicateOf, references, files]
       properties:
         document:
           $ref: "#/components/schemas/CostDocument"
@@ -13138,6 +13232,20 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CostDocumentDuplicate"
+        linkedDuplicates:
+          description: >-
+            Documents already confirmed (manually or automatically) as
+            duplicates of this one — this document is their primary.
+          type: array
+          items:
+            $ref: "#/components/schemas/CostDocumentDuplicate"
+        duplicateOf:
+          description: >-
+            Set when this document itself was paired as a duplicate of
+            another document — summary of that primary document.
+          oneOf:
+            - $ref: "#/components/schemas/CostDocumentDuplicate"
+            - type: "null"
         references:
           type: array
           items:
@@ -13284,6 +13392,14 @@ components:
         status:
           type: string
           enum: [needs_review, reviewed, ignored, duplicate]
+
+    MarkCostDocumentDuplicateInput:
+      type: object
+      required: [primaryDocumentId]
+      properties:
+        primaryDocumentId:
+          description: The document this one should be paired as a duplicate of.
+          type: integer
 
     CostDocumentReferenceCreateInput:
       type: object

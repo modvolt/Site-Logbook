@@ -540,12 +540,51 @@ function priorityRank(sourcePriority: string | null): number {
 }
 
 /**
+ * Point `secondary` at `primary` as a confirmed duplicate: move any of its
+ * extra role-tagged files (see `billingDocumentFilesTable`) under the primary
+ * so all files for one logical document live in one place, then mark
+ * `secondary` as status="duplicate" so it drops out of the review queue. Each
+ * document keeps its own top-level `objectPath`/`fileName` untouched, so a
+ * duplicate's own file is always still reachable from its own row — nothing is
+ * deleted. Used by both the automatic ISDOC/PDF merge and manual pairing.
+ */
+async function linkAsDuplicateTx(
+  tx: DbOrTx,
+  primary: BillingDocument,
+  secondary: BillingDocument,
+  warningNote: string,
+): Promise<void> {
+  const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
+
+  await tx
+    .update(billingDocumentFilesTable)
+    .set({ documentId: primary.id })
+    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
+
+  await tx
+    .update(billingDocumentsTable)
+    .set({ mergeGroupId: groupId, updatedAt: new Date() })
+    .where(eq(billingDocumentsTable.id, primary.id));
+
+  const secWarn = [secondary.warnings, warningNote].filter(Boolean).join("\n");
+  await tx
+    .update(billingDocumentsTable)
+    .set({
+      mergeGroupId: groupId,
+      primaryDocumentId: primary.id,
+      status: "duplicate",
+      warnings: secWarn,
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, secondary.id));
+}
+
+/**
  * Detect a sibling document that is the SAME logical invoice as `doc` (a PDF and
  * its ISDOC, or two scans), and merge them into one group. The higher-priority
- * source (ISDOC > PDF) becomes the primary; the other is re-pointed at it, its
- * files are moved under the primary, and it is marked status="duplicate" so it
- * drops out of the review queue. Identity is by ISDOC UUID, else supplier
- * IČO + document number.
+ * source (ISDOC > PDF) becomes the primary; the other is re-pointed at it via
+ * `linkAsDuplicateTx`. Identity is by ISDOC UUID, else supplier IČO + document
+ * number.
  */
 async function mergeRelatedDocumentsTx(
   tx: DbOrTx,
@@ -585,39 +624,99 @@ async function mergeRelatedDocumentsTx(
 
   const primary = priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
   const secondary = primary.id === doc.id ? other : doc;
-  const groupId = other.mergeGroupId ?? doc.mergeGroupId ?? randomUUID();
 
-  // Move the secondary's files under the primary so all files live in one place.
-  await tx
-    .update(billingDocumentFilesTable)
-    .set({ documentId: primary.id })
-    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
-
-  await tx
-    .update(billingDocumentsTable)
-    .set({ mergeGroupId: groupId, updatedAt: new Date() })
-    .where(eq(billingDocumentsTable.id, primary.id));
-
-  const secWarn = [
-    secondary.warnings,
+  await linkAsDuplicateTx(
+    tx,
+    primary,
+    secondary,
     `Sloučeno s dokladem #${primary.id} (stejná faktura ve formátu ${
       priorityRank(primary.sourcePriority) >= 4 ? "ISDOC" : "PDF"
     }).`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  await tx
-    .update(billingDocumentsTable)
-    .set({
-      mergeGroupId: groupId,
-      primaryDocumentId: primary.id,
-      status: "duplicate",
-      warnings: secWarn,
-      updatedAt: new Date(),
-    })
-    .where(eq(billingDocumentsTable.id, secondary.id));
+  );
 
   void parsed;
+}
+
+/**
+ * Manually pair `id` as a duplicate of `primaryDocumentId` (the "Spárovat jako
+ * duplicitu" action on a heuristically-detected candidate). Unlike the
+ * automatic ISDOC/PDF merge, this is admin-initiated and works for any two
+ * documents the heuristics flagged as possible duplicates but didn't
+ * auto-merge. Reuses `linkAsDuplicateTx` so the outcome (status, file
+ * ownership, group id) is identical to an automatic merge.
+ */
+export async function markDocumentAsDuplicate(
+  id: number,
+  primaryDocumentId: number,
+  actor: Actor,
+) {
+  if (id === primaryDocumentId) {
+    throw appError(400, "Doklad nelze spárovat se sebou samým.");
+  }
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, id));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+  const [primary] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, primaryDocumentId));
+  if (!primary) throw appError(404, "Cílový doklad nenalezen.");
+  if (doc.primaryDocumentId != null) {
+    throw appError(409, "Doklad je již spárován jako duplicita jiného dokladu.");
+  }
+  if (primary.primaryDocumentId != null) {
+    throw appError(
+      409,
+      "Cílový doklad je sám duplicitou — spárujte na jeho primární doklad.",
+    );
+  }
+  if (doc.status === "approved" || primary.status === "approved") {
+    throw appError(
+      409,
+      "Schválený doklad nelze spárovat jako duplicitu — nejprve zrušte jeho schválení.",
+    );
+  }
+  await db.transaction((tx) =>
+    linkAsDuplicateTx(
+      tx,
+      primary,
+      doc,
+      `Ručně spárováno jako duplicita dokladu #${primary.id}${actor.name ? ` (${actor.name})` : ""}.`,
+    ),
+  );
+  return getDocument(id);
+}
+
+/**
+ * Undo a manual (or automatic) duplicate pairing: the document returns to
+ * `needs_review` and its `primaryDocumentId`/`mergeGroupId` are cleared. Files
+ * already moved under the primary stay there (each document's own top-level
+ * file was never touched), so nothing is lost — the admin can re-pair or
+ * upload again if needed.
+ */
+export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, id));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+  if (doc.primaryDocumentId == null) {
+    throw appError(409, "Doklad není spárován jako duplicita.");
+  }
+  await db
+    .update(billingDocumentsTable)
+    .set({
+      status: "needs_review",
+      primaryDocumentId: null,
+      mergeGroupId: null,
+      reviewedByUserId: actor.userId,
+      reviewedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, id));
+  return getDocument(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -936,7 +1035,14 @@ export interface DocumentFilters {
 
 export async function listDocuments(filters: DocumentFilters) {
   const conds = [];
-  if (filters.status) conds.push(eq(billingDocumentsTable.status, filters.status));
+  if (filters.status) {
+    conds.push(eq(billingDocumentsTable.status, filters.status));
+  } else {
+    // Confirmed duplicates are folded into their primary document and no
+    // longer need review — keep them out of the default (unfiltered) list.
+    // They're still reachable via the explicit "duplicate" status filter.
+    conds.push(ne(billingDocumentsTable.status, "duplicate"));
+  }
   if (filters.supplierIc)
     conds.push(eq(billingDocumentsTable.supplierIc, filters.supplierIc));
   if (filters.jobId != null) conds.push(eq(billingDocumentsTable.jobId, filters.jobId));
@@ -998,7 +1104,7 @@ export async function getDocument(id: number) {
     .where(eq(billingDocumentLinesTable.documentId, id))
     .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
 
-  const duplicates = await findDuplicates({
+  const heuristicDuplicates = await findDuplicates({
     sha256: doc.sha256,
     supplierIc: doc.supplierIc,
     supplierName: doc.supplierName,
@@ -1008,6 +1114,102 @@ export async function getDocument(id: number) {
     totalWithVat: doc.totalWithVat == null ? null : num(doc.totalWithVat),
     excludeId: doc.id,
   });
+
+  // Documents already manually/automatically paired with this one (either
+  // direction) are no longer "possible" duplicates — they're confirmed. Keep
+  // the heuristic candidate list free of them so the review UI only ever
+  // offers a pairing action for genuinely unresolved candidates.
+  const linkedIds = await db
+    .select({ id: billingDocumentsTable.id })
+    .from(billingDocumentsTable)
+    .where(
+      or(
+        eq(billingDocumentsTable.primaryDocumentId, doc.id),
+        doc.primaryDocumentId != null
+          ? eq(billingDocumentsTable.id, doc.primaryDocumentId)
+          : sql`false`,
+      ),
+    );
+  const linkedIdSet = new Set(linkedIds.map((l) => l.id));
+  const duplicates = heuristicDuplicates.filter((d) => !linkedIdSet.has(d.id));
+
+  // Duplicates actually paired with this document — this doc is the primary.
+  const linkedDuplicateRows = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.primaryDocumentId, doc.id))
+    .orderBy(billingDocumentsTable.id);
+
+  // Files for each linked duplicate, so they can be previewed inline on the
+  // primary document's page without navigating away.
+  const linkedDuplicateFilesByDocId = new Map<number, (typeof billingDocumentFilesTable.$inferSelect)[]>();
+  if (linkedDuplicateRows.length > 0) {
+    const linkedDuplicateFileRows = await db
+      .select()
+      .from(billingDocumentFilesTable)
+      .where(
+        inArray(
+          billingDocumentFilesTable.documentId,
+          linkedDuplicateRows.map((d) => d.id),
+        ),
+      )
+      .orderBy(billingDocumentFilesTable.id);
+    for (const f of linkedDuplicateFileRows) {
+      const list = linkedDuplicateFilesByDocId.get(f.documentId) ?? [];
+      list.push(f);
+      linkedDuplicateFilesByDocId.set(f.documentId, list);
+    }
+  }
+
+  const linkedDuplicates = linkedDuplicateRows.map((d) => ({
+    id: d.id,
+    reason: "Ručně/automaticky spárováno jako duplicita",
+    documentNumber: d.documentNumber,
+    supplierName: d.supplierName,
+    totalWithVat: d.totalWithVat,
+    status: d.status,
+    createdAt: d.createdAt.toISOString(),
+    files: [
+      ...ownFile(d),
+      ...(linkedDuplicateFilesByDocId.get(d.id) ?? []).map(serializeFile),
+    ],
+  }));
+
+  // If this document itself is a duplicate, surface a summary of its primary
+  // so the detail page can show "this is a duplicate of #X" with a link.
+  let duplicateOf: {
+    id: number;
+    reason: string;
+    documentNumber: string | null;
+    supplierName: string | null;
+    totalWithVat: string | null;
+    status: string;
+    createdAt: string;
+    files: ReturnType<typeof serializeFile>[];
+  } | null = null;
+  if (doc.primaryDocumentId != null) {
+    const [primaryDoc] = await db
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, doc.primaryDocumentId));
+    if (primaryDoc) {
+      const primaryFiles = await db
+        .select()
+        .from(billingDocumentFilesTable)
+        .where(eq(billingDocumentFilesTable.documentId, primaryDoc.id))
+        .orderBy(billingDocumentFilesTable.id);
+      duplicateOf = {
+        id: primaryDoc.id,
+        reason: "Primární doklad",
+        documentNumber: primaryDoc.documentNumber,
+        supplierName: primaryDoc.supplierName,
+        totalWithVat: primaryDoc.totalWithVat,
+        status: primaryDoc.status,
+        createdAt: primaryDoc.createdAt.toISOString(),
+        files: [...ownFile(primaryDoc), ...primaryFiles.map(serializeFile)],
+      };
+    }
+  }
 
   const references = await db
     .select()
@@ -1043,6 +1245,8 @@ export async function getDocument(id: number) {
     document: serializeDocument(doc, deriveMaterialState(lines)),
     lines: lines.map(serializeLine),
     duplicates,
+    linkedDuplicates,
+    duplicateOf,
     references: references.map(serializeReference),
     linkedMaterials: linkedMaterials.map((m) => ({
       id: m.id,
@@ -1056,17 +1260,52 @@ export async function getDocument(id: number) {
       priceSourceLineId: m.priceSourceLineId,
       invoicedInvoiceId: m.invoicedInvoiceId,
     })),
-    files: files.map((f) => ({
-      id: f.id,
-      documentId: f.documentId,
-      role: f.role,
-      originalFileName: f.originalFileName,
-      mimeType: f.mimeType,
-      objectPath: f.objectPath,
-      sizeBytes: f.sizeBytes,
-      createdAt: f.createdAt.toISOString(),
-    })),
+    files: files.map(serializeFile),
   };
+}
+
+function serializeFile(f: typeof billingDocumentFilesTable.$inferSelect) {
+  return {
+    id: f.id,
+    documentId: f.documentId,
+    role: f.role,
+    originalFileName: f.originalFileName,
+    mimeType: f.mimeType,
+    objectPath: f.objectPath,
+    sizeBytes: f.sizeBytes,
+    createdAt: f.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Every document has its own top-level `objectPath`/`fileName` (the file it
+ * was originally ingested with), untouched by duplicate-pairing (only the
+ * extra role-tagged `billingDocumentFilesTable` rows get moved to the
+ * primary — see `linkAsDuplicateTx`). Surface that own file alongside any
+ * moved-in files so a duplicate's file is always previewable, even for a
+ * plain single-file document with no `billingDocumentFilesTable` rows.
+ * Returns an array (0 or 1 items) so call sites can spread it.
+ */
+function ownFile(d: {
+  id: number;
+  objectPath: string | null;
+  fileName: string | null;
+  contentType: string | null;
+  createdAt: Date;
+}): ReturnType<typeof serializeFile>[] {
+  if (!d.objectPath) return [];
+  return [
+    {
+      id: -d.id,
+      documentId: d.id,
+      role: "primary",
+      originalFileName: d.fileName,
+      mimeType: d.contentType,
+      objectPath: d.objectPath,
+      sizeBytes: null,
+      createdAt: d.createdAt.toISOString(),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
