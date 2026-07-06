@@ -63,3 +63,26 @@ auto-link *suggestion* toggle, or manual-confirmed links silently stop pricing.
 changes a cost doc's approved state must keep material price provenance
 consistent with an actually-approved source. Quantity is never touched, so stock
 issues are unaffected; revert only reconciles defensively.
+
+## Every line-level mutation on an already-approved doc must re-run revert+propagate+sync
+
+Approve/un-approve aren't the only state changes that affect an approved doc's
+lines: `updateLine` (price/allocationType edits), `updateWarehousePricesFromDocument`
+("Aktualizovat ceny"), and `bulkConfirmReviewLines` can all change which lines
+are price-eligible or newly reviewable on a doc that is *already* `approved`.
+Each of these must call `revertInvoicePricePropagation` →
+`propagateInvoicePricesToJobMaterials` → `syncJobMaterialsForDocument(...,
+{excludeSourceLineIds})` in that order after its own mutation, or a stale price
+lingers (edit-up doesn't refill) or a newly-confirmed/newly-priced line never
+materializes (bulk-confirm on a line added to an already-approved doc).
+**Why order matters:** propagate must run before sync so consumed lines get
+excluded from sync's own material creation — otherwise the same line produces
+two materials (one filled by propagate onto another doc's material, one created
+directly by sync).
+**Gotcha:** `propagateInvoicePricesToJobMaterials`/`syncJobMaterialsForDocument`
+don't check `line.matchConfirmed` — only `doc.status === "approved"` gates them.
+For an invoice doc, `isInvoiceDoc` makes sync treat price `0` as authoritative
+(sets a real `0` price, not `null`) — so *zeroing* a line's price doesn't cleanly
+revert it to `awaiting_invoice`, it creates a second $0 material via sync. Use
+allocation-type change (e.g. to `stock`) to test/produce a true "become
+ineligible" revert instead of a price-to-zero edit.

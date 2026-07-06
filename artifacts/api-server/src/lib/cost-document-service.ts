@@ -2054,8 +2054,25 @@ export async function updateLine(
         .where(eq(billingDocumentLinesTable.id, lineId));
       await recomputeLineTotals(tx, updated);
     }
-    // Keep the job's materials in sync when editing a line of an approved doc.
-    await syncJobMaterialsForDocument(tx, documentId, actor);
+    // Undo any invoice-price fill this document previously made onto another
+    // document's (delivery-note) material before recomputing from the current
+    // line data — an edited price/quantity/job must not leave a stale fill
+    // hanging, and a line that drops out of eligibility (price zeroed,
+    // reassigned, etc.) must revert its target back to "awaiting invoice"
+    // (NULL price, see revertInvoicePricePropagation). Cheap no-op when this
+    // document never filled anything.
+    await revertInvoicePricePropagation(tx, documentId, actor);
+    const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
+      tx,
+      documentId,
+      actor,
+    );
+    // Keep the job's materials in sync when editing a line of an approved doc;
+    // exclude the lines just consumed above so this document's own sync does
+    // not also create a duplicate material for the same line.
+    await syncJobMaterialsForDocument(tx, documentId, actor, {
+      excludeSourceLineIds: consumedLineIds,
+    });
     // The line id persists across an edit, so re-reconciling the document's stock
     // receipts updates this line's movement (quantity / allocation change, or
     // reverses it if it stopped being a stock line).
@@ -2962,9 +2979,23 @@ export async function updateWarehousePricesFromDocument(
   if (doc.status !== "approved") {
     throw appError(409, "Ceny do skladu lze přenést až po schválení dokladu.");
   }
-  return db.transaction((tx) =>
-    applyWarehouseCatalogAndPriceHistory(tx, documentId, actor),
-  );
+  return db.transaction(async (tx) => {
+    const result = await applyWarehouseCatalogAndPriceHistory(tx, documentId, actor);
+    // "Aktualizovat ceny" can be the first thing to run price propagation for a
+    // document that was approved before its job link was confirmed (or before
+    // a price correction) — keep job material pricing consistent with what
+    // approveDocument would have produced by re-running the same propagation.
+    await revertInvoicePricePropagation(tx, documentId, actor);
+    const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
+      tx,
+      documentId,
+      actor,
+    );
+    await syncJobMaterialsForDocument(tx, documentId, actor, {
+      excludeSourceLineIds: consumedLineIds,
+    });
+    return result;
+  });
 }
 
 export async function setDocumentStatus(
@@ -3943,6 +3974,24 @@ export async function bulkConfirmReviewLines(
         .update(billingDocumentLinesTable)
         .set({ matchConfirmed: 1, updatedAt: new Date() })
         .where(inArray(billingDocumentLinesTable.id, toConfirmIds));
+
+      // A newly-confirmed line can be exactly what makes a document's job link
+      // eligible for price propagation onto a pre-existing (delivery-note)
+      // material — the same thing approveDocument does at approval time. Redo
+      // it per affected document so bulk-confirming lines refreshes material
+      // prices on their target jobs, not just the confirmation flag.
+      const affectedDocIds = [...new Set(toConfirmLines.map((l) => l.documentId))];
+      for (const docId of affectedDocIds) {
+        await revertInvoicePricePropagation(tx, docId, actor);
+        const { consumedLineIds } = await propagateInvoicePricesToJobMaterials(
+          tx,
+          docId,
+          actor,
+        );
+        await syncJobMaterialsForDocument(tx, docId, actor, {
+          excludeSourceLineIds: consumedLineIds,
+        });
+      }
 
       await tx.insert(auditLogTable).values({
         action: "bulk_confirm_review_lines",

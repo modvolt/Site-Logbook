@@ -19,6 +19,9 @@ import {
   deleteDocument,
   syncJobMaterialsForDocument,
   propagateInvoicePricesToJobMaterials,
+  updateLine,
+  updateWarehousePricesFromDocument,
+  bulkConfirmReviewLines,
 } from "../src/lib/cost-document-service";
 import {
   createDraft,
@@ -505,6 +508,183 @@ describe("invoice price propagation", () => {
     expect(released.invoicedInvoiceId).toBeNull();
     expect(released.priceSource).toBe("awaiting_invoice");
     expect(released.pricePerUnit).toBeNull();
+  });
+
+  it("Task #683a: editing an already-consumed invoice line's price re-propagates without duplicating the material", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Vypínač ${TAG}`,
+      ean: "9111111111111",
+      quantity: "2",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+    const inv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Vypínač ${TAG}`,
+      ean: "9111111111111",
+      quantity: "2",
+      unitPrice: "100",
+    });
+    await approveDocument(inv.docId, actor);
+
+    const [filled] = await jobMaterials(jobId);
+    expect(filled.priceSource).toBe("invoice");
+    expect(Number(filled.pricePerUnit)).toBe(100);
+
+    // Edit the already-consumed invoice line's price upward.
+    await updateLine(inv.docId, inv.lineId, { unitPriceWithoutVat: 150 }, actor);
+
+    const mats = await jobMaterials(jobId);
+    // Still ONE material — the edit must not create a duplicate.
+    expect(mats).toHaveLength(1);
+    expect(mats[0].priceSource).toBe("invoice");
+    expect(Number(mats[0].pricePerUnit)).toBe(150);
+    expect(mats[0].priceSourceLineId).toBe(inv.lineId);
+  });
+
+  it("Task #683b: editing a consumed invoice line to drop out of eligibility (reassigned to stock) reverts the material to awaiting_invoice", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Relé ${TAG}`,
+      ean: "9222222222222",
+      quantity: "3",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+    const inv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Relé ${TAG}`,
+      ean: "9222222222222",
+      quantity: "3",
+      unitPrice: "70",
+    });
+    await approveDocument(inv.docId, actor);
+
+    const [filled] = await jobMaterials(jobId);
+    expect(filled.priceSource).toBe("invoice");
+
+    // Reassign the line to "stock" (warehouse receipt) → no longer a
+    // rebill-to-job material line → revert.
+    await updateLine(inv.docId, inv.lineId, { allocationType: "stock" }, actor);
+
+    const mats = await jobMaterials(jobId);
+    expect(mats).toHaveLength(1);
+    expect(mats[0].priceSource).toBe("awaiting_invoice");
+    expect(mats[0].pricePerUnit).toBeNull();
+    expect(mats[0].priceSourceDocumentId).toBeNull();
+  });
+
+  it("Task #683c: manual 'Aktualizovat ceny' (updateWarehousePricesFromDocument) fills a job material that missed propagation at approval", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Stykač ${TAG}`,
+      ean: "9333333333333",
+      quantity: "1",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+
+    // Invoice approved WITHOUT a job link yet (e.g. imported, job confirmed later).
+    const inv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId: null,
+      description: `Stykač ${TAG}`,
+      ean: "9333333333333",
+      quantity: "1",
+      unitPrice: "300",
+    });
+    await approveDocument(inv.docId, actor);
+
+    // Material is still awaiting invoice — propagation never had a confirmed target.
+    let [mat] = await jobMaterials(jobId);
+    expect(mat.priceSource).toBe("awaiting_invoice");
+
+    // Now confirm the job link on the invoice (simulating a later manual match)...
+    await db
+      .update(billingDocumentsTable)
+      .set({ jobId })
+      .where(eq(billingDocumentsTable.id, inv.docId));
+
+    // ...and run the manual "Aktualizovat ceny" action.
+    await updateWarehousePricesFromDocument(inv.docId, actor);
+
+    [mat] = await jobMaterials(jobId);
+    expect(mat.priceSource).toBe("invoice");
+    expect(Number(mat.pricePerUnit)).toBe(300);
+    expect(mat.priceSourceDocumentId).toBe(inv.docId);
+  });
+
+  it("Task #683d: bulk-confirming a review line added to an already-approved invoice syncs it into job materials", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Item A ${TAG}`,
+      ean: "9444444444441",
+      quantity: "5",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+
+    const inv = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId,
+      description: `Item A ${TAG}`,
+      ean: "9444444444441",
+      quantity: "5",
+      unitPrice: "50",
+    });
+    await approveDocument(inv.docId, actor);
+
+    // Baseline: one material, filled from the invoice.
+    expect(await jobMaterials(jobId)).toHaveLength(1);
+
+    // A second line is added to the (already-approved) invoice document later
+    // (e.g. late CSV import) and needs human review before it counts.
+    const [newLine] = await db
+      .insert(billingDocumentLinesTable)
+      .values({
+        documentId: inv.docId,
+        jobId,
+        description: `Item B ${TAG}`,
+        quantity: "2",
+        unit: "ks",
+        unitPriceWithoutVat: "80",
+        lineType: "material",
+        allocationType: "rebill",
+        approved: 1,
+        matchConfirmed: 0,
+      })
+      .returning();
+
+    // Not yet synced — bulk-confirm hasn't run, so no second material exists.
+    expect(await jobMaterials(jobId)).toHaveLength(1);
+
+    await bulkConfirmReviewLines([newLine.id], actor);
+
+    const mats = await jobMaterials(jobId);
+    expect(mats).toHaveLength(2);
+    const itemB = mats.find((m) => m.name === `Item B ${TAG}`);
+    expect(itemB).toBeTruthy();
+    expect(itemB!.priceSource).toBe("invoice");
+    expect(Number(itemB!.pricePerUnit)).toBe(80);
   });
 
   it("scenario 9: material API serialization exposes the price-source provenance fields", async () => {
