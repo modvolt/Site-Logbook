@@ -38,5 +38,16 @@ trivially correct — append a reversing delta instead of mutating history.
 delta movement so the source's net contribution equals `desired` (null = reverse to
 zero); each append locks the item row `FOR UPDATE` then recomputes qty. Source types:
 `billing_document_line` (+in, approved doc stock line, matched by sku/ean then name),
-`material` + `activity_material` (−out, matched by name only), `manual`. UI source
-labels must use these exact backend source-type strings.
+`material` + `activity_material` (−out), `manual`. UI source labels must use these
+exact backend source-type strings.
+
+- **`material`/`activity_material` resolution is ID-based, not name-based, at
+  reconcile time.** `resolveItemForMaterial` only ever looks at the row's stored
+  `warehouseItemId` FK — it never falls back to matching by name. Name matching
+  happens ONCE, at save time, in the create/update routes (`resolveWarehouseItemIdByName`
+  in `routes/materials.ts` / `routes/activities.ts`), which persist the resolved id
+  onto the row. This makes the link immune to later renames/duplicate names.
+  **Any test or script that inserts/updates these rows directly via Drizle (bypassing
+  the route) must call `resolveWarehouseItemIdByName` itself and set `warehouseItemId`
+  explicitly** — otherwise the row has no FK, no issue movement is ever created, and
+  the gap looks like a ledger bug when it is actually a missing-linkage bug in the caller.

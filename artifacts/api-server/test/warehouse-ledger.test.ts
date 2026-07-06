@@ -17,6 +17,7 @@ import {
   reconcileMaterialStockMovement,
   reconcileActivityMaterialStockMovement,
   reconcileSourceMovements,
+  resolveWarehouseItemIdByName,
   netSignedForSources,
   listItemMovements,
 } from "../src/lib/warehouse-service";
@@ -251,15 +252,24 @@ describe("cost-document receipt lifecycle", () => {
 });
 
 describe("job material issue lifecycle", () => {
+  // Mirrors the production create/update routes (routes/materials.ts): the
+  // name→item match happens ONCE at save time and the resulting FK is stored
+  // on the row. `reconcileMaterialStockMovement` itself is strictly ID-based
+  // by design (see warehouse-service.ts), so any helper that inserts/updates
+  // rows directly (bypassing the route) must resolve `warehouseItemId` itself
+  // — that's the piece these test helpers were missing.
   async function insertMaterial(
     jobId: number,
     name: string,
     quantity: string,
   ): Promise<number> {
-    const [m] = await db
-      .insert(materialsTable)
-      .values({ jobId, name, quantity, pricePerUnit: "10" })
-      .returning();
+    const [m] = await db.transaction(async (tx) => {
+      const warehouseItemId = await resolveWarehouseItemIdByName(tx, name);
+      return tx
+        .insert(materialsTable)
+        .values({ jobId, name, quantity, pricePerUnit: "10", warehouseItemId })
+        .returning();
+    });
     return m.id;
   }
 
@@ -319,11 +329,14 @@ describe("job material issue lifecycle", () => {
     expect(await expectConsistent(itemA)).toBeCloseTo(70, 2);
     expect(await expectConsistent(itemB)).toBeCloseTo(100, 2);
 
-    // Rename the material to match B: A is restored, B is drawn down.
+    // Rename the material to match B: A is restored, B is drawn down. The
+    // route re-resolves warehouseItemId whenever the name changes (see
+    // routes/materials.ts) — mirror that here before reconciling.
     await db.transaction(async (tx) => {
+      const warehouseItemId = await resolveWarehouseItemIdByName(tx, `Šroub B ${TAG}`);
       const [m] = await tx
         .update(materialsTable)
-        .set({ name: `Šroub B ${TAG}` })
+        .set({ name: `Šroub B ${TAG}`, warehouseItemId })
         .where(eq(materialsTable.id, materialId))
         .returning();
       await reconcileMaterialStockMovement(tx, m, actor);
@@ -346,15 +359,20 @@ describe("activity material issue lifecycle", () => {
     return activity.id;
   }
 
+  // Mirrors the production create/update routes (routes/activities.ts) —
+  // see the comment on `insertMaterial` above for why this matters.
   async function insertActivityMaterial(
     activityId: number,
     name: string,
     quantity: string,
   ): Promise<number> {
-    const [m] = await db
-      .insert(activityMaterialsTable)
-      .values({ activityId, name, quantity, pricePerUnit: "10" })
-      .returning();
+    const [m] = await db.transaction(async (tx) => {
+      const warehouseItemId = await resolveWarehouseItemIdByName(tx, name);
+      return tx
+        .insert(activityMaterialsTable)
+        .values({ activityId, name, quantity, pricePerUnit: "10", warehouseItemId })
+        .returning();
+    });
     return m.id;
   }
 
@@ -373,7 +391,7 @@ describe("activity material issue lifecycle", () => {
         .where(eq(activityMaterialsTable.id, materialId));
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
         actor,
       );
     });
@@ -388,7 +406,7 @@ describe("activity material issue lifecycle", () => {
         .returning();
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
         actor,
       );
     });
@@ -422,23 +440,26 @@ describe("activity material issue lifecycle", () => {
         .where(eq(activityMaterialsTable.id, materialId));
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
         actor,
       );
     });
     expect(await expectConsistent(itemA)).toBeCloseTo(70, 2);
     expect(await expectConsistent(itemB)).toBeCloseTo(100, 2);
 
-    // Rename the material to match B: A is restored, B is drawn down.
+    // Rename the material to match B: A is restored, B is drawn down. The
+    // route re-resolves warehouseItemId whenever the name changes (see
+    // routes/activities.ts) — mirror that here before reconciling.
     await db.transaction(async (tx) => {
+      const warehouseItemId = await resolveWarehouseItemIdByName(tx, `Spojka B ${TAG}`);
       const [m] = await tx
         .update(activityMaterialsTable)
-        .set({ name: `Spojka B ${TAG}` })
+        .set({ name: `Spojka B ${TAG}`, warehouseItemId })
         .where(eq(activityMaterialsTable.id, materialId))
         .returning();
       await reconcileActivityMaterialStockMovement(
         tx,
-        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null },
+        { id: m.id, name: m.name, quantity: m.quantity, pricePerUnit: m.pricePerUnit, jobId: null, warehouseItemId: m.warehouseItemId },
         actor,
       );
     });
