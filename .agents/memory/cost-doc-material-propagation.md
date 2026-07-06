@@ -86,3 +86,21 @@ For an invoice doc, `isInvoiceDoc` makes sync treat price `0` as authoritative
 revert it to `awaiting_invoice`, it creates a second $0 material via sync. Use
 allocation-type change (e.g. to `stock`) to test/produce a true "become
 ineligible" revert instead of a price-to-zero edit.
+
+## One-time cleanup for pre-fix stale/duplicate materials
+
+Before the fix above, several mutation paths skipped the revert+propagate+sync
+re-run, so real data can carry stale prices or a duplicate material for the
+same `billing_document_line` (one row keyed by `sourceId`, another independently
+keyed by `priceSourceLineId`). Cleanup lives at
+`artifacts/api-server/src/scripts/cleanup-duplicate-materials.ts` (run via
+`pnpm --filter @workspace/api-server run cleanup-materials [-- --apply]`): report-only
+by default; `--apply` re-runs the real revert→propagate→sync pipeline per
+affected *approved* document (safe/idempotent — it's the same fixed sequence),
+but never deletes rows. **Gotcha found while validating it:** `revertInvoicePricePropagation`
+reverts ANY material whose `priceSourceDocumentId` matches, even one with no
+`sourceId` at all (an orphaned/synthetic duplicate) — so `--apply` can silently
+null out a duplicate's price as a side effect of fixing the real one; the
+duplicate row itself still needs manual deletion (existing UI or
+`DELETE /api/jobs/:jobId/materials/:materialId`), which is intentional (picking
+which duplicate to keep needs human judgement, e.g. one may already be invoiced).
