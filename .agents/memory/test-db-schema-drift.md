@@ -38,6 +38,7 @@ on a rename/conflict prompt), so instead apply the gap with **direct psql**:
 - `materials.warehouse_item_id` integer FK → warehouse_items(id) ON DELETE SET NULL + index
 - `invoices.recurring_template_id` integer FK → recurring_invoice_templates(id) ON DELETE SET NULL
 - **Missing tables:** `quotes`, `quote_items`, `recurring_invoice_templates`, `recurring_invoice_generations` — create via DDL mirroring the respective schema files in `lib/db/src/schema/`.
+- `billing_documents` was missing the partial unique index `billing_documents_sha256_unique_idx` (`ON billing_documents(sha256) WHERE sha256 IS NOT NULL`, from `lib/db/migrations/0067_rich_talkback.sql`). Its absence let concurrent-dedup tests silently insert real duplicate rows instead of racing into `23505`. If creating it fails with a duplicate-key error, first delete the debris rows it's blocking on (leftover from prior test runs that ran without the constraint) before retrying.
 
 **Why:** push is interactive-only here and the journal is empty, so migrate-based
 sync is unreliable; targeted additive DDL is safe and deterministic.
