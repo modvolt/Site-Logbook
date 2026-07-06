@@ -6,8 +6,10 @@ import {
   numeric,
   timestamp,
   index,
+  uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { customersTable } from "./customers";
@@ -140,7 +142,19 @@ export const billingDocumentsTable = pgTable(
   },
   (t) => [
     index("billing_documents_status_idx").on(t.status),
+    // A plain (non-unique) index also exists historically; the unique one below
+    // is what actually enforces dedup. Keeping both names avoids a churny rename
+    // migration — Postgres allows duplicate-purpose indexes.
     index("billing_documents_sha256_idx").on(t.sha256),
+    // Enforces "same content hash never creates a second row" at the DB level
+    // (partial: rows without a hash, e.g. never-hashed legacy imports, are
+    // exempt). This is what makes concurrent ingest paths (double-click,
+    // manual upload racing an e-mail import, etc.) safe: only one INSERT can
+    // win for a given sha256, the loser gets a 23505 the caller turns into a
+    // "duplicate" result instead of a second row + a second AI extraction job.
+    uniqueIndex("billing_documents_sha256_unique_idx")
+      .on(t.sha256)
+      .where(sql`${t.sha256} is not null`),
     index("billing_documents_supplier_ic_idx").on(t.supplierIc),
     index("billing_documents_document_number_idx").on(t.documentNumber),
     index("billing_documents_job_id_idx").on(t.jobId),

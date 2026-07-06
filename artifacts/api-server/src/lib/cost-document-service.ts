@@ -88,6 +88,28 @@ export function sha256Of(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+/**
+ * Returns true when a PostgreSQL error is a unique-constraint violation
+ * (23505) on `billing_documents_sha256_unique_idx`. Used to catch the race
+ * where two concurrent requests with identical content (double-click,
+ * manual upload racing an e-mail import, a repeated "Analyzovat doklady"
+ * run, …) both pass the pre-insert "does this hash exist?" check — only one
+ * INSERT can win, the DB constraint rejects the other, and we turn that
+ * rejection into a normal "duplicate" result instead of a 500.
+ */
+function isDuplicateSha256Violation(err: unknown): boolean {
+  // Drizzle wraps the raw pg error (which carries .code/.constraint) in its
+  // own DrizzleQueryError with the original attached as `.cause` — check both
+  // so this works whether we see the raw pg error or the wrapped one.
+  for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
+    if (typeof candidate !== "object" || candidate === null || !("code" in candidate)) continue;
+    if ((candidate as { code: unknown }).code !== "23505") continue;
+    const constraint = (candidate as { constraint?: unknown }).constraint;
+    if (constraint === "billing_documents_sha256_unique_idx") return true;
+  }
+  return false;
+}
+
 export interface DuplicateMatch {
   id: number;
   reason: string;
@@ -803,6 +825,36 @@ export async function createDocument(
   return detail.document;
 }
 
+export type CreateDocumentResult =
+  | { status: "created"; document: SerializedDocument }
+  | { status: "duplicate"; duplicates: DuplicateMatch[] };
+
+/**
+ * `createDocument`, but safe against a concurrent duplicate insert: the
+ * `sha256` unique index is the real source of truth for "does this content
+ * already exist", so any caller that creates documents from raw content
+ * (upload, job-attachment analysis, e-mail import, ZIP import) should go
+ * through this wrapper rather than calling `createDocument` directly. A
+ * pre-insert `findDuplicates` check remains useful as a fast path (skip the
+ * object-storage write + parsing work), but only this wrapper is race-safe.
+ */
+export async function createDocumentSafe(
+  input: CreateDocumentInput,
+  buffer: Buffer | null,
+  actor: Actor,
+): Promise<CreateDocumentResult> {
+  try {
+    const document = await createDocument(input, buffer, actor);
+    return { status: "created", document };
+  } catch (err) {
+    if (isDuplicateSha256Violation(err)) {
+      const duplicates = await findDuplicates({ sha256: input.sha256 });
+      return { status: "duplicate", duplicates };
+    }
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ingest a raw file buffer (shared by the upload route and the e-mail importer)
 // ---------------------------------------------------------------------------
@@ -817,15 +869,19 @@ export interface IngestFileInput {
   customerId?: number | null;
 }
 
-export type IngestFileResult =
-  | { status: "created"; document: SerializedDocument }
-  | { status: "duplicate"; duplicates: DuplicateMatch[] };
+export type IngestFileResult = CreateDocumentResult;
 
 /**
  * Store a file buffer in object storage and create a cost document from it,
  * skipping when its exact content hash already exists (unless `force`). Centralises
  * the dedup → store → createDocument flow so the manual upload route and the
  * automated e-mail importer behave identically (same dedup, same extraction queue).
+ *
+ * The pre-insert `findDuplicates` check below is only a fast path (skip the
+ * object-storage write for an obvious repeat); the actual dedup guarantee
+ * comes from the DB-level unique constraint enforced by `createDocumentSafe`,
+ * so two concurrent calls with identical content can never both succeed —
+ * one always comes back as `{ status: "duplicate" }`, even with `force: true`.
  */
 export async function ingestFile(
   buffer: Buffer,
@@ -845,7 +901,7 @@ export async function ingestFile(
   const objectPath = `/objects/cost-documents/${randomUUID()}`;
   await objectStorage.putPrivateObject(objectPath, buffer, input.contentType);
 
-  const document = await createDocument(
+  return createDocumentSafe(
     {
       objectPath,
       fileName: input.fileName,
@@ -861,7 +917,6 @@ export async function ingestFile(
     buffer,
     actor,
   );
-  return { status: "created", document };
 }
 
 // ---------------------------------------------------------------------------
@@ -2540,68 +2595,91 @@ export async function deleteDocument(id: number, actor: Actor) {
 
 const DOKLAD_TYPES = new Set(["invoice", "receipt", "delivery_note"]);
 
+// Namespace for the Postgres advisory lock keyed by (class, jobId) that
+// serializes concurrent "Analyzovat doklady" runs for the same job (e.g. a
+// double-click). Arbitrary but fixed so lock/unlock always agree.
+const ANALYZE_JOB_DOCUMENTS_LOCK_CLASS = 894_612_305;
+
 /**
  * Create cost documents from a job's "doklady" attachments (účtenky / dodací
  * listy / faktury) that have not already been imported. The attachment bytes
  * are fetched from storage, hashed for dedup, ISDOC-parsed when applicable, and
  * queued. Returns the documents created (skipping ones already imported).
+ *
+ * Two safety nets guard against duplicates:
+ *  - A Postgres advisory lock (transaction-scoped, so it always auto-releases,
+ *    even on error/crash) serializes concurrent runs for the *same job* — a
+ *    double-click waits for the first run to finish rather than racing it.
+ *  - `createDocumentSafe` catches the DB-level sha256 unique-constraint
+ *    violation, which also protects against races with *other* ingest paths
+ *    (manual upload, e-mail import) touching the exact same content.
  */
 export async function analyzeJobDocuments(jobId: number, actor: Actor) {
-  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
-  if (!job) throw appError(404, "Zakázka nenalezena.");
-
-  const attachments = await db
-    .select()
-    .from(attachmentsTable)
-    .where(eq(attachmentsTable.jobId, jobId));
-  const doklady = attachments.filter(
-    (a) => DOKLAD_TYPES.has(a.type) && a.url && a.url.startsWith("/objects/"),
-  );
-
-  const created: SerializedDocument[] = [];
-  let skipped = 0;
-  for (const att of doklady) {
-    let buffer: Buffer;
-    try {
-      buffer = await objectStorage.getPrivateObjectBuffer(att.url!);
-    } catch {
-      skipped++;
-      continue;
-    }
-    const hash = sha256Of(buffer);
-    const [existing] = await db
-      .select({ id: billingDocumentsTable.id })
-      .from(billingDocumentsTable)
-      .where(eq(billingDocumentsTable.sha256, hash))
-      .limit(1);
-    if (existing) {
-      skipped++;
-      continue;
-    }
-    const docType =
-      att.type === "receipt"
-        ? "receipt"
-        : att.type === "delivery_note"
-          ? "delivery_note"
-          : "invoice";
-    const doc = await createDocument(
-      {
-        objectPath: att.url!,
-        fileName: att.fileName ?? "doklad",
-        contentType: guessContentType(att.fileName ?? ""),
-        fileSize: buffer.length,
-        sha256: hash,
-        source: "job_attachment",
-        docType,
-        jobId,
-        customerId: job.customerId ?? null,
-      },
-      buffer,
-      actor,
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${ANALYZE_JOB_DOCUMENTS_LOCK_CLASS}, ${jobId})`,
     );
-    created.push(doc);
-  }
-  return { created, createdCount: created.length, skipped };
+
+    const [job] = await tx.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+    if (!job) throw appError(404, "Zakázka nenalezena.");
+
+    const attachments = await tx
+      .select()
+      .from(attachmentsTable)
+      .where(eq(attachmentsTable.jobId, jobId));
+    const doklady = attachments.filter(
+      (a) => DOKLAD_TYPES.has(a.type) && a.url && a.url.startsWith("/objects/"),
+    );
+
+    const created: SerializedDocument[] = [];
+    let skipped = 0;
+    for (const att of doklady) {
+      let buffer: Buffer;
+      try {
+        buffer = await objectStorage.getPrivateObjectBuffer(att.url!);
+      } catch {
+        skipped++;
+        continue;
+      }
+      const hash = sha256Of(buffer);
+      const [existing] = await tx
+        .select({ id: billingDocumentsTable.id })
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.sha256, hash))
+        .limit(1);
+      if (existing) {
+        skipped++;
+        continue;
+      }
+      const docType =
+        att.type === "receipt"
+          ? "receipt"
+          : att.type === "delivery_note"
+            ? "delivery_note"
+            : "invoice";
+      const result = await createDocumentSafe(
+        {
+          objectPath: att.url!,
+          fileName: att.fileName ?? "doklad",
+          contentType: guessContentType(att.fileName ?? ""),
+          fileSize: buffer.length,
+          sha256: hash,
+          source: "job_attachment",
+          docType,
+          jobId,
+          customerId: job.customerId ?? null,
+        },
+        buffer,
+        actor,
+      );
+      if (result.status === "duplicate") {
+        skipped++;
+        continue;
+      }
+      created.push(result.document);
+    }
+    return { created, createdCount: created.length, skipped };
+  });
 }
 
 function guessContentType(fileName: string): string {

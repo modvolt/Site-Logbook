@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "billing_documents_sha256_unique_idx" ON "billing_documents" USING btree ("sha256") WHERE "billing_documents"."sha256" is not null;

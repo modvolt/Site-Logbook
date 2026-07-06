@@ -40,7 +40,7 @@ import {
   decryptToken,
 } from "./token-crypto";
 import {
-  createDocument,
+  createDocumentSafe,
   sha256Of,
   type Actor,
 } from "./cost-document-service";
@@ -873,7 +873,10 @@ export async function importMessage(
 
     const hash = sha256Of(buffer);
 
-    // Dedup against previously-imported attachments + existing billing documents.
+    // Fast-path dedup against previously-imported attachments + existing
+    // billing documents. The DB-level sha256 unique constraint (enforced via
+    // createDocumentSafe below) is what actually guarantees no duplicate row
+    // is ever created, even if this pre-check races with another ingest path.
     const [dupDoc] = await db
       .select({ id: billingDocumentsTable.id })
       .from(billingDocumentsTable)
@@ -897,7 +900,7 @@ export async function importMessage(
     const contentType = att.contentType ?? "application/octet-stream";
     await objectStorage.putPrivateObject(objectPath, buffer, contentType);
 
-    const doc = await createDocument(
+    const result = await createDocumentSafe(
       {
         objectPath,
         fileName: att.fileName ?? "priloha",
@@ -910,12 +913,27 @@ export async function importMessage(
       actor,
     );
 
+    if (result.status === "duplicate") {
+      duplicates += 1;
+      await db
+        .update(emailImportAttachmentsTable)
+        .set({
+          sha256: hash,
+          skipped: 1,
+          skipReason: "Duplicitní obsah (doklad již existuje)",
+          billingDocumentId: result.duplicates[0]?.id ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(emailImportAttachmentsTable.id, att.id));
+      continue;
+    }
+
     await db
       .update(emailImportAttachmentsTable)
       .set({
         sha256: hash,
         objectPath,
-        billingDocumentId: doc.id,
+        billingDocumentId: result.document.id,
         updatedAt: new Date(),
       })
       .where(eq(emailImportAttachmentsTable.id, att.id));
