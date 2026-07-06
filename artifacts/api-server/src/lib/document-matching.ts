@@ -175,6 +175,84 @@ export function scoreDeliveryNoteToInvoice(
   return { score, strength: strengthFromScore(score), reasons };
 }
 
+/**
+ * Score how likely two DOCUMENTS (not delivery-note↔invoice pairs) are the
+ * same logical paperwork, used when identity fields (ISDOC UUID, or supplier
+ * IČO + document number) don't match or are missing — e.g. the same invoice
+ * photographed twice, or its pages uploaded as separate documents by mistake.
+ *
+ * A supplier-IČO mismatch is a hard fail (score 0). Otherwise the score is
+ * built from: matching IČO, a close total amount, a close issue date, and
+ * line-item overlap (via `scoreLineMatch`, so EAN/SKU/name similarity all
+ * count). Deliberately conservative — the ceiling requires most signals to
+ * agree, so it stays below the auto-merge threshold unless line overlap is
+ * substantial too.
+ */
+export function scoreDocumentSimilarity(
+  a: MatchableDocument & { lines?: MatchableLine[] },
+  b: MatchableDocument & { lines?: MatchableLine[] },
+): ScoredMatch {
+  const reasons: string[] = [];
+  const aIco = ico(a.supplierIc);
+  const bIco = ico(b.supplierIc);
+  if (aIco && bIco && aIco !== bIco) {
+    return { score: 0, strength: "none", reasons: ["Rozdílné IČO dodavatele"] };
+  }
+  if (!aIco || !bIco) {
+    // Without a supplier identity on both sides there is nothing safe to
+    // anchor the match to — never guess a merge from totals/dates alone.
+    return { score: 0, strength: "none", reasons: [] };
+  }
+
+  let score = 0.15;
+  reasons.push("Shodné IČO dodavatele");
+
+  if (
+    totalsClose(a.totalWithVat, b.totalWithVat) ||
+    totalsClose(a.totalWithoutVat, b.totalWithoutVat)
+  ) {
+    score += 0.3;
+    reasons.push("Shodná celková částka");
+  }
+
+  const days = daysBetween(a.issueDate, b.issueDate);
+  if (days != null && days <= 3) {
+    score += 0.15;
+    reasons.push("Stejné nebo blízké datum vystavení");
+  }
+
+  const linesA = a.lines ?? [];
+  const linesB = b.lines ?? [];
+  if (linesA.length && linesB.length) {
+    const usedB = new Set<number>();
+    let matched = 0;
+    for (const la of linesA) {
+      let bestJ = -1;
+      let bestScore = 0;
+      linesB.forEach((lb, j) => {
+        if (usedB.has(j)) return;
+        const s = scoreLineMatch(la, lb).score;
+        if (s > bestScore) {
+          bestScore = s;
+          bestJ = j;
+        }
+      });
+      if (bestJ >= 0 && bestScore >= 0.5) {
+        matched++;
+        usedB.add(bestJ);
+      }
+    }
+    const overlap = matched / Math.max(linesA.length, linesB.length);
+    if (overlap > 0) {
+      score += 0.4 * overlap;
+      reasons.push(`Podobné položky (${Math.round(overlap * 100)} %)`);
+    }
+  }
+
+  score = Math.min(1, round2(score));
+  return { score, strength: strengthFromScore(score), reasons };
+}
+
 export interface MatchableJob {
   id: number;
   title?: string | null;

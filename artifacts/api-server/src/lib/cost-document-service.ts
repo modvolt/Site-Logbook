@@ -43,9 +43,11 @@ import {
   scoreDeliveryNoteToInvoice,
   rankJobsForReference,
   scoreLineMatch,
+  scoreDocumentSimilarity,
   type MatchableDocument,
   type MatchableLine,
 } from "./document-matching";
+import { isSupportedForAi, type ExtractionFileInput } from "./openai-extraction";
 import { normalizeItemName } from "./reference-extractor";
 import { resolveDocumentLinkingConfig } from "./document-linking-config";
 import {
@@ -539,6 +541,69 @@ function priorityRank(sourcePriority: string | null): number {
   return SOURCE_PRIORITY_RANK[sourcePriority ?? "manual"] ?? 1;
 }
 
+/** Conservative thresholds for the fuzzy (no matching document number) merge path. */
+const FUZZY_MERGE_AUTO_THRESHOLD = 0.85;
+const FUZZY_MERGE_REVIEW_THRESHOLD = 0.55;
+
+/** Statuses a human has already acted on — never overwritten by a fuzzy-match note. */
+const REVIEW_TERMINAL_STATUSES = new Set(["approved", "ignored", "reviewed"]);
+
+async function toMatchableWithLines(
+  tx: DbOrTx,
+  doc: BillingDocument,
+): Promise<MatchableDocument & { lines: MatchableLine[] }> {
+  const lines = await tx
+    .select()
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, doc.id));
+  return {
+    id: doc.id,
+    supplierIc: doc.supplierIc,
+    documentNumber: doc.documentNumber,
+    totalWithoutVat: doc.subtotalWithoutVat != null ? num(doc.subtotalWithoutVat) : null,
+    totalWithVat: doc.totalWithVat != null ? num(doc.totalWithVat) : null,
+    issueDate: doc.issueDate,
+    lines: lines.map((l) => ({
+      ean: l.ean,
+      supplierSku: l.supplierSku,
+      description: l.description,
+      quantity: l.quantity != null ? num(l.quantity) : null,
+    })),
+  };
+}
+
+/** Merge `secondary` into `primary`: move files, mark secondary a duplicate. */
+async function performMergeTx(
+  tx: DbOrTx,
+  primary: BillingDocument,
+  secondary: BillingDocument,
+  note: string,
+): Promise<void> {
+  const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
+
+  await tx
+    .update(billingDocumentFilesTable)
+    .set({ documentId: primary.id })
+    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
+
+  await tx
+    .update(billingDocumentsTable)
+    .set({ mergeGroupId: groupId, updatedAt: new Date() })
+    .where(eq(billingDocumentsTable.id, primary.id));
+
+  const secWarn = [secondary.warnings, note].filter(Boolean).join("\n");
+  await tx
+    .update(billingDocumentsTable)
+    .set({
+      mergeGroupId: groupId,
+      primaryDocumentId: primary.id,
+      status: "duplicate",
+      warnings: secWarn,
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, secondary.id));
+}
+
 /**
  * Point `secondary` at `primary` as a confirmed duplicate: move any of its
  * extra role-tagged files (see `billingDocumentFilesTable`) under the primary
@@ -581,16 +646,29 @@ async function linkAsDuplicateTx(
 
 /**
  * Detect a sibling document that is the SAME logical invoice as `doc` (a PDF and
- * its ISDOC, or two scans), and merge them into one group. The higher-priority
- * source (ISDOC > PDF) becomes the primary; the other is re-pointed at it via
- * `linkAsDuplicateTx`. Identity is by ISDOC UUID, else supplier IČO + document
- * number.
+ * its ISDOC, two scans, or a multi-page photo uploaded as separate documents by
+ * mistake), and merge them into one group.
+ *
+ * Two matching paths:
+ *  1. Identity — ISDOC UUID, or supplier IČO + document number both present and
+ *     equal. Confident by construction; always auto-merges.
+ *  2. Fuzzy fallback (task #679) — used only when identity doesn't match/apply
+ *     (e.g. the document number is missing or OCR'd differently on each scan).
+ *     Scored via `scoreDocumentSimilarity` (IČO + total + date + line overlap).
+ *     A high score auto-merges like an identity match; a middling score is
+ *     never silently merged — both documents are flagged `needs_review` with an
+ *     explanation so an admin decides; a low score does nothing.
+ *
+ * The higher-priority source (ISDOC > PDF > AI > manual) becomes the primary;
+ * the other is re-pointed at it, its files are moved under the primary, and it
+ * is marked status="duplicate" so it drops out of the review queue.
  */
 async function mergeRelatedDocumentsTx(
   tx: DbOrTx,
   doc: BillingDocument,
   parsed: ParsedDocument | null,
 ): Promise<void> {
+  void parsed;
   const identityConds = [];
   if (doc.isdocUuid) {
     identityConds.push(eq(billingDocumentsTable.isdocUuid, doc.isdocUuid));
@@ -603,38 +681,108 @@ async function mergeRelatedDocumentsTx(
       ),
     );
   }
-  if (!identityConds.length) return;
 
-  const candidates = await tx
+  if (identityConds.length) {
+    const candidates = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(
+        and(
+          ne(billingDocumentsTable.id, doc.id),
+          isNull(billingDocumentsTable.primaryDocumentId),
+          or(...identityConds),
+        ),
+      );
+    // Prefer a candidate that differs in format (ISDOC vs PDF) — that's the pair
+    // we want to merge. Fall back to the first candidate otherwise.
+    const other =
+      candidates.find(
+        (c) => priorityRank(c.sourcePriority) !== priorityRank(doc.sourcePriority),
+      ) ?? candidates[0];
+    if (other) {
+      const primary =
+        priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
+      const secondary = primary.id === doc.id ? other : doc;
+      await performMergeTx(
+        tx,
+        primary,
+        secondary,
+        `Sloučeno s dokladem #${primary.id} (stejná faktura ve formátu ${
+          priorityRank(primary.sourcePriority) >= 4 ? "ISDOC" : "PDF"
+        }).`,
+      );
+      return;
+    }
+  }
+
+  // Fuzzy fallback: only when the document has a supplier IČO to anchor on, and
+  // it isn't already tied into a group (e.g. a multi-page upload still in
+  // progress) — the group's own pages are not candidates for this comparison.
+  if (!doc.supplierIc) return;
+  const siblings = await tx
     .select()
     .from(billingDocumentsTable)
     .where(
       and(
         ne(billingDocumentsTable.id, doc.id),
         isNull(billingDocumentsTable.primaryDocumentId),
-        or(...identityConds),
+        eq(billingDocumentsTable.supplierIc, doc.supplierIc),
       ),
     );
-  // Prefer a candidate that differs in format (ISDOC vs PDF) — that's the pair
-  // we want to merge. Fall back to the first candidate otherwise.
-  const other =
-    candidates.find((c) => priorityRank(c.sourcePriority) !== priorityRank(doc.sourcePriority)) ??
-    candidates[0];
-  if (!other) return;
-
-  const primary = priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
-  const secondary = primary.id === doc.id ? other : doc;
-
-  await linkAsDuplicateTx(
-    tx,
-    primary,
-    secondary,
-    `Sloučeno s dokladem #${primary.id} (stejná faktura ve formátu ${
-      priorityRank(primary.sourcePriority) >= 4 ? "ISDOC" : "PDF"
-    }).`,
+  const candidateSiblings = siblings.filter(
+    (s) => !(doc.mergeGroupId && s.mergeGroupId === doc.mergeGroupId),
   );
+  if (!candidateSiblings.length) return;
 
-  void parsed;
+  const docMatchable = await toMatchableWithLines(tx, doc);
+  let best: { sibling: BillingDocument; score: ReturnType<typeof scoreDocumentSimilarity> } | null =
+    null;
+  for (const sibling of candidateSiblings) {
+    const siblingMatchable = await toMatchableWithLines(tx, sibling);
+    const score = scoreDocumentSimilarity(docMatchable, siblingMatchable);
+    if (!best || score.score > best.score.score) {
+      best = { sibling, score };
+    }
+  }
+  if (!best || best.score.score < FUZZY_MERGE_REVIEW_THRESHOLD) return;
+
+  if (best.score.score >= FUZZY_MERGE_AUTO_THRESHOLD) {
+    const other = best.sibling;
+    const primary =
+      priorityRank(other.sourcePriority) >= priorityRank(doc.sourcePriority) ? other : doc;
+    const secondary = primary.id === doc.id ? other : doc;
+    await performMergeTx(
+      tx,
+      primary,
+      secondary,
+      `Sloučeno s dokladem #${primary.id} (${best.score.reasons.join(", ")}).`,
+    );
+    return;
+  }
+
+  // Uncertain: never silently merge or leave as a silent duplicate — flag both
+  // sides for a human to decide, with the reasoning that triggered the flag.
+  const explanation = `Možná duplicita s dokladem #${best.sibling.id} – vyžaduje kontrolu (${best.score.reasons.join(", ")}; shoda ${Math.round(best.score.score * 100)} %).`;
+  await tx
+    .update(billingDocumentsTable)
+    .set({
+      status: "needs_review",
+      warnings: [doc.warnings, explanation].filter(Boolean).join("\n"),
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, doc.id));
+
+  if (!REVIEW_TERMINAL_STATUSES.has(best.sibling.status)) {
+    const siblingExplanation = `Možná duplicita s dokladem #${doc.id} – vyžaduje kontrolu (${best.score.reasons.join(", ")}; shoda ${Math.round(best.score.score * 100)} %).`;
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "needs_review",
+        warnings: [best.sibling.warnings, siblingExplanation].filter(Boolean).join("\n"),
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, best.sibling.id));
+  }
 }
 
 /**
@@ -734,6 +882,13 @@ export interface CreateDocumentInput {
   docType?: string;
   jobId?: number | null;
   customerId?: number | null;
+  /** Tags this document as (the first page of) a multi-page group upload. */
+  mergeGroupId?: string | null;
+  /**
+   * When true, don't enqueue the extraction job yet — more pages are coming
+   * and extraction should only run once against the complete set of files.
+   */
+  skipExtractionQueue?: boolean;
 }
 
 /**
@@ -841,6 +996,7 @@ export async function createDocument(
         parsedBy,
         jobId: input.jobId ?? null,
         customerId: input.customerId ?? null,
+        mergeGroupId: input.mergeGroupId ?? null,
         warnings: warnLines.length ? warnLines.join("\n") : null,
         createdByUserId: actor.userId,
       })
@@ -900,10 +1056,14 @@ export async function createDocument(
     }
     if (refRows.length) await tx.insert(billingDocumentReferencesTable).values(refRows);
 
-    // Merge a matching ISDOC↔PDF pair into one logical document.
-    await mergeRelatedDocumentsTx(tx, doc, parsed);
-
-    await tx.insert(extractionJobsTable).values({ documentId: doc.id });
+    // Merge a matching ISDOC↔PDF pair into one logical document, and enqueue
+    // extraction — both skipped while more pages of the same group upload are
+    // still coming (see `ingestGroupFile`), since the group isn't a complete
+    // document yet and AI should see every page in a single request.
+    if (!input.skipExtractionQueue) {
+      await mergeRelatedDocumentsTx(tx, doc, parsed);
+      await tx.insert(extractionJobsTable).values({ documentId: doc.id });
+    }
 
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -1016,6 +1176,110 @@ export async function ingestFile(
     buffer,
     actor,
   );
+}
+
+export interface IngestGroupFileInput extends IngestFileInput {
+  /** Client-generated token shared by every page of the same multi-page upload. */
+  groupToken: string;
+  /** True on the last page — triggers the (single) extraction job + merge check. */
+  groupComplete: boolean;
+}
+
+/**
+ * Ingest one page of a multi-page photo upload (task #679): the first call for
+ * a given `groupToken` creates the `billing_documents` row (tagged with
+ * `mergeGroupId = groupToken`); every subsequent call with the same token
+ * attaches another file to that SAME row instead of creating a new document.
+ * Extraction is enqueued, and the merge/duplicate check runs, only once —
+ * on the call where `groupComplete` is true — so AI sees every page together
+ * and merge-matching compares the complete document, not a half-uploaded one.
+ */
+export async function ingestGroupFile(
+  buffer: Buffer,
+  input: IngestGroupFileInput,
+  actor: Actor,
+  force = false,
+): Promise<IngestFileResult> {
+  const hash = sha256Of(buffer);
+
+  if (!force) {
+    const duplicates = await findDuplicates({ sha256: hash });
+    if (duplicates.length) {
+      return { status: "duplicate", duplicates };
+    }
+  }
+
+  const objectPath = `/objects/cost-documents/${randomUUID()}`;
+  await objectStorage.putPrivateObject(objectPath, buffer, input.contentType);
+
+  const [existing] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(
+      and(
+        eq(billingDocumentsTable.mergeGroupId, input.groupToken),
+        isNull(billingDocumentsTable.primaryDocumentId),
+      ),
+    );
+
+  if (!existing) {
+    // First page of the group: create the document as usual, just tagged with
+    // the group token and (unless this is a single-page "group") deferred
+    // extraction/merge.
+    const document = await createDocument(
+      {
+        objectPath,
+        fileName: input.fileName,
+        contentType: input.contentType,
+        fileSize: buffer.length,
+        sha256: hash,
+        source: input.source,
+        sourceRef: input.sourceRef ?? null,
+        docType: input.docType,
+        jobId: input.jobId ?? null,
+        customerId: input.customerId ?? null,
+        mergeGroupId: input.groupToken,
+        skipExtractionQueue: !input.groupComplete,
+      },
+      buffer,
+      actor,
+    );
+    return { status: "created", document };
+  }
+
+  // A later page of an already-started group: attach the file, don't create a
+  // new billing_documents row.
+  await db.transaction(async (tx) => {
+    await tx.insert(billingDocumentFilesTable).values({
+      documentId: existing.id,
+      role: "attachment",
+      originalFileName: input.fileName,
+      mimeType: input.contentType,
+      objectPath,
+      sha256Hash: hash,
+      sizeBytes: buffer.length,
+    });
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "update",
+      entityType: "billing_documents",
+      entityId: existing.id,
+      summary: `Přidána další strana dokladu: ${input.fileName}`,
+      method: "POST",
+      path: "/billing/documents/upload",
+    });
+
+    if (input.groupComplete) {
+      await mergeRelatedDocumentsTx(tx, existing, null);
+      await tx.insert(extractionJobsTable).values({ documentId: existing.id });
+    }
+  });
+
+  const detail = await getDocument(existing.id);
+  if (!detail) throw appError(500, "Doklad se nepodařilo načíst.");
+  return { status: "created", document: detail.document };
 }
 
 // ---------------------------------------------------------------------------
@@ -3896,6 +4160,34 @@ export async function getDocumentFileBuffer(
   if (!doc || !doc.objectPath) return null;
   const buffer = await objectStorage.getPrivateObjectBuffer(doc.objectPath);
   return { buffer, contentType: doc.contentType, fileName: doc.fileName };
+}
+
+/**
+ * Fetch bytes for every AI-supported file attached to a document, in upload
+ * order (oldest first — typically page 1, 2, 3…). A multi-page group upload
+ * attaches one `billing_document_files` row per page; single-file documents
+ * still work through this path (one row, same as `getDocumentFileBuffer`).
+ * Files whose type isn't AI-supported (e.g. an ISDOC XML sitting alongside a
+ * visual PDF) are skipped rather than sent to the model.
+ */
+export async function getDocumentAllFileBuffers(
+  documentId: number,
+): Promise<ExtractionFileInput[]> {
+  const rows = await db
+    .select()
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, documentId))
+    .orderBy(billingDocumentFilesTable.id);
+  const supported = rows.filter(
+    (r): r is typeof r & { objectPath: string } =>
+      !!r.objectPath && isSupportedForAi(r.mimeType, r.originalFileName),
+  );
+  const files: ExtractionFileInput[] = [];
+  for (const row of supported) {
+    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath);
+    files.push({ buffer, contentType: row.mimeType, fileName: row.originalFileName });
+  }
+  return files;
 }
 
 void sql;

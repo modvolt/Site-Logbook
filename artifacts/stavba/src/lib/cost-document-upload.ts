@@ -95,6 +95,20 @@ function isSupportedDocName(name: string): boolean {
   return SUPPORTED_DOC_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+/** Photo extensions — the only files it makes sense to offer "pages of one document" for. */
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"];
+
+/**
+ * Is this a photo (not a PDF, ISDOC/XML, or ZIP)? Used to decide whether a
+ * multi-file selection should offer the "are these pages of one document?"
+ * prompt (task #679) — PDFs and e-invoices are already complete documents.
+ */
+export function isImageFile(file: File): boolean {
+  const lower = file.name.toLowerCase();
+  if (IMAGE_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
+  return file.type.startsWith("image/");
+}
+
 /**
  * Is this file a ZIP archive we should expand into individual documents?
  * `.isdocx` is also a zip container but is a single e-invoice document, so it is
@@ -173,6 +187,22 @@ export interface UploadCostDocumentOptions {
   customerId?: number;
   /** Re-submit even when an exact duplicate was found. */
   force?: boolean;
+  /**
+   * Multi-page photo upload (task #679): a client-generated id shared by every
+   * page of the same document. The first page (with this token) creates the
+   * document; later pages with the same token attach to it instead of creating
+   * a new one. Required together with `groupComplete`.
+   */
+  groupToken?: string;
+  /** True on the last page of a group upload — triggers extraction + merge check. */
+  groupComplete?: boolean;
+}
+
+/** Generates a client-side token to tag every page of one multi-page upload. */
+export function newUploadGroupToken(): string {
+  return typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `grp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 /**
@@ -199,6 +229,10 @@ export async function uploadCostDocument(
   if (opts.jobId) query.set("jobId", String(opts.jobId));
   if (opts.customerId) query.set("customerId", String(opts.customerId));
   if (opts.force) query.set("force", "true");
+  if (opts.groupToken) {
+    query.set("groupToken", opts.groupToken);
+    query.set("groupComplete", opts.groupComplete ? "true" : "false");
+  }
 
   let res: Response;
   try {

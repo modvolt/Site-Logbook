@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   strengthFromScore,
   scoreDeliveryNoteToInvoice,
+  scoreDocumentSimilarity,
   scoreReferenceToJob,
   rankJobsForReference,
   type MatchableDocument,
+  type MatchableLine,
   type MatchableJob,
 } from "../src/lib/document-matching";
 
@@ -62,6 +64,70 @@ describe("scoreDeliveryNoteToInvoice", () => {
     const r = scoreDeliveryNoteToInvoice(dn, inv);
     expect(r.score).toBeGreaterThan(0);
     expect(r.reasons).toContain("Shodné číslo objednávky");
+  });
+});
+
+describe("scoreDocumentSimilarity", () => {
+  it("hard-fails on different supplier IČO", () => {
+    const a: MatchableDocument = { supplierIc: "111" };
+    const b: MatchableDocument = { supplierIc: "222" };
+    const r = scoreDocumentSimilarity(a, b);
+    expect(r.score).toBe(0);
+    expect(r.strength).toBe("none");
+  });
+
+  it("never guesses a match when either side lacks a supplier IČO", () => {
+    const a: MatchableDocument = { supplierIc: null, totalWithVat: 1000, issueDate: "2024-05-01" };
+    const b: MatchableDocument = { supplierIc: "12345678", totalWithVat: 1000, issueDate: "2024-05-01" };
+    const r = scoreDocumentSimilarity(a, b);
+    expect(r.score).toBe(0);
+  });
+
+  it("scores high (auto-merge range) for same IČO, total, date, and matching lines", () => {
+    const lines: MatchableLine[] = [
+      { description: "Cement 25kg" },
+      { description: "Trubka PVC" },
+    ];
+    const a: MatchableDocument & { lines: MatchableLine[] } = {
+      supplierIc: "12345678",
+      totalWithVat: 1815,
+      issueDate: "2024-05-01",
+      lines,
+    };
+    const b: MatchableDocument & { lines: MatchableLine[] } = {
+      supplierIc: "12345678",
+      totalWithVat: 1815,
+      issueDate: "2024-05-01",
+      lines,
+    };
+    const r = scoreDocumentSimilarity(a, b);
+    expect(r.score).toBeGreaterThanOrEqual(0.85);
+    expect(r.strength).toBe("strong");
+  });
+
+  it("scores in the middling (needs-review) range with no line overlap", () => {
+    const a: MatchableDocument & { lines: MatchableLine[] } = {
+      supplierIc: "12345678",
+      totalWithVat: 2000,
+      issueDate: "2024-06-01",
+      lines: [{ description: "Sádrokarton" }],
+    };
+    const b: MatchableDocument & { lines: MatchableLine[] } = {
+      supplierIc: "12345678",
+      totalWithVat: 2000,
+      issueDate: "2024-06-01",
+      lines: [{ description: "Úplně jiná položka XYZ" }],
+    };
+    const r = scoreDocumentSimilarity(a, b);
+    expect(r.score).toBeGreaterThanOrEqual(0.55);
+    expect(r.score).toBeLessThan(0.85);
+  });
+
+  it("scores low when only the IČO matches (different total/date, no lines)", () => {
+    const a: MatchableDocument = { supplierIc: "12345678", totalWithVat: 100, issueDate: "2024-01-01" };
+    const b: MatchableDocument = { supplierIc: "12345678", totalWithVat: 9999, issueDate: "2024-09-09" };
+    const r = scoreDocumentSimilarity(a, b);
+    expect(r.score).toBeLessThan(0.55);
   });
 });
 

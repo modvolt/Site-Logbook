@@ -441,58 +441,76 @@ function parseModelJson(text: string): unknown {
   return JSON.parse(body);
 }
 
+export interface ExtractionFileInput {
+  buffer: Buffer;
+  contentType: string | null | undefined;
+  fileName: string | null | undefined;
+}
+
 /**
- * Run extraction on a document file (PDF or image). Returns the validated +
+ * Run extraction across one or more pages of the SAME logical document (e.g. a
+ * multi-page delivery note photographed page by page). All pages are sent in
+ * one request so the model can merge the header (often only on page 1) with
+ * line items spread across pages into a single result. Returns the validated +
  * normalized result plus the raw model text (stored for audit). Throws on
  * unsupported types, oversized files, missing config, or API/parse errors — the
  * worker translates a throw into a retryable failure.
  */
-export async function extractFromFile(
-  buffer: Buffer,
-  contentType: string | null | undefined,
-  fileName: string | null | undefined,
-): Promise<ExtractionRaw> {
+export async function extractFromFiles(files: ExtractionFileInput[]): Promise<ExtractionRaw> {
+  if (!files.length) {
+    throw new Error("Žádný soubor k vytěžení.");
+  }
   const cfg = await resolveOpenAiConfig();
   if (!cfg.configured) {
     throw new Error("OpenAI není nakonfigurováno (chybí OPENAI_API_KEY).");
   }
-  if (!isSupportedForAi(contentType, fileName)) {
-    throw new Error(
-      `Typ souboru není podporován pro AI vytěžení (${contentType ?? fileName ?? "neznámý"}).`,
-    );
-  }
-  const sizeMb = buffer.byteLength / (1024 * 1024);
-  if (sizeMb > cfg.maxFileMb) {
-    throw new Error(
-      `Soubor je příliš velký pro AI vytěžení (${sizeMb.toFixed(1)} MB > ${cfg.maxFileMb} MB).`,
-    );
+  for (const f of files) {
+    if (!isSupportedForAi(f.contentType, f.fileName)) {
+      throw new Error(
+        `Typ souboru není podporován pro AI vytěžení (${f.contentType ?? f.fileName ?? "neznámý"}).`,
+      );
+    }
+    const sizeMb = f.buffer.byteLength / (1024 * 1024);
+    if (sizeMb > cfg.maxFileMb) {
+      throw new Error(
+        `Soubor je příliš velký pro AI vytěžení (${sizeMb.toFixed(1)} MB > ${cfg.maxFileMb} MB).`,
+      );
+    }
   }
 
   const client = getClient(cfg);
-  const mime = detectMime(contentType, fileName);
-  const base64 = buffer.toString("base64");
+  const multi = files.length > 1;
 
   const userContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
     {
       type: "text",
-      text: "Vytěž údaje z tohoto dokladu a vrať pouze JSON dle instrukcí.",
+      text: multi
+        ? `Vytěž údaje z tohoto vícestránkového dokladu (${files.length} po sobě jdoucích stran JEDNOHO dokladu). Slouč informace ze všech stran do JEDNOHO výsledného JSON: hlavičkové údaje (dodavatel, číslo dokladu, datum, celkové částky…) vezmi ze strany, kde jsou uvedeny, a "lines" spoj do jednoho seznamu položek ze všech stran (položku, která se opakuje jen jako mezisoučet/rekapitulace na jiné straně, do seznamu nepřidávej duplicitně). Vrať pouze JSON dle instrukcí.`
+        : "Vytěž údaje z tohoto dokladu a vrať pouze JSON dle instrukcí.",
     },
   ];
 
-  if (mime === "application/pdf") {
-    userContent.push({
-      type: "file",
-      file: {
-        filename: fileName || "document.pdf",
-        file_data: `data:application/pdf;base64,${base64}`,
-      },
-    });
-  } else {
-    userContent.push({
-      type: "image_url",
-      image_url: { url: `data:${mime};base64,${base64}` },
-    });
-  }
+  files.forEach((f, idx) => {
+    const mime = detectMime(f.contentType, f.fileName);
+    const base64 = f.buffer.toString("base64");
+    if (multi) {
+      userContent.push({ type: "text", text: `Strana ${idx + 1}/${files.length}:` });
+    }
+    if (mime === "application/pdf") {
+      userContent.push({
+        type: "file",
+        file: {
+          filename: f.fileName || `document-${idx + 1}.pdf`,
+          file_data: `data:application/pdf;base64,${base64}`,
+        },
+      });
+    } else {
+      userContent.push({
+        type: "image_url",
+        image_url: { url: `data:${mime};base64,${base64}` },
+      });
+    }
+  });
 
   const completion = await client.chat.completions.create({
     model: cfg.model,
@@ -525,6 +543,18 @@ export async function extractFromFile(
     rawText,
     model: completion.model || cfg.model,
   };
+}
+
+/**
+ * Run extraction on a single document file (PDF or image). Thin wrapper around
+ * `extractFromFiles` for the common single-page case.
+ */
+export async function extractFromFile(
+  buffer: Buffer,
+  contentType: string | null | undefined,
+  fileName: string | null | undefined,
+): Promise<ExtractionRaw> {
+  return extractFromFiles([{ buffer, contentType, fileName }]);
 }
 
 // ---------------------------------------------------------------------------

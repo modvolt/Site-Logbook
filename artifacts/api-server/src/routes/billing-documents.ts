@@ -22,6 +22,7 @@ import {
 } from "../lib/fileSignature";
 import {
   ingestFile,
+  ingestGroupFile,
   listDocuments,
   getDocument,
   updateDocument,
@@ -320,6 +321,18 @@ router.post(
     const force = req.query.force === "true";
     const jobId = optInt(req.query.jobId) ?? null;
     const customerId = optInt(req.query.customerId) ?? null;
+    // Multi-page photo upload (task #679): the client generates one token and
+    // sends it with every page of the same document, marking the last page
+    // with groupComplete=true so extraction/merge only run once, on the full set.
+    const groupToken =
+      typeof req.query.groupToken === "string" && req.query.groupToken.trim()
+        ? req.query.groupToken.trim()
+        : undefined;
+    const groupComplete = req.query.groupComplete === "true";
+    if (groupToken && groupToken.length > 100) {
+      res.status(400).json({ error: "Neplatný identifikátor skupiny stránek." });
+      return;
+    }
 
     if (!contentType || !ALLOWED_UPLOAD_TYPES.has(contentType)) {
       res.status(415).json({ error: "Tento typ souboru není povolen." });
@@ -356,19 +369,35 @@ router.post(
       // Pre-create duplicate check on exact content hash. The admin can re-submit
       // with ?force=true to import anyway (near-duplicates are surfaced after
       // creation via the document's `duplicates` list).
-      const result = await ingestFile(
-        body,
-        {
-          fileName: name || "doklad",
-          contentType,
-          source: "manual",
-          docType,
-          jobId,
-          customerId,
-        },
-        actorOf(req),
-        force,
-      );
+      const result = groupToken
+        ? await ingestGroupFile(
+            body,
+            {
+              fileName: name || "doklad",
+              contentType,
+              source: "manual",
+              docType,
+              jobId,
+              customerId,
+              groupToken,
+              groupComplete,
+            },
+            actorOf(req),
+            force,
+          )
+        : await ingestFile(
+            body,
+            {
+              fileName: name || "doklad",
+              contentType,
+              source: "manual",
+              docType,
+              jobId,
+              customerId,
+            },
+            actorOf(req),
+            force,
+          );
       if (result.status === "duplicate") {
         res.status(409).json({
           message:

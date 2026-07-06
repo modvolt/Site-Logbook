@@ -30,6 +30,7 @@ import {
   getGetBillingSummaryQueryKey,
   type CostDocument,
   type CostDocumentDetail,
+  type CostDocumentFile,
   type CostDocumentLine,
   type CostDocumentReference,
   type CostDocumentReferenceJobCandidate,
@@ -165,7 +166,9 @@ export default function BillingDocumentDetail() {
   const unmarkDuplicate = useUnmarkCostDocumentDuplicate();
   const requeue = useRequeueCostDocumentExtraction();
 
-  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerFile, setViewerFile] = useState<{ url: string; name?: string | null } | null>(
+    null,
+  );
   const [splitLine, setSplitLine] = useState<CostDocumentLine | null>(null);
   const [linkedDuplicatesOpen, setLinkedDuplicatesOpen] = useState(true);
 
@@ -330,6 +333,7 @@ export default function BillingDocumentDetail() {
   };
 
   const fileHref = attachmentUrl(doc.objectPath);
+  const attachedFiles: CostDocumentFile[] = data?.files ?? [];
   const warnings = filterWarningsForDocType(
     (doc.warnings ?? "")
       .split("\n")
@@ -398,11 +402,31 @@ export default function BillingDocumentDetail() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {fileHref && (
-            <Button variant="outline" size="sm" onClick={() => setViewerOpen(true)}>
+          {attachedFiles.length > 1 ? (
+            attachedFiles.map((f, idx) => {
+              const url = attachmentUrl(f.objectPath);
+              if (!url) return null;
+              return (
+                <Button
+                  key={f.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setViewerFile({ url, name: f.originalFileName })}
+                >
+                  <FileText className="h-4 w-4 mr-1" />
+                  {f.originalFileName || `Strana ${idx + 1}`}
+                </Button>
+              );
+            })
+          ) : fileHref ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewerFile({ url: fileHref, name: doc.fileName })}
+            >
               <FileText className="h-4 w-4 mr-1" /> Zobrazit soubor
             </Button>
-          )}
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -738,11 +762,11 @@ export default function BillingDocumentDetail() {
         onApplied={invalidate}
       />
 
-      {fileHref && viewerOpen && (
+      {viewerFile && (
         <AttachmentViewer
-          url={fileHref}
-          fileName={doc.fileName}
-          onClose={() => setViewerOpen(false)}
+          url={viewerFile.url}
+          fileName={viewerFile.name}
+          onClose={() => setViewerFile(null)}
         />
       )}
 

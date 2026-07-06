@@ -28,9 +28,9 @@ import { logger } from "./logger";
 import {
   resolveOpenAiConfig,
   isSupportedForAi,
-  extractFromFile,
+  extractFromFiles,
 } from "./openai-extraction";
-import { applyAiSuggestion, getDocumentFileBuffer } from "./cost-document-service";
+import { applyAiSuggestion, getDocumentAllFileBuffers } from "./cost-document-service";
 import { publishLiveEvent } from "./live-events-service";
 
 /** Domains emitted by this worker on every state change. */
@@ -135,8 +135,11 @@ async function processOne(jobId: number): Promise<void> {
     }
 
     // Run AI extraction. A throw here is caught below and retried per attempts.
-    const file = await getDocumentFileBuffer(doc.id);
-    if (!file) {
+    // A multi-page upload (photographed page by page) attaches several files to
+    // one document; all AI-supported files are sent together so the model can
+    // merge the header (often only on page 1) with items spread across pages.
+    const files = await getDocumentAllFileBuffers(doc.id);
+    if (!files.length) {
       await db
         .update(billingDocumentsTable)
         .set({ status: "needs_review", updatedAt: new Date() })
@@ -145,11 +148,7 @@ async function processOne(jobId: number): Promise<void> {
       return;
     }
 
-    const { result, rawText, model } = await extractFromFile(
-      file.buffer,
-      file.contentType,
-      file.fileName,
-    );
+    const { result, rawText, model } = await extractFromFiles(files);
 
     await applyAiSuggestion(doc.id, {
       docType: result.docType,

@@ -43,6 +43,8 @@ import {
   DuplicateCostDocumentError,
   isZipArchive,
   expandZipArchive,
+  isImageFile,
+  newUploadGroupToken,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
 import { ArrowLeft, CheckCircle2, FileText, Inbox, Loader2, Sparkles, Upload } from "lucide-react";
@@ -82,6 +84,7 @@ export default function BillingDocuments() {
     message: string;
     duplicates: CostDocumentDuplicate[];
   } | null>(null);
+  const [pendingGroupChoice, setPendingGroupChoice] = useState<File[] | null>(null);
 
   const params = statusFilter === "all" ? undefined : { status: statusFilter };
   const { data: docs, isLoading, isError, error, refetch } = useListCostDocuments(params, {
@@ -147,6 +150,75 @@ export default function BillingDocuments() {
     }
   };
 
+  /** Upload each file as its own document (existing batch behavior). */
+  const uploadSeparately = async (
+    expanded: File[],
+    zipSkipped: number,
+    zipFailed: number,
+  ) => {
+    let ok = 0;
+    let dup = 0;
+    let failed = 0;
+    setProgress({ done: 0, total: expanded.length });
+    for (let i = 0; i < expanded.length; i++) {
+      try {
+        await uploadCostDocument(expanded[i]);
+        ok++;
+      } catch (err) {
+        if (err instanceof DuplicateCostDocumentError) dup++;
+        else failed++;
+      }
+      setProgress({ done: i + 1, total: expanded.length });
+    }
+    refresh();
+    const hadProblems = failed > 0 || zipFailed > 0;
+    const parts = [`Nahráno ${ok}`];
+    if (dup > 0) parts.push(`přeskočeno ${dup} duplicit`);
+    if (zipSkipped > 0) parts.push(`${zipSkipped} nepodporovaných`);
+    if (failed > 0) parts.push(`${failed} chyb`);
+    if (zipFailed > 0)
+      parts.push(`${zipFailed} ${zipFailed === 1 ? "archiv nešel rozbalit" : "archivů nešlo rozbalit"}`);
+    toast({
+      title: hadProblems ? "Nahrávání dokončeno s chybami" : "Doklady nahrány",
+      description: `${parts.join(", ")}.`,
+      variant: hadProblems ? "destructive" : undefined,
+    });
+  };
+
+  /**
+   * Upload every photo as one multi-page document (task #679): all pages share
+   * one group token; the last page's upload triggers extraction + merge check
+   * server-side, once, over the complete set.
+   */
+  const uploadAsGroup = async (files: File[]) => {
+    const groupToken = newUploadGroupToken();
+    let lastDocumentId: number | null = null;
+    setProgress({ done: 0, total: files.length });
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const detail = await uploadCostDocument(files[i], {
+          groupToken,
+          groupComplete: i === files.length - 1,
+        });
+        lastDocumentId = detail.document.id;
+        setProgress({ done: i + 1, total: files.length });
+      }
+      refresh();
+      toast({ title: `Vícestránkový doklad nahrán (${files.length} stránek)` });
+      if (lastDocumentId != null) {
+        setLocation(`/billing/documents/${lastDocumentId}`);
+      }
+    } catch (err) {
+      toast({
+        title: "Nahrání vícestránkového dokladu selhalo",
+        description: err instanceof Error ? err.message : "Neznámá chyba",
+        variant: "destructive",
+      });
+    } finally {
+      setProgress(null);
+    }
+  };
+
   const handleFiles = async (selected: File[]) => {
     if (selected.length === 0 || isUploading) return;
     setIsUploading(true);
@@ -190,34 +262,15 @@ export default function BillingDocuments() {
         return;
       }
 
-      // Batch: upload sequentially, skipping exact duplicates, then summarise.
-      let ok = 0;
-      let dup = 0;
-      let failed = 0;
-      setProgress({ done: 0, total: expanded.length });
-      for (let i = 0; i < expanded.length; i++) {
-        try {
-          await uploadCostDocument(expanded[i]);
-          ok++;
-        } catch (err) {
-          if (err instanceof DuplicateCostDocumentError) dup++;
-          else failed++;
-        }
-        setProgress({ done: i + 1, total: expanded.length });
+      // Several photos selected together (not from a ZIP, not mixed with a PDF
+      // or e-invoice) — ask whether they're pages of one document before
+      // uploading anything (task #679).
+      if (zipFailed === 0 && zipSkipped === 0 && expanded.every(isImageFile)) {
+        setPendingGroupChoice(expanded);
+        return;
       }
-      refresh();
-      const hadProblems = failed > 0 || zipFailed > 0;
-      const parts = [`Nahráno ${ok}`];
-      if (dup > 0) parts.push(`přeskočeno ${dup} duplicit`);
-      if (zipSkipped > 0) parts.push(`${zipSkipped} nepodporovaných`);
-      if (failed > 0) parts.push(`${failed} chyb`);
-      if (zipFailed > 0)
-        parts.push(`${zipFailed} ${zipFailed === 1 ? "archiv nešel rozbalit" : "archivů nešlo rozbalit"}`);
-      toast({
-        title: hadProblems ? "Nahrávání dokončeno s chybami" : "Doklady nahrány",
-        description: `${parts.join(", ")}.`,
-        variant: hadProblems ? "destructive" : undefined,
-      });
+
+      await uploadSeparately(expanded, zipSkipped, zipFailed);
     } finally {
       setProgress(null);
       setIsUploading(false);
@@ -399,6 +452,61 @@ export default function BillingDocuments() {
               onClick={() => pendingFile && doUpload(pendingFile, true)}
             >
               Nahrát i přesto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingGroupChoice !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingGroupChoice(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Jsou to stránky jednoho dokladu?</DialogTitle>
+            <DialogDescription>
+              Vybrali jste {pendingGroupChoice?.length ?? 0} fotografií. Pokud jde
+              o více stránek téhož dokladu (např. vícestránková faktura),
+              spojíme je do jednoho záznamu. Jinak je nahrajeme jako
+              samostatné doklady.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              disabled={isUploading}
+              onClick={async () => {
+                const files = pendingGroupChoice;
+                setPendingGroupChoice(null);
+                if (!files) return;
+                setIsUploading(true);
+                try {
+                  await uploadSeparately(files, 0, 0);
+                } finally {
+                  setProgress(null);
+                  setIsUploading(false);
+                }
+              }}
+            >
+              Samostatné doklady
+            </Button>
+            <Button
+              disabled={isUploading}
+              onClick={async () => {
+                const files = pendingGroupChoice;
+                setPendingGroupChoice(null);
+                if (!files) return;
+                setIsUploading(true);
+                try {
+                  await uploadAsGroup(files);
+                } finally {
+                  setIsUploading(false);
+                }
+              }}
+            >
+              Jedna vícestránková faktura
             </Button>
           </DialogFooter>
         </DialogContent>
