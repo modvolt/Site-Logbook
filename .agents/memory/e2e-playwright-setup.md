@@ -42,6 +42,11 @@ description: Lessons from setting up Playwright E2E tests in the Stavba monorepo
 - Pattern: navigate with `?testMode=1` when a test plan needs to assert a toast; otherwise use default duration for normal UX.
 - **Why:** toasts that dismissed before Playwright reached the assertion caused false negatives even when the underlying behavior was correct.
 
+## Stale toast false-positives in retry loops
+- `TOAST_LIMIT = 1` (use-toast.ts): each new toast() call replaces the previous one in place, so a loop asserting `toast-title` text on each retry iteration can pass even when NO new toast fired — it's just re-reading the toast left over from an earlier iteration (worsened by `?testMode=1`'s 30s duration).
+- Don't infer "an attempt happened" from toast text in a multi-iteration retry loop. Assert on the actual state driving the retry instead (e.g. poll an IndexedDB/queue record's attempt counter via `page.evaluate` + `expect.poll`) and only use the toast for a final one-shot check.
+- **Why:** a test cycling online/offline to drive N retry attempts silently degenerated into "toast asserted 3x, but only 1 real flush ran" — every iteration after the first was a no-op that the toast assertion couldn't detect.
+
 ## Warehouse card delete button locator
 - The sklad.tsx Card contains both the item name and the delete button.
 - `page.locator("div").filter({ has: text }).last()` returns the *innermost* matching div (the name-only div), which does NOT contain the button.
