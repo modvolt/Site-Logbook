@@ -42,3 +42,10 @@ so the broadcast path must NOT skip them. Keep the skip lists independent.
 - No per-user data isolation needed: it's a single-company app, all authed users
   share data, and admin-only domains (device credentials) are simply never in the
   domain map so they're never pushed.
+- **`domainsForPath()` maps by URL path, not by "what the endpoint touches".**
+  An action endpoint nested under another resource's base path (e.g.
+  `POST /billing/documents/:id/approve`) only gets that resource's domain by
+  default. If the handler has side effects on other domains (approve →
+  job materials + warehouse stock/price history), add an explicit
+  `p.includes("/approve")`-style check — don't assume the base-path domain
+  covers it.

@@ -45,6 +45,12 @@ export function domainsForPath(relPath: string): LiveDomain[] {
     add("billingInvoices");
   } else if (p.startsWith("/billing/documents")) {
     add("billingDocuments", "reviewQueue");
+    // Approving a document (or pushing its prices into the warehouse) also
+    // propagates approved material lines onto jobs and writes stock/price
+    // history — so open job and warehouse screens must refresh too.
+    if (p.includes("/approve") || p.includes("/apply-warehouse-prices")) {
+      add("jobs", "warehouse");
+    }
   } else if (p.startsWith("/billing/approved-lines")) {
     add("billingDocuments");
   } else if (p.startsWith("/billing/bank-statements")) {

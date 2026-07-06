@@ -73,3 +73,4 @@
 - [Job signature atomic update](job-signature-atomic.md) — POST /sign/:token must do conditional UPDATE WHERE signed_at IS NULL + expiry guard in one statement (.returning); pre-check + separate UPDATE has a TOCTOU race window.
 - [Nullish-coalescing trim crash pattern](nullish-trim-crash.md) — `(x ?? "").trim()` only guards null/undefined; non-string DB/CSV values still throw. Always `String(x ?? "").trim()`.
 - [Drizzle error wrapping hides pg .code/.constraint](drizzle-error-wrapping.md) — DrizzleQueryError wraps the raw pg error in `.cause`; check both err and err.cause for `.code`/`.constraint` when catching unique-violations (23505).
+- [Workflow name mismatch on restart](workflow-name-mismatch.md) — restart_workflow RUN_COMMAND_NOT_FOUND ≠ artifact broken; use refresh_all_logs to find the real registered name before creating a duplicate.

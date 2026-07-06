@@ -6,6 +6,7 @@ import {
   useListCostDocuments,
   getListCostDocumentsQueryKey,
   getGetBillingSummaryQueryKey,
+  useApproveCostDocument,
   type CostDocument,
   type ListCostDocumentsParams,
 } from "@workspace/api-client-react";
@@ -44,7 +45,7 @@ import {
   expandZipArchive,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
-import { ArrowLeft, FileText, Inbox, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, Inbox, Loader2, Sparkles, Upload } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 
 const UPLOAD_ACCEPT =
@@ -94,6 +95,31 @@ export default function BillingDocuments() {
 
   const refresh = () => {
     invalidateData(queryClient, "billingDocuments");
+  };
+
+  const approveDoc = useApproveCostDocument();
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+
+  const handleApprove = (doc: CostDocument) => {
+    setApprovingId(doc.id);
+    approveDoc.mutate(
+      { id: doc.id },
+      {
+        onSuccess: () => {
+          // Approval propagates into job materials + warehouse (stock, price
+          // history), so open job/warehouse/dashboard screens must refresh too.
+          invalidateData(queryClient, "billingDocuments", "jobs", "warehouse");
+          toast({ title: "Doklad schválen" });
+        },
+        onError: (err) =>
+          toast({
+            title: "Schválení selhalo",
+            description: err instanceof Error ? err.message : undefined,
+            variant: "destructive",
+          }),
+        onSettled: () => setApprovingId(null),
+      },
+    );
   };
 
   const doUpload = async (file: File, force: boolean) => {
@@ -316,6 +342,8 @@ export default function BillingDocuments() {
               key={doc.id}
               doc={doc}
               onClick={() => setLocation(`/billing/documents/${doc.id}`)}
+              onApprove={() => handleApprove(doc)}
+              isApproving={approvingId === doc.id}
             />
           ))}
         </div>
@@ -379,13 +407,23 @@ export default function BillingDocuments() {
   );
 }
 
+// Statuses from which a document can still be approved directly. Already
+// approved / duplicate / ignored documents are excluded — those require an
+// explicit status change (or are terminal) on the detail page instead.
+const NOT_APPROVABLE_STATUSES = new Set(["approved", "duplicate", "ignored"]);
+
 function DocumentCard({
   doc,
   onClick,
+  onApprove,
+  isApproving,
 }: {
   doc: CostDocument;
   onClick: () => void;
+  onApprove: () => void;
+  isApproving: boolean;
 }) {
+  const canApprove = !NOT_APPROVABLE_STATUSES.has(doc.status);
   return (
     <Card className="overflow-hidden">
       <button
@@ -420,6 +458,27 @@ function DocumentCard({
           </div>
         </CardContent>
       </button>
+      {canApprove && (
+        <div className="px-4 pb-3 -mt-1">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full sm:w-auto"
+            disabled={isApproving}
+            onClick={(e) => {
+              e.stopPropagation();
+              onApprove();
+            }}
+          >
+            {isApproving ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 mr-1.5" />
+            )}
+            {isApproving ? "Schvaluji…" : "Schválit doklad"}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }
