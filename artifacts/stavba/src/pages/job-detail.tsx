@@ -7,7 +7,7 @@ import { format, differenceInDays } from "date-fns";
 import { cs } from "date-fns/locale";
 import { 
   useGetJob, getGetJobQueryKey,
-  useUpdateJobStatus, useUpdateJob, useDeleteJob,
+  useUpdateJobStatus, useUpdateJob, useDeleteJob, useUpdateJobAssignees,
   useListTasks, getListTasksQueryKey, useCreateTask, useUpdateTask, useDeleteTask,
   useListAttachments, getListAttachmentsQueryKey, useCreateAttachment, useDeleteAttachment,
   useListMaterials, getListMaterialsQueryKey, useCreateMaterial, useUpdateMaterial, useDeleteMaterial,
@@ -780,9 +780,32 @@ function SectionCard({ title, icon: Icon, isExpanded, onToggle, children, summar
 
 function InfoSection({ job, isExpanded, onToggle }: any) {
   const updateJob = useUpdateJob();
+  const updateAssignees = useUpdateJobAssignees();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+
+  const [editingAssignees, setEditingAssignees] = useState(false);
+  const [assigneeDraft, setAssigneeDraft] = useState<number[]>(job.assigneeIds || []);
+
+  const toggleAssignee = (personId: number) => {
+    setAssigneeDraft(prev => prev.includes(personId) ? prev.filter(id => id !== personId) : [...prev, personId]);
+  };
+
+  const saveAssignees = () => {
+    updateAssignees.mutate({ id: job.id, data: { personIds: assigneeDraft } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetJobQueryKey(job.id), data);
+        invalidateJobLists(queryClient);
+        setEditingAssignees(false);
+        toast({ title: "Pracovníci uloženi" });
+      },
+      onError: (err: any) => {
+        toast({ title: "Nepodařilo se uložit pracovníky", description: err?.data?.error ?? err?.message, variant: "destructive" });
+      }
+    });
+  };
   
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(job.notes || "");
@@ -860,7 +883,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   const customerDropRef = useRef<HTMLDivElement>(null);
 
   // Guard navigation while any inline edit section is open and unsaved
-  const anyEditing = editingNotes || editingShortName || editingAddress || editingDate || editingRecurrence || editingCustomer;
+  const anyEditing = editingNotes || editingShortName || editingAddress || editingDate || editingRecurrence || editingCustomer || editingAssignees;
   useUnsavedChanges(anyEditing);
 
   const { data: customers } = useListCustomers({
@@ -974,6 +997,50 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
           <div>
             <p className="text-muted-foreground mb-1 flex items-center gap-1"><User className="w-3.5 h-3.5" /> Přiřazeno</p>
             <p className="font-medium">{job.assignedPersonName || "Nepřiřazeno"}</p>
+          </div>
+
+          <div className="col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-muted-foreground flex items-center gap-1"><User className="w-3.5 h-3.5" /> Další pracovníci</p>
+              {!editingAssignees ? (
+                <Button variant="ghost" size="sm" onClick={() => { setEditingAssignees(true); setAssigneeDraft(job.assigneeIds || []); }} className="h-7 text-xs">
+                  <Edit3 className="w-3 h-3 mr-1" /> Upravit
+                </Button>
+              ) : (
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingAssignees(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
+                  <Button size="sm" onClick={saveAssignees} disabled={updateAssignees.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
+                </div>
+              )}
+            </div>
+            {editingAssignees ? (
+              <div className="flex flex-wrap gap-2">
+                {(people || [])
+                  .filter(p => p.id !== job.assignedPersonId)
+                  .map(p => {
+                    const checked = assigneeDraft.includes(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => toggleAssignee(p.id)}
+                        className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
+                          checked ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {p.name}
+                      </button>
+                    );
+                  })}
+                {(people || []).filter(p => p.id !== job.assignedPersonId).length === 0 && (
+                  <p className="text-xs text-muted-foreground italic">Žádní další pracovníci k dispozici.</p>
+                )}
+              </div>
+            ) : (
+              <p className="font-medium">
+                {job.assigneeNames && job.assigneeNames.length > 0 ? job.assigneeNames.join(", ") : "Žádní"}
+              </p>
+            )}
           </div>
           
           {/* Customer / Site editable */}

@@ -129,6 +129,8 @@ export const ListJobsResponseItem = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
@@ -267,6 +269,8 @@ export const GetJobResponse = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
@@ -354,6 +358,8 @@ export const UpdateJobResponse = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
@@ -397,6 +403,67 @@ export const DeleteJobParams = zod.object({
 
 
 /**
+ * @summary Replace the set of additional workers assigned to a job (beyond the primary assignedPersonId)
+ */
+export const UpdateJobAssigneesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateJobAssigneesBody = zod.object({
+  "personIds": zod.array(zod.number()).describe('Full desired set of additional worker (person) IDs assigned to the job, beyond the primary assignedPersonId. Replaces any existing additional assignees. Duplicate IDs and the job\'s own assignedPersonId are ignored server-side.')
+})
+
+export const UpdateJobAssigneesResponse = zod.object({
+  "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
+  "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
+  "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
+  "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
+  "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
+  "startTime": zod.string().nullish().describe('HH:MM'),
+  "endTime": zod.string().nullish().describe('HH:MM'),
+  "status": zod.string().describe('planned | in_progress | done | cancelled'),
+  "assignedPersonId": zod.number().nullish(),
+  "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
+  "customerId": zod.number().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),
+  "hoursBeforePlan": zod.number().nullish().describe('Previous actual hoursSpent, kept so plan time can be reverted'),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
+  "price": zod.number().nullish(),
+  "transportKm": zod.number().nullish(),
+  "transportCost": zod.number().nullish(),
+  "fines": zod.number().nullish(),
+  "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
+  "taskCount": zod.number().optional(),
+  "taskDoneCount": zod.number().optional(),
+  "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
+  "createdAt": zod.string(),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
+})
+
+
+/**
  * @summary Quick-update job status
  */
 export const UpdateJobStatusParams = zod.object({
@@ -421,6 +488,8 @@ export const UpdateJobStatusResponse = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
@@ -2550,6 +2619,8 @@ export const GetTodayJobsResponseItem = zod.object({
   "status": zod.string().describe('planned | in_progress | done | cancelled'),
   "assignedPersonId": zod.number().nullish(),
   "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),

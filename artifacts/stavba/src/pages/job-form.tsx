@@ -4,7 +4,7 @@ import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { format, addDays, parseISO } from "date-fns";
 import { cs } from "date-fns/locale";
 import { 
-  useCreateJob, useListPeople, useCreateTask, useCreateMaterial,
+  useCreateJob, useListPeople, useCreateTask, useCreateMaterial, useUpdateJobAssignees,
   useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites, useListLeaves,
   getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey, getListLeavesQueryKey
 } from "@workspace/api-client-react";
@@ -35,6 +35,7 @@ export default function JobForm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const createJob = useCreateJob();
+  const updateAssignees = useUpdateJobAssignees();
 
   const [isDirty, setIsDirty] = useState(false);
   const markDirty = useCallback(() => setIsDirty(true), []);
@@ -65,6 +66,11 @@ export default function JobForm() {
     customerId: initialCustomerId,
     recurrenceIntervalDays: "",
   });
+  const [assigneeIds, setAssigneeIds] = useState<number[]>([]);
+  const toggleAssignee = (personId: number) => {
+    setAssigneeIds(prev => prev.includes(personId) ? prev.filter(id => id !== personId) : [...prev, personId]);
+    markDirty();
+  };
 
   const { data: customerSites } = useListCustomerSites(formData.customerId ?? 0, {
     query: { queryKey: getListCustomerSitesQueryKey(formData.customerId ?? 0), enabled: !!formData.customerId },
@@ -259,6 +265,11 @@ export default function JobForm() {
       onSuccess: async (newJob) => {
         setIsDirty(false);
         invalidateData(queryClient, "jobs", "warehouse");
+        if (assigneeIds.length > 0) {
+          await updateAssignees.mutateAsync({ id: newJob.id, data: { personIds: assigneeIds } }).catch(() => {
+            toast({ title: "Nepodařilo se přiřadit další pracovníky", variant: "destructive" });
+          });
+        }
         for (const title of tasks) {
           await createTask.mutateAsync({ jobId: newJob.id, data: { title } }).catch(() => {});
         }
@@ -586,6 +597,35 @@ export default function JobForm() {
                   </span>
                 </div>
               )}
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-base">Další pracovníci</Label>
+              <div className="flex flex-wrap gap-2">
+                {(people || [])
+                  .filter(p => p.id !== assignedPersonIdNum)
+                  .map(p => {
+                    const checked = assigneeIds.includes(p.id);
+                    const absentLabels = leavesByPerson.get(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => toggleAssignee(p.id)}
+                        className={`px-3 py-1.5 rounded-full border text-sm font-medium transition-colors ${
+                          checked ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {p.name}
+                        {absentLabels && (
+                          <span className="ml-1.5 text-xs text-amber-600 dark:text-amber-400">({absentLabels.join(", ")})</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                {(people || []).filter(p => p.id !== assignedPersonIdNum).length === 0 && (
+                  <p className="text-sm text-muted-foreground italic">Žádní další pracovníci k dispozici.</p>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
               <Label className="text-base">Stav</Label>

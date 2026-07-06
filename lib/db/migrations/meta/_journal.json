@@ -477,6 +477,13 @@
       "when": 1783371446994,
       "tag": "0067_rich_talkback",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1783373597984,
+      "tag": "0068_condemned_firebird",
+      "breakpoints": true
     }
   ]
 }

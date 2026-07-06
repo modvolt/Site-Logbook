@@ -262,6 +262,10 @@ export interface Job {
   assignedPersonId?: number | null;
   /** @nullable */
   assignedPersonName?: string | null;
+  /** Additional workers assigned to the job, beyond assignedPersonId */
+  assigneeIds: number[];
+  /** Names corresponding to assigneeIds, same order */
+  assigneeNames: string[];
   /** @nullable */
   customerId?: number | null;
   /** @nullable */
@@ -548,6 +552,11 @@ export interface JobUpdate {
   pricingMode?: JobUpdatePricingMode;
   /** @nullable */
   contractPrice?: number | null;
+}
+
+export interface JobAssigneesInput {
+  /** Full desired set of additional worker (person) IDs assigned to the job, beyond the primary assignedPersonId. Replaces any existing additional assignees. Duplicate IDs and the job's own assignedPersonId are ignored server-side. */
+  personIds: number[];
 }
 
 /**

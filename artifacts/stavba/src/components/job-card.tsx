@@ -250,7 +250,10 @@ export function JobCard({ job, selected, onSelect, marginPercent, marginThreshol
           {job.assignedPersonName && (
             <div className="flex items-center gap-2">
               <User className="w-4 h-4" />
-              <span className="truncate">{job.assignedPersonName}</span>
+              <span className="truncate">
+                {job.assignedPersonName}
+                {job.assigneeNames && job.assigneeNames.length > 0 && `, ${job.assigneeNames.join(", ")}`}
+              </span>
             </div>
           )}
         </div>

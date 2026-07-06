@@ -348,6 +348,37 @@ paths:
         "404":
           description: Not found
 
+  /jobs/{id}/assignees:
+    put:
+      operationId: updateJobAssignees
+      tags: [jobs]
+      summary: Replace the set of additional workers assigned to a job (beyond the primary assignedPersonId)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobAssigneesInput"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Invalid person id(s)
+        "404":
+          description: Not found
+        "409":
+          description: One of the selected workers is on leave that day
+
   /jobs/{id}/status:
     patch:
       operationId: updateJobStatus
@@ -9106,7 +9137,7 @@ components:
 
     Job:
       type: object
-      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked]
+      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked, assigneeIds, assigneeNames]
       properties:
         id:
           type: integer
@@ -9142,6 +9173,16 @@ components:
           type: ["integer", "null"]
         assignedPersonName:
           type: ["string", "null"]
+        assigneeIds:
+          type: array
+          items:
+            type: integer
+          description: Additional workers assigned to the job, beyond assignedPersonId
+        assigneeNames:
+          type: array
+          items:
+            type: string
+          description: Names corresponding to assigneeIds, same order
         customerId:
           type: ["integer", "null"]
         customerCompanyName:
@@ -9510,6 +9551,20 @@ components:
             intentionally NOT accepted here — the authoritative invoiced state is
             set server-side by invoice-service when an invoice is issued (and
             reverted to "done" on storno), never by a direct client status write.
+
+    JobAssigneesInput:
+      type: object
+      required: [personIds]
+      properties:
+        personIds:
+          type: array
+          items:
+            type: integer
+          description: >-
+            Full desired set of additional worker (person) IDs assigned to the
+            job, beyond the primary assignedPersonId. Replaces any existing
+            additional assignees. Duplicate IDs and the job's own
+            assignedPersonId are ignored server-side.
 
     Task:
       type: object

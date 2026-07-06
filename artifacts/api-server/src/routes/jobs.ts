@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gte, lte, sql, count, inArray, max, isNull, isNotNull, ne, or } from "drizzle-orm";
-import { db, jobsTable, jobVisitsTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable, employeeLeavesTable } from "@workspace/db";
+import { db, jobsTable, jobVisitsTable, jobAssigneesTable, tasksTable, attachmentsTable, materialsTable, peopleTable, customersTable, invoicesTable, invoiceSourceLinksTable, employeeLeavesTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
   CreateJobBody,
@@ -16,6 +16,8 @@ import {
   SaveJobSheetParams,
   SaveJobSheetBody,
   BulkUpdateJobStatusBody,
+  UpdateJobAssigneesParams,
+  UpdateJobAssigneesBody,
 } from "@workspace/api-zod";
 import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -140,6 +142,15 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     assignedPersonName = person?.name ?? null;
   }
 
+  const assigneeRows = await db
+    .select({ id: peopleTable.id, name: peopleTable.name })
+    .from(jobAssigneesTable)
+    .innerJoin(peopleTable, eq(jobAssigneesTable.personId, peopleTable.id))
+    .where(eq(jobAssigneesTable.jobId, job.id))
+    .orderBy(peopleTable.name);
+  const assigneeIds = assigneeRows.map((r) => r.id);
+  const assigneeNames = assigneeRows.map((r) => r.name);
+
   let customerCompanyName: string | null = null;
   let customerPhone: string | null = null;
   let customerEmail: string | null = null;
@@ -177,6 +188,8 @@ async function enrichJob(job: typeof jobsTable.$inferSelect) {
     materialTotalCost,
     billingLinked: billingLink != null,
     assignedPersonName,
+    assigneeIds,
+    assigneeNames,
     customerCompanyName,
     customerPhone,
     customerEmail,
@@ -530,6 +543,68 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  res.json(await enrichJob(job));
+});
+
+router.put("/jobs/:id/assignees", async (req, res): Promise<void> => {
+  const params = UpdateJobAssigneesParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const parsed = UpdateJobAssigneesBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [existing] = await db
+    .select({ id: jobsTable.id, date: jobsTable.date, assignedPersonId: jobsTable.assignedPersonId })
+    .from(jobsTable)
+    .where(eq(jobsTable.id, params.data.id));
+  if (!existing) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+
+  // Dedupe and drop the primary assignee — the additional-assignees set is
+  // conceptually distinct from the calendar-scheduling assignedPersonId.
+  const personIds = Array.from(new Set(parsed.data.personIds)).filter(
+    (id) => id !== existing.assignedPersonId,
+  );
+
+  if (personIds.length > 0) {
+    const people = await db
+      .select({ id: peopleTable.id })
+      .from(peopleTable)
+      .where(inArray(peopleTable.id, personIds));
+    if (people.length !== personIds.length) {
+      res.status(400).json({ error: "Jeden nebo více vybraných pracovníků neexistuje." });
+      return;
+    }
+
+    for (const personId of personIds) {
+      const chk = await checkLeaveConflict(personId, existing.date);
+      if (chk.conflict) {
+        res.status(409).json({
+          error: `Pracovník ${chk.personName} je v době dovolené (${existing.date}).`,
+          leaveId: chk.leaveId,
+          personName: chk.personName,
+        });
+        return;
+      }
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(jobAssigneesTable).where(eq(jobAssigneesTable.jobId, params.data.id));
+    if (personIds.length > 0) {
+      await tx.insert(jobAssigneesTable).values(personIds.map((personId) => ({ jobId: params.data.id, personId })));
+    }
+  });
+
+  const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
   res.json(await enrichJob(job));
 });
 

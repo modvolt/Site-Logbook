@@ -154,6 +154,7 @@ import type {
   InvoiceStatusUpdate,
   InvoiceUpdateInput,
   Job,
+  JobAssigneesInput,
   JobBulkStatusUpdate,
   JobInput,
   JobReorderInput,
@@ -1214,6 +1215,78 @@ export const useDeleteJob = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteJobMutationOptions(options));
+    }
+
+export const getUpdateJobAssigneesUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/assignees`
+}
+
+/**
+ * @summary Replace the set of additional workers assigned to a job (beyond the primary assignedPersonId)
+ */
+export const updateJobAssignees = async (id: number,
+    jobAssigneesInput: JobAssigneesInput, options?: RequestInit): Promise<Job> => {
+
+  return customFetch<Job>(getUpdateJobAssigneesUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      jobAssigneesInput,)
+  }
+);}
+
+
+
+
+export const getUpdateJobAssigneesMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobAssignees>>, TError,{id: number;data: BodyType<JobAssigneesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateJobAssignees>>, TError,{id: number;data: BodyType<JobAssigneesInput>}, TContext> => {
+
+const mutationKey = ['updateJobAssignees'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateJobAssignees>>, {id: number;data: BodyType<JobAssigneesInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateJobAssignees(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateJobAssigneesMutationResult = NonNullable<Awaited<ReturnType<typeof updateJobAssignees>>>
+    export type UpdateJobAssigneesMutationBody = BodyType<JobAssigneesInput>
+    export type UpdateJobAssigneesMutationError = ErrorType<void>
+
+    /**
+ * @summary Replace the set of additional workers assigned to a job (beyond the primary assignedPersonId)
+ */
+export const useUpdateJobAssignees = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobAssignees>>, TError,{id: number;data: BodyType<JobAssigneesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateJobAssignees>>,
+        TError,
+        {id: number;data: BodyType<JobAssigneesInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateJobAssigneesMutationOptions(options));
     }
 
 export const getUpdateJobStatusUrl = (id: number,) => {
