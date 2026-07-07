@@ -49,16 +49,16 @@ import {
   type MatchableLine,
 } from "./document-matching";
 import {
-  isSupportedForAi,
-  CONFIDENCE_REVIEW_THRESHOLD,
-  type ExtractionFileInput,
-} from "./openai-extraction";
-import {
   normalizeItemName,
   normalizeReferenceNumber,
 } from "./reference-extractor";
-import { logger } from "./logger";
 import { resolveDocumentLinkingConfig } from "./document-linking-config";
+import {
+  CONFIDENCE_REVIEW_THRESHOLD,
+  isSupportedForAi,
+  type ExtractionFileInput,
+} from "./openai-extraction";
+import { logger } from "./logger";
 import {
   reconcileDocumentStockMovements,
   reconcileSourceMovements,
@@ -2630,10 +2630,8 @@ async function confirmedTargetJobIds(
  * Skipped: fee lines, non-material line types, and stock-allocated lines (those
  * go to the warehouse, not a job). A line's job is its own `jobId`, falling back
  * to the document's header `jobId`, and finally — when the document has no header
- * job — to a SINGLE confirmed reference's `matchedJobId` (a confirmed reference
- * is a real link, so the document's own lines that match no existing material are
- * still auto-created on that job). Ambiguous links (several distinct
- * confirmed-reference jobs) get no fallback, mirroring the target set of
+ * job — to a SINGLE job derived from confirmed references or their linked
+ * delivery notes. Ambiguous links get no fallback, mirroring the target set of
  * {@link propagateInvoicePricesToJobMaterials}. Must run inside the caller's
  * transaction.
  */

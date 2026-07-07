@@ -104,7 +104,7 @@ describe("resolveOpenAiConfig precedence", () => {
     const cfg = await resolveOpenAiConfig();
     expect(cfg.maxFileMb).toBe(32);
     expect(cfg.timeoutMs).toBe(60_000);
-    expect(cfg.confidenceThreshold).toBeCloseTo(0.7);
+    expect(cfg.confidenceThreshold).toBeCloseTo(0.8);
     expect(cfg.systemPrompt).toContain("asistent");
   });
 

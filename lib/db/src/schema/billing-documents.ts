@@ -359,7 +359,8 @@ export const billingDocumentFilesTable = pgTable(
  *
  * referenceType: delivery_note | summary_delivery_note | delivery | order |
  *                supplier_order | project | invoice | credit_note | other
- * source:        isdoc | pdf_text | ai | manual | supplier_profile
+ * source:        isdoc | pdf_text | ai | manual | supplier_profile |
+ *                automatic_match
  */
 export const billingDocumentReferencesTable = pgTable(
   "billing_document_references",

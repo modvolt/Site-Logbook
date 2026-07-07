@@ -73,6 +73,7 @@ import {
   COST_DOC_ALLOCATION_LABELS,
   COST_DOC_REFERENCE_TYPE_LABELS,
   COST_DOC_REFERENCE_SOURCE_LABELS,
+  AI_CONFIDENCE_LOW,
   CostDocStatusBadge,
   MaterialStateBadge,
   isPaymentDocument,
@@ -110,6 +111,7 @@ const DOC_TYPE_OPTIONS = ["receipt", "delivery_note", "invoice", "credit_note"];
 const LINE_TYPE_OPTIONS = ["material", "work", "transport", "other"];
 const ALLOCATION_OPTIONS = ["rebill", "internal", "stock", "not_rebilled"];
 const NONE = "__none__";
+const MATCH_CONFIDENCE_ALARM = 0.8;
 
 function attachmentUrl(objectPath: string | null | undefined): string | undefined {
   if (!objectPath) return undefined;
@@ -479,27 +481,30 @@ export default function BillingDocumentDetail() {
       {doc.aiConfidence != null && (
         <Card
           className={`mb-4 ${
-            doc.aiConfidence < 0.7
-              ? "border-amber-300 bg-amber-50 dark:bg-amber-900/20"
+            doc.aiConfidence < AI_CONFIDENCE_LOW
+              ? "border-red-400 bg-red-50 dark:bg-red-900/20"
               : "border-violet-300 bg-violet-50 dark:bg-violet-900/20"
           }`}
         >
           <CardContent className="p-4 flex items-start gap-2 text-sm">
-            <Sparkles
-              className={`h-4 w-4 shrink-0 mt-0.5 ${
-                doc.aiConfidence < 0.7
-                  ? "text-amber-700 dark:text-amber-300"
-                  : "text-violet-700 dark:text-violet-300"
-              }`}
-            />
+            {doc.aiConfidence < AI_CONFIDENCE_LOW ? (
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-red-700 dark:text-red-300" />
+            ) : (
+              <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-violet-700 dark:text-violet-300" />
+            )}
             <div>
               <p
                 className={
-                  doc.aiConfidence < 0.7
-                    ? "text-amber-800 dark:text-amber-200"
+                  doc.aiConfidence < AI_CONFIDENCE_LOW
+                    ? "text-red-800 dark:text-red-200"
                     : "text-violet-800 dark:text-violet-200"
                 }
               >
+                {doc.aiConfidence < AI_CONFIDENCE_LOW && (
+                  <strong className="block mb-1">
+                    Alarm: nutná ruční kontrola vytěžení
+                  </strong>
+                )}
                 Předvyplněno pomocí AI (OpenAI
                 {doc.aiModel ? `, ${doc.aiModel}` : ""}) — důvěryhodnost{" "}
                 <strong>{Math.round(doc.aiConfidence * 100)} %</strong>. Všechny
@@ -1724,6 +1729,7 @@ function ReferenceCard({
   candidates: CostDocumentReferenceJobCandidate[];
   onChanged: () => void;
 }) {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const updateRef = useUpdateCostDocumentReference();
   const deleteRef = useDeleteCostDocumentReference();
@@ -1760,6 +1766,9 @@ function ReferenceCard({
   const linkedJob = jobTitle(reference.matchedJobId ?? null);
   const confirmed = reference.matchConfirmed;
   const rejected = reference.rejected;
+  const lowMatchConfidence =
+    reference.matchConfidence != null &&
+    reference.matchConfidence < MATCH_CONFIDENCE_ALARM;
 
   return (
     <Card
@@ -1798,6 +1807,28 @@ function ReferenceCard({
                 Zakázka: <span className="text-foreground">{linkedJob}</span>
                 {reference.matchConfidence != null &&
                   ` · shoda ${Math.round(reference.matchConfidence * 100)} %`}
+              </p>
+            )}
+            {reference.matchedDocumentId != null && (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 mt-1"
+                onClick={() =>
+                  navigate(`/billing/documents/${reference.matchedDocumentId}`)
+                }
+              >
+                <FileText className="h-3.5 w-3.5 mr-1" />
+                Otevřít spárovaný doklad
+              </Button>
+            )}
+            {lowMatchConfidence && !rejected && (
+              <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Alarm: shoda pouze{" "}
+                {Math.round((reference.matchConfidence ?? 0) * 100)} %, ověřte
+                vazbu ručně
               </p>
             )}
           </div>

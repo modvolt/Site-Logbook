@@ -28,7 +28,7 @@ import { db, openaiSettingsTable } from "@workspace/db";
 // ---------------------------------------------------------------------------
 
 /** Below this overall confidence we flag the document for closer human review. */
-export const CONFIDENCE_REVIEW_THRESHOLD = 0.7;
+export const CONFIDENCE_REVIEW_THRESHOLD = 0.8;
 
 const SETTINGS_ID = 1;
 const DEFAULT_MODEL = "gpt-4o";

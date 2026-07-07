@@ -199,7 +199,7 @@ describe("bulkConfirmReviewLines – diff accuracy (stillUnresolved, withJobAssi
 
   it("stillUnresolved includes lines that have persisting reasons (needs_review, low_confidence) after confirmation", async () => {
     const diff = await bulkConfirmReviewLines([lineWithJob, lineNoJob], actor, true);
-    // Both lines have low_confidence (0.5 < 0.7) AND the doc is needs_review
+    // Both lines have low_confidence (0.5 < 0.8) AND the doc is needs_review
     // Those reasons persist after confirmation → both are stillUnresolved
     expect(diff.stillUnresolved).toBe(2);
   });
