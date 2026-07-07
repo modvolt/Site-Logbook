@@ -41,6 +41,17 @@ async function stampMigrations(): Promise<void> {
       );
     `);
 
+    // Reset the SERIAL sequence to max(id) so inserts never collide with rows
+    // that were added by a prior push-provisioned or copied database where the
+    // sequence was left behind.
+    await pool.query(`
+      SELECT setval(
+        pg_get_serial_sequence('drizzle.__drizzle_migrations', 'id'),
+        COALESCE((SELECT MAX(id) FROM drizzle.__drizzle_migrations), 0),
+        true
+      );
+    `);
+
     const { rows: existing } = await pool.query<{ created_at: string }>(
       `SELECT created_at FROM drizzle.__drizzle_migrations`,
     );
