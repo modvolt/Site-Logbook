@@ -12,6 +12,7 @@ import {
   billingDocumentsTable,
   billingDocumentLinesTable,
   billingDocumentReferencesTable,
+  documentLinkingSettingsTable,
 } from "@workspace/db";
 import {
   approveDocument,
@@ -22,6 +23,7 @@ import {
   updateLine,
   updateWarehousePricesFromDocument,
   bulkConfirmReviewLines,
+  reconcileDocumentRelationships,
 } from "../src/lib/cost-document-service";
 import {
   createDraft,
@@ -913,5 +915,108 @@ describe("invoice price propagation", () => {
     expect(mat).toHaveProperty("adminNote");
     expect(mat).toHaveProperty("invoicedInvoiceId");
     expect(mat).toHaveProperty("invoicedAt");
+  });
+
+  it("scenario 10: a late invoice inherits a completed job through its delivery-note link", async () => {
+    const jobId = await makeJob();
+    const dn = await makeDoc({
+      docType: "delivery_note",
+      status: "needs_review",
+      jobId,
+      description: `Kabel pozdni faktura ${TAG}`,
+      ean: "1234567890128",
+      quantity: "10",
+      unitPrice: null,
+    });
+    await approveDocument(dn.docId, actor);
+    await db.update(jobsTable).set({ status: "done" }).where(eq(jobsTable.id, jobId));
+
+    const invoice = await makeDoc({
+      docType: "invoice",
+      status: "needs_review",
+      jobId: null,
+      description: `Kabel pozdni faktura ${TAG}`,
+      ean: "1234567890128",
+      quantity: "10",
+      unitPrice: "87.50",
+    });
+    await db.insert(billingDocumentReferencesTable).values({
+      documentId: invoice.docId,
+      referenceType: "delivery_note",
+      referenceNumber: `DL-${TAG}`,
+      source: "automatic_match",
+      matchedDocumentId: dn.docId,
+      matchConfidence: "0.95",
+      matchConfirmed: 1,
+    });
+    await approveDocument(invoice.docId, actor);
+
+    const [material] = await jobMaterials(jobId);
+    expect(material.pricePerUnit).toBe("87.50");
+    expect(material.priceSource).toBe("invoice");
+    expect(material.priceSourceDocumentId).toBe(invoice.docId);
+  });
+
+  it("scenario 11: an exact 80 percent match auto-confirms and propagates its price", async () => {
+    // Enable auto-confirm for this test via the DB singleton.
+    await db
+      .insert(documentLinkingSettingsTable)
+      .values({ id: 1, autoConfirmEnabled: true, autoConfirmMinScore: "0.8" })
+      .onConflictDoUpdate({
+        target: documentLinkingSettingsTable.id,
+        set: { autoConfirmEnabled: true, autoConfirmMinScore: "0.8" },
+      });
+
+    try {
+      const jobId = await makeJob();
+      const dn = await makeDoc({
+        docType: "delivery_note",
+        status: "needs_review",
+        jobId,
+        description: `Kabel osmdesat procent ${TAG}`,
+        ean: "2234567890127",
+        quantity: "4",
+        unitPrice: null,
+      });
+      await approveDocument(dn.docId, actor);
+      await db.update(jobsTable).set({ status: "done" }).where(eq(jobsTable.id, jobId));
+      const [deliveryDocument] = await db
+        .select()
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.id, dn.docId));
+
+      const invoice = await makeDoc({
+        docType: "invoice",
+        status: "needs_review",
+        jobId: null,
+        description: `Kabel osmdesat procent ${TAG}`,
+        ean: "2234567890127",
+        quantity: "4",
+        unitPrice: "125",
+      });
+      await db.insert(billingDocumentReferencesTable).values({
+        documentId: invoice.docId,
+        referenceType: "delivery_note",
+        referenceNumber: deliveryDocument.documentNumber!,
+        source: "ai",
+      });
+
+      const reconciliation = await reconcileDocumentRelationships(
+        invoice.docId,
+        actor,
+      );
+      expect(reconciliation.confirmedDocumentIds).toContain(dn.docId);
+      await approveDocument(invoice.docId, actor);
+
+      const [material] = await jobMaterials(jobId);
+      expect(material.pricePerUnit).toBe("125.00");
+      expect(material.priceSourceDocumentId).toBe(invoice.docId);
+    } finally {
+      // Restore default (auto-confirm off) so other tests are not affected.
+      await db
+        .update(documentLinkingSettingsTable)
+        .set({ autoConfirmEnabled: false })
+        .where(eq(documentLinkingSettingsTable.id, 1));
+    }
   });
 });

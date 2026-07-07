@@ -44,11 +44,20 @@ import {
   rankJobsForReference,
   scoreLineMatch,
   scoreDocumentSimilarity,
+  selectAutomaticDocumentMatches,
   type MatchableDocument,
   type MatchableLine,
 } from "./document-matching";
-import { isSupportedForAi, type ExtractionFileInput } from "./openai-extraction";
-import { normalizeItemName } from "./reference-extractor";
+import {
+  isSupportedForAi,
+  CONFIDENCE_REVIEW_THRESHOLD,
+  type ExtractionFileInput,
+} from "./openai-extraction";
+import {
+  normalizeItemName,
+  normalizeReferenceNumber,
+} from "./reference-extractor";
+import { logger } from "./logger";
 import { resolveDocumentLinkingConfig } from "./document-linking-config";
 import {
   reconcileDocumentStockMovements,
@@ -1115,6 +1124,7 @@ export async function createDocument(
     return doc.id;
   });
 
+  await reconcileDocumentRelationshipsSafely(id, actor);
   const detail = await getDocument(id);
   if (!detail) throw appError(500, "Doklad se nepodařilo načíst.");
   return detail.document;
@@ -1649,6 +1659,7 @@ export async function addReference(documentId: number, input: AddReferenceInput)
     source: input.source ?? "manual",
     confidence: input.confidence != null ? String(round2(input.confidence)) : null,
   });
+  await reconcileDocumentRelationshipsSafely(documentId, SYSTEM_ACTOR);
   return getDocument(documentId);
 }
 
@@ -1668,6 +1679,7 @@ export async function updateReference(
   documentId: number,
   referenceId: number,
   input: ReferenceUpdateInput,
+  actor: Actor = SYSTEM_ACTOR,
 ) {
   const [ref] = await db
     .select()
@@ -1706,6 +1718,10 @@ export async function updateReference(
     .update(billingDocumentReferencesTable)
     .set(patch)
     .where(eq(billingDocumentReferencesTable.id, referenceId));
+  await reconcileDocumentRelationshipsSafely(documentId, actor);
+  if (input.matchConfirmed === true) {
+    await refreshApprovedDocumentPropagation(documentId, actor);
+  }
   return getDocument(documentId);
 }
 
@@ -1801,86 +1817,393 @@ export async function matchDocumentReferences(documentId: number) {
   return { ...detail, candidatesByRef };
 }
 
+export interface DocumentMatchSuggestion {
+  documentId: number;
+  documentNumber: string | null;
+  docType: string;
+  score: number;
+  strength: string;
+  reasons: string[];
+  exactReferenceMatch: boolean;
+}
+
+const INVOICE_DOCUMENT_TYPES = new Set(["invoice", "credit_note"]);
+const EXCLUDED_MATCH_STATUSES = new Set(["duplicate", "ignored"]);
+
+function normalized(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return normalizeReferenceNumber(value) || null;
+}
+
+function hasExactDeliveryNoteReference(
+  deliveryNote: BillingDocument,
+  invoice: BillingDocument,
+  invoiceRefs: BillingDocumentReference[],
+): boolean {
+  const deliveryNumber =
+    normalized(deliveryNote.deliveryNoteNumber) ??
+    normalized(deliveryNote.documentNumber);
+  if (!deliveryNumber) return false;
+  if (normalized(invoice.deliveryNoteNumber) === deliveryNumber) return true;
+  return invoiceRefs.some(
+    (ref) =>
+      (ref.referenceType === "delivery_note" ||
+        ref.referenceType === "summary_delivery_note" ||
+        ref.referenceType === "delivery") &&
+      normalized(ref.referenceNumber) === deliveryNumber,
+  );
+}
+
+async function findDocumentMatchSuggestions(
+  documentId: number,
+  executor: DbOrTx = db,
+): Promise<DocumentMatchSuggestion[]> {
+  const [doc] = await executor
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) throw appError(404, "Doklad nenalezen.");
+  if (doc.primaryDocumentId != null || EXCLUDED_MATCH_STATUSES.has(doc.status)) {
+    return [];
+  }
+  const docIsInvoice = INVOICE_DOCUMENT_TYPES.has(doc.docType);
+  const docIsDeliveryNote = doc.docType === "delivery_note";
+  if (!docIsInvoice && !docIsDeliveryNote) return [];
+
+  const refs = await executor
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, documentId));
+  const others = (
+    await executor
+      .select()
+      .from(billingDocumentsTable)
+      .where(
+        and(
+          ne(billingDocumentsTable.id, documentId),
+          isNull(billingDocumentsTable.primaryDocumentId),
+        ),
+      )
+  ).filter(
+    (other) =>
+      !EXCLUDED_MATCH_STATUSES.has(other.status) &&
+      (docIsInvoice
+        ? other.docType === "delivery_note"
+        : INVOICE_DOCUMENT_TYPES.has(other.docType)),
+  );
+
+  const otherIds = others.map((other) => other.id);
+  const allOtherRefs = otherIds.length
+    ? await executor
+        .select()
+        .from(billingDocumentReferencesTable)
+        .where(inArray(billingDocumentReferencesTable.documentId, otherIds))
+    : [];
+  const refsByDocument = new Map<number, BillingDocumentReference[]>();
+  for (const ref of allOtherRefs) {
+    const group = refsByDocument.get(ref.documentId) ?? [];
+    group.push(ref);
+    refsByDocument.set(ref.documentId, group);
+  }
+
+  const toMatchable = (
+    candidate: BillingDocument,
+    candidateRefs: BillingDocumentReference[],
+  ): MatchableDocument => ({
+    id: candidate.id,
+    supplierIc: candidate.supplierIc,
+    documentNumber: candidate.documentNumber,
+    deliveryNoteNumber: candidate.deliveryNoteNumber,
+    orderNumber: candidate.orderNumber,
+    totalWithoutVat:
+      candidate.subtotalWithoutVat == null ? null : num(candidate.subtotalWithoutVat),
+    totalWithVat:
+      candidate.totalWithVat == null ? null : num(candidate.totalWithVat),
+    issueDate: candidate.issueDate,
+    references: candidateRefs.map((ref) => ({
+      referenceType: ref.referenceType,
+      referenceNumber: ref.referenceNumber,
+    })),
+  });
+
+  const self = toMatchable(doc, refs);
+  const results: DocumentMatchSuggestion[] = [];
+  for (const other of others) {
+    const otherRefs = refsByDocument.get(other.id) ?? [];
+    const scored = docIsInvoice
+      ? scoreDeliveryNoteToInvoice(toMatchable(other, otherRefs), self)
+      : scoreDeliveryNoteToInvoice(self, toMatchable(other, otherRefs));
+    if (scored.score <= 0) continue;
+
+    const deliveryNote = docIsInvoice ? other : doc;
+    const invoice = docIsInvoice ? doc : other;
+    const invoiceRefs = docIsInvoice ? refs : otherRefs;
+    results.push({
+      documentId: other.id,
+      documentNumber: other.documentNumber,
+      docType: other.docType,
+      score: scored.score,
+      strength: scored.strength,
+      reasons: scored.reasons,
+      exactReferenceMatch: hasExactDeliveryNoteReference(
+        deliveryNote,
+        invoice,
+        invoiceRefs,
+      ),
+    });
+  }
+  return results.sort((a, b) => b.score - a.score);
+}
+
 /**
  * Find sibling cost documents (delivery notes ↔ invoices) that score as a
  * likely match for this document. Suggestion only — surfaced in the UI so an
  * admin can link them. Never writes.
  */
 export async function suggestDocumentMatches(documentId: number) {
-  const [doc] = await db
-    .select()
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, documentId));
-  if (!doc) throw appError(404, "Doklad nenalezen.");
+  return findDocumentMatchSuggestions(documentId);
+}
 
-  const refs = await db
+export interface DocumentRelationshipReconciliationResult {
+  documentId: number;
+  suggestions: DocumentMatchSuggestion[];
+  linkedDocumentIds: number[];
+  confirmedDocumentIds: number[];
+}
+
+export interface DocumentRelationshipBackfillResult {
+  processed: number;
+  withLinks: number;
+  withConfirmedLinks: number;
+  failedDocumentIds: number[];
+}
+
+async function deliveryNoteJobId(
+  tx: DbOrTx,
+  deliveryNote: BillingDocument,
+): Promise<number | null> {
+  if (deliveryNote.jobId != null) return deliveryNote.jobId;
+  const refs = await tx
     .select()
     .from(billingDocumentReferencesTable)
-    .where(eq(billingDocumentReferencesTable.documentId, documentId));
+    .where(eq(billingDocumentReferencesTable.documentId, deliveryNote.id));
+  const jobIds = new Set<number>();
+  for (const ref of refs) {
+    if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
+      jobIds.add(ref.matchedJobId);
+    }
+  }
+  return jobIds.size === 1 ? (jobIds.values().next().value ?? null) : null;
+}
 
-  const others = await db
-    .select()
+async function persistDocumentRelationship(
+  documentId: number,
+  suggestion: DocumentMatchSuggestion,
+  actor: Actor,
+): Promise<{ linked: boolean; confirmed: boolean }> {
+  const cfg = await resolveDocumentLinkingConfig();
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, [documentId, suggestion.documentId]));
+    const current = rows.find((row) => row.id === documentId);
+    const other = rows.find((row) => row.id === suggestion.documentId);
+    if (!current || !other) return { linked: false, confirmed: false };
+
+    const currentIsInvoice = INVOICE_DOCUMENT_TYPES.has(current.docType);
+    const invoice = currentIsInvoice ? current : other;
+    const deliveryNote = currentIsInvoice ? other : current;
+    if (
+      !INVOICE_DOCUMENT_TYPES.has(invoice.docType) ||
+      deliveryNote.docType !== "delivery_note"
+    ) {
+      return { linked: false, confirmed: false };
+    }
+
+    const lockA = Math.min(invoice.id, deliveryNote.id);
+    const lockB = Math.max(invoice.id, deliveryNote.id);
+    await tx.execute(sql`select pg_advisory_xact_lock(${lockA}, ${lockB})`);
+
+    const linkNumber =
+      deliveryNote.deliveryNoteNumber?.trim() ??
+      deliveryNote.documentNumber?.trim() ??
+      null;
+    if (!linkNumber) return { linked: false, confirmed: false };
+
+    const invoiceRefs = await tx
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(eq(billingDocumentReferencesTable.documentId, invoice.id));
+    const linkKey = normalized(linkNumber);
+    const relevantRefs = invoiceRefs.filter(
+      (ref) =>
+        ref.matchedDocumentId === deliveryNote.id ||
+        normalized(ref.referenceNumber) === linkKey,
+    );
+    if (relevantRefs.some((ref) => ref.rejected === 1)) {
+      return { linked: false, confirmed: false };
+    }
+
+    const existing =
+      relevantRefs.find((ref) => ref.matchedDocumentId === deliveryNote.id) ??
+      relevantRefs[0];
+    if (
+      existing?.matchConfirmed === 1 &&
+      existing.matchedDocumentId != null &&
+      existing.matchedDocumentId !== deliveryNote.id
+    ) {
+      return { linked: false, confirmed: false };
+    }
+    if (
+      existing?.matchedDocumentId != null &&
+      existing.matchedDocumentId !== deliveryNote.id &&
+      num(existing.matchConfidence) >= suggestion.score
+    ) {
+      return { linked: false, confirmed: false };
+    }
+
+    const matchedJobId = await deliveryNoteJobId(tx, deliveryNote);
+    const autoConfirmed =
+      cfg.autoConfirmEnabled && suggestion.score >= cfg.autoConfirmMinScore;
+    const confirmed = existing?.matchConfirmed === 1 || autoConfirmed;
+    const nextMatchedJobId =
+      existing?.matchConfirmed === 1
+        ? existing.matchedJobId
+        : (matchedJobId ?? existing?.matchedJobId ?? null);
+    const nextConfidence = String(suggestion.score);
+    if (
+      existing?.matchedDocumentId === deliveryNote.id &&
+      existing.matchedJobId === nextMatchedJobId &&
+      num(existing.matchConfidence) === suggestion.score &&
+      existing.matchConfirmed === (confirmed ? 1 : 0)
+    ) {
+      return { linked: true, confirmed };
+    }
+
+    if (existing) {
+      await tx
+        .update(billingDocumentReferencesTable)
+        .set({
+          matchedDocumentId: deliveryNote.id,
+          matchedJobId: nextMatchedJobId,
+          matchConfidence: nextConfidence,
+          matchConfirmed: confirmed ? 1 : 0,
+          updatedAt: new Date(),
+        })
+        .where(eq(billingDocumentReferencesTable.id, existing.id));
+    } else {
+      await tx.insert(billingDocumentReferencesTable).values({
+        documentId: invoice.id,
+        referenceType: "delivery_note",
+        referenceNumber: linkNumber,
+        source: "automatic_match",
+        confidence: nextConfidence,
+        matchedDocumentId: deliveryNote.id,
+        matchedJobId,
+        matchConfidence: nextConfidence,
+        matchConfirmed: confirmed ? 1 : 0,
+      });
+    }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: confirmed ? "auto_link_confirmed" : "auto_link_suggested",
+      entityType: "billing_documents",
+      entityId: invoice.id,
+      summary: `Doklad automaticky propojen s dodacím listem #${deliveryNote.id} (shoda ${Math.round(
+        suggestion.score * 100,
+      )} %).`,
+      method: "SYSTEM",
+      path: `/billing/documents/${invoice.id}`,
+    });
+    return { linked: true, confirmed };
+  });
+}
+
+export async function reconcileDocumentRelationships(
+  documentId: number,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<DocumentRelationshipReconciliationResult> {
+  await matchDocumentReferences(documentId);
+  const cfg = await resolveDocumentLinkingConfig();
+  const suggestions = await findDocumentMatchSuggestions(documentId);
+  const selected = cfg.autoLinkEnabled
+    ? selectAutomaticDocumentMatches(suggestions, cfg.autoLinkMinScore)
+    : [];
+  const linkedDocumentIds: number[] = [];
+  const confirmedDocumentIds: number[] = [];
+
+  for (const suggestion of selected) {
+    const result = await persistDocumentRelationship(documentId, suggestion, actor);
+    if (result.linked) linkedDocumentIds.push(suggestion.documentId);
+    if (result.confirmed) {
+      confirmedDocumentIds.push(suggestion.documentId);
+      await refreshApprovedDocumentPropagation(documentId, actor);
+      await refreshApprovedDocumentPropagation(suggestion.documentId, actor);
+    }
+  }
+  return { documentId, suggestions, linkedDocumentIds, confirmedDocumentIds };
+}
+
+async function reconcileDocumentRelationshipsSafely(
+  documentId: number,
+  actor: Actor,
+): Promise<void> {
+  try {
+    await reconcileDocumentRelationships(documentId, actor);
+  } catch (error) {
+    logger.error(
+      { err: error, documentId },
+      "Automatic billing-document relationship reconciliation failed",
+    );
+  }
+}
+
+/**
+ * Reconcile every historical invoice against all delivery notes. Re-running is
+ * safe: relationship writes and price propagation are idempotent, and manual
+ * confirmations/rejections are preserved.
+ */
+export async function reconcileAllDocumentRelationships(
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<DocumentRelationshipBackfillResult> {
+  const documents = await db
+    .select({ id: billingDocumentsTable.id })
     .from(billingDocumentsTable)
     .where(
       and(
-        ne(billingDocumentsTable.id, documentId),
+        inArray(billingDocumentsTable.docType, ["invoice", "credit_note"]),
         isNull(billingDocumentsTable.primaryDocumentId),
+        ne(billingDocumentsTable.status, "duplicate"),
+        ne(billingDocumentsTable.status, "ignored"),
       ),
-    );
+    )
+    .orderBy(asc(billingDocumentsTable.id));
 
-  const toMatchable = (
-    d: BillingDocument,
-    docRefs: BillingDocumentReference[],
-  ): MatchableDocument => ({
-    id: d.id,
-    supplierIc: d.supplierIc,
-    documentNumber: d.documentNumber,
-    deliveryNoteNumber: d.deliveryNoteNumber,
-    orderNumber: d.orderNumber,
-    totalWithoutVat: d.subtotalWithoutVat == null ? null : num(d.subtotalWithoutVat),
-    totalWithVat: d.totalWithVat == null ? null : num(d.totalWithVat),
-    issueDate: d.issueDate,
-    references: docRefs.map((r) => ({
-      referenceType: r.referenceType,
-      referenceNumber: r.referenceNumber,
-    })),
-  });
-
-  const self = toMatchable(doc, refs);
-  const isInvoice = doc.docType === "invoice" || doc.docType === "credit_note";
-
-  const results: {
-    documentId: number;
-    documentNumber: string | null;
-    docType: string;
-    score: number;
-    strength: string;
-    reasons: string[];
-  }[] = [];
-
-  for (const other of others) {
-    const otherRefs = await db
-      .select()
-      .from(billingDocumentReferencesTable)
-      .where(eq(billingDocumentReferencesTable.documentId, other.id));
-    const otherM = toMatchable(other, otherRefs);
-    // Score delivery-note → invoice in the correct direction.
-    const scored = isInvoice
-      ? scoreDeliveryNoteToInvoice(otherM, self)
-      : scoreDeliveryNoteToInvoice(self, otherM);
-    if (scored.score > 0) {
-      results.push({
-        documentId: other.id,
-        documentNumber: other.documentNumber,
-        docType: other.docType,
-        score: scored.score,
-        strength: scored.strength,
-        reasons: scored.reasons,
-      });
+  let withLinks = 0;
+  let withConfirmedLinks = 0;
+  const failedDocumentIds: number[] = [];
+  for (const document of documents) {
+    try {
+      const result = await reconcileDocumentRelationships(document.id, actor);
+      if (result.linkedDocumentIds.length > 0) withLinks++;
+      if (result.confirmedDocumentIds.length > 0) withConfirmedLinks++;
+    } catch (error) {
+      failedDocumentIds.push(document.id);
+      logger.error(
+        { err: error, documentId: document.id },
+        "Historical billing-document reconciliation failed",
+      );
     }
   }
-  results.sort((a, b) => b.score - a.score);
-  return results;
+  return {
+    processed: documents.length,
+    withLinks,
+    withConfirmedLinks,
+    failedDocumentIds,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1969,6 +2292,7 @@ export async function updateDocument(id: number, input: UpdateDocumentInput) {
   if (input.notes !== undefined) patch.notes = input.notes;
 
   await db.update(billingDocumentsTable).set(patch).where(eq(billingDocumentsTable.id, id));
+  await reconcileDocumentRelationshipsSafely(id, SYSTEM_ACTOR);
   return getDocument(id);
 }
 
@@ -2254,6 +2578,43 @@ export async function splitLine(
 
 const MATERIAL_SOURCE_TYPE = "billing_document_line";
 
+async function confirmedTargetJobIds(
+  tx: DbOrTx,
+  doc: BillingDocument,
+): Promise<Set<number>> {
+  const jobIds = new Set<number>();
+  if (doc.jobId != null) jobIds.add(doc.jobId);
+  const refs = await tx
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, doc.id));
+  const linkedDocumentIds: number[] = [];
+  for (const ref of refs) {
+    if (ref.matchConfirmed !== 1) continue;
+    if (ref.matchedJobId != null) jobIds.add(ref.matchedJobId);
+    if (ref.matchedDocumentId != null) linkedDocumentIds.push(ref.matchedDocumentId);
+  }
+  if (linkedDocumentIds.length === 0) return jobIds;
+
+  const linkedDocuments = await tx
+    .select()
+    .from(billingDocumentsTable)
+    .where(inArray(billingDocumentsTable.id, linkedDocumentIds));
+  for (const linkedDocument of linkedDocuments) {
+    if (linkedDocument.jobId != null) jobIds.add(linkedDocument.jobId);
+  }
+  const linkedRefs = await tx
+    .select()
+    .from(billingDocumentReferencesTable)
+    .where(inArray(billingDocumentReferencesTable.documentId, linkedDocumentIds));
+  for (const ref of linkedRefs) {
+    if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
+      jobIds.add(ref.matchedJobId);
+    }
+  }
+  return jobIds;
+}
+
 /**
  * Mirror an APPROVED cost document's material lines into the linked jobs'
  * `materials` lists (quantity + purchase price bez DPH), so účtenky / dodací
@@ -2299,18 +2660,9 @@ export async function syncJobMaterialsForDocument(
   // matches the target-job set used by propagateInvoicePricesToJobMaterials.
   let fallbackJobId: number | null = doc.jobId ?? null;
   if (fallbackJobId == null) {
-    const refs = await tx
-      .select()
-      .from(billingDocumentReferencesTable)
-      .where(eq(billingDocumentReferencesTable.documentId, documentId));
-    const refJobIds = new Set<number>();
-    for (const ref of refs) {
-      if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
-        refJobIds.add(ref.matchedJobId);
-      }
-    }
-    if (refJobIds.size === 1) {
-      fallbackJobId = refJobIds.values().next().value ?? null;
+    const targetJobIds = await confirmedTargetJobIds(tx, doc);
+    if (targetJobIds.size === 1) {
+      fallbackJobId = targetJobIds.values().next().value ?? null;
     }
   }
 
@@ -2539,17 +2891,7 @@ export async function propagateInvoicePricesToJobMaterials(
 
   // Confirmed target jobs: an explicit document→job link, plus any reference
   // whose match has been confirmed. Without a confirmed link we do nothing.
-  const targetJobIds = new Set<number>();
-  if (doc.jobId != null) targetJobIds.add(doc.jobId);
-  const refs = await tx
-    .select()
-    .from(billingDocumentReferencesTable)
-    .where(eq(billingDocumentReferencesTable.documentId, documentId));
-  for (const ref of refs) {
-    if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
-      targetJobIds.add(ref.matchedJobId);
-    }
-  }
+  const targetJobIds = await confirmedTargetJobIds(tx, doc);
   if (targetJobIds.size === 0) return empty;
 
   // Invoice material lines that can carry a price.
@@ -2696,6 +3038,34 @@ export async function propagateInvoicePricesToJobMaterials(
   }
 
   return { consumedLineIds, filled };
+}
+
+async function refreshApprovedDocumentPropagation(
+  documentId: number,
+  actor: Actor,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, documentId));
+    if (
+      !doc ||
+      doc.status !== "approved" ||
+      !INVOICE_DOCUMENT_TYPES.has(doc.docType)
+    ) {
+      return;
+    }
+    const propagation = await propagateInvoicePricesToJobMaterials(
+      tx,
+      documentId,
+      actor,
+    );
+    await syncJobMaterialsForDocument(tx, documentId, actor, {
+      excludeSourceLineIds: propagation.consumedLineIds,
+    });
+    await reconcileDocumentStockMovements(tx, documentId, actor);
+  });
 }
 
 /**
@@ -3487,6 +3857,7 @@ export interface AiSuggestionLine {
   listPrice?: number | null;
   environmentalFee?: number | null;
   isEnvironmentalFee?: boolean;
+  confidence?: number | null;
 }
 
 export interface AiSuggestionReference {
@@ -3547,10 +3918,19 @@ export async function applyAiSuggestion(
       .from(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.documentId, documentId));
 
-    const warnings = [
-      "Hlavička a položky předvyplněny pomocí AI (OpenAI). Před schválením pečlivě zkontrolujte.",
-      ...suggestion.warnings,
-    ].join("\n");
+    const lowConfidenceWarning =
+      suggestion.confidence < CONFIDENCE_REVIEW_THRESHOLD
+        ? `ALARM: Spolehlivost automatického vytěžení je pouze ${Math.round(
+            suggestion.confidence * 100,
+          )} %. Doklad vyžaduje ruční kontrolu.`
+        : null;
+    const warnings = Array.from(
+      new Set([
+        "Hlavička a položky předvyplněny pomocí AI (OpenAI). Před schválením pečlivě zkontrolujte.",
+        ...(lowConfidenceWarning ? [lowConfidenceWarning] : []),
+        ...suggestion.warnings,
+      ]),
+    ).join("\n");
 
     const docType =
       suggestion.docType && VALID_DOC_TYPE.has(suggestion.docType)
@@ -3616,6 +3996,7 @@ export async function applyAiSuggestion(
               // The AI may flag a line as a pure eco/recycling fee; map it onto
               // the fee classifier so totals/columns line up.
               feeType: l.isEnvironmentalFee ? "environmental" : undefined,
+              confidence: l.confidence ?? suggestion.confidence,
             },
             idx,
           ),
@@ -3663,6 +4044,7 @@ export async function applyAiSuggestion(
       }
     }
   });
+  await reconcileDocumentRelationshipsSafely(documentId, SYSTEM_ACTOR);
 }
 
 // ---------------------------------------------------------------------------
@@ -3715,7 +4097,7 @@ export interface ReviewQueueListResult {
   total: number;
 }
 
-const REVIEW_CONFIDENCE_THRESHOLD = 0.7;
+const REVIEW_CONFIDENCE_THRESHOLD = 0.8;
 const PRICE_JUMP_THRESHOLD_PERCENT = 20;
 
 // Statuses where a document is still open and worth reviewing.

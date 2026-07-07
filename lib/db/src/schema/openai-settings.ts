@@ -30,7 +30,7 @@ export const openaiSettingsTable = pgTable("openai_settings", {
   systemPrompt: text("system_prompt"),
   maxFileMb: integer("max_file_mb"),
   requestTimeoutMs: integer("request_timeout_ms"),
-  confidenceThreshold: real("confidence_threshold"),
+  confidenceThreshold: real("confidence_threshold").default(0.8),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

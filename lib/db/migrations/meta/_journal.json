@@ -484,6 +484,13 @@
       "when": 1783373597984,
       "tag": "0068_condemned_firebird",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1751900000000,
+      "tag": "0069_auto_confirm_defaults",
+      "breakpoints": true
     }
   ]
 }
