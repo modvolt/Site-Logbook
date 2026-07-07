@@ -38,9 +38,9 @@
  * remove the wrong one via the existing UI, or:
  *   DELETE /api/jobs/:jobId/materials/:materialId
  */
-import { db, materialsTable, billingDocumentLinesTable, billingDocumentsTable, jobsTable } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
-import { num, round2 } from "../lib/invoice-calc";
+import { db, billingDocumentsTable } from "@workspace/db";
+import { inArray } from "drizzle-orm";
+import { detectStaleAndDuplicateMaterials } from "../lib/material-integrity";
 import {
   revertInvoicePricePropagation,
   propagateInvoicePricesToJobMaterials,
@@ -50,205 +50,26 @@ import {
 const SYSTEM_ACTOR = { userId: null as number | null, name: "Systém (čištění dat)" };
 
 type Doc = typeof billingDocumentsTable.$inferSelect;
-type Line = typeof billingDocumentLinesTable.$inferSelect;
-type Material = typeof materialsTable.$inferSelect;
-
-interface StaleFinding {
-  materialId: number;
-  jobId: number;
-  jobTitle: string | null;
-  materialName: string;
-  kind: "stale_sync" | "orphaned_sync" | "stale_propagation_price" | "stale_propagation_should_revert";
-  documentId: number;
-  documentNumber: string | null;
-  storedPrice: number | null;
-  expectedPrice: number | null;
-  storedQuantity: number | null;
-  expectedQuantity: number | null;
-}
-
-interface DuplicateGroup {
-  billingDocumentLineId: number;
-  documentId: number;
-  documentNumber: string | null;
-  lineDescription: string;
-  materialIds: number[];
-}
-
-function lineIsMaterialEligible(line: Line): boolean {
-  return !line.feeType && line.lineType === "material" && line.allocationType !== "stock";
-}
 
 async function main() {
   const apply = process.argv.includes("--apply");
 
-  const allMaterials = await db.select().from(materialsTable);
+  const { scannedCount, syncOwnedCount, propagateFilledCount, findings, duplicateGroups, affectedDocumentIds } =
+    await detectStaleAndDuplicateMaterials();
 
-  // Only rows with provenance are in scope; manually-added materials have
-  // sourceType/priceSourceLineId both null and are never touched.
-  const syncOwned = allMaterials.filter((m) => m.sourceType === "billing_document_line" && m.sourceId != null);
-  const propagateFilled = allMaterials.filter(
-    (m) => m.priceSource === "invoice" && m.priceSourceLineId != null,
-  );
-
-  const lineIds = new Set<number>();
-  for (const m of syncOwned) lineIds.add(m.sourceId!);
-  for (const m of propagateFilled) lineIds.add(m.priceSourceLineId!);
-
-  const lines = lineIds.size
-    ? await db.select().from(billingDocumentLinesTable).where(inArray(billingDocumentLinesTable.id, Array.from(lineIds)))
-    : [];
-  const lineById = new Map<number, Line>(lines.map((l) => [l.id, l]));
-
-  const docIds = new Set<number>(lines.map((l) => l.documentId));
-  const docs = docIds.size
-    ? await db.select().from(billingDocumentsTable).where(inArray(billingDocumentsTable.id, Array.from(docIds)))
-    : [];
-  const docById = new Map<number, Doc>(docs.map((d) => [d.id, d]));
-
-  const jobIds = new Set<number>(allMaterials.map((m) => m.jobId));
-  const jobs = jobIds.size
-    ? await db.select({ id: jobsTable.id, title: jobsTable.title }).from(jobsTable).where(inArray(jobsTable.id, Array.from(jobIds)))
-    : [];
-  const jobTitleById = new Map(jobs.map((j) => [j.id, j.title]));
-
-  const findings: StaleFinding[] = [];
-  const affectedDocumentIds = new Set<number>();
-
-  // --- Stale sync-owned materials --------------------------------------
-  for (const m of syncOwned) {
-    const line = lineById.get(m.sourceId!);
-    const doc = line ? docById.get(line.documentId) : undefined;
-    if (!line || !doc) continue; // source line gone entirely: not this script's concern (FK would prevent it anyway)
-
-    const isInvoiceDoc = doc.docType === "invoice" || doc.docType === "credit_note";
-    const stillEligible = doc.status === "approved" && lineIsMaterialEligible(line) && line.activityId == null;
-
-    if (!stillEligible) {
-      findings.push({
-        materialId: m.id,
-        jobId: m.jobId,
-        jobTitle: jobTitleById.get(m.jobId) ?? null,
-        materialName: m.name,
-        kind: "orphaned_sync",
-        documentId: doc.id,
-        documentNumber: doc.documentNumber,
-        storedPrice: m.pricePerUnit != null ? num(m.pricePerUnit) : null,
-        expectedPrice: null,
-        storedQuantity: m.quantity != null ? num(m.quantity) : null,
-        expectedQuantity: null,
-      });
-      affectedDocumentIds.add(doc.id);
-      continue;
-    }
-
-    const priceNum = line.unitPriceWithoutVat == null ? 0 : num(line.unitPriceWithoutVat);
-    const hasPrice = priceNum > 0;
-    const expectedPrice = isInvoiceDoc || hasPrice ? round2(priceNum) : null;
-    const expectedQuantity = line.quantity == null ? null : round2(num(line.quantity));
-    const storedPrice = m.pricePerUnit != null ? num(m.pricePerUnit) : null;
-    const storedQuantity = m.quantity != null ? num(m.quantity) : null;
-
-    if (storedPrice !== expectedPrice || storedQuantity !== expectedQuantity) {
-      findings.push({
-        materialId: m.id,
-        jobId: m.jobId,
-        jobTitle: jobTitleById.get(m.jobId) ?? null,
-        materialName: m.name,
-        kind: "stale_sync",
-        documentId: doc.id,
-        documentNumber: doc.documentNumber,
-        storedPrice,
-        expectedPrice,
-        storedQuantity,
-        expectedQuantity,
-      });
-      affectedDocumentIds.add(doc.id);
-    }
-  }
-
-  // --- Stale propagation-filled materials ------------------------------
-  for (const m of propagateFilled) {
-    const line = lineById.get(m.priceSourceLineId!);
-    const doc = line ? docById.get(line.documentId) : undefined;
-    if (!line || !doc) continue;
-    // Skip rows this document created directly via sync (already checked above).
-    if (m.sourceType === "billing_document_line" && m.sourceId === line.id) continue;
-
-    const isInvoiceDoc = doc.docType === "invoice" || doc.docType === "credit_note";
-    const eligible =
-      doc.status === "approved" &&
-      isInvoiceDoc &&
-      lineIsMaterialEligible(line) &&
-      line.unitPriceWithoutVat != null &&
-      num(line.unitPriceWithoutVat) > 0;
-
-    if (!eligible) {
-      findings.push({
-        materialId: m.id,
-        jobId: m.jobId,
-        jobTitle: jobTitleById.get(m.jobId) ?? null,
-        materialName: m.name,
-        kind: "stale_propagation_should_revert",
-        documentId: doc.id,
-        documentNumber: doc.documentNumber,
-        storedPrice: m.pricePerUnit != null ? num(m.pricePerUnit) : null,
-        expectedPrice: null,
-        storedQuantity: m.quantity != null ? num(m.quantity) : null,
-        expectedQuantity: null,
-      });
-      affectedDocumentIds.add(doc.id);
-      continue;
-    }
-
-    const expectedPrice = round2(num(line.unitPriceWithoutVat));
-    const storedPrice = m.pricePerUnit != null ? num(m.pricePerUnit) : null;
-    if (storedPrice !== expectedPrice) {
-      findings.push({
-        materialId: m.id,
-        jobId: m.jobId,
-        jobTitle: jobTitleById.get(m.jobId) ?? null,
-        materialName: m.name,
-        kind: "stale_propagation_price",
-        documentId: doc.id,
-        documentNumber: doc.documentNumber,
-        storedPrice,
-        expectedPrice,
-        storedQuantity: null,
-        expectedQuantity: null,
-      });
-      affectedDocumentIds.add(doc.id);
-    }
-  }
-
-  // --- Duplicate groups: same billing_document_line claimed by >1 material --
-  const materialIdsByLineId = new Map<number, Set<number>>();
-  for (const m of syncOwned) {
-    const set = materialIdsByLineId.get(m.sourceId!) ?? new Set<number>();
-    set.add(m.id);
-    materialIdsByLineId.set(m.sourceId!, set);
-  }
-  for (const m of propagateFilled) {
-    const set = materialIdsByLineId.get(m.priceSourceLineId!) ?? new Set<number>();
-    set.add(m.id);
-    materialIdsByLineId.set(m.priceSourceLineId!, set);
-  }
-  const duplicateGroups: DuplicateGroup[] = [];
-  for (const [lineId, materialIds] of materialIdsByLineId) {
-    if (materialIds.size < 2) continue;
-    const line = lineById.get(lineId);
-    if (!line) continue;
-    duplicateGroups.push({
-      billingDocumentLineId: lineId,
-      documentId: line.documentId,
-      documentNumber: docById.get(line.documentId)?.documentNumber ?? null,
-      lineDescription: line.description,
-      materialIds: Array.from(materialIds),
-    });
+  // The apply step needs full doc rows (status) for the affected documents;
+  // re-fetch them here rather than threading them through the report shape.
+  const docById = new Map<number, Doc>();
+  if (affectedDocumentIds.size) {
+    const docs = await db
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, Array.from(affectedDocumentIds)));
+    for (const d of docs) docById.set(d.id, d);
   }
 
   // --- Report -----------------------------------------------------------
-  console.log(`Scanned ${allMaterials.length} materials (${syncOwned.length} sync-owned, ${propagateFilled.length} invoice-filled).`);
+  console.log(`Scanned ${scannedCount} materials (${syncOwnedCount} sync-owned, ${propagateFilledCount} invoice-filled).`);
   console.log(`Found ${findings.length} stale material(s) and ${duplicateGroups.length} duplicate group(s).\n`);
 
   if (findings.length > 0) {
