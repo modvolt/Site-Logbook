@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
-import { db, billingDocumentsTable } from "@workspace/db";
+import {
+  db,
+  billingDocumentsTable,
+  billingDocumentLinesTable,
+  jobsTable,
+  materialsTable,
+} from "@workspace/db";
 import { listDocuments } from "../src/lib/cost-document-service";
 
 /**
@@ -23,6 +29,8 @@ import { listDocuments } from "../src/lib/cost-document-service";
 
 const TAG = `test-rq-${Date.now()}`;
 const docIds: number[] = [];
+const jobIds: number[] = [];
+const materialIds: number[] = [];
 
 interface DocOpts {
   status?: string;
@@ -57,11 +65,19 @@ function only(rows: { id: number }[], ids: number[]): number[] {
 }
 
 afterAll(async () => {
+  if (materialIds.length) {
+    await db.delete(materialsTable).where(inArray(materialsTable.id, materialIds));
+    materialIds.length = 0;
+  }
   if (docIds.length) {
     await db
       .delete(billingDocumentsTable)
       .where(inArray(billingDocumentsTable.id, docIds));
     docIds.length = 0;
+  }
+  if (jobIds.length) {
+    await db.delete(jobsTable).where(inArray(jobsTable.id, jobIds));
+    jobIds.length = 0;
   }
 });
 
@@ -159,5 +175,71 @@ describe("listDocuments confidence_asc sort", () => {
     const order = only(rows, ids);
     // Newest createdAt first: nullNewer, nullOlder, high, mid, low.
     expect(order).toEqual([nullNewerId, nullOlderId, highId, midId, lowId]);
+  });
+});
+
+describe("listDocuments job linkage resilience", () => {
+  it("does not hide an invalid duplicate with no primaryDocumentId in the default list", async () => {
+    const brokenDuplicateId = await makeDoc({
+      status: "duplicate",
+      source: "email",
+      aiExtractedAt: new Date(),
+      aiConfidence: "0.90",
+    });
+
+    const rows = await listDocuments({});
+    expect(rows.map((r) => r.id)).toContain(brokenDuplicateId);
+  });
+
+  it("finds a document for a job through propagated material provenance", async () => {
+    const [job] = await db
+      .insert(jobsTable)
+      .values({
+        title: `Zakazka ${TAG}`,
+        type: "planned_work",
+        date: "2026-07-08",
+      })
+      .returning();
+    jobIds.push(job.id);
+
+    const docId = await makeDoc({
+      status: "approved",
+      source: "email",
+      aiExtractedAt: new Date(),
+      aiConfidence: "0.90",
+    });
+
+    const [line] = await db
+      .insert(billingDocumentLinesTable)
+      .values({
+        documentId: docId,
+        lineType: "material",
+        description: `Material ${TAG}`,
+        quantity: "2",
+        unitPriceWithoutVat: "50",
+        totalWithoutVat: "100",
+        totalVat: "21",
+        totalWithVat: "121",
+        approved: 1,
+      })
+      .returning();
+
+    const [material] = await db
+      .insert(materialsTable)
+      .values({
+        jobId: job.id,
+        name: `Material ${TAG}`,
+        quantity: "2",
+        pricePerUnit: "50",
+        sourceType: "billing_document_line",
+        sourceId: line.id,
+        priceSourceDocumentId: docId,
+        priceSourceLineId: line.id,
+      })
+      .returning();
+    materialIds.push(material.id);
+
+    const rows = await listDocuments({ jobId: job.id });
+    expect(rows.map((r) => r.id)).toContain(docId);
   });
 });

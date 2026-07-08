@@ -1512,6 +1512,76 @@ export interface DocumentFilters {
   sort?: string;
 }
 
+async function documentIdsLinkedToJob(jobId: number): Promise<number[]> {
+  const ids = new Set<number>();
+
+  const directRows = await db
+    .select({ id: billingDocumentsTable.id, primaryDocumentId: billingDocumentsTable.primaryDocumentId })
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.jobId, jobId));
+  for (const row of directRows) {
+    ids.add(row.id);
+    if (row.primaryDocumentId != null) ids.add(row.primaryDocumentId);
+  }
+
+  const lineRows = await db
+    .select({
+      documentId: billingDocumentLinesTable.documentId,
+      primaryDocumentId: billingDocumentsTable.primaryDocumentId,
+    })
+    .from(billingDocumentLinesTable)
+    .innerJoin(
+      billingDocumentsTable,
+      eq(billingDocumentLinesTable.documentId, billingDocumentsTable.id),
+    )
+    .where(eq(billingDocumentLinesTable.jobId, jobId));
+  for (const row of lineRows) {
+    ids.add(row.documentId);
+    if (row.primaryDocumentId != null) ids.add(row.primaryDocumentId);
+  }
+
+  const materialRows = await db
+    .select({
+      documentId: billingDocumentLinesTable.documentId,
+      primaryDocumentId: billingDocumentsTable.primaryDocumentId,
+    })
+    .from(materialsTable)
+    .innerJoin(
+      billingDocumentLinesTable,
+      eq(materialsTable.sourceId, billingDocumentLinesTable.id),
+    )
+    .innerJoin(
+      billingDocumentsTable,
+      eq(billingDocumentLinesTable.documentId, billingDocumentsTable.id),
+    )
+    .where(
+      and(
+        eq(materialsTable.jobId, jobId),
+        eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+        isNotNull(materialsTable.sourceId),
+      ),
+    );
+  for (const row of materialRows) {
+    ids.add(row.documentId);
+    if (row.primaryDocumentId != null) ids.add(row.primaryDocumentId);
+  }
+
+  const attachmentRows = await db
+    .select({
+      documentId: billingDocumentsTable.id,
+      primaryDocumentId: billingDocumentsTable.primaryDocumentId,
+    })
+    .from(attachmentsTable)
+    .innerJoin(billingDocumentsTable, eq(attachmentsTable.url, billingDocumentsTable.objectPath))
+    .where(eq(attachmentsTable.jobId, jobId));
+  for (const row of attachmentRows) {
+    ids.add(row.documentId);
+    if (row.primaryDocumentId != null) ids.add(row.primaryDocumentId);
+  }
+
+  return Array.from(ids);
+}
+
 export async function listDocuments(filters: DocumentFilters) {
   const conds = [];
   if (filters.status) {
@@ -1520,11 +1590,22 @@ export async function listDocuments(filters: DocumentFilters) {
     // Confirmed duplicates are folded into their primary document and no
     // longer need review — keep them out of the default (unfiltered) list.
     // They're still reachable via the explicit "duplicate" status filter.
-    conds.push(ne(billingDocumentsTable.status, "duplicate"));
+    conds.push(
+      or(
+        ne(billingDocumentsTable.status, "duplicate"),
+        isNull(billingDocumentsTable.primaryDocumentId),
+      ),
+    );
   }
   if (filters.supplierIc)
     conds.push(eq(billingDocumentsTable.supplierIc, filters.supplierIc));
-  if (filters.jobId != null) conds.push(eq(billingDocumentsTable.jobId, filters.jobId));
+  if (filters.jobId != null) {
+    const linkedIds = await documentIdsLinkedToJob(filters.jobId);
+    if (linkedIds.length === 0) {
+      return [];
+    }
+    conds.push(inArray(billingDocumentsTable.id, linkedIds));
+  }
   if (filters.customerId != null)
     conds.push(eq(billingDocumentsTable.customerId, filters.customerId));
   if (filters.aiOnly) conds.push(isNotNull(billingDocumentsTable.aiExtractedAt));
@@ -3699,13 +3780,15 @@ export async function setDocumentStatus(
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, id));
   if (!doc) throw appError(404, "Doklad nenalezen.");
+  if (status === "duplicate") {
+    throw appError(
+      400,
+      "Doklad nelze označit jako duplicitu bez cílového dokladu. Použijte akci spárovat jako duplicitu.",
+    );
+  }
   await db.transaction(async (tx) => {
-    if (status === "ignored" || status === "duplicate") {
-      await assertCompleteBeforeTerminalAction(
-        tx,
-        doc,
-        status === "ignored" ? "ignore" : "duplicate",
-      );
+    if (status === "ignored") {
+      await assertCompleteBeforeTerminalAction(tx, doc, "ignore");
     }
     await tx
       .update(billingDocumentsTable)
@@ -4199,6 +4282,67 @@ const DOKLAD_TYPES = new Set(["invoice", "receipt", "delivery_note", "credit_not
 // double-click). Arbitrary but fixed so lock/unlock always agree.
 const ANALYZE_JOB_DOCUMENTS_LOCK_CLASS = 894_612_305;
 
+async function linkExistingDocumentToJobAttachmentTx(
+  tx: DbOrTx,
+  documentId: number,
+  jobId: number,
+  customerId: number | null,
+  actor: Actor,
+): Promise<boolean> {
+  const [doc] = await tx
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc) return false;
+
+  const patch: Partial<typeof billingDocumentsTable.$inferInsert> = {};
+  const notes: string[] = [];
+  let linkedToJob = false;
+
+  if (doc.jobId == null) {
+    patch.jobId = jobId;
+    linkedToJob = true;
+    notes.push(`doplněna vazba na zakázku #${jobId}`);
+  }
+  if (doc.customerId == null && customerId != null) {
+    patch.customerId = customerId;
+  }
+  if (doc.status === "duplicate" && doc.primaryDocumentId == null) {
+    patch.status = "needs_review";
+    patch.warnings = [
+      doc.warnings,
+      "Doklad byl označen jako duplicita bez technické vazby na primární doklad. Při reanalýze příloh zakázky byl vrácen ke kontrole.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    notes.push("neplatná duplicita vrácena ke kontrole");
+  }
+
+  if (Object.keys(patch).length === 0) return false;
+
+  await tx
+    .update(billingDocumentsTable)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(billingDocumentsTable.id, doc.id));
+
+  if (linkedToJob && doc.status === "approved") {
+    await syncJobMaterialsForDocument(tx, doc.id, actor);
+  }
+
+  await tx.insert(auditLogTable).values({
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    action: "update",
+    entityType: "billing_documents",
+    entityId: doc.id,
+    summary: `Reanalýza příloh zakázky: ${notes.join(", ")}`,
+    method: "POST",
+    path: `/jobs/${jobId}/documents/analyze`,
+  });
+
+  return true;
+}
+
 /**
  * Create cost documents from a job's "doklady" attachments (účtenky / dodací
  * listy / faktury) that have not already been imported. The attachment bytes
@@ -4247,6 +4391,13 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
         .where(eq(billingDocumentsTable.sha256, hash))
         .limit(1);
       if (existing) {
+        await linkExistingDocumentToJobAttachmentTx(
+          tx,
+          existing.id,
+          jobId,
+          job.customerId ?? null,
+          actor,
+        );
         skipped++;
         continue;
       }
