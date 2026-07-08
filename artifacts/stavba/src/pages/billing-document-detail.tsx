@@ -1303,9 +1303,13 @@ function SplitDialog({
   const splitMutation = useSplitCostDocumentLine();
 
   const half = line.quantity / 2;
+  const inheritedAssignment = {
+    jobId: line.activityId != null ? NONE : line.jobId != null ? String(line.jobId) : NONE,
+    activityId: line.jobId != null ? NONE : line.activityId != null ? String(line.activityId) : NONE,
+  };
   const [parts, setParts] = useState<SplitPart[]>([
-    { quantity: String(half), jobId: NONE, activityId: NONE, allocationType: line.allocationType },
-    { quantity: String(line.quantity - half), jobId: NONE, activityId: NONE, allocationType: line.allocationType },
+    { quantity: String(half), ...inheritedAssignment, allocationType: line.allocationType },
+    { quantity: String(line.quantity - half), ...inheritedAssignment, allocationType: line.allocationType },
   ]);
 
   const partErrors = parts.map((p) => {
@@ -1324,7 +1328,7 @@ function SplitDialog({
   const addPart = () =>
     setParts((p) => [
       ...p,
-      { quantity: "0", jobId: NONE, activityId: NONE, allocationType: line.allocationType },
+      { quantity: "0", ...inheritedAssignment, allocationType: line.allocationType },
     ]);
 
   const removePart = (i: number) =>

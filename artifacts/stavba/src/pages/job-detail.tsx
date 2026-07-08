@@ -2183,6 +2183,9 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const totalCount = (materials?.length ?? 0);
   const summaryBase = totalCount > 0 ? `${totalCount} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
   const summary = pendingMaterials.length > 0 ? `${summaryBase} + ${pendingMaterials.length} čeká` : summaryBase;
+  const isManagedMaterial = (m: any) =>
+    (m.sourceType === "billing_document_line" && m.sourceId != null) || m.invoicedInvoiceId != null;
+  const managedMaterialMessage = "Materiál je řízený dokladem. Upravte původní doklad, aby zůstaly správně sklad, cena i párování.";
 
   const resetAddForm = () => { setNewName(""); setNewQty(""); setNewUnit("ks"); setNewPrice(""); setNewWarehouseItemId(null); };
 
@@ -2205,9 +2208,13 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     });
   };
 
-  const handleDelete = (materialId: number) => {
+  const handleDelete = (m: any) => {
+    if (isManagedMaterial(m)) {
+      toast({ title: "Materiál nejde smazat", description: managedMaterialMessage });
+      return;
+    }
     openConfirm("Smazat materiál?", () => {
-      deleteMaterial.mutate({ jobId, materialId }, {
+      deleteMaterial.mutate({ jobId, materialId: m.id }, {
       onSuccess: () => {
         invalidateData(queryClient, "jobs", "warehouse");
         toast({ title: "Materiál odstraněn" });
@@ -2216,7 +2223,14 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     });
   };
 
-  const startEdit = (m: any) => { setEditingId(m.id); setEditDraft({ name: m.name, quantity: m.quantity ?? "", unit: m.unit ?? "ks", pricePerUnit: m.pricePerUnit ?? "", warehouseItemId: m.warehouseItemId ?? null }); };
+  const startEdit = (m: any) => {
+    if (isManagedMaterial(m)) {
+      toast({ title: "Materiál nejde upravit", description: managedMaterialMessage });
+      return;
+    }
+    setEditingId(m.id);
+    setEditDraft({ name: m.name, quantity: m.quantity ?? "", unit: m.unit ?? "ks", pricePerUnit: m.pricePerUnit ?? "", warehouseItemId: m.warehouseItemId ?? null });
+  };
   const cancelEdit = () => { setEditingId(null); setEditDraft({}); };
   const saveEdit = () => {
     if (!editDraft.name?.trim()) return;
@@ -2363,7 +2377,7 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                       )}
                     </div>
                   )}
-                  {isAdmin && (
+                  {isAdmin && !isManagedMaterial(m) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -2374,10 +2388,24 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                       <Banknote className="w-3.5 h-3.5" />
                     </Button>
                   )}
-                  <Button variant="ghost" size="sm" onClick={() => startEdit(m)} className="h-8 w-8 p-0 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => startEdit(m)}
+                    disabled={isManagedMaterial(m)}
+                    className="h-8 w-8 p-0 shrink-0"
+                    title={isManagedMaterial(m) ? managedMaterialMessage : "Upravit materiál"}
+                  >
                     <Edit3 className="w-3.5 h-3.5" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete(m.id)} className="h-8 w-8 p-0 text-destructive shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(m)}
+                    disabled={isManagedMaterial(m)}
+                    className="h-8 w-8 p-0 text-destructive shrink-0"
+                    title={isManagedMaterial(m) ? managedMaterialMessage : "Smazat materiál"}
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>

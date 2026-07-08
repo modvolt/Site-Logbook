@@ -33,6 +33,8 @@ import {
   markDocumentAsDuplicate,
   unmarkDocumentDuplicate,
   requeueExtraction,
+  requeueAllExtractions,
+  reanalyzeJobAttachmentDocuments,
   deleteDocument,
   analyzeJobDocuments,
   getApprovedLinesForCustomer,
@@ -575,6 +577,24 @@ router.post("/billing/documents/:id/extract", async (req, res): Promise<void> =>
     res.json(detail);
   } catch (error) {
     handleError(error, "Zpracování se nepodařilo zařadit.", res);
+  }
+});
+
+router.post("/billing/documents/extract-all", async (req, res): Promise<void> => {
+  try {
+    const result = await requeueAllExtractions(actorOf(req));
+    res.json(result);
+  } catch (error) {
+    handleError(error, "Hromadnou AI analýzu se nepodařilo zařadit.", res);
+  }
+});
+
+router.post("/billing/documents/reanalyze-job-attachments", async (req, res): Promise<void> => {
+  try {
+    const result = await reanalyzeJobAttachmentDocuments(actorOf(req));
+    res.json(result);
+  } catch (error) {
+    handleError(error, "Zakázkové doklady se nepodařilo znovu analyzovat.", res);
   }
 });
 

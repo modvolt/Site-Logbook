@@ -4,6 +4,7 @@ import {
   integer,
   text,
   numeric,
+  boolean,
   timestamp,
   index,
   uniqueIndex,
@@ -306,6 +307,7 @@ export const extractionJobsTable = pgTable(
       .notNull()
       .references(() => billingDocumentsTable.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("queued"),
+    force: boolean("force").notNull().default(false),
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(3),
     lastError: text("last_error"),

@@ -747,6 +747,8 @@ type Material = {
   done: boolean;
   sortOrder: number;
   warehouseItemId?: number | null;
+  sourceType?: string | null;
+  sourceId?: number | null;
   createdAt: string;
 };
 
@@ -806,6 +808,9 @@ function MaterialsSection({
   const [editForm, setEditForm] = useState({ name: "", quantity: "", unit: "", pricePerUnit: "", warehouseItemId: null as number | null });
 
   const total = materials.reduce((sum, m) => sum + (m.quantity ?? 0) * (m.pricePerUnit ?? 0), 0);
+  const isManagedMaterial = (m: Material) =>
+    m.sourceType === "billing_document_line" && m.sourceId != null;
+  const managedMaterialMessage = "Materiál je řízený dokladem. Upravte původní doklad, aby zůstaly správně sklad, cena i párování.";
 
   const matQtyError = decimalError(form.quantity);
   const matPriceError = decimalError(form.pricePerUnit);
@@ -816,6 +821,10 @@ function MaterialsSection({
   const editHasErrors = !!(editQtyError || editPriceError);
 
   const startEdit = (m: Material) => {
+    if (isManagedMaterial(m)) {
+      toast({ title: "Materiál nejde upravit", description: managedMaterialMessage });
+      return;
+    }
     setEditingId(m.id);
     setEditForm({
       name: m.name,
@@ -878,12 +887,20 @@ function MaterialsSection({
   };
 
   const toggleDone = (m: Material) => {
+    if (isManagedMaterial(m)) {
+      toast({ title: "Materiál nejde upravit", description: managedMaterialMessage });
+      return;
+    }
     updateMaterial.mutate({ activityId, materialId: m.id, data: { done: !m.done } }, { onSuccess: onChange });
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (m: Material) => {
+    if (isManagedMaterial(m)) {
+      toast({ title: "Materiál nejde smazat", description: managedMaterialMessage });
+      return;
+    }
     openConfirm("Smazat materiál?", () => {
-      deleteMaterial.mutate({ activityId, materialId: id }, { onSuccess: onChange });
+      deleteMaterial.mutate({ activityId, materialId: m.id }, { onSuccess: onChange });
     });
   };
 
@@ -980,10 +997,13 @@ function MaterialsSection({
               const lineTotal = (m.quantity ?? 0) * (m.pricePerUnit ?? 0);
               return (
                 <li key={m.id} className="flex items-center gap-2 py-2 border-b last:border-0">
-                  <Checkbox checked={m.done} onCheckedChange={() => canWrite && toggleDone(m)} disabled={!canWrite} />
+                  <Checkbox checked={m.done} onCheckedChange={() => canWrite && toggleDone(m)} disabled={!canWrite || isManagedMaterial(m)} />
                   <div className="flex-1 min-w-0">
                     <div className={`font-medium text-sm ${m.done ? "line-through text-muted-foreground" : ""}`}>
                       {m.name}
+                      {isManagedMaterial(m) && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Z dokladu</span>
+                      )}
                       {m.warehouseItemId != null && (
                         <Link href="/sklad">
                           <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle hover:bg-cyan-200 cursor-pointer" title="Zobrazit skladovou kartu">
@@ -1001,10 +1021,24 @@ function MaterialsSection({
                   </div>
                   {canWrite && (
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => startEdit(m)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground"
+                        onClick={() => startEdit(m)}
+                        disabled={isManagedMaterial(m)}
+                        title={isManagedMaterial(m) ? managedMaterialMessage : "Upravit materiál"}
+                      >
                         <Edit3 className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-rose-500" onClick={() => handleDelete(m.id)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-rose-500"
+                        onClick={() => handleDelete(m)}
+                        disabled={isManagedMaterial(m)}
+                        title={isManagedMaterial(m) ? managedMaterialMessage : "Smazat materiál"}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>

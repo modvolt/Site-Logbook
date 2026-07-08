@@ -48,7 +48,7 @@ import {
   newUploadGroupToken,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
-import { ArrowLeft, CheckCircle2, FileText, Inbox, Loader2, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, Inbox, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 
 const UPLOAD_ACCEPT =
@@ -81,6 +81,8 @@ export default function BillingDocuments() {
     null,
   );
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [confirmRequeueAllOpen, setConfirmRequeueAllOpen] = useState(false);
+  const [isRequeueingAll, setIsRequeueingAll] = useState(false);
   const [conflict, setConflict] = useState<{
     message: string;
     duplicates: CostDocumentDuplicate[];
@@ -103,6 +105,50 @@ export default function BillingDocuments() {
 
   const approveDoc = useApproveCostDocument();
   const [approvingId, setApprovingId] = useState<number | null>(null);
+
+  const handleRequeueAllAi = async () => {
+    setIsRequeueingAll(true);
+    try {
+      const res = await fetch("/api/billing/documents/reanalyze-job-attachments", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Hromadnou AI analýzu se nepodařilo zařadit.");
+      }
+      const result = await res.json() as {
+        jobsScanned: number;
+        attachmentsScanned: number;
+        created: number;
+        skippedAttachments: number;
+        queued: number;
+        alreadyQueued: number;
+        skippedTerminal: number;
+        skippedLocked: number;
+        totalJobDocuments: number;
+      };
+      refresh();
+      toast({
+        title: "Zakázkové doklady zařazeny",
+        description: `Zakázek ${result.jobsScanned}, příloh ${result.attachmentsScanned}, nově vytvořeno ${result.created}, do AI fronty ${result.queued}, už čeká ${result.alreadyQueued}.`,
+      });
+      if (result.skippedLocked > 0) {
+        toast({
+          title: "Cast dokladu je zamcena",
+          description: `${result.skippedLocked} dokladu uz ma material nebo polozky ve vystavene fakture, proto nebyly prepsany.`,
+        });
+      }
+      setConfirmRequeueAllOpen(false);
+    } catch (err) {
+      toast({
+        title: "Zakázkové doklady se nepodařilo zařadit",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setIsRequeueingAll(false);
+    }
+  };
 
   const handleApprove = (doc: CostDocument) => {
     setApprovingId(doc.id);
@@ -307,18 +353,33 @@ export default function BillingDocuments() {
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setLocation("/billing/documents/review")}
-        >
-          <Sparkles className="h-4 w-4 mr-1" /> Kontrola AI dokladů
-          {aiReviewCount > 0 && (
-            <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-violet-600 text-white text-xs font-semibold min-w-[1.25rem] h-5 px-1.5">
-              {aiReviewCount}
-            </span>
-          )}
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isRequeueingAll || isUploading || isLoading || isError}
+            onClick={() => setConfirmRequeueAllOpen(true)}
+          >
+            {isRequeueingAll ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-1" />
+            )}
+            Znovu analyzovat zakázkové doklady
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation("/billing/documents/review")}
+          >
+            <Sparkles className="h-4 w-4 mr-1" /> Kontrola AI dokladů
+            {aiReviewCount > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-violet-600 text-white text-xs font-semibold min-w-[1.25rem] h-5 px-1.5">
+                {aiReviewCount}
+              </span>
+            )}
+          </Button>
+        </div>
       </div>
 
       <input
@@ -402,6 +463,40 @@ export default function BillingDocuments() {
           ))}
         </div>
       )}
+
+      <Dialog open={confirmRequeueAllOpen} onOpenChange={setConfirmRequeueAllOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Znovu analyzovat doklady ze zakázek?</DialogTitle>
+            <div className="hidden" aria-hidden="true">
+              Projdou se přílohy typu faktura, účtenka a dodací list u všech
+              zakázek. Chybějící přijaté doklady se doplní a rozpracované
+              doklady vzniklé ze zakázek se znovu pošlou do AI analýzy.
+              Schválené, ignorované, zkontrolované a duplicitní doklady se
+              přeskočí.
+            </div>
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              Pozor: doklady, ktere jeste nejsou pouzite ve vystavene fakture, se mohou vratit ke kontrole.
+            </p>
+            <DialogDescription>
+              Projdou se prilohy typu faktura, uctenka, dodaci list a dobropis u vsech zakazek. Chybejici prijate doklady se doplni a zakazkove doklady se znovu poslou do AI analyzy.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              disabled={isRequeueingAll}
+              onClick={() => setConfirmRequeueAllOpen(false)}
+            >
+              Zrušit
+            </Button>
+            <Button disabled={isRequeueingAll} onClick={handleRequeueAllAi}>
+              {isRequeueingAll && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+              Spustit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={conflict !== null}

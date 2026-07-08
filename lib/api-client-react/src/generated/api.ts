@@ -230,6 +230,7 @@ import type {
   RecurringGenerationResult,
   RecurringInvoiceTemplate,
   RecurringInvoiceTemplateDetail,
+  RequeueAllCostDocumentExtractionsResult,
   RequestJobSignatureInput,
   RequestJobSignatureResult,
   ResetPasswordWithAnswersInput,
@@ -19347,6 +19348,75 @@ export const useRequeueCostDocumentExtraction = <TError = ErrorType<ErrorEnvelop
       return useMutation(getRequeueCostDocumentExtractionMutationOptions(options));
     }
 
+export const getRequeueAllCostDocumentExtractionsUrl = () => {
+
+
+
+
+  return `/api/billing/documents/extract-all`
+}
+
+/**
+ * @summary Re-queue AI extraction for all non-terminal cost documents (admin only)
+ */
+export const requeueAllCostDocumentExtractions = async ( options?: RequestInit): Promise<RequeueAllCostDocumentExtractionsResult> => {
+
+  return customFetch<RequeueAllCostDocumentExtractionsResult>(getRequeueAllCostDocumentExtractionsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRequeueAllCostDocumentExtractionsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>, TError,void, TContext> => {
+
+const mutationKey = ['requeueAllCostDocumentExtractions'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>, void> = () => {
+          return  requeueAllCostDocumentExtractions(requestOptions)
+        }
+
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequeueAllCostDocumentExtractionsMutationResult = NonNullable<Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>>
+
+    export type RequeueAllCostDocumentExtractionsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-queue AI extraction for all non-terminal cost documents (admin only)
+ */
+export const useRequeueAllCostDocumentExtractions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRequeueAllCostDocumentExtractionsMutationOptions(options));
+    }
+
 export const getUpdateCostDocumentLineUrl = (id: number,
     lineId: number,) => {
 
@@ -22706,8 +22776,6 @@ export function useDownloadQuotePdf<TData = Awaited<ReturnType<typeof downloadQu
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-
 
 
 

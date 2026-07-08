@@ -63,6 +63,7 @@ import {
   reconcileDocumentStockMovements,
   reconcileSourceMovements,
   reconcileMaterialStockMovement,
+  reconcileActivityMaterialStockMovement,
   backfillOutMovementCostPrices,
   resolveWarehouseItemIdByName,
 } from "./warehouse-service";
@@ -88,8 +89,175 @@ type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 const SYSTEM_ACTOR: Actor = { userId: null, name: "Systém" };
 const REBILL_ALLOC = "rebill";
 const VALID_ALLOC = new Set(["rebill", "internal", "stock", "not_rebilled"]);
+const INCOMPLETE_MULTIPAGE_WARNING_CODE = "NEUPLNY_VICESTRANKOVY_DOKLAD";
 const VALID_LINE_TYPE = new Set(["material", "work", "transport", "other"]);
 const VALID_DOC_TYPE = new Set(["receipt", "delivery_note", "invoice", "credit_note"]);
+
+function looksLikeIncompleteMultipageDocument(doc: Pick<BillingDocument, "warnings" | "totalWithVat">): boolean {
+  const warnings = doc.warnings ?? "";
+  if (warnings.includes(INCOMPLETE_MULTIPAGE_WARNING_CODE)) return true;
+  return (
+    doc.totalWithVat == null &&
+    /strana\s+\d+\s*\/\s*\d+/i.test(warnings) &&
+    /(chyb|nekompletn|sou[cč]t|celkov)/i.test(warnings)
+  );
+}
+
+async function hasExtractedMaterialLines(tx: DbOrTx, documentId: number): Promise<boolean> {
+  const [line] = await tx
+    .select({ id: billingDocumentLinesTable.id })
+    .from(billingDocumentLinesTable)
+    .where(
+      and(
+        eq(billingDocumentLinesTable.documentId, documentId),
+        eq(billingDocumentLinesTable.lineType, "material"),
+      ),
+    )
+    .limit(1);
+  return Boolean(line);
+}
+
+async function assertCompleteBeforeTerminalAction(
+  tx: DbOrTx,
+  doc: BillingDocument,
+  action: "approve" | "ignore" | "duplicate",
+): Promise<void> {
+  if (!looksLikeIncompleteMultipageDocument(doc)) return;
+  if (!(await hasExtractedMaterialLines(tx, doc.id))) return;
+
+  const actionText =
+    action === "approve"
+      ? "schvalovat"
+      : action === "ignore"
+        ? "ignorovat"
+        : "označit jako duplicitu";
+  throw appError(
+    409,
+    `Doklad vypadá jako nekompletní stránka vícestránkového dokladu a obsahuje materiálové položky. Nelze jej ${actionText}, protože by se část materiálu ztratila. Nejprve sloučte všechny strany dokladu nebo nahrajte doklad jako jeden vícestránkový soubor.`,
+  );
+}
+
+async function mergeIncompleteMultipagePageTx(
+  tx: DbOrTx,
+  primary: BillingDocument,
+  secondary: BillingDocument,
+  actor: Actor,
+): Promise<void> {
+  const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
+  const primaryLines = await tx
+    .select({ sortOrder: billingDocumentLinesTable.sortOrder })
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, primary.id));
+  const nextSort =
+    primaryLines.reduce((max, l) => Math.max(max, l.sortOrder ?? 0), -1) + 1;
+  const secondaryLines = await tx
+    .select({ id: billingDocumentLinesTable.id })
+    .from(billingDocumentLinesTable)
+    .where(eq(billingDocumentLinesTable.documentId, secondary.id))
+    .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
+
+  for (const [idx, line] of secondaryLines.entries()) {
+    await tx
+      .update(billingDocumentLinesTable)
+      .set({
+        documentId: primary.id,
+        sortOrder: nextSort + idx,
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentLinesTable.id, line.id));
+  }
+
+  await tx
+    .update(billingDocumentReferencesTable)
+    .set({ documentId: primary.id, updatedAt: new Date() })
+    .where(eq(billingDocumentReferencesTable.documentId, secondary.id));
+  await tx
+    .update(billingDocumentFilesTable)
+    .set({ documentId: primary.id })
+    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
+  await tx
+    .update(billingDocumentsTable)
+    .set({ mergeGroupId: groupId, updatedAt: new Date() })
+    .where(eq(billingDocumentsTable.id, primary.id));
+  await tx
+    .update(billingDocumentsTable)
+    .set({
+      mergeGroupId: groupId,
+      primaryDocumentId: primary.id,
+      status: "duplicate",
+      warnings: [
+        secondary.warnings,
+        `Sloučeno do vícestránkového dokladu #${primary.id}; řádky z této stránky byly přesunuty do hlavního dokladu.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, secondary.id));
+
+  await tx.insert(auditLogTable).values({
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    action: "update",
+    entityType: "billing_documents",
+    entityId: primary.id,
+    summary: `Sloučena nekompletní strana dokladu #${secondary.id} do vícestránkového dokladu #${primary.id}`,
+    method: "POST",
+    path: `/billing/documents/${primary.id}`,
+  });
+}
+
+async function reconcileIncompleteMultipagePages(documentId: number, actor: Actor): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, documentId));
+    if (!doc || !doc.documentNumber || doc.primaryDocumentId != null) return;
+
+    const conds = [
+      ne(billingDocumentsTable.id, doc.id),
+      isNull(billingDocumentsTable.primaryDocumentId),
+      eq(billingDocumentsTable.documentNumber, doc.documentNumber),
+    ];
+    if (doc.jobId != null) conds.push(eq(billingDocumentsTable.jobId, doc.jobId));
+    if (doc.supplierIc) {
+      conds.push(eq(billingDocumentsTable.supplierIc, doc.supplierIc));
+    } else if (doc.supplierName) {
+      conds.push(eq(billingDocumentsTable.supplierName, doc.supplierName));
+    }
+
+    const siblings = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(and(...conds));
+    const candidates = [doc, ...siblings].filter(
+      (d) => d.status !== "approved" && d.status !== "duplicate",
+    );
+    const primary = candidates.find(
+      (d) => !looksLikeIncompleteMultipageDocument(d) && d.totalWithVat != null,
+    );
+    if (!primary) return;
+
+    for (const secondary of candidates) {
+      if (secondary.id === primary.id) continue;
+      if (!looksLikeIncompleteMultipageDocument(secondary)) continue;
+      if (!(await hasExtractedMaterialLines(tx, secondary.id))) continue;
+      await mergeIncompleteMultipagePageTx(tx, primary, secondary, actor);
+    }
+  });
+}
+
+async function reconcileIncompleteMultipagePagesSafely(
+  documentId: number,
+  actor: Actor,
+): Promise<void> {
+  try {
+    await reconcileIncompleteMultipagePages(documentId, actor);
+  } catch (error) {
+    logger.warn({ err: error, documentId }, "Incomplete multi-page document reconciliation failed");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Hashing + duplicate detection
@@ -871,6 +1039,7 @@ export async function markDocumentAsDuplicate(
       "Schválený doklad nelze spárovat jako duplicitu — nejprve zrušte jeho schválení.",
     );
   }
+  await assertCompleteBeforeTerminalAction(db, doc, "duplicate");
   await db.transaction((tx) =>
     linkAsDuplicateTx(
       tx,
@@ -2515,6 +2684,18 @@ export async function splitLine(
     for (const m of orphanMaterials) {
       await reconcileSourceMovements(tx, "material", m.id, null, actor);
     }
+    const orphanActivityMaterials = await tx
+      .select({ id: activityMaterialsTable.id })
+      .from(activityMaterialsTable)
+      .where(
+        and(
+          eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+          eq(activityMaterialsTable.sourceId, lineId),
+        ),
+      );
+    for (const m of orphanActivityMaterials) {
+      await reconcileSourceMovements(tx, "activity_material", m.id, null, actor);
+    }
 
     // Delete the original, insert the parts in its place.
     await tx
@@ -2524,6 +2705,12 @@ export async function splitLine(
       and(
         eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
         eq(materialsTable.sourceId, lineId),
+      ),
+    );
+    await tx.delete(activityMaterialsTable).where(
+      and(
+        eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+        eq(activityMaterialsTable.sourceId, lineId),
       ),
     );
 
@@ -2681,8 +2868,21 @@ export async function syncJobMaterialsForDocument(
           ),
         )
     : [];
+  const existingActivity = lineIds.length
+    ? await tx
+        .select()
+        .from(activityMaterialsTable)
+        .where(
+          and(
+            eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            inArray(activityMaterialsTable.sourceId, lineIds),
+          ),
+        )
+    : [];
   const desired = new Set<number>();
+  const desiredActivity = new Set<number>();
   const affectedMaterialIds = new Set<number>();
+  const affectedActivityMaterialIds = new Set<number>();
   // Materials already issued on a customer invoice are frozen: a re-sync
   // (e.g. "Aktualizovat ceny" or a bulk-confirm re-run on the same approved
   // document) must never rewrite their price nor delete them, even though
@@ -2705,22 +2905,11 @@ export async function syncJobMaterialsForDocument(
 
       // Activity-assigned lines: propagate to activity_materials, not job materials.
       if (line.activityId != null) {
-        desired.add(line.id);
+        desiredActivity.add(line.id);
         const priceNum =
           line.unitPriceWithoutVat == null ? 0 : num(line.unitPriceWithoutVat);
         const hasPrice = priceNum > 0;
-        // Upsert keyed on activityId + name (stable for re-runs).
-        // activity_materials has no sourceType/sourceId; use a simple name match.
-        const existingActMat = await tx
-          .select()
-          .from(activityMaterialsTable)
-          .where(
-            and(
-              eq(activityMaterialsTable.activityId, line.activityId),
-              eq(activityMaterialsTable.name, line.description),
-            ),
-          )
-          .limit(1);
+        const warehouseItemId = await resolveWarehouseItemIdByName(tx, line.description);
         const actValues = {
           activityId: line.activityId,
           name: line.description,
@@ -2729,15 +2918,22 @@ export async function syncJobMaterialsForDocument(
           unit: line.unit ?? null,
           pricePerUnit:
             isInvoiceDoc || hasPrice ? String(round2(priceNum)) : null,
+          warehouseItemId,
         };
-        if (existingActMat.length > 0) {
-          await tx
-            .update(activityMaterialsTable)
-            .set(actValues)
-            .where(eq(activityMaterialsTable.id, existingActMat[0].id));
-        } else {
-          await tx.insert(activityMaterialsTable).values(actValues);
-        }
+        const [upserted] = await tx
+          .insert(activityMaterialsTable)
+          .values({
+            ...actValues,
+            sourceType: MATERIAL_SOURCE_TYPE,
+            sourceId: line.id,
+          })
+          .onConflictDoUpdate({
+            target: [activityMaterialsTable.sourceType, activityMaterialsTable.sourceId],
+            targetWhere: isNotNull(activityMaterialsTable.sourceType),
+            set: actValues,
+          })
+          .returning({ id: activityMaterialsTable.id });
+        if (upserted) affectedActivityMaterialIds.add(upserted.id);
         continue;
       }
 
@@ -2821,6 +3017,18 @@ export async function syncJobMaterialsForDocument(
     await tx.delete(materialsTable).where(inArray(materialsTable.id, toDelete));
   }
 
+  const activityToDelete = existingActivity
+    .filter((m) => m.sourceId == null || !desiredActivity.has(m.sourceId))
+    .map((m) => m.id);
+  if (activityToDelete.length) {
+    for (const materialId of activityToDelete) {
+      await reconcileSourceMovements(tx, "activity_material", materialId, null, actor);
+    }
+    await tx
+      .delete(activityMaterialsTable)
+      .where(inArray(activityMaterialsTable.id, activityToDelete));
+  }
+
   // Reconcile the stock issue (výdej) for every propagated material that still
   // exists — a job material that matches a warehouse item draws it down.
   for (const materialId of affectedMaterialIds) {
@@ -2829,6 +3037,26 @@ export async function syncJobMaterialsForDocument(
       .from(materialsTable)
       .where(eq(materialsTable.id, materialId));
     await reconcileMaterialStockMovement(tx, m ?? null, actor);
+  }
+  for (const materialId of affectedActivityMaterialIds) {
+    const [m] = await tx
+      .select()
+      .from(activityMaterialsTable)
+      .where(eq(activityMaterialsTable.id, materialId));
+    await reconcileActivityMaterialStockMovement(
+      tx,
+      m
+        ? {
+            id: m.id,
+            name: m.name,
+            quantity: m.quantity,
+            pricePerUnit: m.pricePerUnit,
+            jobId: null,
+            warehouseItemId: m.warehouseItemId,
+          }
+        : null,
+      actor,
+    );
   }
 }
 
@@ -3166,6 +3394,7 @@ export async function approveDocument(id: number, actor: Actor) {
           : "Doklad je označen jako duplicita a nelze jej samostatně schválit.",
       );
     }
+    await assertCompleteBeforeTerminalAction(tx, doc, "approve");
     await tx
       .update(billingDocumentsTable)
       .set({
@@ -3471,6 +3700,13 @@ export async function setDocumentStatus(
     .where(eq(billingDocumentsTable.id, id));
   if (!doc) throw appError(404, "Doklad nenalezen.");
   await db.transaction(async (tx) => {
+    if (status === "ignored" || status === "duplicate") {
+      await assertCompleteBeforeTerminalAction(
+        tx,
+        doc,
+        status === "ignored" ? "ignore" : "duplicate",
+      );
+    }
     await tx
       .update(billingDocumentsTable)
       .set({
@@ -3497,6 +3733,17 @@ export async function setDocumentStatus(
     if (doc.status === "approved") {
       await revertInvoicePricePropagation(tx, id, actor);
     }
+    if (doc.status === "approved") {
+      const lines = await tx
+        .select({ id: billingDocumentLinesTable.id })
+        .from(billingDocumentLinesTable)
+        .where(eq(billingDocumentLinesTable.documentId, id));
+      await removeWarehousePriceHistoryForDocument(
+        tx,
+        id,
+        lines.map((l) => l.id),
+      );
+    }
     // Reconcile job materials (removes them when leaving "approved").
     await syncJobMaterialsForDocument(tx, id, actor);
     // Reverse warehouse receipts when leaving "approved" (storno of příjem).
@@ -3505,14 +3752,346 @@ export async function setDocumentStatus(
   return getDocument(id);
 }
 
-export async function requeueExtraction(id: number) {
+async function removeWarehousePriceHistoryForDocument(
+  tx: DbOrTx,
+  documentId: number,
+  lineIds: number[],
+): Promise<number> {
+  const historyWhere = lineIds.length
+    ? or(
+        eq(warehousePriceHistoryTable.billingDocumentId, documentId),
+        inArray(warehousePriceHistoryTable.billingDocumentLineId, lineIds),
+      )!
+    : eq(warehousePriceHistoryTable.billingDocumentId, documentId);
+
+  const rows = await tx
+    .select({
+      id: warehousePriceHistoryTable.id,
+      warehouseItemId: warehousePriceHistoryTable.warehouseItemId,
+      purchasePrice: warehousePriceHistoryTable.purchasePrice,
+    })
+    .from(warehousePriceHistoryTable)
+    .where(historyWhere);
+  if (!rows.length) return 0;
+
+  const deletedPricesByItem = new Map<number, number[]>();
+  for (const row of rows) {
+    const prices = deletedPricesByItem.get(row.warehouseItemId) ?? [];
+    prices.push(num(row.purchasePrice));
+    deletedPricesByItem.set(row.warehouseItemId, prices);
+  }
+
+  await tx
+    .delete(warehousePriceHistoryTable)
+    .where(inArray(warehousePriceHistoryTable.id, rows.map((r) => r.id)));
+
+  for (const [warehouseItemId, deletedPrices] of deletedPricesByItem) {
+    const [item] = await tx
+      .select({ purchasePrice: warehouseItemsTable.purchasePrice })
+      .from(warehouseItemsTable)
+      .where(eq(warehouseItemsTable.id, warehouseItemId));
+    if (!item || item.purchasePrice == null) continue;
+
+    const currentPrice = num(item.purchasePrice);
+    const stillHasDeletedPrice = deletedPrices.some(
+      (deletedPrice) => Math.abs(deletedPrice - currentPrice) < 0.005,
+    );
+    if (!stillHasDeletedPrice) continue;
+
+    const [latest] = await tx
+      .select({ purchasePrice: warehousePriceHistoryTable.purchasePrice })
+      .from(warehousePriceHistoryTable)
+      .where(eq(warehousePriceHistoryTable.warehouseItemId, warehouseItemId))
+      .orderBy(desc(warehousePriceHistoryTable.createdAt), desc(warehousePriceHistoryTable.id))
+      .limit(1);
+
+    await tx
+      .update(warehouseItemsTable)
+      .set({
+        purchasePrice: latest ? String(round2(num(latest.purchasePrice))) : null,
+      })
+      .where(eq(warehouseItemsTable.id, warehouseItemId));
+  }
+
+  return rows.length;
+}
+
+const EXTRACTION_REQUEUE_TERMINAL_STATUSES = new Set([
+  "approved",
+  "ignored",
+  "reviewed",
+  "duplicate",
+]);
+
+export interface RequeueExtractionOptions {
+  force?: boolean;
+}
+
+export async function requeueExtraction(id: number, options: RequeueExtractionOptions = {}) {
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, id));
   if (!doc) throw appError(404, "Doklad nenalezen.");
-  await db.insert(extractionJobsTable).values({ documentId: id });
+  if (options.force && EXTRACTION_REQUEUE_TERMINAL_STATUSES.has(doc.status)) {
+    throw appError(409, "Doklad je ve finálním stavu a hromadná AI analýza jej nepřepíše.");
+  }
+  await db.insert(extractionJobsTable).values({
+    documentId: id,
+    force: options.force === true,
+  });
   return getDocument(id);
+}
+
+export interface RequeueAllExtractionsResult {
+  queued: number;
+  alreadyQueued: number;
+  skippedTerminal: number;
+  totalConsidered: number;
+}
+
+type RequeueDocumentCandidate = {
+  id: number;
+  status: string;
+};
+
+type ActiveExtractionJobCandidate = {
+  id: number;
+  documentId: number;
+  status: string;
+  force: boolean;
+};
+
+type JobAttachmentDocumentCandidate = {
+  jobId: number;
+  url: string | null;
+};
+
+type LockedBillingDocumentLineCandidate = {
+  documentId: number;
+};
+
+type LockedPropagatedMaterialCandidate = {
+  documentId: number;
+};
+
+export async function requeueAllExtractions(actor: Actor): Promise<RequeueAllExtractionsResult> {
+  return db.transaction(async (tx) => {
+    const docs = await tx
+      .select({
+        id: billingDocumentsTable.id,
+        status: billingDocumentsTable.status,
+      })
+      .from(billingDocumentsTable)
+      .orderBy(billingDocumentsTable.id) as RequeueDocumentCandidate[];
+
+    const activeJobs = await tx
+      .select({ documentId: extractionJobsTable.documentId })
+      .from(extractionJobsTable)
+      .where(inArray(extractionJobsTable.status, ["queued", "running"])) as Pick<
+        ActiveExtractionJobCandidate,
+        "documentId"
+      >[];
+    const activeDocumentIds = new Set(activeJobs.map((job) => job.documentId));
+
+    const idsToQueue: number[] = [];
+    let alreadyQueued = 0;
+    let skippedTerminal = 0;
+    for (const doc of docs) {
+      if (EXTRACTION_REQUEUE_TERMINAL_STATUSES.has(doc.status)) {
+        skippedTerminal++;
+        continue;
+      }
+      if (activeDocumentIds.has(doc.id)) {
+        alreadyQueued++;
+        continue;
+      }
+      idsToQueue.push(doc.id);
+    }
+
+    if (idsToQueue.length) {
+      await tx.insert(extractionJobsTable).values(
+        idsToQueue.map((documentId) => ({
+          documentId,
+          force: true,
+        })),
+      );
+    }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "requeue_all_ai_extraction",
+      entityType: "billing_documents",
+      entityId: null,
+      summary: `Hromadně zařazena AI analýza dokladů: ${idsToQueue.length} nově, ${alreadyQueued} již čeká, ${skippedTerminal} přeskočeno.`,
+      method: "POST",
+      path: "/billing/documents/extract-all",
+    });
+
+    return {
+      queued: idsToQueue.length,
+      alreadyQueued,
+      skippedTerminal,
+      totalConsidered: docs.length,
+    };
+  });
+}
+
+export interface ReanalyzeJobAttachmentDocumentsResult {
+  jobsScanned: number;
+  attachmentsScanned: number;
+  created: number;
+  skippedAttachments: number;
+  queued: number;
+  alreadyQueued: number;
+  skippedTerminal: number;
+  skippedLocked: number;
+  totalJobDocuments: number;
+}
+
+export async function reanalyzeJobAttachmentDocuments(
+  actor: Actor,
+): Promise<ReanalyzeJobAttachmentDocumentsResult> {
+  const dokladAttachments = (
+    await db
+      .select({
+        jobId: attachmentsTable.jobId,
+        url: attachmentsTable.url,
+      })
+      .from(attachmentsTable)
+      .where(inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)))
+  ) as JobAttachmentDocumentCandidate[];
+  const storedDokladAttachments = dokladAttachments.filter((att) => att.url?.startsWith("/objects/"));
+
+  const jobIds = Array.from(new Set(storedDokladAttachments.map((att) => att.jobId)));
+  let created = 0;
+  let skippedAttachments = 0;
+  for (const jobId of jobIds) {
+    const result = await analyzeJobDocuments(jobId, actor);
+    created += result.createdCount;
+    skippedAttachments += result.skipped;
+  }
+
+  const queueResult = await db.transaction(async (tx) => {
+    const docs = await tx
+      .select({
+        id: billingDocumentsTable.id,
+        status: billingDocumentsTable.status,
+      })
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.source, "job_attachment"))
+      .orderBy(billingDocumentsTable.id) as RequeueDocumentCandidate[];
+
+    const activeJobs = await tx
+      .select({
+        id: extractionJobsTable.id,
+        documentId: extractionJobsTable.documentId,
+        status: extractionJobsTable.status,
+        force: extractionJobsTable.force,
+      })
+      .from(extractionJobsTable)
+      .where(inArray(extractionJobsTable.status, ["queued", "running"])) as ActiveExtractionJobCandidate[];
+    const activeByDocumentId = new Map<number, ActiveExtractionJobCandidate[]>();
+    for (const job of activeJobs) {
+      const jobs = activeByDocumentId.get(job.documentId) ?? [];
+      jobs.push(job);
+      activeByDocumentId.set(job.documentId, jobs);
+    }
+    const lockedLines = await tx
+      .select({ documentId: billingDocumentLinesTable.documentId })
+      .from(billingDocumentLinesTable)
+      .where(isNotNull(billingDocumentLinesTable.invoicedInvoiceId)) as LockedBillingDocumentLineCandidate[];
+    const lockedMaterials = await tx
+      .select({ documentId: billingDocumentLinesTable.documentId })
+      .from(materialsTable)
+      .innerJoin(
+        billingDocumentLinesTable,
+        eq(materialsTable.sourceId, billingDocumentLinesTable.id),
+      )
+      .where(
+        and(
+          eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+          isNotNull(materialsTable.invoicedInvoiceId),
+        ),
+      ) as LockedPropagatedMaterialCandidate[];
+    const lockedDocumentIds = new Set([
+      ...lockedLines.map((line) => line.documentId),
+      ...lockedMaterials.map((material) => material.documentId),
+    ]);
+
+    const idsToQueue: number[] = [];
+    const queuedJobIdsToUpgrade: number[] = [];
+    let alreadyQueued = 0;
+    let skippedTerminal = 0;
+    let skippedLocked = 0;
+    for (const doc of docs) {
+      if (lockedDocumentIds.has(doc.id)) {
+        skippedLocked++;
+        continue;
+      }
+      const active = activeByDocumentId.get(doc.id) ?? [];
+      if (active.length) {
+        const queuedJobs = active.filter((job) => job.status === "queued");
+        const hasForcedActive = active.some((job) => job.force);
+        if (queuedJobs.length) {
+          alreadyQueued++;
+          queuedJobIdsToUpgrade.push(...queuedJobs.map((job) => job.id));
+          continue;
+        }
+        if (hasForcedActive) {
+          alreadyQueued++;
+          continue;
+        }
+      }
+      idsToQueue.push(doc.id);
+    }
+
+    if (queuedJobIdsToUpgrade.length) {
+      await tx
+        .update(extractionJobsTable)
+        .set({ force: true, updatedAt: new Date() })
+        .where(inArray(extractionJobsTable.id, queuedJobIdsToUpgrade));
+    }
+    if (idsToQueue.length) {
+      await tx.insert(extractionJobsTable).values(
+        idsToQueue.map((documentId) => ({
+          documentId,
+          force: true,
+        })),
+      );
+    }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "reanalyze_job_attachment_documents",
+      entityType: "billing_documents",
+      entityId: null,
+      summary: `Znovu analyzovány zakázkové doklady: ${idsToQueue.length} nově ve frontě, ${alreadyQueued} již čeká, ${skippedTerminal} přeskočeno.`,
+      method: "POST",
+      ...{
+        summary: `Znovu analyzovany zakazkove doklady: ${idsToQueue.length} nove ve fronte, ${alreadyQueued} uz ceka, ${skippedLocked} zamceno vystavenou fakturou.`,
+      },
+      path: "/billing/documents/reanalyze-job-attachments",
+    });
+
+    return {
+      queued: idsToQueue.length,
+      alreadyQueued,
+      skippedTerminal,
+      skippedLocked,
+      totalJobDocuments: docs.length,
+    };
+  });
+
+  return {
+    jobsScanned: jobIds.length,
+    attachmentsScanned: storedDokladAttachments.length,
+    created,
+    skippedAttachments,
+    ...queueResult,
+  };
 }
 
 export async function deleteDocument(id: number, actor: Actor) {
@@ -3568,6 +4147,30 @@ export async function deleteDocument(id: number, actor: Actor) {
         .delete(materialsTable)
         .where(inArray(materialsTable.id, propagated.map((m) => m.id)));
     }
+    const propagatedActivity = lineIds.length
+      ? await tx
+          .select({ id: activityMaterialsTable.id })
+          .from(activityMaterialsTable)
+          .where(
+            and(
+              eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+              inArray(activityMaterialsTable.sourceId, lineIds),
+            ),
+          )
+      : [];
+    for (const m of propagatedActivity) {
+      await reconcileSourceMovements(tx, "activity_material", m.id, null, actor);
+    }
+    if (propagatedActivity.length) {
+      await tx
+        .delete(activityMaterialsTable)
+        .where(inArray(activityMaterialsTable.id, propagatedActivity.map((m) => m.id)));
+    }
+    // Remove purchase-price history written by this document before the
+    // document/line FKs are nulled by ON DELETE SET NULL. If the warehouse
+    // item's current purchase price still equals the deleted document's price,
+    // roll it back to the latest remaining history entry.
+    await removeWarehousePriceHistoryForDocument(tx, id, lineIds);
     // Roll back any prices this document filled onto OTHER documents' materials
     // (delivery-note fills) so a deleted invoice never leaves a stale price.
     await revertInvoicePricePropagation(tx, id, actor);
@@ -3589,7 +4192,7 @@ export async function deleteDocument(id: number, actor: Actor) {
 // Analyze a job's attachments → cost documents
 // ---------------------------------------------------------------------------
 
-const DOKLAD_TYPES = new Set(["invoice", "receipt", "delivery_note"]);
+const DOKLAD_TYPES = new Set(["invoice", "receipt", "delivery_note", "credit_note"]);
 
 // Namespace for the Postgres advisory lock keyed by (class, jobId) that
 // serializes concurrent "Analyzovat doklady" runs for the same job (e.g. a
@@ -3652,7 +4255,9 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
           ? "receipt"
           : att.type === "delivery_note"
             ? "delivery_note"
-            : "invoice";
+            : att.type === "credit_note"
+              ? "credit_note"
+              : "invoice";
       const result = await createDocumentSafe(
         {
           objectPath: att.url!,
@@ -3878,6 +4483,9 @@ export interface AiSuggestionInput {
   subtotalWithoutVat?: number | null;
   totalVat?: number | null;
   totalWithVat?: number | null;
+  pageNumber?: number | null;
+  pageCount?: number | null;
+  finalTotalPresent?: boolean | null;
   lines: AiSuggestionLine[];
   relatedDocuments?: AiSuggestionReference[];
   confidence: number;
@@ -3886,10 +4494,38 @@ export interface AiSuggestionInput {
   rawJson: string;
 }
 
+export interface ApplyAiSuggestionOptions {
+  replaceExisting?: boolean;
+}
+
 /** Only fill a header field from AI when the document doesn't already have one. */
 function fillIfEmpty<T>(current: T | null, suggestion: T | null | undefined): T | null {
   if (current != null && current !== ("" as unknown as T)) return current;
   return suggestion ?? null;
+}
+
+function fillFromAi<T>(
+  current: T | null,
+  suggestion: T | null | undefined,
+  replaceExisting: boolean,
+): T | null {
+  return replaceExisting ? (suggestion ?? null) : fillIfEmpty(current, suggestion);
+}
+
+async function cleanupBeforeForcedAiLineReplacement(
+  tx: DbOrTx,
+  documentId: number,
+  lineIds: number[],
+  actor: Actor,
+): Promise<void> {
+  if (!lineIds.length) return;
+  await revertInvoicePricePropagation(tx, documentId, actor);
+  await removeWarehousePriceHistoryForDocument(tx, documentId, lineIds);
+  await syncJobMaterialsForDocument(tx, documentId, actor);
+  await reconcileDocumentStockMovements(tx, documentId, actor);
+  for (const lineId of lineIds) {
+    await reconcileSourceMovements(tx, "billing_document_line", lineId, null, actor);
+  }
 }
 
 /**
@@ -3903,6 +4539,7 @@ function fillIfEmpty<T>(current: T | null, suggestion: T | null | undefined): T 
 export async function applyAiSuggestion(
   documentId: number,
   suggestion: AiSuggestionInput,
+  options: ApplyAiSuggestionOptions = {},
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const [doc] = await tx
@@ -3910,11 +4547,42 @@ export async function applyAiSuggestion(
       .from(billingDocumentsTable)
       .where(eq(billingDocumentsTable.id, documentId));
     if (!doc) throw appError(404, "Doklad nenalezen.");
+    const replaceExisting = options.replaceExisting === true;
+    const actor = SYSTEM_ACTOR;
 
     const existingLines = await tx
-      .select({ id: billingDocumentLinesTable.id })
+      .select({
+        id: billingDocumentLinesTable.id,
+        invoicedInvoiceId: billingDocumentLinesTable.invoicedInvoiceId,
+      })
       .from(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.documentId, documentId));
+    if (replaceExisting && existingLines.some((line) => line.invoicedInvoiceId != null)) {
+      throw appError(
+        409,
+        "Doklad má položky použité ve faktuře. AI analýzu nelze vynuceně přepsat.",
+      );
+    }
+
+    const existingLineIds = existingLines.map((line) => line.id);
+    if (replaceExisting && existingLineIds.length) {
+      const lockedMaterials = await tx
+        .select({ id: materialsTable.id })
+        .from(materialsTable)
+        .where(
+          and(
+            eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+            inArray(materialsTable.sourceId, existingLineIds),
+            isNotNull(materialsTable.invoicedInvoiceId),
+          ),
+        );
+      if (lockedMaterials.length) {
+        throw appError(
+          409,
+          "Doklad ma material pouzity ve vystavene fakture. AI analyzu nelze vynucene prepsat.",
+        );
+      }
+    }
 
     const lowConfidenceWarning =
       suggestion.confidence < CONFIDENCE_REVIEW_THRESHOLD
@@ -3922,10 +4590,17 @@ export async function applyAiSuggestion(
             suggestion.confidence * 100,
           )} %. Doklad vyžaduje ruční kontrolu.`
         : null;
+    const incompleteMultipageWarning =
+      suggestion.pageCount != null &&
+      suggestion.pageCount > 1 &&
+      suggestion.finalTotalPresent === false
+        ? `NEUPLNY_VICESTRANKOVY_DOKLAD: Viditelná je pouze strana ${suggestion.pageNumber ?? "?"}/${suggestion.pageCount} a chybí finální součet dokladu. Stránku je nutné sloučit s dalšími stranami před schválením nebo ignorováním.`
+        : null;
     const warnings = Array.from(
       new Set([
         "Hlavička a položky předvyplněny pomocí AI (OpenAI). Před schválením pečlivě zkontrolujte.",
         ...(lowConfidenceWarning ? [lowConfidenceWarning] : []),
+        ...(incompleteMultipageWarning ? [incompleteMultipageWarning] : []),
         ...suggestion.warnings,
       ]),
     ).join("\n");
@@ -3940,29 +4615,34 @@ export async function applyAiSuggestion(
       .set({
         // Never override a value a human / ISDOC already set.
         docType,
-        supplierName: fillIfEmpty(doc.supplierName, suggestion.supplierName),
-        supplierIc: fillIfEmpty(doc.supplierIc, suggestion.supplierIc),
-        supplierDic: fillIfEmpty(doc.supplierDic, suggestion.supplierDic),
-        supplierAddress: fillIfEmpty(doc.supplierAddress, suggestion.supplierAddress),
-        documentNumber: fillIfEmpty(doc.documentNumber, suggestion.documentNumber),
-        variableSymbol: fillIfEmpty(doc.variableSymbol, suggestion.variableSymbol),
-        issueDate: fillIfEmpty(doc.issueDate, suggestion.issueDate),
-        taxableSupplyDate: fillIfEmpty(doc.taxableSupplyDate, suggestion.taxableSupplyDate),
-        dueDate: fillIfEmpty(doc.dueDate, suggestion.dueDate),
-        currency: doc.currency || suggestion.currency || "CZK",
+        primaryDocumentId: replaceExisting ? null : doc.primaryDocumentId,
+        mergeGroupId: replaceExisting ? null : doc.mergeGroupId,
+        supplierName: fillFromAi(doc.supplierName, suggestion.supplierName, replaceExisting),
+        supplierIc: fillFromAi(doc.supplierIc, suggestion.supplierIc, replaceExisting),
+        supplierDic: fillFromAi(doc.supplierDic, suggestion.supplierDic, replaceExisting),
+        supplierAddress: fillFromAi(doc.supplierAddress, suggestion.supplierAddress, replaceExisting),
+        documentNumber: fillFromAi(doc.documentNumber, suggestion.documentNumber, replaceExisting),
+        variableSymbol: fillFromAi(doc.variableSymbol, suggestion.variableSymbol, replaceExisting),
+        issueDate: fillFromAi(doc.issueDate, suggestion.issueDate, replaceExisting),
+        taxableSupplyDate: fillFromAi(doc.taxableSupplyDate, suggestion.taxableSupplyDate, replaceExisting),
+        dueDate: fillFromAi(doc.dueDate, suggestion.dueDate, replaceExisting),
+        currency: replaceExisting ? (suggestion.currency || "CZK") : (doc.currency || suggestion.currency || "CZK"),
         subtotalWithoutVat:
-          doc.subtotalWithoutVat ??
-          (suggestion.subtotalWithoutVat != null
-            ? String(round2(suggestion.subtotalWithoutVat))
-            : null),
+          replaceExisting || doc.subtotalWithoutVat == null
+            ? (suggestion.subtotalWithoutVat != null
+                ? String(round2(suggestion.subtotalWithoutVat))
+                : null)
+            : doc.subtotalWithoutVat,
         totalVat:
-          doc.totalVat ??
-          (suggestion.totalVat != null ? String(round2(suggestion.totalVat)) : null),
+          replaceExisting || doc.totalVat == null
+            ? (suggestion.totalVat != null ? String(round2(suggestion.totalVat)) : null)
+            : doc.totalVat,
         totalWithVat:
-          doc.totalWithVat ??
-          (suggestion.totalWithVat != null
-            ? String(round2(suggestion.totalWithVat))
-            : null),
+          replaceExisting || doc.totalWithVat == null
+            ? (suggestion.totalWithVat != null
+                ? String(round2(suggestion.totalWithVat))
+                : null)
+            : doc.totalWithVat,
         warnings,
         aiRawJson: suggestion.rawJson,
         aiConfidence: String(round2(suggestion.confidence)),
@@ -3974,7 +4654,19 @@ export async function applyAiSuggestion(
       })
       .where(eq(billingDocumentsTable.id, documentId));
 
-    if (!existingLines.length && suggestion.lines.length) {
+    if (replaceExisting && existingLines.length) {
+      await cleanupBeforeForcedAiLineReplacement(
+        tx,
+        documentId,
+        existingLineIds,
+        actor,
+      );
+      await tx
+        .delete(billingDocumentLinesTable)
+        .where(eq(billingDocumentLinesTable.documentId, documentId));
+    }
+
+    if ((!existingLines.length || replaceExisting) && suggestion.lines.length) {
       await tx.insert(billingDocumentLinesTable).values(
         suggestion.lines.map((l, idx) =>
           lineValues(
@@ -4003,6 +4695,17 @@ export async function applyAiSuggestion(
     }
 
     // Persist AI-suggested document references (deduped against existing ones).
+    if (replaceExisting) {
+      await tx
+        .delete(billingDocumentReferencesTable)
+        .where(
+          and(
+            eq(billingDocumentReferencesTable.documentId, documentId),
+            eq(billingDocumentReferencesTable.source, "ai"),
+          ),
+        );
+    }
+
     if (suggestion.relatedDocuments?.length) {
       const existingRefs = await tx
         .select({
@@ -4042,6 +4745,7 @@ export async function applyAiSuggestion(
       }
     }
   });
+  await reconcileIncompleteMultipagePagesSafely(documentId, SYSTEM_ACTOR);
   await reconcileDocumentRelationshipsSafely(documentId, SYSTEM_ACTOR);
 }
 

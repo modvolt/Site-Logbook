@@ -4168,6 +4168,8 @@ export const ListActivityMaterialsResponseItem = zod.object({
   "done": zod.boolean(),
   "sortOrder": zod.number(),
   "warehouseItemId": zod.number().nullish(),
+  "sourceType": zod.string().nullish(),
+  "sourceId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 export const ListActivityMaterialsResponse = zod.array(ListActivityMaterialsResponseItem)
@@ -4225,6 +4227,8 @@ export const UpdateActivityMaterialResponse = zod.object({
   "done": zod.boolean(),
   "sortOrder": zod.number(),
   "warehouseItemId": zod.number().nullish(),
+  "sourceType": zod.string().nullish(),
+  "sourceId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 
@@ -7709,6 +7713,33 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
 
 
 /**
+ * @summary Re-queue AI extraction for all non-terminal cost documents (admin only)
+ */
+export const RequeueAllCostDocumentExtractionsResponse = zod.object({
+  "queued": zod.number(),
+  "alreadyQueued": zod.number(),
+  "skippedTerminal": zod.number(),
+  "totalConsidered": zod.number()
+})
+
+
+/**
+ * @summary Import and re-queue AI extraction for cost documents attached to jobs (admin only)
+ */
+export const ReanalyzeJobAttachmentDocumentsResponse = zod.object({
+  "jobsScanned": zod.number(),
+  "attachmentsScanned": zod.number(),
+  "created": zod.number(),
+  "skippedAttachments": zod.number(),
+  "queued": zod.number(),
+  "alreadyQueued": zod.number(),
+  "skippedTerminal": zod.number(),
+  "skippedLocked": zod.number(),
+  "totalJobDocuments": zod.number()
+})
+
+
+/**
  * @summary Update / match a cost document line (admin only)
  */
 export const UpdateCostDocumentLineParams = zod.object({
@@ -9851,5 +9882,3 @@ export const RejectPublicQuoteResponse = zod.object({
 export const DownloadQuotePdfParams = zod.object({
   "id": zod.coerce.number()
 })
-
-

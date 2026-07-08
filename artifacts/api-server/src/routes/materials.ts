@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { eq, and, ilike, or } from "drizzle-orm";
 import {
   db,
@@ -46,6 +46,20 @@ function serializeMaterial(m: typeof materialsTable.$inferSelect) {
     invoicedAt: m.invoicedAt != null ? m.invoicedAt.toISOString() : null,
     createdAt: m.createdAt.toISOString(),
   };
+}
+
+function isDocumentOwnedMaterial(m: typeof materialsTable.$inferSelect): boolean {
+  return m.sourceType === "billing_document_line" && m.sourceId != null;
+}
+
+function isCustomerInvoicedMaterial(m: typeof materialsTable.$inferSelect): boolean {
+  return m.invoicedInvoiceId != null;
+}
+
+function rejectManagedMaterial(res: Response, action: "upravit" | "smazat") {
+  res.status(409).json({
+    error: `Materiál nejde ${action} v zakázce. Je řízený schváleným dokladem nebo už byl použit ve fakturaci; upravte původní doklad.`,
+  });
 }
 
 router.get("/jobs/:jobId/materials", async (req, res): Promise<void> => {
@@ -110,6 +124,16 @@ router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<voi
   if (quantity !== undefined) updateData.quantity = toStr(quantity);
   if (pricePerUnit !== undefined) updateData.pricePerUnit = toStr(pricePerUnit);
 
+  const [existing] = await db
+    .select()
+    .from(materialsTable)
+    .where(and(eq(materialsTable.id, params.data.materialId), eq(materialsTable.jobId, params.data.jobId)));
+  if (!existing) { res.status(404).json({ error: "Material not found" }); return; }
+  if (isDocumentOwnedMaterial(existing) || isCustomerInvoicedMaterial(existing)) {
+    rejectManagedMaterial(res, "upravit");
+    return;
+  }
+
   const actor = actorOf(req);
   const material = await db.transaction(async (tx) => {
     if (bodyWarehouseItemId !== undefined) {
@@ -139,6 +163,16 @@ router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<voi
 router.delete("/jobs/:jobId/materials/:materialId", async (req, res): Promise<void> => {
   const params = DeleteMaterialParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+
+  const [existing] = await db
+    .select()
+    .from(materialsTable)
+    .where(and(eq(materialsTable.id, params.data.materialId), eq(materialsTable.jobId, params.data.jobId)));
+  if (!existing) { res.status(404).json({ error: "Material not found" }); return; }
+  if (isDocumentOwnedMaterial(existing) || isCustomerInvoicedMaterial(existing)) {
+    rejectManagedMaterial(res, "smazat");
+    return;
+  }
 
   const actor = actorOf(req);
   const material = await db.transaction(async (tx) => {

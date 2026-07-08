@@ -2968,6 +2968,10 @@ export interface ActivityMaterial {
   sortOrder: number;
   /** @nullable */
   warehouseItemId?: number | null;
+  /** @nullable */
+  sourceType?: string | null;
+  /** @nullable */
+  sourceId?: number | null;
   createdAt: string;
 }
 
@@ -4348,6 +4352,25 @@ export interface ReviewQueueItem {
 export interface ReviewQueueListResult {
   items: ReviewQueueItem[];
   total: number;
+}
+
+export interface RequeueAllCostDocumentExtractionsResult {
+  queued: number;
+  alreadyQueued: number;
+  skippedTerminal: number;
+  totalConsidered: number;
+}
+
+export interface ReanalyzeJobAttachmentDocumentsResult {
+  jobsScanned: number;
+  attachmentsScanned: number;
+  created: number;
+  skippedAttachments: number;
+  queued: number;
+  alreadyQueued: number;
+  skippedTerminal: number;
+  skippedLocked: number;
+  totalJobDocuments: number;
 }
 
 export interface BulkConfirmReviewLinesInput {
@@ -6011,4 +6034,3 @@ export const ListQuotesStatus = {
   rejected: 'rejected',
   expired: 'expired',
 } as const;
-

@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { eq, and, desc, sql, ne, isNotNull, asc } from "drizzle-orm";
 import {
   db,
@@ -207,6 +207,16 @@ function serializeMaterial(m: typeof activityMaterialsTable.$inferSelect) {
     pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
     createdAt: m.createdAt.toISOString(),
   };
+}
+
+function isDocumentOwnedMaterial(m: typeof activityMaterialsTable.$inferSelect): boolean {
+  return m.sourceType === "billing_document_line" && m.sourceId != null;
+}
+
+function rejectManagedMaterial(res: Response, action: "upravit" | "smazat") {
+  res.status(409).json({
+    error: `Materiál nejde ${action} v aktivitě. Je řízený schváleným dokladem; upravte původní doklad.`,
+  });
 }
 
 function serializeAttachment(a: typeof activityAttachmentsTable.$inferSelect) {
@@ -464,6 +474,24 @@ router.patch("/activities/:activityId/materials/:materialId", requireAuth, async
   if (quantity !== undefined) updateData.quantity = toStr(quantity);
   if (pricePerUnit !== undefined) updateData.pricePerUnit = toStr(pricePerUnit);
 
+  const [existing] = await db
+    .select()
+    .from(activityMaterialsTable)
+    .where(
+      and(
+        eq(activityMaterialsTable.id, params.data.materialId),
+        eq(activityMaterialsTable.activityId, params.data.activityId),
+      ),
+    );
+  if (!existing) {
+    res.status(404).json({ error: "Material not found" });
+    return;
+  }
+  if (isDocumentOwnedMaterial(existing)) {
+    rejectManagedMaterial(res, "upravit");
+    return;
+  }
+
   const actor = actorOf(req);
   const m = await db.transaction(async (tx) => {
     if (bodyWarehouseItemId !== undefined) {
@@ -502,6 +530,24 @@ router.delete("/activities/:activityId/materials/:materialId", requireAuth, asyn
     res.status(400).json({ error: params.error.message });
     return;
   }
+  const [existing] = await db
+    .select()
+    .from(activityMaterialsTable)
+    .where(
+      and(
+        eq(activityMaterialsTable.id, params.data.materialId),
+        eq(activityMaterialsTable.activityId, params.data.activityId),
+      ),
+    );
+  if (!existing) {
+    res.status(404).json({ error: "Material not found" });
+    return;
+  }
+  if (isDocumentOwnedMaterial(existing)) {
+    rejectManagedMaterial(res, "smazat");
+    return;
+  }
+
   const actor = actorOf(req);
   const m = await db.transaction(async (tx) => {
     const [deleted] = await tx
