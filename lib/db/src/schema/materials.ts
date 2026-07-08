@@ -71,6 +71,8 @@ export const materialsTable = pgTable("materials", {
   index("materials_price_source_document_id_idx").on(t.priceSourceDocumentId),
   index("materials_price_source_line_id_idx").on(t.priceSourceLineId),
   index("materials_invoiced_invoice_id_idx").on(t.invoicedInvoiceId),
+  index("materials_job_id_idx").on(t.jobId),
+  index("materials_source_id_idx").on(t.sourceId),
 ]);
 
 export const insertMaterialSchema = createInsertSchema(materialsTable).omit({ id: true, createdAt: true });

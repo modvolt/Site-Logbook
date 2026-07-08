@@ -98,109 +98,137 @@ function numericJobFields(data: Record<string, unknown>) {
   return out;
 }
 
+// Batch enrichment: a fixed number of grouped queries regardless of how many
+// jobs are passed in. Replaces the old per-job version that issued ~6 queries
+// per job (N+1 — the jobs list with hundreds of jobs fired thousands of queries).
+export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[]) {
+  if (jobList.length === 0) return [];
+  const jobIds = jobList.map((j) => j.id);
+  const customerIds = [...new Set(jobList.map((j) => j.customerId).filter((x): x is number => x != null))];
+  const assignedPersonIds = [...new Set(jobList.map((j) => j.assignedPersonId).filter((x): x is number => x != null))];
+
+  const [taskCountRows, attachmentCountRows, materialAggRows, billingLinkRows, assigneeRows, customerRows, personRows] =
+    await Promise.all([
+      db
+        .select({
+          jobId: tasksTable.jobId,
+          total: count(),
+          done: sql<number>`sum(case when ${tasksTable.done} then 1 else 0 end)`.mapWith(Number),
+        })
+        .from(tasksTable)
+        .where(inArray(tasksTable.jobId, jobIds))
+        .groupBy(tasksTable.jobId),
+      db
+        .select({ jobId: attachmentsTable.jobId, total: count() })
+        .from(attachmentsTable)
+        .where(inArray(attachmentsTable.jobId, jobIds))
+        .groupBy(attachmentsTable.jobId),
+      db
+        .select({
+          jobId: materialsTable.jobId,
+          total: count(),
+          totalCost: sql<string | null>`sum(case when ${materialsTable.pricePerUnit} is not null and ${materialsTable.pricePerUnit} != '0' then coalesce(${materialsTable.quantity}, 1) * ${materialsTable.pricePerUnit}::numeric else null end)`,
+        })
+        .from(materialsTable)
+        .where(inArray(materialsTable.jobId, jobIds))
+        .groupBy(materialsTable.jobId),
+      db
+        .selectDistinct({ jobId: invoiceSourceLinksTable.jobId })
+        .from(invoiceSourceLinksTable)
+        .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+        .where(
+          and(
+            inArray(invoiceSourceLinksTable.jobId, jobIds),
+            isNotNull(invoiceSourceLinksTable.jobId),
+            ne(invoicesTable.status, "cancelled"),
+          ),
+        ),
+      db
+        .select({ jobId: jobAssigneesTable.jobId, id: peopleTable.id, name: peopleTable.name })
+        .from(jobAssigneesTable)
+        .innerJoin(peopleTable, eq(jobAssigneesTable.personId, peopleTable.id))
+        .where(inArray(jobAssigneesTable.jobId, jobIds))
+        .orderBy(peopleTable.name),
+      customerIds.length
+        ? db
+            .select({
+              id: customersTable.id,
+              companyName: customersTable.companyName,
+              phone: customersTable.phone,
+              email: customersTable.email,
+            })
+            .from(customersTable)
+            .where(inArray(customersTable.id, customerIds))
+        : Promise.resolve([]),
+      assignedPersonIds.length
+        ? db
+            .select({ id: peopleTable.id, name: peopleTable.name })
+            .from(peopleTable)
+            .where(inArray(peopleTable.id, assignedPersonIds))
+        : Promise.resolve([]),
+    ]);
+
+  const taskCountsByJob = new Map(taskCountRows.map((r) => [r.jobId, r]));
+  const attachmentCountByJob = new Map(attachmentCountRows.map((r) => [r.jobId, r.total]));
+  const materialAggByJob = new Map(materialAggRows.map((r) => [r.jobId, r]));
+  const billedJobIds = new Set(billingLinkRows.map((r) => r.jobId));
+  const assigneesByJob = new Map<number, { id: number; name: string }[]>();
+  for (const r of assigneeRows) {
+    const list = assigneesByJob.get(r.jobId);
+    if (list) list.push({ id: r.id, name: r.name });
+    else assigneesByJob.set(r.jobId, [{ id: r.id, name: r.name }]);
+  }
+  const customersById = new Map(customerRows.map((r) => [r.id, r]));
+  const peopleById = new Map(personRows.map((r) => [r.id, r.name]));
+
+  return jobList.map((job) => {
+    const taskCounts = taskCountsByJob.get(job.id);
+    const materialAgg = materialAggByJob.get(job.id);
+    const assignees = assigneesByJob.get(job.id) ?? [];
+    const customer = job.customerId != null ? customersById.get(job.customerId) : undefined;
+    const rawCost = materialAgg?.totalCost;
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { signatureToken: _st, ...jobWithoutSecret } = job;
+    return {
+      ...jobWithoutSecret,
+      hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
+      hoursBeforePlan: job.hoursBeforePlan != null ? Number(job.hoursBeforePlan) : null,
+      hoursVasek: job.hoursVasek != null ? Number(job.hoursVasek) : null,
+      hoursJonas: job.hoursJonas != null ? Number(job.hoursJonas) : null,
+      price: job.price != null ? Number(job.price) : null,
+      transportKm: job.transportKm != null ? Number(job.transportKm) : null,
+      transportCost: job.transportCost != null ? Number(job.transportCost) : null,
+      fines: job.fines != null ? Number(job.fines) : null,
+      parking: job.parking != null ? Number(job.parking) : null,
+      contractPrice: job.contractPrice != null ? Number(job.contractPrice) : null,
+      taskCount: taskCounts?.total ?? 0,
+      taskDoneCount: taskCounts?.done ?? 0,
+      attachmentCount: attachmentCountByJob.get(job.id) ?? 0,
+      materialCount: materialAgg?.total ?? 0,
+      materialTotalCost: rawCost != null ? Number(rawCost) : null,
+      billingLinked: billedJobIds.has(job.id),
+      assignedPersonName:
+        job.assignedPersonId != null ? (peopleById.get(job.assignedPersonId) ?? null) : null,
+      assigneeIds: assignees.map((a) => a.id),
+      assigneeNames: assignees.map((a) => a.name),
+      customerCompanyName: customer?.companyName ?? null,
+      customerPhone: customer?.phone ?? null,
+      customerEmail: customer?.email ?? null,
+      timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
+      createdAt: job.createdAt.toISOString(),
+      signatureRequestedAt: job.signatureRequestedAt ? job.signatureRequestedAt.toISOString() : null,
+      signatureTokenExpiresAt: job.signatureTokenExpiresAt ? job.signatureTokenExpiresAt.toISOString() : null,
+      signedAt: job.signedAt ? job.signedAt.toISOString() : null,
+      signatureObjectPath: job.signatureObjectPath,
+      // signatureToken intentionally omitted — it is a secret bearer credential
+    };
+  });
+}
+
 async function enrichJob(job: typeof jobsTable.$inferSelect) {
-  const [taskCounts] = await db
-    .select({
-      total: count(),
-      done: sql<number>`sum(case when ${tasksTable.done} then 1 else 0 end)`.mapWith(Number),
-    })
-    .from(tasksTable)
-    .where(eq(tasksTable.jobId, job.id));
-
-  const [attachmentCount] = await db
-    .select({ total: count() })
-    .from(attachmentsTable)
-    .where(eq(attachmentsTable.jobId, job.id));
-
-  const [materialAgg] = await db
-    .select({
-      total: count(),
-      totalCost: sql<string | null>`sum(case when ${materialsTable.pricePerUnit} is not null and ${materialsTable.pricePerUnit} != '0' then coalesce(${materialsTable.quantity}, 1) * ${materialsTable.pricePerUnit}::numeric else null end)`,
-    })
-    .from(materialsTable)
-    .where(eq(materialsTable.jobId, job.id));
-
-  const [billingLink] = await db
-    .select({ jobId: invoiceSourceLinksTable.jobId })
-    .from(invoiceSourceLinksTable)
-    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
-    .where(
-      and(
-        eq(invoiceSourceLinksTable.jobId, job.id),
-        isNotNull(invoiceSourceLinksTable.jobId),
-        ne(invoicesTable.status, "cancelled"),
-      ),
-    )
-    .limit(1);
-
-  let assignedPersonName: string | null = null;
-  if (job.assignedPersonId) {
-    const [person] = await db
-      .select({ name: peopleTable.name })
-      .from(peopleTable)
-      .where(eq(peopleTable.id, job.assignedPersonId));
-    assignedPersonName = person?.name ?? null;
-  }
-
-  const assigneeRows = await db
-    .select({ id: peopleTable.id, name: peopleTable.name })
-    .from(jobAssigneesTable)
-    .innerJoin(peopleTable, eq(jobAssigneesTable.personId, peopleTable.id))
-    .where(eq(jobAssigneesTable.jobId, job.id))
-    .orderBy(peopleTable.name);
-  const assigneeIds = assigneeRows.map((r) => r.id);
-  const assigneeNames = assigneeRows.map((r) => r.name);
-
-  let customerCompanyName: string | null = null;
-  let customerPhone: string | null = null;
-  let customerEmail: string | null = null;
-  if (job.customerId) {
-    const [customer] = await db
-      .select({ companyName: customersTable.companyName, phone: customersTable.phone, email: customersTable.email })
-      .from(customersTable)
-      .where(eq(customersTable.id, job.customerId));
-    customerCompanyName = customer?.companyName ?? null;
-    customerPhone = customer?.phone ?? null;
-    customerEmail = customer?.email ?? null;
-  }
-
-  const rawCost = materialAgg?.totalCost;
-  const materialTotalCost = rawCost != null ? Number(rawCost) : null;
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { signatureToken: _st, ...jobWithoutSecret } = job;
-  return {
-    ...jobWithoutSecret,
-    hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
-    hoursBeforePlan: job.hoursBeforePlan != null ? Number(job.hoursBeforePlan) : null,
-    hoursVasek: job.hoursVasek != null ? Number(job.hoursVasek) : null,
-    hoursJonas: job.hoursJonas != null ? Number(job.hoursJonas) : null,
-    price: job.price != null ? Number(job.price) : null,
-    transportKm: job.transportKm != null ? Number(job.transportKm) : null,
-    transportCost: job.transportCost != null ? Number(job.transportCost) : null,
-    fines: job.fines != null ? Number(job.fines) : null,
-    parking: job.parking != null ? Number(job.parking) : null,
-    contractPrice: job.contractPrice != null ? Number(job.contractPrice) : null,
-    taskCount: taskCounts?.total ?? 0,
-    taskDoneCount: taskCounts?.done ?? 0,
-    attachmentCount: attachmentCount?.total ?? 0,
-    materialCount: materialAgg?.total ?? 0,
-    materialTotalCost,
-    billingLinked: billingLink != null,
-    assignedPersonName,
-    assigneeIds,
-    assigneeNames,
-    customerCompanyName,
-    customerPhone,
-    customerEmail,
-    timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
-    createdAt: job.createdAt.toISOString(),
-    signatureRequestedAt: job.signatureRequestedAt ? job.signatureRequestedAt.toISOString() : null,
-    signatureTokenExpiresAt: job.signatureTokenExpiresAt ? job.signatureTokenExpiresAt.toISOString() : null,
-    signedAt: job.signedAt ? job.signedAt.toISOString() : null,
-    signatureObjectPath: job.signatureObjectPath,
-    // signatureToken intentionally omitted — it is a secret bearer credential
-  };
+  const [enriched] = await enrichJobs([job]);
+  return enriched;
 }
 
 async function checkLeaveConflict(
@@ -391,7 +419,7 @@ router.get("/jobs", async (req, res): Promise<void> => {
       .orderBy(jobsTable.date, jobsTable.startTime);
   }
 
-  const enriched = await Promise.all(jobs.map(enrichJob));
+  const enriched = await enrichJobs(jobs);
   res.json(enriched);
 });
 

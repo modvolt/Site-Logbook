@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { jobsTable } from "./jobs";
@@ -11,7 +11,9 @@ export const tasksTable = pgTable("tasks", {
   done: boolean("done").notNull().default(false),
   isChangeRequest: boolean("is_change_request").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("tasks_job_id_idx").on(t.jobId),
+]);
 
 export const insertTaskSchema = createInsertSchema(tasksTable).omit({ id: true, createdAt: true });
 export type InsertTask = z.infer<typeof insertTaskSchema>;

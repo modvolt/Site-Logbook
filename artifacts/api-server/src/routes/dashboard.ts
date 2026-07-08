@@ -10,6 +10,7 @@ import {
   invoicesTable,
 } from "@workspace/db";
 import { count } from "drizzle-orm";
+import { enrichJobs } from "./jobs";
 
 const router: IRouter = Router();
 
@@ -47,45 +48,6 @@ function subtractDaysIso(dateStr: string, days: number): string {
   const d = new Date(dateStr);
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
-}
-
-async function enrichJob(job: typeof jobsTable.$inferSelect) {
-  const [taskCounts] = await db
-    .select({
-      total: count(),
-      done: sql<number>`sum(case when ${tasksTable.done} then 1 else 0 end)`.mapWith(Number),
-    })
-    .from(tasksTable)
-    .where(eq(tasksTable.jobId, job.id));
-
-  const [attachmentCount] = await db
-    .select({ total: count() })
-    .from(attachmentsTable)
-    .where(eq(attachmentsTable.jobId, job.id));
-
-  let assignedPersonName: string | null = null;
-  if (job.assignedPersonId) {
-    const [person] = await db
-      .select({ name: peopleTable.name })
-      .from(peopleTable)
-      .where(eq(peopleTable.id, job.assignedPersonId));
-    assignedPersonName = person?.name ?? null;
-  }
-
-  return {
-    ...job,
-    hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
-    price: job.price != null ? Number(job.price) : null,
-    transportKm: job.transportKm != null ? Number(job.transportKm) : null,
-    transportCost: job.transportCost != null ? Number(job.transportCost) : null,
-    fines: job.fines != null ? Number(job.fines) : null,
-    parking: job.parking != null ? Number(job.parking) : null,
-    taskCount: taskCounts?.total ?? 0,
-    taskDoneCount: taskCounts?.done ?? 0,
-    attachmentCount: attachmentCount?.total ?? 0,
-    assignedPersonName,
-    createdAt: job.createdAt.toISOString(),
-  };
 }
 
 router.get("/dashboard/summary", async (_req, res): Promise<void> => {
@@ -242,7 +204,7 @@ router.get("/dashboard/today", async (_req, res): Promise<void> => {
     .where(eq(jobsTable.date, t))
     .orderBy(jobsTable.sortOrder, jobsTable.startTime);
 
-  const enriched = await Promise.all(jobs.map(enrichJob));
+  const enriched = await enrichJobs(jobs);
   res.json(enriched);
 });
 

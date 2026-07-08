@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, numeric, integer } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, numeric, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { jobsTable } from "./jobs";
@@ -12,7 +12,10 @@ export const attachmentsTable = pgTable("attachments", {
   description: text("description"),
   amount: numeric("amount", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("attachments_job_id_idx").on(t.jobId),
+  index("attachments_file_name_idx").on(t.fileName),
+]);
 
 export const insertAttachmentSchema = createInsertSchema(attachmentsTable).omit({ id: true, createdAt: true });
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;

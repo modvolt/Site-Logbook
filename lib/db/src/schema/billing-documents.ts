@@ -157,6 +157,7 @@ export const billingDocumentsTable = pgTable(
       .on(t.sha256)
       .where(sql`${t.sha256} is not null`),
     index("billing_documents_supplier_ic_idx").on(t.supplierIc),
+    index("billing_documents_file_name_idx").on(t.fileName),
     index("billing_documents_document_number_idx").on(t.documentNumber),
     index("billing_documents_job_id_idx").on(t.jobId),
     index("billing_documents_customer_id_idx").on(t.customerId),

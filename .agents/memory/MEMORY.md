@@ -79,4 +79,6 @@
 - [Drizzle error wrapping hides pg .code/.constraint](drizzle-error-wrapping.md) — DrizzleQueryError wraps the raw pg error in `.cause`; check both err and err.cause for `.code`/`.constraint` when catching unique-violations (23505).
 - [Workflow name mismatch on restart](workflow-name-mismatch.md) — restart_workflow RUN_COMMAND_NOT_FOUND ≠ artifact broken; use refresh_all_logs to find the real registered name before creating a duplicate.
 - [Material integrity detection](material-integrity-detection.md) — stale-price/duplicate-material detection lives in a testable lib module, not the CLI script; extend it (not the script) for new failure modes.
+- [Orphan migrations not in journal](orphan-migrations-not-in-journal.md) — .sql files missing from _journal.json never run in prod & stamp rows don't prove DDL ran; fold via generate + idempotent rewrite.
+- [Batch job enrichment](job-enrichment-batch.md) — jobs/dashboard lists must use enrichJobs() (fixed grouped queries), never per-job enrichment (N+1 was the zakázky lag); it also owns signatureToken stripping.
 - [stamp-cli SERIAL sequence drift](stamp-serial-sequence-drift.md) — post-merge stamp fails with 23505 on __drizzle_migrations when the SERIAL sequence lags behind existing rows (copied/restored DB); fix: setval(sequence, max(id)) before any inserts.

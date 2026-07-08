@@ -505,6 +505,13 @@
       "when": 1751987400000,
       "tag": "0071_extraction_jobs_force",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1783545216195,
+      "tag": "0072_job_groups_and_perf_indexes",
+      "breakpoints": true
     }
   ]
 }
