@@ -594,6 +594,30 @@ export default function BillingDocumentDetail() {
         </Card>
       )}
 
+      {doc.status === "duplicate" && !data.duplicateOf && (
+        <Card className="mb-4 border-red-300 bg-red-50 dark:bg-red-900/20">
+          <CardContent className="p-4 text-sm flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-start gap-2 text-red-800 dark:text-red-200">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Doklad je oznacen jako duplicita bez hlavniho dokladu</p>
+                <p className="text-red-700/80 dark:text-red-300/80">
+                  Vratte ho ke kontrole. Doklad ani soubor se nesmazou.
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleUnmarkDuplicate}
+              disabled={unmarkDuplicate.isPending}
+            >
+              <X className="h-4 w-4 mr-1" /> Vratit ke kontrole
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {data.duplicates.length > 0 && (
         <Card className="mb-4 border-red-300 bg-red-50 dark:bg-red-900/20">
           <CardContent className="p-4 text-sm">

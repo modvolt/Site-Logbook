@@ -1064,7 +1064,7 @@ export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
     .from(billingDocumentsTable)
     .where(eq(billingDocumentsTable.id, id));
   if (!doc) throw appError(404, "Doklad nenalezen.");
-  if (doc.primaryDocumentId == null) {
+  if (doc.primaryDocumentId == null && doc.status !== "duplicate") {
     throw appError(409, "Doklad není spárován jako duplicita.");
   }
   await db
@@ -1073,6 +1073,14 @@ export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
       status: "needs_review",
       primaryDocumentId: null,
       mergeGroupId: null,
+      warnings: [
+        doc.warnings,
+        doc.primaryDocumentId == null
+          ? "Doklad byl obnoven z chybneho stavu duplicity bez primarniho dokladu."
+          : "Parovani duplicity bylo zruseno.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       reviewedByUserId: actor.userId,
       reviewedAt: new Date(),
       updatedAt: new Date(),
