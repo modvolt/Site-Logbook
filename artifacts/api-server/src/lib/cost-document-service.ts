@@ -9,6 +9,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   db,
   billingDocumentsTable,
@@ -449,6 +450,14 @@ function serializeDocument(
   row: BillingDocument,
   materialState: MaterialState = null,
 ) {
+  const warnings =
+    row.status !== "duplicate" && row.primaryDocumentId == null && row.warnings
+      ? row.warnings
+          .split("\n")
+          .filter((line) => !/sp[aá]rov.*duplicit/i.test(line))
+          .join("\n") || null
+      : row.warnings;
+
   return {
     id: row.id,
     status: row.status,
@@ -491,7 +500,7 @@ function serializeDocument(
     sourcePriority: row.sourcePriority,
     parsedBy: row.parsedBy,
     notes: row.notes,
-    warnings: row.warnings,
+    warnings,
     aiConfidence: row.aiConfidence == null ? null : num(row.aiConfidence),
     aiModel: row.aiModel,
     aiExtractedAt: row.aiExtractedAt ? row.aiExtractedAt.toISOString() : null,
@@ -1605,7 +1614,7 @@ async function documentIdsLinkedToJob(jobId: number): Promise<number[]> {
 }
 
 export async function listDocuments(filters: DocumentFilters) {
-  const conds = [];
+  const conds: SQL[] = [];
   if (filters.status) {
     conds.push(eq(billingDocumentsTable.status, filters.status));
   } else {
@@ -2868,12 +2877,38 @@ export async function splitLine(
 
 const MATERIAL_SOURCE_TYPE = "billing_document_line";
 
+async function resolveSingleAttachmentJobIdTx(
+  tx: DbOrTx,
+  doc: BillingDocument,
+): Promise<number | null> {
+  const conds = [];
+  if (doc.objectPath) conds.push(eq(attachmentsTable.url, doc.objectPath));
+  if (doc.fileName) conds.push(eq(attachmentsTable.fileName, doc.fileName));
+  if (conds.length === 0) return null;
+
+  const rows = await tx
+    .select({ jobId: attachmentsTable.jobId })
+    .from(attachmentsTable)
+    .where(
+      and(
+        inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)),
+        conds.length === 1 ? conds[0] : or(...conds),
+      ),
+    );
+  const jobIds = Array.from(new Set(rows.map((r) => r.jobId)));
+  return jobIds.length === 1 ? jobIds[0] : null;
+}
+
 async function confirmedTargetJobIds(
   tx: DbOrTx,
   doc: BillingDocument,
 ): Promise<Set<number>> {
   const jobIds = new Set<number>();
   if (doc.jobId != null) jobIds.add(doc.jobId);
+  if (doc.jobId == null) {
+    const attachmentJobId = await resolveSingleAttachmentJobIdTx(tx, doc);
+    if (attachmentJobId != null) jobIds.add(attachmentJobId);
+  }
   const refs = await tx
     .select()
     .from(billingDocumentReferencesTable)
@@ -3497,11 +3532,14 @@ export async function approveDocument(id: number, actor: Actor) {
           : "Doklad je označen jako duplicita a nelze jej samostatně schválit.",
       );
     }
+    const attachmentJobId =
+      doc.jobId == null ? await resolveSingleAttachmentJobIdTx(tx, doc) : null;
     await assertCompleteBeforeTerminalAction(tx, doc, "approve");
     await tx
       .update(billingDocumentsTable)
       .set({
         status: "approved",
+        ...(attachmentJobId != null ? { jobId: attachmentJobId } : {}),
         reviewedByUserId: actor.userId,
         reviewedAt: new Date(),
         updatedAt: new Date(),
