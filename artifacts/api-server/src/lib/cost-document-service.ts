@@ -1572,8 +1572,22 @@ async function documentIdsLinkedToJob(jobId: number): Promise<number[]> {
       primaryDocumentId: billingDocumentsTable.primaryDocumentId,
     })
     .from(attachmentsTable)
-    .innerJoin(billingDocumentsTable, eq(attachmentsTable.url, billingDocumentsTable.objectPath))
-    .where(eq(attachmentsTable.jobId, jobId));
+    .innerJoin(
+      billingDocumentsTable,
+      or(
+        eq(attachmentsTable.url, billingDocumentsTable.objectPath),
+        and(
+          isNotNull(attachmentsTable.fileName),
+          eq(attachmentsTable.fileName, billingDocumentsTable.fileName),
+        ),
+      ),
+    )
+    .where(
+      and(
+        eq(attachmentsTable.jobId, jobId),
+        inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)),
+      ),
+    );
   for (const row of attachmentRows) {
     ids.add(row.documentId);
     if (row.primaryDocumentId != null) ids.add(row.primaryDocumentId);
