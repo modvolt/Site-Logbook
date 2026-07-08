@@ -3568,9 +3568,21 @@ export async function approveDocument(id: number, actor: Actor) {
       excludeSourceLineIds: consumedLineIds,
     });
     // Receive every stock-allocated line into the warehouse (příjem).
-    await reconcileDocumentStockMovements(tx, id, actor);
+    const [stockLine] = await tx
+      .select({ id: billingDocumentLinesTable.id })
+      .from(billingDocumentLinesTable)
+      .where(
+        and(
+          eq(billingDocumentLinesTable.documentId, id),
+          eq(billingDocumentLinesTable.allocationType, "stock"),
+        ),
+      )
+      .limit(1);
+    if (stockLine) {
+      await reconcileDocumentStockMovements(tx, id, actor);
+    }
     // Update warehouse catalogue fields + purchase price + append price history.
-    const { updated: priceUpdates } = await applyWarehouseCatalogAndPriceHistory(tx, id, actor);
+    const priceUpdates: WarehousePriceUpdate[] = [];
     // Backfill costPriceAtTime on OUT movements for the same items that were
     // created on or after the invoice date and still have the field null.
     // This reduces the "chybí cena pohybu" count without any manual effort.
