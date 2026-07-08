@@ -22,6 +22,9 @@ import Jobs from "@/pages/jobs";
 import JobDetail from "@/pages/job-detail";
 import JobExport from "@/pages/job-export";
 import JobForm from "@/pages/job-form";
+import JobGroups from "@/pages/job-groups";
+import JobGroupDetail from "@/pages/job-group-detail";
+import JobGroupExport from "@/pages/job-group-export";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
@@ -195,6 +198,9 @@ function AuthenticatedApp() {
         <Route path="/jobs/new" component={JobForm} />
         <Route path="/jobs/:id/list" component={JobExport} />
         <Route path="/jobs/:id" component={JobDetail} />
+        <Route path="/job-groups" component={JobGroups} />
+        <Route path="/job-groups/:id/list" component={JobGroupExport} />
+        <Route path="/job-groups/:id" component={JobGroupDetail} />
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/customer-sites/:id" component={SiteDetail} />

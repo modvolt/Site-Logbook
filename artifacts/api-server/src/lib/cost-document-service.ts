@@ -1621,12 +1621,11 @@ export async function listDocuments(filters: DocumentFilters) {
     // Confirmed duplicates are folded into their primary document and no
     // longer need review — keep them out of the default (unfiltered) list.
     // They're still reachable via the explicit "duplicate" status filter.
-    conds.push(
-      or(
-        ne(billingDocumentsTable.status, "duplicate"),
-        isNull(billingDocumentsTable.primaryDocumentId),
-      ),
+    const notFoldedDuplicate = or(
+      ne(billingDocumentsTable.status, "duplicate"),
+      isNull(billingDocumentsTable.primaryDocumentId),
     );
+    if (notFoldedDuplicate) conds.push(notFoldedDuplicate);
   }
   if (filters.supplierIc)
     conds.push(eq(billingDocumentsTable.supplierIc, filters.supplierIc));
@@ -4223,11 +4222,8 @@ export async function reanalyzeJobAttachmentDocuments(
       action: "reanalyze_job_attachment_documents",
       entityType: "billing_documents",
       entityId: null,
-      summary: `Znovu analyzovány zakázkové doklady: ${idsToQueue.length} nově ve frontě, ${alreadyQueued} již čeká, ${skippedTerminal} přeskočeno.`,
+      summary: `Znovu analyzovany zakazkove doklady: ${idsToQueue.length} nove ve fronte, ${alreadyQueued} uz ceka, ${skippedLocked} zamceno vystavenou fakturou.`,
       method: "POST",
-      ...{
-        summary: `Znovu analyzovany zakazkove doklady: ${idsToQueue.length} nove ve fronte, ${alreadyQueued} uz ceka, ${skippedLocked} zamceno vystavenou fakturou.`,
-      },
       path: "/billing/documents/reanalyze-job-attachments",
     });
 

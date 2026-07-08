@@ -1,5 +1,6 @@
 export * from "./customers";
 export * from "./people";
+export * from "./job-groups";
 export * from "./jobs";
 export * from "./job-visits";
 export * from "./job-assignees";

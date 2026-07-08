@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import jobsRouter from "./jobs";
+import jobGroupsRouter from "./job-groups";
 import tasksRouter from "./tasks";
 import attachmentsRouter from "./attachments";
 import materialsRouter from "./materials";
@@ -48,6 +49,7 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(jobsRouter);
+router.use(jobGroupsRouter);
 router.use(tasksRouter);
 router.use(attachmentsRouter);
 router.use(materialsRouter);

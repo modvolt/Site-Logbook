@@ -1,9 +1,10 @@
-import { pgTable, serial, text, timestamp, numeric, integer, boolean, check } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, numeric, integer, boolean, check, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { peopleTable } from "./people";
 import { customersTable } from "./customers";
+import { jobGroupsTable } from "./job-groups";
 
 export const jobsTable = pgTable("jobs", {
   id: serial("id").primaryKey(),
@@ -17,6 +18,7 @@ export const jobsTable = pgTable("jobs", {
   status: text("status").notNull().default("planned"),
   assignedPersonId: integer("assigned_person_id").references(() => peopleTable.id, { onDelete: "set null" }),
   customerId: integer("customer_id").references(() => customersTable.id, { onDelete: "set null" }),
+  groupId: integer("group_id").references(() => jobGroupsTable.id, { onDelete: "set null" }),
   notes: text("notes"),
   hoursSpent: numeric("hours_spent", { precision: 5, scale: 2 }),
   hoursFromPlan: boolean("hours_from_plan").notNull().default(false),
@@ -55,6 +57,7 @@ export const jobsTable = pgTable("jobs", {
     "jobs_status_check",
     sql`${table.status} IN ('planned', 'in_progress', 'done', 'cancelled', 'vyfakturovano')`,
   ),
+  index("jobs_group_id_idx").on(table.groupId),
 ]);
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, createdAt: true });
