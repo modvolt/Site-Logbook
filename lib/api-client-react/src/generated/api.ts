@@ -227,12 +227,13 @@ import type {
   Quote,
   QuoteDetail,
   QuotePublicActionResult,
+  ReanalyzeJobAttachmentDocumentsResult,
   RecurringGenerationResult,
   RecurringInvoiceTemplate,
   RecurringInvoiceTemplateDetail,
-  RequeueAllCostDocumentExtractionsResult,
   RequestJobSignatureInput,
   RequestJobSignatureResult,
+  RequeueAllCostDocumentExtractionsResult,
   ResetPasswordWithAnswersInput,
   RestoreResult,
   RetryEmailImportLog200,
@@ -19388,9 +19389,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof requeueAllCostDocumentExtractions>>, void> = () => {
+
+
           return  requeueAllCostDocumentExtractions(requestOptions)
         }
-
 
 
 
@@ -19415,6 +19417,76 @@ export const useRequeueAllCostDocumentExtractions = <TError = ErrorType<ErrorEnv
         TContext
       > => {
       return useMutation(getRequeueAllCostDocumentExtractionsMutationOptions(options));
+    }
+
+export const getReanalyzeJobAttachmentDocumentsUrl = () => {
+
+
+
+
+  return `/api/billing/documents/reanalyze-job-attachments`
+}
+
+/**
+ * @summary Import and re-queue AI extraction for cost documents attached to jobs (admin only)
+ */
+export const reanalyzeJobAttachmentDocuments = async ( options?: RequestInit): Promise<ReanalyzeJobAttachmentDocumentsResult> => {
+
+  return customFetch<ReanalyzeJobAttachmentDocumentsResult>(getReanalyzeJobAttachmentDocumentsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getReanalyzeJobAttachmentDocumentsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reanalyzeJobAttachmentDocuments>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reanalyzeJobAttachmentDocuments>>, TError,void, TContext> => {
+
+const mutationKey = ['reanalyzeJobAttachmentDocuments'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reanalyzeJobAttachmentDocuments>>, void> = () => {
+
+
+          return  reanalyzeJobAttachmentDocuments(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReanalyzeJobAttachmentDocumentsMutationResult = NonNullable<Awaited<ReturnType<typeof reanalyzeJobAttachmentDocuments>>>
+
+    export type ReanalyzeJobAttachmentDocumentsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import and re-queue AI extraction for cost documents attached to jobs (admin only)
+ */
+export const useReanalyzeJobAttachmentDocuments = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reanalyzeJobAttachmentDocuments>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reanalyzeJobAttachmentDocuments>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getReanalyzeJobAttachmentDocumentsMutationOptions(options));
     }
 
 export const getUpdateCostDocumentLineUrl = (id: number,
@@ -22776,6 +22848,8 @@ export function useDownloadQuotePdf<TData = Awaited<ReturnType<typeof downloadQu
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+
 
 
 

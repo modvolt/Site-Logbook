@@ -4354,25 +4354,6 @@ export interface ReviewQueueListResult {
   total: number;
 }
 
-export interface RequeueAllCostDocumentExtractionsResult {
-  queued: number;
-  alreadyQueued: number;
-  skippedTerminal: number;
-  totalConsidered: number;
-}
-
-export interface ReanalyzeJobAttachmentDocumentsResult {
-  jobsScanned: number;
-  attachmentsScanned: number;
-  created: number;
-  skippedAttachments: number;
-  queued: number;
-  alreadyQueued: number;
-  skippedTerminal: number;
-  skippedLocked: number;
-  totalJobDocuments: number;
-}
-
 export interface BulkConfirmReviewLinesInput {
   lineIds: number[];
   /** If true, return the diff without committing changes. */
@@ -4822,6 +4803,25 @@ export interface CostDocumentStatusInput {
 export interface MarkCostDocumentDuplicateInput {
   /** The document this one should be paired as a duplicate of. */
   primaryDocumentId: number;
+}
+
+export interface RequeueAllCostDocumentExtractionsResult {
+  queued: number;
+  alreadyQueued: number;
+  skippedTerminal: number;
+  totalConsidered: number;
+}
+
+export interface ReanalyzeJobAttachmentDocumentsResult {
+  jobsScanned: number;
+  attachmentsScanned: number;
+  created: number;
+  skippedAttachments: number;
+  queued: number;
+  alreadyQueued: number;
+  skippedTerminal: number;
+  skippedLocked: number;
+  totalJobDocuments: number;
 }
 
 /**
@@ -6034,3 +6034,4 @@ export const ListQuotesStatus = {
   rejected: 'rejected',
   expired: 'expired',
 } as const;
+

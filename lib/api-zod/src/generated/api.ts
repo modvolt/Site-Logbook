@@ -9882,3 +9882,5 @@ export const RejectPublicQuoteResponse = zod.object({
 export const DownloadQuotePdfParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
