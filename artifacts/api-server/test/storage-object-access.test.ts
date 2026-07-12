@@ -19,6 +19,11 @@ describe("isProtectedObjectPath (generic /storage/objects/* guard)", () => {
     expect(isProtectedObjectPath("backups")).toBe(true);
   });
 
+  it("blocks private switchboard documentation from the generic storage route", () => {
+    expect(isProtectedObjectPath("switchboards/42/documents/source.pdf")).toBe(true);
+    expect(isProtectedObjectPath("switchboards")).toBe(true);
+  });
+
   it("allows ordinary team-shared uploads (UUID keys, intentionally shared)", () => {
     expect(isProtectedObjectPath("uploads/abc-123.jpg")).toBe(false);
     expect(isProtectedObjectPath("uploads/some-doc.pdf")).toBe(false);

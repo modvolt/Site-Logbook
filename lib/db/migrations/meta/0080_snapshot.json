@@ -10633,8 +10633,8 @@
           "method": "btree",
           "with": {}
         },
-        "switchboard_documents_hash_idx": {
-          "name": "switchboard_documents_hash_idx",
+        "switchboard_documents_hash_unique_idx": {
+          "name": "switchboard_documents_hash_unique_idx",
           "columns": [
             {
               "expression": "switchboard_id",
@@ -10649,7 +10649,7 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

@@ -72,7 +72,7 @@ export const switchboardDocumentsTable = pgTable("switchboard_documents", {
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("switchboard_documents_version_unique_idx").on(t.switchboardId, t.documentType, t.version),
-  index("switchboard_documents_hash_idx").on(t.switchboardId, t.sha256),
+  uniqueIndex("switchboard_documents_hash_unique_idx").on(t.switchboardId, t.sha256),
 ]);
 
 export const switchboardProcessingJobsTable = pgTable("switchboard_processing_jobs", {

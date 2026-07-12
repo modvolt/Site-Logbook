@@ -38,6 +38,13 @@ export type Switchboard = {
   assignees: SwitchboardAssignee[];
 };
 
+export type SwitchboardDocument = {
+  id: number; switchboardId: number; documentType: string; version: number;
+  originalFileName: string; mimeType: string; sha256: string; sizeBytes: number;
+  isPublic: boolean; processingStatus: string; processingErrorCode: string | null;
+  processingErrorMessage: string | null; uploadedAt: string;
+};
+
 export async function switchboardFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,

@@ -10,6 +10,7 @@ import { startPpeOverdueScheduler } from "./lib/ppe-overdue-notifier";
 import { startHealthWatchdog } from "./lib/health-watchdog";
 import { startRecurringInvoiceScheduler } from "./lib/recurring-templates";
 import { startLiveEventsService, shutdownLiveEventsService } from "./lib/live-events-service";
+import { startSwitchboardWorker } from "./lib/switchboard-worker";
 
 const rawPort = process.env["PORT"];
 
@@ -38,6 +39,7 @@ const server = app.listen(port, (err) => {
   startRestoreTestScheduler();
   startReminderScheduler();
   startExtractionWorker();
+  startSwitchboardWorker();
   startEmailImportWorker();
   startClientErrorPurgeScheduler();
   startPpeOverdueScheduler();

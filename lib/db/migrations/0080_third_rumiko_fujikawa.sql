@@ -320,7 +320,7 @@ CREATE INDEX "switchboard_checklist_instances_board_idx" ON "switchboard_checkli
 CREATE UNIQUE INDEX "switchboard_checklist_responses_unique_idx" ON "switchboard_checklist_responses" USING btree ("instance_id","item_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "switchboard_checklist_template_versions_unique_idx" ON "switchboard_checklist_template_versions" USING btree ("template_id","version");--> statement-breakpoint
 CREATE UNIQUE INDEX "switchboard_documents_version_unique_idx" ON "switchboard_documents" USING btree ("switchboard_id","document_type","version");--> statement-breakpoint
-CREATE INDEX "switchboard_documents_hash_idx" ON "switchboard_documents" USING btree ("switchboard_id","sha256");--> statement-breakpoint
+CREATE UNIQUE INDEX "switchboard_documents_hash_unique_idx" ON "switchboard_documents" USING btree ("switchboard_id","sha256");--> statement-breakpoint
 CREATE INDEX "switchboard_events_board_idx" ON "switchboard_events" USING btree ("switchboard_id","created_at");--> statement-breakpoint
 CREATE INDEX "switchboard_extracted_fields_document_idx" ON "switchboard_extracted_fields" USING btree ("document_id","field_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "switchboard_label_versions_unique_idx" ON "switchboard_label_versions" USING btree ("switchboard_id","version");--> statement-breakpoint

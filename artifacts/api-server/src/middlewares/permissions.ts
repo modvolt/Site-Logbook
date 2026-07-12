@@ -68,6 +68,9 @@ function permissionForRequest(req: Request): Permission | null {
   if (path.startsWith("/storage/objects/cost-documents")) return "billing.view";
   if (path === "/switchboards" && req.method === "POST") return "switchboards.create";
   if (/^\/switchboards\/\d+\/archive$/.test(path)) return "switchboards.archive";
+  if (/^\/switchboards\/\d+\/documents(?:\/|$)/.test(path)) {
+    return READ_METHODS.has(req.method) ? "switchboards.documents.view" : "switchboards.documents.upload";
+  }
   if (/^\/warehouse-movements\/(?:job-margin|jobs-margin|activity-margin)/.test(path)) {
     return "rates.cost.view";
   }
