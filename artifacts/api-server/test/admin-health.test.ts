@@ -72,6 +72,11 @@ async function loginAs(username: string): Promise<Agent> {
 }
 
 describe("GET /api/admin/health – authorization", () => {
+  it("keeps the container health check public", async () => {
+    const res = await request(app).get("/api/healthz");
+    expect(res.status).toBe(200);
+  });
+
   it("returns 401 when unauthenticated", async () => {
     const res = await request(app).get("/api/admin/health");
     expect(res.status).toBe(401);

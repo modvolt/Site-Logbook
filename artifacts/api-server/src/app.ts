@@ -137,25 +137,26 @@ app.use(
 app.use("/api", attachAuth);
 app.use("/api", trackSessionActivity);
 
-// Public endpoints: storage object proxy + auth endpoints + health
+// Public endpoints must bypass both authentication and permission enforcement.
+// Keep this list centralized so a route cannot pass one guard and fail the next.
 const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/", "/api/quotes/public/", "/api/internal/"];
 
-app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+function isPublicApiRequest(req: Request): boolean {
   const url = req.originalUrl.split("?")[0];
-  if (PUBLIC_PREFIXES.some((p) => url.startsWith(p))) return next();
+  return PUBLIC_PREFIXES.some((prefix) => url === prefix || url.startsWith(prefix));
+}
+
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  if (isPublicApiRequest(req)) return next();
   return requireAuth(req, res, next);
 });
 
 // Enforce module permissions on the backend. Role defaults are resolved with
 // per-user allow/deny overrides before this middleware runs.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  if (isPublicApiRequest(req)) return next();
   const url = req.originalUrl.split("?")[0];
-  if (url.startsWith("/api/auth/")) return next();
   if (url.startsWith("/api/preferences")) return next();
-  if (url.startsWith("/api/ppe/sign/")) return next();
-  if (url.startsWith("/api/sign/")) return next();
-  if (url.startsWith("/api/quotes/public/")) return next();
-  if (url.startsWith("/api/internal/")) return next();
   return enforceApiPermission(req, res, next);
 });
 
