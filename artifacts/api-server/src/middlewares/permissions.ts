@@ -50,6 +50,7 @@ const MODULE_RULES: readonly ModuleRule[] = [
     manage: "warehouse.manage",
   },
   { prefixes: ["/machines"], view: "machines.view", manage: "machines.manage" },
+  { prefixes: ["/switchboards"], view: "switchboards.view", manage: "switchboards.update" },
 ];
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -65,6 +66,8 @@ function permissionForRequest(req: Request): Permission | null {
   }
 
   if (path.startsWith("/storage/objects/cost-documents")) return "billing.view";
+  if (path === "/switchboards" && req.method === "POST") return "switchboards.create";
+  if (/^\/switchboards\/\d+\/archive$/.test(path)) return "switchboards.archive";
   if (/^\/warehouse-movements\/(?:job-margin|jobs-margin|activity-margin)/.test(path)) {
     return "rates.cost.view";
   }

@@ -25,6 +25,8 @@ import JobForm from "@/pages/job-form";
 import JobGroups from "@/pages/job-groups";
 import JobGroupDetail from "@/pages/job-group-detail";
 import JobGroupExport from "@/pages/job-group-export";
+import Switchboards from "@/pages/switchboards";
+import SwitchboardDetail from "@/pages/switchboard-detail";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
@@ -188,6 +190,8 @@ function AuthenticatedApp() {
         <Route path="/job-groups" component={JobGroups} />
         <Route path="/job-groups/:id/list" component={JobGroupExport} />
         <Route path="/job-groups/:id" component={JobGroupDetail} />
+        <Route path="/switchboards/:id">{() => <PermissionOnly component={SwitchboardDetail} permission="switchboards.view" />}</Route>
+        <Route path="/switchboards">{() => <PermissionOnly component={Switchboards} permission="switchboards.view" />}</Route>
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/customer-sites/:id" component={SiteDetail} />

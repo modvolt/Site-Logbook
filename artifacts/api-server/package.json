@@ -14,6 +14,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",
     "@google-cloud/storage": "^7.19.0",
+    "@napi-rs/canvas": "^1.0.2",
     "@simplewebauthn/server": "^13.3.2",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
@@ -36,9 +37,11 @@
     "nodemailer": "^8.0.10",
     "pg": "^8.20.0",
     "openai": "^6.44.0",
+    "pdfjs-dist": "^6.1.200",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0",
     "qrcode": "^1.5.4",
+    "tesseract.js": "^7.0.0",
     "zod": "catalog:"
   },
   "devDependencies": {

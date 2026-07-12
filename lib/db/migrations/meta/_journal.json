@@ -561,6 +561,13 @@
       "when": 1783859400000,
       "tag": "0079_document_upload_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1783895927723,
+      "tag": "0080_third_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

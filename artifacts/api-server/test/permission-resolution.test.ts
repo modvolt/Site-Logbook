@@ -32,4 +32,19 @@ describe("role permissions with individual overrides", () => {
       resolvePermissions("guest", [{ permission: "obsolete.permission", effect: "allow" }]),
     ).toEqual(resolvePermissions("guest", []));
   });
+
+  it("keeps switchboard administration restricted while allowing operational work", () => {
+    const master = resolvePermissions("master", []);
+    expect(master).toContain("switchboards.view");
+    expect(master).toContain("switchboards.checklist.fill");
+    expect(master).not.toContain("switchboards.archive");
+    expect(master).not.toContain("switchboards.protocol.override");
+    expect(resolvePermissions("admin", [])).toContain("switchboards.protocol.override");
+  });
+
+  it("can individually remove switchboard access from an admin", () => {
+    expect(resolvePermissions("admin", [
+      { permission: "switchboards.view", effect: "deny" },
+    ])).not.toContain("switchboards.view");
+  });
 });

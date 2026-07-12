@@ -20,7 +20,17 @@ export type Permission =
   | "settings.view" | "settings.manage"
   | "diagnostics.view" | "diagnostics.manage"
   | "audit.view"
-  | "users.manage";
+  | "users.manage"
+  | "switchboards.view" | "switchboards.create" | "switchboards.update" | "switchboards.archive"
+  | "switchboards.documents.upload" | "switchboards.documents.view"
+  | "switchboards.checklist.fill" | "switchboards.checklist.edit_own" | "switchboards.checklist.edit_all"
+  | "switchboards.measurements.create" | "switchboards.photos.create"
+  | "switchboards.defects.create" | "switchboards.defects.close"
+  | "switchboards.extraction.review" | "switchboards.extraction.correct"
+  | "switchboards.labels.approve" | "switchboards.labels.generate"
+  | "switchboards.phases.complete" | "switchboards.protocol.complete" | "switchboards.protocol.override"
+  | "switchboards.templates.manage" | "switchboards.parser.manage" | "switchboards.qr.manage"
+  | "switchboards.documents.publish" | "switchboards.audit.view";
 
 export interface AuthUser {
   id: number;

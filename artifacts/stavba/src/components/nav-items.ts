@@ -1,7 +1,7 @@
 import {
   Home, Calendar, Briefcase, Users, Settings, Building2, ShieldAlert,
   UserCog, Hammer, User as UserIcon, Package, Wrench, ScrollText,
-  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity, FolderKanban,
+  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity, FolderKanban, CircuitBoard,
 } from "lucide-react";
 import type { Permission } from "@/hooks/use-auth";
 
@@ -23,6 +23,7 @@ export const mainNavItems: NavItem[] = [
   { href: "/", icon: Home, label: "Dnes", color: "text-amber-500", activeBg: "bg-amber-500 text-white", hoverBg: "hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-950/30" },
   { href: "/calendar", icon: Calendar, label: "Kalendář", color: "text-blue-500", activeBg: "bg-blue-500 text-white", hoverBg: "hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30" },
   { href: "/jobs", icon: Briefcase, label: "Zakázky", color: "text-violet-500", activeBg: "bg-violet-500 text-white", hoverBg: "hover:bg-violet-50 hover:text-violet-600 dark:hover:bg-violet-950/30", requires: "jobs.view" },
+  { href: "/switchboards", icon: CircuitBoard, label: "Rozvaděče", color: "text-cyan-600", activeBg: "bg-cyan-600 text-white", hoverBg: "hover:bg-cyan-50 hover:text-cyan-700 dark:hover:bg-cyan-950/30", requires: "switchboards.view", match: (l) => l === "/switchboards" || l.startsWith("/switchboards/") },
   { href: "/job-groups", icon: FolderKanban, label: "Akce zakázek", shortLabel: "Skupiny", color: "text-fuchsia-500", activeBg: "bg-fuchsia-500 text-white", hoverBg: "hover:bg-fuchsia-50 hover:text-fuchsia-600 dark:hover:bg-fuchsia-950/30", requires: "jobs.view", match: (l) => l === "/job-groups" || l.startsWith("/job-groups/") },
   { href: "/activities", icon: Hammer, label: "Dlouhodobé akce", shortLabel: "Akce", color: "text-orange-500", activeBg: "bg-orange-500 text-white", hoverBg: "hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-950/30", requires: "activities.view", match: (l) => l === "/activities" || l.startsWith("/activities/") },
   { href: "/customers", icon: Building2, label: "Zákazníci", color: "text-emerald-500", activeBg: "bg-emerald-500 text-white", hoverBg: "hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/30", requires: "customers.view" },

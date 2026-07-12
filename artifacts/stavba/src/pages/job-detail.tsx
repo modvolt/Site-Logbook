@@ -30,6 +30,7 @@ import {
 } from "@workspace/api-client-react";
 import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
+import { SwitchboardsSection } from "@/components/switchboards-section";
 import { useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@workspace/object-storage-web";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
@@ -478,6 +479,7 @@ export default function JobDetail() {
       </div>
 
       <div className="p-4 max-w-3xl mx-auto w-full space-y-4">
+        <SwitchboardsSection jobId={id} />
         <Button
           variant="outline"
           onClick={() => setLocation(`/jobs/${id}/list`)}
