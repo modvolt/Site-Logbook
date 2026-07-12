@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { czAccountToIban, resolveIban, buildSpayd } from "../src/lib/invoice-qr";
+import {
+  INVOICE_CONSTANT_SYMBOL,
+  invoiceVariableSymbol,
+  czAccountToIban,
+  resolveIban,
+  buildSpayd,
+} from "../src/lib/invoice-qr";
+
+describe("invoice payment symbols", () => {
+  it("uses the fixed Czech services constant symbol", () => {
+    expect(INVOICE_CONSTANT_SYMBOL).toBe("0308");
+  });
+
+  it("derives the variable symbol from invoice-number digits", () => {
+    expect(invoiceVariableSymbol("FV20260001")).toBe("20260001");
+    expect(invoiceVariableSymbol("FV-2026/0042")).toBe("20260042");
+  });
+
+  it("limits the variable symbol to the banking maximum of ten digits", () => {
+    expect(invoiceVariableSymbol("FV123456789012")).toBe("1234567890");
+  });
+});
 
 /** ISO 13616 IBAN validity (move first 4 chars to end, letters→digits, mod 97 == 1). */
 function isValidIban(iban: string): boolean {

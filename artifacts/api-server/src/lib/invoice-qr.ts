@@ -1,5 +1,12 @@
 import QRCode from "qrcode";
 
+export const INVOICE_CONSTANT_SYMBOL = "0308";
+
+/** Czech variable symbols may contain at most 10 digits. */
+export function invoiceVariableSymbol(invoiceNumber: string): string {
+  return invoiceNumber.replace(/\D/g, "").slice(0, 10);
+}
+
 /**
  * Czech "QR Platba" (SPAYD — Short Payment Descriptor) generation for invoices.
  *
@@ -83,7 +90,7 @@ export function buildSpayd(opts: SpaydOptions): string {
     `CC:${spaydField(opts.currency)}`,
   ];
   if (opts.variableSymbol) {
-    const vs = opts.variableSymbol.replace(/\D/g, "").slice(0, 10);
+    const vs = invoiceVariableSymbol(opts.variableSymbol);
     if (vs) parts.push(`X-VS:${vs}`);
   }
   if (opts.dueDateIso) {

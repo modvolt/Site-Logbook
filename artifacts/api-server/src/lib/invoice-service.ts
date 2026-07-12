@@ -36,7 +36,13 @@ import {
 } from "./invoice-calc";
 import { normalizeItemName } from "./reference-extractor";
 import { generateInvoicePdf, type InvoicePdfData } from "./invoice-pdf";
-import { resolveIban, buildSpayd, generatePaymentQrDataUrl } from "./invoice-qr";
+import {
+  INVOICE_CONSTANT_SYMBOL,
+  invoiceVariableSymbol,
+  resolveIban,
+  buildSpayd,
+  generatePaymentQrDataUrl,
+} from "./invoice-qr";
 import { ObjectStorageService } from "./objectStorage";
 import { parseBankStatement, type StatementFormat } from "./bank-statement-parser";
 import {
@@ -1677,7 +1683,7 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
         dueDate: input.dueDate ?? null,
         paymentMethod: input.paymentMethod ?? settings.defaultPaymentMethod,
         variableSymbol: input.variableSymbol ?? null,
-        constantSymbol: input.constantSymbol ?? null,
+        constantSymbol: INVOICE_CONSTANT_SYMBOL,
         specificSymbol: input.specificSymbol ?? null,
         vatModeDefault,
         notes: input.notes ?? null,
@@ -2183,7 +2189,7 @@ export async function issueInvoice(id: number, actor: Actor) {
     const issueDate = invoice.issueDate ?? todayIso();
     const taxableSupplyDate = invoice.taxableSupplyDate ?? issueDate;
     const dueDate = invoice.dueDate ?? addDaysIso(issueDate, settings.defaultDueDays);
-    const variableSymbol = invoice.variableSymbol ?? invoiceNumber.replace(/\D/g, "");
+    const variableSymbol = invoiceVariableSymbol(invoiceNumber);
 
     const [updated] = await tx
       .update(invoicesTable)
@@ -2195,6 +2201,7 @@ export async function issueInvoice(id: number, actor: Actor) {
         taxableSupplyDate,
         dueDate,
         variableSymbol,
+        constantSymbol: INVOICE_CONSTANT_SYMBOL,
         issuedByUserId: actor.userId,
         issuedAt: new Date(),
         updatedAt: new Date(),
