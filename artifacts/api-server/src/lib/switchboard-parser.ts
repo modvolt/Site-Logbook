@@ -86,10 +86,21 @@ function labelMatch(element: TextElement, field: FieldDefinition) {
   const names = [field.canonicalNameCs, ...field.aliases];
   for (const name of names) {
     const target = normalizeFieldLabel(name);
-    if (normalized === target) return { label: element.text, alias: name === field.canonicalNameCs ? null : name, inlineValue: null };
-    if (normalized.startsWith(`${target} `)) return { label: element.text.slice(0, name.length), alias: name === field.canonicalNameCs ? null : name, inlineValue: element.text.slice(name.length).replace(/^\s*[=:]?\s*/, "") || null };
+    if (normalized === target) return { label: element.text, alias: name === field.canonicalNameCs ? null : name, inlineValue: null, fuzzy: false };
+    if (normalized.startsWith(`${target} `)) return { label: element.text.slice(0, name.length), alias: name === field.canonicalNameCs ? null : name, inlineValue: element.text.slice(name.length).replace(/^\s*[=:]?\s*/, "") || null, fuzzy: false };
+    if (target.length >= 6 && normalized.length >= 6 && levenshteinDistance(normalized, target) <= 1) return { label: element.text, alias: name === field.canonicalNameCs ? null : name, inlineValue: null, fuzzy: true };
   }
   return null;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[b.length];
 }
 
 function relationAndScore(label: TextElement, candidate: TextElement): { relation: string; score: number } | null {
@@ -128,7 +139,7 @@ export function parseSwitchboardLabel(elements: TextElement[], registry: FieldDe
     fields.push({
       fieldKey: field.fieldKey, foundLabel: match.label, matchedAlias: match.alias,
       rawValue: best?.raw ?? null, normalizedValue: best?.validation.normalized ?? null,
-      confidence: best ? Math.min(1, best.score * (best.validation.valid ? 1 : 0.65) * (label.method === "ocr" ? 0.9 : 1)) : 0,
+      confidence: best ? Math.min(1, best.score * (best.validation.valid ? 1 : 0.65) * (label.method === "ocr" ? 0.9 : 1) * (match.fuzzy ? 0.88 : 1)) : 0,
       pageNumber: selectedPage, blockId: label.blockId ?? null,
       extractionMethod: label.method ?? "text_layer", relativeRelation: best?.relation ?? "none",
       validationStatus: !best ? "missing" : best.validation.valid ? "valid" : "invalid",

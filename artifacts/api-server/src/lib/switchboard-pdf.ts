@@ -6,7 +6,15 @@ type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist/legacy/build/pd
 
 async function loadPdf(buffer: Buffer): Promise<PdfDocument> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  return pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
+  try { return await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise; }
+  catch (error) { throw classifyPdfError(error); }
+}
+
+export function classifyPdfError(error: unknown): Error & { code: string } {
+  const source = error as { name?: string; message?: string };
+  const text = `${source.name ?? ""} ${source.message ?? ""}`.toLowerCase();
+  const code = text.includes("password") || text.includes("encrypted") ? "encrypted_pdf" : text.includes("invalid") || text.includes("corrupt") || text.includes("format") ? "corrupted_pdf" : "pdf_processing_failed";
+  return Object.assign(new Error(code === "encrypted_pdf" ? "PDF je zašifrované nebo chráněné heslem." : code === "corrupted_pdf" ? "PDF je poškozené nebo má neplatný formát." : "PDF se nepodařilo načíst."), { code });
 }
 
 export async function extractPdfTextElements(buffer: Buffer): Promise<{ pages: number; elements: TextElement[] }> {
@@ -27,10 +35,11 @@ export async function extractPdfTextElements(buffer: Buffer): Promise<{ pages: n
 
 export async function extractPdfOcrElements(buffer: Buffer): Promise<{ pages: number; elements: TextElement[] }> {
   const pdf = await loadPdf(buffer);
-  const worker = await createWorker(["ces", "eng"], 1, {
+  let worker;
+  try { worker = await createWorker(["ces", "eng"], 1, {
     langPath: process.env.OCR_LANG_PATH || undefined,
     cachePath: process.env.OCR_CACHE_PATH || undefined,
-  });
+  }); } catch (error) { throw Object.assign(new Error(`Lokální OCR se nepodařilo spustit: ${error instanceof Error ? error.message : "neznámá chyba"}`), { code: "ocr_failed" }); }
   const elements: TextElement[] = [];
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {

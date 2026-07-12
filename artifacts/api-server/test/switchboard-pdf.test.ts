@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import jsPDF from "jspdf";
-import { extractPdfTextElements } from "../src/lib/switchboard-pdf";
+import { classifyPdfError, extractPdfTextElements } from "../src/lib/switchboard-pdf";
 
 describe("SchrackNorm PDF text-layer adapter", () => {
   it("reads every page and preserves page, order and relative coordinates", async () => {
@@ -17,5 +17,12 @@ describe("SchrackNorm PDF text-layer adapter", () => {
 
   it("rejects corrupted PDF bytes", async () => {
     await expect(extractPdfTextElements(Buffer.from("%PDF-corrupted"))).rejects.toThrow();
+  });
+});
+
+describe("PDF error classification", () => {
+  it("distinguishes encrypted and corrupted documents", () => {
+    expect(classifyPdfError({ name: "PasswordException" }).code).toBe("encrypted_pdf");
+    expect(classifyPdfError({ name: "InvalidPDFException" }).code).toBe("corrupted_pdf");
   });
 });

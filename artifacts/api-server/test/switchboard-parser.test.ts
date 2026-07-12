@@ -54,6 +54,17 @@ describe("switchboard named-field parser", () => {
     expect(result.status).toBe("needs_review");
     expect(result.fields.find((f) => f.fieldKey === "ratedVoltage")?.validationStatus).toBe("invalid");
   });
+  it("tolerates one OCR typo in a long label and lowers confidence", () => {
+    const items = fixture().map((item) => item.text === "Výrobní číslo" ? { ...item, text: "Výrobní číxlo", method: "ocr" as const } : item);
+    const result = parseSwitchboardLabel(items, registry);
+    const serial = result.fields.find((field) => field.fieldKey === "serialNumber");
+    expect(serial?.normalizedValue).toBe("DBO-2026-000123");
+    expect(serial?.confidence).toBeLessThan(0.9);
+  });
+  it("never fuzzy-matches short technical labels", () => {
+    const items = fixture().map((item) => item.text === "IP" ? { ...item, text: "IK" } : item);
+    expect(parseSwitchboardLabel(items, registry).fields.some((field) => field.fieldKey === "ipRating")).toBe(false);
+  });
 });
 
 describe("switchboard validators", () => {
