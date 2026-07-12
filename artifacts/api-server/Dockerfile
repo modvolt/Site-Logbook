@@ -79,5 +79,6 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5000)+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# Apply migrations, then start the server (exec so SIGTERM reaches Node).
-CMD ["sh", "-c", "node dist/migrate.mjs && exec node --enable-source-maps dist/index.mjs"]
+# Apply migrations, emit an unambiguous startup marker, then start the server.
+# Explicit status handling keeps migration failures visible in container logs.
+CMD ["sh", "-c", "echo '[startup] applying database migrations'; node dist/migrate.mjs; status=$?; if [ $status -ne 0 ]; then echo \"[startup] migration failed with exit code $status\" >&2; exit $status; fi; echo '[startup] migrations complete, starting API'; exec node --enable-source-maps dist/index.mjs"]
