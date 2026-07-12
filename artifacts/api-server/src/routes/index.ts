@@ -45,6 +45,7 @@ import signRouter from "./sign";
 import quotesRouter from "./quotes";
 import webauthnRouter from "./webauthn";
 import switchboardsRouter from "./switchboards";
+import switchboardReviewRouter from "./switchboard-review";
 
 const router: IRouter = Router();
 
@@ -93,6 +94,7 @@ router.use(sessionsRouter);
 router.use(signRouter);
 router.use(quotesRouter);
 router.use(webauthnRouter);
+router.use(switchboardReviewRouter);
 router.use(switchboardsRouter);
 
 export default router;

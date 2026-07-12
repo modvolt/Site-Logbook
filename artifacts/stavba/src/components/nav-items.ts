@@ -1,7 +1,7 @@
 import {
   Home, Calendar, Briefcase, Users, Settings, Building2, ShieldAlert,
   UserCog, Hammer, User as UserIcon, Package, Wrench, ScrollText,
-  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity, FolderKanban, CircuitBoard,
+  ShieldCheck, KeyRound, BarChart3, Receipt, Bug, Activity, FolderKanban, CircuitBoard, ScanText,
 } from "lucide-react";
 import type { Permission } from "@/hooks/use-auth";
 
@@ -36,6 +36,7 @@ export const mainNavItems: NavItem[] = [
 
 /** Secondary / admin destinations — desktop footer section and mobile menu. */
 export const adminNavItems: NavItem[] = [
+  { href: "/admin/switchboard-parser", icon: ScanText, label: "DBO parser", color: "text-cyan-600", activeBg: "bg-cyan-600 text-white", hoverBg: "hover:bg-cyan-50 hover:text-cyan-700 dark:hover:bg-cyan-950/30", requires: "switchboards.parser.manage" },
   { href: "/admin", icon: ShieldAlert, label: "Správa zakázek", shortLabel: "Správa", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "jobs.manage" },
   { href: "/billing", icon: Receipt, label: "Fakturace", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "billing.view", match: (l) => l === "/billing" || l.startsWith("/billing/") },
   { href: "/statistika", icon: BarChart3, label: "Statistika", color: "text-rose-600", activeBg: "bg-rose-600 text-white", hoverBg: "hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30", requires: "statistics.view" },

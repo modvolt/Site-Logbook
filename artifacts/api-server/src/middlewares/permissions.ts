@@ -68,6 +68,10 @@ function permissionForRequest(req: Request): Permission | null {
   if (path.startsWith("/storage/objects/cost-documents")) return "billing.view";
   if (path === "/switchboards" && req.method === "POST") return "switchboards.create";
   if (/^\/switchboards\/\d+\/archive$/.test(path)) return "switchboards.archive";
+  if (path.startsWith("/switchboards/field-registry")) return READ_METHODS.has(req.method) ? "switchboards.extraction.review" : "switchboards.parser.manage";
+  if (/^\/switchboards\/\d+\/extractions(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.extraction.review" : "switchboards.extraction.correct";
+  if (/^\/switchboards\/\d+\/documents\/compare$/.test(path)) return "switchboards.extraction.review";
+  if (/^\/switchboards\/\d+\/documents\/\d+\/reprocess$/.test(path)) return "switchboards.extraction.review";
   if (/^\/switchboards\/\d+\/documents(?:\/|$)/.test(path)) {
     return READ_METHODS.has(req.method) ? "switchboards.documents.view" : "switchboards.documents.upload";
   }

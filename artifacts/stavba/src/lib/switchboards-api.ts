@@ -44,6 +44,15 @@ export type SwitchboardDocument = {
   isPublic: boolean; processingStatus: string; processingErrorCode: string | null;
   processingErrorMessage: string | null; uploadedAt: string;
 };
+export type SwitchboardExtractedField = {
+  id: number; documentId: number; fieldKey: string; foundLabel: string; matchedAlias: string | null;
+  rawValue: string | null; normalizedValue: string | null; correctedValue: string | null;
+  effectiveValue: string | null; confidence: number; pageNumber: number; blockId: string | null;
+  extractionMethod: string; relativeRelation: string; validationStatus: string;
+  validationMessage: string | null; parserVersion: string; manuallyCorrected: boolean;
+  correctedAt: string | null; createdAt: string;
+};
+export type SwitchboardExtractionDocument = SwitchboardDocument & { fields: SwitchboardExtractedField[]; missingFields: Array<{ fieldKey: string; canonicalNameCs: string; dataType: string }> };
 
 export async function switchboardFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
