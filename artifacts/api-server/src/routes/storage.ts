@@ -12,7 +12,7 @@ import {
   ObjectNotFoundError,
   diagnoseS3,
 } from "../lib/objectStorage";
-import { requireRole } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 import { contentMatchesType } from "../lib/fileSignature";
 
 const router: IRouter = Router();
@@ -176,7 +176,7 @@ router.post(
  */
 router.get(
   "/storage/diagnose",
-  requireRole("admin"),
+  requirePermission("diagnostics.view"),
   async (req: Request, res: Response) => {
     try {
       const result = await diagnoseS3();

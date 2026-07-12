@@ -23,6 +23,7 @@ import {
   formatPpeDate,
 } from "@/lib/ppe-format";
 import { PpeEventHistory } from "@/components/ppe-event-history";
+import { PersonHourlyRates } from "@/components/person-hourly-rates";
 
 function PpeStatusBadge({ status }: { status: string }) {
   return (
@@ -166,6 +167,8 @@ export default function PersonDetail() {
           </Button>
         )}
       </div>
+
+      <PersonHourlyRates personId={personId} />
 
       {/* OOPP Section */}
       <Card>

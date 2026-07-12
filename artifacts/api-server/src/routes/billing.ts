@@ -13,7 +13,6 @@ import {
   CreateRecurringTemplateBody,
   UpdateRecurringTemplateBody,
 } from "@workspace/api-zod";
-import { requireRole } from "../middlewares/auth";
 import {
   ObjectNotFoundError,
   ObjectStorageService,
@@ -54,6 +53,9 @@ import {
   type InvoiceLineInput,
 } from "../lib/invoice-service";
 import type { VatMode } from "../lib/invoice-calc";
+import { getWorkFinancialSummary } from "../lib/work-financial-service";
+import { db, auditLogTable } from "@workspace/db";
+import { z } from "zod/v4";
 import {
   listRecurringTemplates,
   getRecurringTemplateDetail,
@@ -66,9 +68,6 @@ import {
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
-
-// Fakturace is admin-only. Path-scoped so it never leaks to downstream routers.
-router.use("/billing", requireRole("admin"));
 
 function isAppError(err: unknown): err is AppError {
   return (
@@ -86,7 +85,7 @@ function handleError(err: unknown, fallback: string, res: import("express").Resp
 }
 
 function actorOf(req: import("express").Request): Actor {
-  // requireRole guarantees req.auth is present.
+  // The global permission middleware guarantees req.auth is present.
   return { userId: req.auth!.userId, name: req.auth!.name };
 }
 
@@ -101,6 +100,42 @@ function parseId(raw: string): number | null {
 
 router.get("/billing/summary", async (_req, res): Promise<void> => {
   res.json(await getBillingSummary());
+});
+
+const WorkFinancialQuery = z.object({
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  personId: z.coerce.number().int().positive().optional(),
+  jobId: z.coerce.number().int().positive().optional(),
+  activityId: z.coerce.number().int().positive().optional(),
+  billingStatus: z.enum(["unbilled", "ready", "billed", "non_billable"]).optional(),
+});
+
+router.get("/billing/work-financial-summary", async (req, res): Promise<void> => {
+  const parsed = WorkFinancialQuery.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: "Neplatný filtr finančního přehledu" }); return; }
+  const summary = await getWorkFinancialSummary(parsed.data);
+  const canViewCost = req.auth!.permissions.includes("rates.cost.view");
+  const filter = <T extends { cost: number; sale: number; margin: number; marginPercent: number | null }>(row: T) => ({
+    ...row,
+    cost: canViewCost ? row.cost : null,
+    margin: canViewCost ? row.margin : null,
+    marginPercent: canViewCost ? row.marginPercent : null,
+  });
+  await db.insert(auditLogTable).values({
+    actorUserId: req.auth!.userId,
+    actorName: req.auth!.name,
+    action: "view",
+    entityType: "work_financial_summary",
+    summary: `Zobrazení finančního přehledu práce (${canViewCost ? "včetně nákladů" : "bez nákladů"})`,
+    method: "GET",
+    path: "/billing/work-financial-summary",
+  });
+  res.json({
+    ...filter(summary),
+    byBillingStatus: summary.byBillingStatus.map(filter),
+    byPerson: summary.byPerson.map(filter),
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -262,6 +297,8 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
     customerId: d.customerId,
     jobIds: d.jobIds ?? undefined,
     activityIds: d.activityIds ?? undefined,
+    labourBillingMode: d.labourBillingMode ?? undefined,
+    workGrouping: d.workGrouping ?? undefined,
     billFineJobIds: d.billFineJobIds ?? undefined,
     materialMarkupPercent: d.materialMarkupPercent ?? undefined,
     materialMarkupOverrides: d.materialMarkupOverrides ?? undefined,

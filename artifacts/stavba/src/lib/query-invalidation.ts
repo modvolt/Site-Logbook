@@ -83,6 +83,8 @@ const DOMAIN_PREFIXES: Record<LiveDomain, readonly string[]> = {
   reviewQueue: ["/api/billing/review-queue"],
   // Aktivní přihlášení — admin přehled i vlastní session uživatele.
   sessions: ["/api/admin/sessions", "/api/sessions"],
+  // Role and permission changes must update navigation in already-open sessions.
+  auth: ["/api/auth/me", "/api/users"],
 };
 
 /**

@@ -1,11 +1,8 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { db, auditLogTable } from "@workspace/db";
-import { requireRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
-
-router.use("/audit-logs", requireRole("admin"));
 
 function serializeEntry(e: typeof auditLogTable.$inferSelect) {
   return {

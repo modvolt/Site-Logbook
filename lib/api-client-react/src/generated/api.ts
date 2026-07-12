@@ -168,6 +168,7 @@ import type {
   LeaveSummary,
   LinkableBillingDocumentLine,
   ListActivitiesParams,
+  ListActivityWorkSessionsParams,
   ListAllSessionsParams,
   ListApprovedCostLinesParams,
   ListAuditLogsParams,
@@ -177,6 +178,7 @@ import type {
   ListCustomerDocumentsParams,
   ListEmailImportMessagesParams,
   ListInvoicesParams,
+  ListJobWorkSessionsParams,
   ListJobsParams,
   ListLeavesParams,
   ListLinkableDocumentLinesParams,
@@ -191,6 +193,7 @@ import type {
   Machine,
   MachineInput,
   MachineUpdate,
+  ManualWorkSessionInput,
   MarkCostDocumentDuplicateInput,
   Material,
   MaterialInput,
@@ -207,6 +210,8 @@ import type {
   MyVisit,
   OkResult,
   Person,
+  PersonHourlyRate,
+  PersonHourlyRateInput,
   PersonInput,
   PersonStats,
   PpeAssignment,
@@ -270,9 +275,11 @@ import type {
   UpdateRecurringTemplateInput,
   UpsertMaterialMarkupRuleInput,
   UserInput,
+  UserPermissionUpdate,
   UserPreferences,
   UserPreferencesInput,
   UserUpdate,
+  VoidPersonHourlyRateInput,
   WarehouseActivityMarginTrend,
   WarehouseImportInput,
   WarehouseImportResult,
@@ -295,7 +302,9 @@ import type {
   WebAuthnLoginBeginInput,
   WebAuthnOptions,
   WebAuthnRegisterCompleteInput,
-  WebAuthnVerifyResult
+  WebAuthnVerifyResult,
+  WorkSession,
+  WorkSummary
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -3066,6 +3075,229 @@ export const useDeletePerson = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeletePersonMutationOptions(options));
+    }
+
+export const getListPersonHourlyRatesUrl = (id: number,) => {
+
+
+
+
+  return `/api/people/${id}/hourly-rates`
+}
+
+/**
+ * @summary List historical hourly rates with unauthorized financial fields removed
+ */
+export const listPersonHourlyRates = async (id: number, options?: RequestInit): Promise<PersonHourlyRate[]> => {
+
+  return customFetch<PersonHourlyRate[]>(getListPersonHourlyRatesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPersonHourlyRatesQueryKey = (id: number,) => {
+    return [
+    `/api/people/${id}/hourly-rates`
+    ] as const;
+    }
+
+
+export const getListPersonHourlyRatesQueryOptions = <TData = Awaited<ReturnType<typeof listPersonHourlyRates>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPersonHourlyRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPersonHourlyRatesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPersonHourlyRates>>> = ({ signal }) => listPersonHourlyRates(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPersonHourlyRates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPersonHourlyRatesQueryResult = NonNullable<Awaited<ReturnType<typeof listPersonHourlyRates>>>
+export type ListPersonHourlyRatesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List historical hourly rates with unauthorized financial fields removed
+ */
+
+export function useListPersonHourlyRates<TData = Awaited<ReturnType<typeof listPersonHourlyRates>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPersonHourlyRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPersonHourlyRatesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreatePersonHourlyRateUrl = (id: number,) => {
+
+
+
+
+  return `/api/people/${id}/hourly-rates`
+}
+
+/**
+ * @summary Add a new effective hourly-rate version
+ */
+export const createPersonHourlyRate = async (id: number,
+    personHourlyRateInput: PersonHourlyRateInput, options?: RequestInit): Promise<PersonHourlyRate> => {
+
+  return customFetch<PersonHourlyRate>(getCreatePersonHourlyRateUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      personHourlyRateInput,)
+  }
+);}
+
+
+
+
+export const getCreatePersonHourlyRateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPersonHourlyRate>>, TError,{id: number;data: BodyType<PersonHourlyRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPersonHourlyRate>>, TError,{id: number;data: BodyType<PersonHourlyRateInput>}, TContext> => {
+
+const mutationKey = ['createPersonHourlyRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPersonHourlyRate>>, {id: number;data: BodyType<PersonHourlyRateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createPersonHourlyRate(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePersonHourlyRateMutationResult = NonNullable<Awaited<ReturnType<typeof createPersonHourlyRate>>>
+    export type CreatePersonHourlyRateMutationBody = BodyType<PersonHourlyRateInput>
+    export type CreatePersonHourlyRateMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a new effective hourly-rate version
+ */
+export const useCreatePersonHourlyRate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPersonHourlyRate>>, TError,{id: number;data: BodyType<PersonHourlyRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPersonHourlyRate>>,
+        TError,
+        {id: number;data: BodyType<PersonHourlyRateInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePersonHourlyRateMutationOptions(options));
+    }
+
+export const getVoidPersonHourlyRateUrl = (id: number,
+    rateId: number,) => {
+
+
+
+
+  return `/api/people/${id}/hourly-rates/${rateId}/void`
+}
+
+/**
+ * @summary Void a rate version while retaining its history
+ */
+export const voidPersonHourlyRate = async (id: number,
+    rateId: number,
+    voidPersonHourlyRateInput: VoidPersonHourlyRateInput, options?: RequestInit): Promise<PersonHourlyRate> => {
+
+  return customFetch<PersonHourlyRate>(getVoidPersonHourlyRateUrl(id,rateId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      voidPersonHourlyRateInput,)
+  }
+);}
+
+
+
+
+export const getVoidPersonHourlyRateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voidPersonHourlyRate>>, TError,{id: number;rateId: number;data: BodyType<VoidPersonHourlyRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof voidPersonHourlyRate>>, TError,{id: number;rateId: number;data: BodyType<VoidPersonHourlyRateInput>}, TContext> => {
+
+const mutationKey = ['voidPersonHourlyRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof voidPersonHourlyRate>>, {id: number;rateId: number;data: BodyType<VoidPersonHourlyRateInput>}> = (props) => {
+          const {id,rateId,data} = props ?? {};
+
+          return  voidPersonHourlyRate(id,rateId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VoidPersonHourlyRateMutationResult = NonNullable<Awaited<ReturnType<typeof voidPersonHourlyRate>>>
+    export type VoidPersonHourlyRateMutationBody = BodyType<VoidPersonHourlyRateInput>
+    export type VoidPersonHourlyRateMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Void a rate version while retaining its history
+ */
+export const useVoidPersonHourlyRate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voidPersonHourlyRate>>, TError,{id: number;rateId: number;data: BodyType<VoidPersonHourlyRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof voidPersonHourlyRate>>,
+        TError,
+        {id: number;rateId: number;data: BodyType<VoidPersonHourlyRateInput>},
+        TContext
+      > => {
+      return useMutation(getVoidPersonHourlyRateMutationOptions(options));
     }
 
 export const getListLeavesUrl = (params?: ListLeavesParams,) => {
@@ -12011,6 +12243,78 @@ export const useDeleteUser = <TError = ErrorType<unknown>,
       return useMutation(getDeleteUserMutationOptions(options));
     }
 
+export const getUpdateUserPermissionsUrl = (id: number,) => {
+
+
+
+
+  return `/api/users/${id}/permissions`
+}
+
+/**
+ * @summary Replace individual permission overrides (users.manage required)
+ */
+export const updateUserPermissions = async (id: number,
+    userPermissionUpdate: UserPermissionUpdate, options?: RequestInit): Promise<AuthUser> => {
+
+  return customFetch<AuthUser>(getUpdateUserPermissionsUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      userPermissionUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateUserPermissionsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserPermissions>>, TError,{id: number;data: BodyType<UserPermissionUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateUserPermissions>>, TError,{id: number;data: BodyType<UserPermissionUpdate>}, TContext> => {
+
+const mutationKey = ['updateUserPermissions'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserPermissions>>, {id: number;data: BodyType<UserPermissionUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateUserPermissions(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateUserPermissionsMutationResult = NonNullable<Awaited<ReturnType<typeof updateUserPermissions>>>
+    export type UpdateUserPermissionsMutationBody = BodyType<UserPermissionUpdate>
+    export type UpdateUserPermissionsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Replace individual permission overrides (users.manage required)
+ */
+export const useUpdateUserPermissions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserPermissions>>, TError,{id: number;data: BodyType<UserPermissionUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateUserPermissions>>,
+        TError,
+        {id: number;data: BodyType<UserPermissionUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateUserPermissionsMutationOptions(options));
+    }
+
 export const getListMySessionsUrl = () => {
 
 
@@ -14976,6 +15280,626 @@ export const useDeleteJobTimeEntry = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteJobTimeEntryMutationOptions(options));
+    }
+
+export const getListActivityWorkSessionsUrl = (activityId: number,
+    params?: ListActivityWorkSessionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/activities/${activityId}/work-sessions?${stringifiedParams}` : `/api/activities/${activityId}/work-sessions`
+}
+
+/**
+ * @summary List immutable work sessions and corrections for an activity
+ */
+export const listActivityWorkSessions = async (activityId: number,
+    params?: ListActivityWorkSessionsParams, options?: RequestInit): Promise<WorkSession[]> => {
+
+  return customFetch<WorkSession[]>(getListActivityWorkSessionsUrl(activityId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListActivityWorkSessionsQueryKey = (activityId: number,
+    params?: ListActivityWorkSessionsParams,) => {
+    return [
+    `/api/activities/${activityId}/work-sessions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListActivityWorkSessionsQueryOptions = <TData = Awaited<ReturnType<typeof listActivityWorkSessions>>, TError = ErrorType<unknown>>(activityId: number,
+    params?: ListActivityWorkSessionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityWorkSessions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListActivityWorkSessionsQueryKey(activityId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listActivityWorkSessions>>> = ({ signal }) => listActivityWorkSessions(activityId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(activityId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listActivityWorkSessions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListActivityWorkSessionsQueryResult = NonNullable<Awaited<ReturnType<typeof listActivityWorkSessions>>>
+export type ListActivityWorkSessionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List immutable work sessions and corrections for an activity
+ */
+
+export function useListActivityWorkSessions<TData = Awaited<ReturnType<typeof listActivityWorkSessions>>, TError = ErrorType<unknown>>(
+ activityId: number,
+    params?: ListActivityWorkSessionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listActivityWorkSessions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListActivityWorkSessionsQueryOptions(activityId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateActivityWorkSessionUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/work-sessions`
+}
+
+/**
+ * @summary Add a completed manual work session to an activity
+ */
+export const createActivityWorkSession = async (activityId: number,
+    manualWorkSessionInput: ManualWorkSessionInput, options?: RequestInit): Promise<WorkSession> => {
+
+  return customFetch<WorkSession>(getCreateActivityWorkSessionUrl(activityId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      manualWorkSessionInput,)
+  }
+);}
+
+
+
+
+export const getCreateActivityWorkSessionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityWorkSession>>, TError,{activityId: number;data: BodyType<ManualWorkSessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createActivityWorkSession>>, TError,{activityId: number;data: BodyType<ManualWorkSessionInput>}, TContext> => {
+
+const mutationKey = ['createActivityWorkSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createActivityWorkSession>>, {activityId: number;data: BodyType<ManualWorkSessionInput>}> = (props) => {
+          const {activityId,data} = props ?? {};
+
+          return  createActivityWorkSession(activityId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateActivityWorkSessionMutationResult = NonNullable<Awaited<ReturnType<typeof createActivityWorkSession>>>
+    export type CreateActivityWorkSessionMutationBody = BodyType<ManualWorkSessionInput>
+    export type CreateActivityWorkSessionMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a completed manual work session to an activity
+ */
+export const useCreateActivityWorkSession = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createActivityWorkSession>>, TError,{activityId: number;data: BodyType<ManualWorkSessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createActivityWorkSession>>,
+        TError,
+        {activityId: number;data: BodyType<ManualWorkSessionInput>},
+        TContext
+      > => {
+      return useMutation(getCreateActivityWorkSessionMutationOptions(options));
+    }
+
+export const getGetActivityWorkSummaryUrl = (activityId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/work-summary`
+}
+
+/**
+ * @summary Get exact person-hour totals and worker breakdown for an activity
+ */
+export const getActivityWorkSummary = async (activityId: number, options?: RequestInit): Promise<WorkSummary> => {
+
+  return customFetch<WorkSummary>(getGetActivityWorkSummaryUrl(activityId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetActivityWorkSummaryQueryKey = (activityId: number,) => {
+    return [
+    `/api/activities/${activityId}/work-summary`
+    ] as const;
+    }
+
+
+export const getGetActivityWorkSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getActivityWorkSummary>>, TError = ErrorType<unknown>>(activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActivityWorkSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetActivityWorkSummaryQueryKey(activityId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getActivityWorkSummary>>> = ({ signal }) => getActivityWorkSummary(activityId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(activityId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getActivityWorkSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetActivityWorkSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getActivityWorkSummary>>>
+export type GetActivityWorkSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get exact person-hour totals and worker breakdown for an activity
+ */
+
+export function useGetActivityWorkSummary<TData = Awaited<ReturnType<typeof getActivityWorkSummary>>, TError = ErrorType<unknown>>(
+ activityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActivityWorkSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetActivityWorkSummaryQueryOptions(activityId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getVoidActivityWorkSessionUrl = (activityId: number,
+    sessionId: number,) => {
+
+
+
+
+  return `/api/activities/${activityId}/work-sessions/${sessionId}`
+}
+
+/**
+ * @summary Void a work session while retaining its audit history
+ */
+export const voidActivityWorkSession = async (activityId: number,
+    sessionId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getVoidActivityWorkSessionUrl(activityId,sessionId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getVoidActivityWorkSessionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voidActivityWorkSession>>, TError,{activityId: number;sessionId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof voidActivityWorkSession>>, TError,{activityId: number;sessionId: number}, TContext> => {
+
+const mutationKey = ['voidActivityWorkSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof voidActivityWorkSession>>, {activityId: number;sessionId: number}> = (props) => {
+          const {activityId,sessionId} = props ?? {};
+
+          return  voidActivityWorkSession(activityId,sessionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VoidActivityWorkSessionMutationResult = NonNullable<Awaited<ReturnType<typeof voidActivityWorkSession>>>
+
+    export type VoidActivityWorkSessionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Void a work session while retaining its audit history
+ */
+export const useVoidActivityWorkSession = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voidActivityWorkSession>>, TError,{activityId: number;sessionId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof voidActivityWorkSession>>,
+        TError,
+        {activityId: number;sessionId: number},
+        TContext
+      > => {
+      return useMutation(getVoidActivityWorkSessionMutationOptions(options));
+    }
+
+export const getListJobWorkSessionsUrl = (jobId: number,
+    params?: ListJobWorkSessionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/jobs/${jobId}/work-sessions?${stringifiedParams}` : `/api/jobs/${jobId}/work-sessions`
+}
+
+/**
+ * @summary List immutable work sessions and corrections for a job
+ */
+export const listJobWorkSessions = async (jobId: number,
+    params?: ListJobWorkSessionsParams, options?: RequestInit): Promise<WorkSession[]> => {
+
+  return customFetch<WorkSession[]>(getListJobWorkSessionsUrl(jobId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListJobWorkSessionsQueryKey = (jobId: number,
+    params?: ListJobWorkSessionsParams,) => {
+    return [
+    `/api/jobs/${jobId}/work-sessions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListJobWorkSessionsQueryOptions = <TData = Awaited<ReturnType<typeof listJobWorkSessions>>, TError = ErrorType<unknown>>(jobId: number,
+    params?: ListJobWorkSessionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobWorkSessions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListJobWorkSessionsQueryKey(jobId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listJobWorkSessions>>> = ({ signal }) => listJobWorkSessions(jobId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(jobId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listJobWorkSessions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListJobWorkSessionsQueryResult = NonNullable<Awaited<ReturnType<typeof listJobWorkSessions>>>
+export type ListJobWorkSessionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List immutable work sessions and corrections for a job
+ */
+
+export function useListJobWorkSessions<TData = Awaited<ReturnType<typeof listJobWorkSessions>>, TError = ErrorType<unknown>>(
+ jobId: number,
+    params?: ListJobWorkSessionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobWorkSessions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListJobWorkSessionsQueryOptions(jobId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateJobWorkSessionUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/work-sessions`
+}
+
+/**
+ * @summary Add a completed manual work session to a job
+ */
+export const createJobWorkSession = async (jobId: number,
+    manualWorkSessionInput: ManualWorkSessionInput, options?: RequestInit): Promise<WorkSession> => {
+
+  return customFetch<WorkSession>(getCreateJobWorkSessionUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      manualWorkSessionInput,)
+  }
+);}
+
+
+
+
+export const getCreateJobWorkSessionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJobWorkSession>>, TError,{jobId: number;data: BodyType<ManualWorkSessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createJobWorkSession>>, TError,{jobId: number;data: BodyType<ManualWorkSessionInput>}, TContext> => {
+
+const mutationKey = ['createJobWorkSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createJobWorkSession>>, {jobId: number;data: BodyType<ManualWorkSessionInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  createJobWorkSession(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateJobWorkSessionMutationResult = NonNullable<Awaited<ReturnType<typeof createJobWorkSession>>>
+    export type CreateJobWorkSessionMutationBody = BodyType<ManualWorkSessionInput>
+    export type CreateJobWorkSessionMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a completed manual work session to a job
+ */
+export const useCreateJobWorkSession = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJobWorkSession>>, TError,{jobId: number;data: BodyType<ManualWorkSessionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createJobWorkSession>>,
+        TError,
+        {jobId: number;data: BodyType<ManualWorkSessionInput>},
+        TContext
+      > => {
+      return useMutation(getCreateJobWorkSessionMutationOptions(options));
+    }
+
+export const getGetJobWorkSummaryUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/work-summary`
+}
+
+/**
+ * @summary Get exact person-hour totals and worker breakdown for a job
+ */
+export const getJobWorkSummary = async (jobId: number, options?: RequestInit): Promise<WorkSummary> => {
+
+  return customFetch<WorkSummary>(getGetJobWorkSummaryUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetJobWorkSummaryQueryKey = (jobId: number,) => {
+    return [
+    `/api/jobs/${jobId}/work-summary`
+    ] as const;
+    }
+
+
+export const getGetJobWorkSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getJobWorkSummary>>, TError = ErrorType<unknown>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobWorkSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetJobWorkSummaryQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJobWorkSummary>>> = ({ signal }) => getJobWorkSummary(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(jobId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getJobWorkSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetJobWorkSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getJobWorkSummary>>>
+export type GetJobWorkSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get exact person-hour totals and worker breakdown for a job
+ */
+
+export function useGetJobWorkSummary<TData = Awaited<ReturnType<typeof getJobWorkSummary>>, TError = ErrorType<unknown>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobWorkSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetJobWorkSummaryQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getVoidJobWorkSessionUrl = (jobId: number,
+    sessionId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/work-sessions/${sessionId}`
+}
+
+/**
+ * @summary Void a work session while retaining its audit history
+ */
+export const voidJobWorkSession = async (jobId: number,
+    sessionId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getVoidJobWorkSessionUrl(jobId,sessionId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getVoidJobWorkSessionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voidJobWorkSession>>, TError,{jobId: number;sessionId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof voidJobWorkSession>>, TError,{jobId: number;sessionId: number}, TContext> => {
+
+const mutationKey = ['voidJobWorkSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof voidJobWorkSession>>, {jobId: number;sessionId: number}> = (props) => {
+          const {jobId,sessionId} = props ?? {};
+
+          return  voidJobWorkSession(jobId,sessionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VoidJobWorkSessionMutationResult = NonNullable<Awaited<ReturnType<typeof voidJobWorkSession>>>
+
+    export type VoidJobWorkSessionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Void a work session while retaining its audit history
+ */
+export const useVoidJobWorkSession = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voidJobWorkSession>>, TError,{jobId: number;sessionId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof voidJobWorkSession>>,
+        TError,
+        {jobId: number;sessionId: number},
+        TContext
+      > => {
+      return useMutation(getVoidJobWorkSessionMutationOptions(options));
     }
 
 export const getGetMyStatsUrl = () => {

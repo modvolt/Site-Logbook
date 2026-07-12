@@ -47,6 +47,7 @@ let relationshipBackfillStarted = false;
 
 const POLL_MS = 5_000;
 const BATCH = 5;
+const STALE_RUNNING_MS = 30 * 60 * 1_000;
 
 /** Statuses we never override when finishing extraction (human already acted). */
 const TERMINAL_DOC_STATUSES = new Set(["approved", "ignored", "reviewed", "duplicate"]);
@@ -243,6 +244,25 @@ export async function drainQueue(): Promise<void> {
   if (draining) return;
   draining = true;
   try {
+    const recovered = await db
+      .update(extractionJobsTable)
+      .set({
+        status: "queued",
+        startedAt: null,
+        lastError: "Předchozí běh byl přerušen restartem serveru; úloha byla obnovena.",
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(extractionJobsTable.status, "running"),
+        lt(extractionJobsTable.startedAt, new Date(Date.now() - STALE_RUNNING_MS)),
+        lt(extractionJobsTable.attempts, extractionJobsTable.maxAttempts),
+      ))
+      .returning({ id: extractionJobsTable.id });
+    if (recovered.length) {
+      logger.warn({ count: recovered.length }, "Recovered stale extraction jobs");
+      publishLiveEvent(WORKER_DOMAINS).catch(() => {});
+    }
+
     const pending = await db
       .select({ id: extractionJobsTable.id })
       .from(extractionJobsTable)

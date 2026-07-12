@@ -2,7 +2,8 @@ import { Router, type IRouter } from "express";
 import { desc, sql, lt, gte } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { db, clientErrorsTable } from "@workspace/db";
-import { requireAuth, requireRole } from "../middlewares/auth";
+import { requireAuth } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 import { z } from "zod/v4";
 import { logger } from "../lib/logger";
 
@@ -107,7 +108,7 @@ router.post("/client-errors", requireAuth, errorLimiter, async (req, res): Promi
   res.status(204).end();
 });
 
-router.get("/client-errors", requireRole("admin", "master"), async (req, res): Promise<void> => {
+router.get("/client-errors", requirePermission("diagnostics.view"), async (req, res): Promise<void> => {
   const rawLimit = Number(req.query.limit);
   const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
   const rawOffset = Number(req.query.offset);
@@ -139,7 +140,7 @@ router.get("/client-errors", requireRole("admin", "master"), async (req, res): P
   });
 });
 
-router.delete("/client-errors", requireRole("admin", "master"), async (req, res): Promise<void> => {
+router.delete("/client-errors", requirePermission("diagnostics.manage"), async (req, res): Promise<void> => {
   const rawDays = Number(req.query.olderThanDays);
   const olderThanDays = Number.isInteger(rawDays) && rawDays > 0 ? rawDays : undefined;
   const days = resolveRetentionDays(olderThanDays);

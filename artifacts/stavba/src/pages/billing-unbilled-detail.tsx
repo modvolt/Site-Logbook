@@ -24,7 +24,7 @@ import { TypeBadge } from "@/components/badges";
 import { Input } from "@/components/ui/input";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent } from "lucide-react";
+import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent, Clock, AlertTriangle } from "lucide-react";
 
 type UnbilledMaterial = UnbilledJob["materials"][number];
 
@@ -138,6 +138,8 @@ export default function BillingUnbilledDetail() {
   // tables with colliding ids, so the namespace keeps their overrides distinct.
   // Stored as raw strings; an absent/blank entry means "use category → default".
   const [materialMarkup, setMaterialMarkup] = useState<Record<string, string>>({});
+  const [labourBillingMode, setLabourBillingMode] = useState<"job_price" | "recorded_time" | "none">("job_price");
+  const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">("summary");
 
   type MaterialSource = "material" | "activity_material";
   const omKey = (sourceType: MaterialSource, id: number) => `${sourceType}:${id}`;
@@ -224,14 +226,28 @@ export default function BillingUnbilledDetail() {
   );
 
   const estimatedTotal = useMemo(
-    () =>
-      jobs
+    () => {
+      const base = jobs
         .filter((j) => isChecked(j.id))
         .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], jobMarkupFor), 0) +
       activities
         .filter((a) => isActivityChecked(a.id))
-        .reduce((sum, a) => sum + activityOrientationalTotal(a, activityMarkupFor), 0),
-    [jobs, activities, selected, selectedActivities, fines, markupPercent, materialMarkup],
+        .reduce((sum, a) => sum + activityOrientationalTotal(a, activityMarkupFor), 0);
+      const selectedJobs = jobs.filter((job) => isChecked(job.id));
+      const selectedActs = activities.filter((activity) => isActivityChecked(activity.id));
+      const removedJobPrice = labourBillingMode === "job_price" ? 0 : selectedJobs.reduce((sum, job) => sum + (job.price ?? 0), 0);
+      const recorded = labourBillingMode === "recorded_time"
+        ? selectedJobs.reduce((sum, job) => sum + job.recordedWork.amount, 0) + selectedActs.reduce((sum, activity) => sum + activity.recordedWork.amount, 0)
+        : 0;
+      return base - removedJobPrice + recorded;
+    },
+    [jobs, activities, selected, selectedActivities, fines, markupPercent, materialMarkup, labourBillingMode],
+  );
+
+  const selectedRecordedWork = [...jobs.filter((job) => isChecked(job.id)), ...activities.filter((activity) => isActivityChecked(activity.id))];
+  const recordedWorkBlockers = selectedRecordedWork.reduce(
+    (sum, item) => sum + item.recordedWork.missingRateCount + item.recordedWork.needsReviewCount,
+    0,
   );
 
   // Material purchase-price base across selected jobs + activities, plus markup.
@@ -317,6 +333,8 @@ export default function BillingUnbilledDetail() {
           customerId,
           jobIds: chosenJobIds,
           ...(chosenActivityIds.length > 0 ? { activityIds: chosenActivityIds } : {}),
+          labourBillingMode,
+          workGrouping,
           billFineJobIds,
           materialMarkupPercent: markupPercent,
           ...(materialMarkupOverrides.length > 0 ? { materialMarkupOverrides } : {}),
@@ -380,6 +398,23 @@ export default function BillingUnbilledDetail() {
         </div>
       </div>
 
+      <div className="mb-4 border-y py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4" /> Způsob fakturace práce</div>
+            <div className="text-xs text-muted-foreground mt-0.5">Pevná cena zakázky zůstává výchozí; skutečný čas použije historické sazby session.</div>
+          </div>
+          <div className="inline-flex rounded-md border p-1 bg-muted/30">
+            {([['job_price', 'Cena zakázky'], ['recorded_time', 'Skutečný čas'], ['none', 'Bez práce']] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={labourBillingMode === value ? "default" : "ghost"} onClick={() => setLabourBillingMode(value)}>{label}</Button>)}
+          </div>
+        </div>
+        {labourBillingMode === "recorded_time" && <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm">Vybráno {selectedRecordedWork.reduce((sum, item) => sum + item.recordedWork.hours, 0).toLocaleString("cs-CZ")} h za {fmtKc(selectedRecordedWork.reduce((sum, item) => sum + item.recordedWork.amount, 0), 2)}</div>
+          <div className="inline-flex rounded-md border p-1"><Button size="sm" variant={workGrouping === "summary" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("summary")}>Souhrnně</Button><Button size="sm" variant={workGrouping === "worker" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("worker")}>Podle pracovníků</Button></div>
+          {recordedWorkBlockers > 0 && <div className="w-full text-sm text-amber-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" /> {recordedWorkBlockers} časových záznamů vyžaduje doplnění sazby nebo kontrolu.</div>}
+        </div>}
+      </div>
+
       <div className="flex items-center justify-between mb-3">
         <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
           <Checkbox
@@ -425,7 +460,7 @@ export default function BillingUnbilledDetail() {
                       )}
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 mt-2 text-sm">
-                      <PriceItem label="Práce" value={job.price} />
+                      <PriceItem label={labourBillingMode === "recorded_time" ? `Práce (${job.recordedWork.hours} h)` : "Práce"} value={labourBillingMode === "recorded_time" ? job.recordedWork.amount : labourBillingMode === "none" ? 0 : job.price} />
                       <PriceItem label="Doprava" value={job.transportCost} />
                       <PriceItem label="Parkování" value={job.parking} />
                       {(job.fines ?? 0) > 0 && (
@@ -526,7 +561,9 @@ export default function BillingUnbilledDetail() {
                   <div className="text-right shrink-0">
                     <div className="font-bold">
                       {fmtKc(
-                        jobOrientationalTotal(job, !!fines[job.id], jobMarkupFor),
+                        jobOrientationalTotal(job, !!fines[job.id], jobMarkupFor)
+                          - (labourBillingMode === "job_price" ? 0 : (job.price ?? 0))
+                          + (labourBillingMode === "recorded_time" ? job.recordedWork.amount : 0),
                         0,
                       )}
                     </div>
@@ -568,6 +605,9 @@ export default function BillingUnbilledDetail() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {fmtDate(activity.completedAt)}
                     </p>
+                    {labourBillingMode === "recorded_time" && activity.recordedWork.sessionCount > 0 && (
+                      <p className="text-sm mt-2"><span className="text-muted-foreground">Práce: </span><span className="font-medium">{activity.recordedWork.hours} h · {fmtKc(activity.recordedWork.amount, 2)}</span></p>
+                    )}
                     {activity.extraWorks.length > 0 && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 mt-2 text-sm">
                         {activity.extraWorks.map((w) => (
@@ -654,7 +694,7 @@ export default function BillingUnbilledDetail() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="font-bold">
-                      {fmtKc(activityOrientationalTotal(activity, activityMarkupFor), 0)}
+                      {fmtKc(activityOrientationalTotal(activity, activityMarkupFor) + (labourBillingMode === "recorded_time" ? activity.recordedWork.amount : 0), 0)}
                     </div>
                   </div>
                 </div>
@@ -774,6 +814,7 @@ export default function BillingUnbilledDetail() {
                 chosenActivityIds.length === 0 &&
                 costLines.length === 0) ||
               createInvoice.isPending
+              || (labourBillingMode === "recorded_time" && recordedWorkBlockers > 0)
             }
             className="h-11"
           >

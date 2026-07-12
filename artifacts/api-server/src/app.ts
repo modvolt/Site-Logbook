@@ -6,7 +6,8 @@ import connectPgSimple from "connect-pg-simple";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { attachAuth, requireAuth, requireWriteAccess } from "./middlewares/auth";
+import { attachAuth, requireAuth } from "./middlewares/auth";
+import { enforceApiPermission } from "./middlewares/permissions";
 import { auditMutations } from "./middlewares/audit";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
@@ -145,7 +146,8 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   return requireAuth(req, res, next);
 });
 
-// Block write operations for guests on all non-auth endpoints
+// Enforce module permissions on the backend. Role defaults are resolved with
+// per-user allow/deny overrides before this middleware runs.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   const url = req.originalUrl.split("?")[0];
   if (url.startsWith("/api/auth/")) return next();
@@ -154,8 +156,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (url.startsWith("/api/sign/")) return next();
   if (url.startsWith("/api/quotes/public/")) return next();
   if (url.startsWith("/api/internal/")) return next();
-  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
-  return requireWriteAccess(req, res, next);
+  return enforceApiPermission(req, res, next);
 });
 
 // Record successful data mutations to the audit log (after auth so the actor is known)

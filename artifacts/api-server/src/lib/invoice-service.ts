@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm";
 import {
   db,
   billingSettingsTable,
@@ -14,6 +14,9 @@ import {
   activityExtraWorksTable,
   customersTable,
   auditLogTable,
+  workSessionsTable,
+  workSessionBillingLinksTable,
+  peopleTable,
   type BillingSettings,
   type MaterialMarkupRule,
   type Invoice,
@@ -827,6 +830,46 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     })),
   }));
 
+  const parentFilters = [];
+  if (jobIds.length) parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
+  if (activityIds.length) parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
+  const workRows = parentFilters.length ? await db
+    .select({ session: workSessionsTable, personName: peopleTable.name })
+    .from(workSessionsTable)
+    .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
+    .where(and(
+      or(...parentFilters),
+      eq(workSessionsTable.status, "completed"),
+      eq(workSessionsTable.billingStatus, "unbilled"),
+    )) : [];
+  type Preview = { sessionCount: number; hours: number; amount: number; missingRateCount: number; needsReviewCount: number; workers: Set<string> };
+  const previews = new Map<string, Preview>();
+  for (const { session, personName } of workRows) {
+    const key = session.jobId != null ? `job:${session.jobId}` : `activity:${session.activityId}`;
+    const preview = previews.get(key) ?? { sessionCount: 0, hours: 0, amount: 0, missingRateCount: 0, needsReviewCount: 0, workers: new Set<string>() };
+    const seconds = session.durationSeconds ?? 0;
+    const billableHours = round2(seconds / 3600);
+    if (billableHours === 0) continue;
+    preview.sessionCount += 1;
+    preview.hours += billableHours;
+    if (session.saleRateSnapshot == null) preview.missingRateCount += 1;
+    else preview.amount += billableHours * num(session.saleRateSnapshot);
+    if (session.reviewStatus === "needs_review") preview.needsReviewCount += 1;
+    preview.workers.add(personName);
+    previews.set(key, preview);
+  }
+  const serializePreview = (key: string) => {
+    const preview = previews.get(key);
+    return preview ? {
+      sessionCount: preview.sessionCount,
+      hours: round2(preview.hours),
+      amount: round2(preview.amount),
+      missingRateCount: preview.missingRateCount,
+      needsReviewCount: preview.needsReviewCount,
+      workers: [...preview.workers].sort(),
+    } : { sessionCount: 0, hours: 0, amount: 0, missingRateCount: 0, needsReviewCount: 0, workers: [] };
+  };
+
   return {
     customerId: customer.id,
     companyName: customer.companyName,
@@ -834,8 +877,8 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     dic: customer.dic,
     address: customer.address,
     email: customer.email,
-    jobs,
-    activities,
+    jobs: jobs.map((job) => ({ ...job, recordedWork: serializePreview(`job:${job.id}`) })),
+    activities: activities.map((activity) => ({ ...activity, recordedWork: serializePreview(`activity:${activity.id}`) })),
   };
 }
 
@@ -1011,6 +1054,7 @@ interface BuildProposedLinesOpts {
   lineMarkupOverrides?: Map<number, number>;
   /** Resolver for a material's category-default markup (second priority). */
   categoryMarkupForName?: (name: string | null | undefined) => number | null;
+  includeJobPrice?: boolean;
 }
 
 /** Build the proposed lines + per-job billed amounts from a set of done jobs. */
@@ -1094,7 +1138,7 @@ async function buildProposedLines(
     const jobLines: RawLine[] = [];
     const isFixedPrice = (job as any).pricingMode === "fixed_price";
 
-    if (isFixedPrice) {
+    if (isFixedPrice && opts.includeJobPrice !== false) {
       // Fixed-price mode: one single line at the agreed contract price.
       // Materials, hours (no hour lines exist currently) are internal only.
       // Transport, parking and fines are still billed separately.
@@ -1115,7 +1159,7 @@ async function buildProposedLines(
       });
     } else {
       // time_material mode (default): bill job price + materials individually.
-      if (num(job.price) > 0) {
+      if (opts.includeJobPrice !== false && num(job.price) > 0) {
         jobLines.push({
           sourceType: "job",
           jobId,
@@ -1418,6 +1462,8 @@ export interface InvoiceCreateInput {
   customerId: number;
   jobIds?: number[];
   activityIds?: number[];
+  labourBillingMode?: "job_price" | "recorded_time" | "none";
+  workGrouping?: "summary" | "worker";
   billFineJobIds?: number[];
   materialMarkupPercent?: number;
   /**
@@ -1442,6 +1488,87 @@ export interface InvoiceCreateInput {
   lines?: InvoiceLineInput[];
 }
 
+type ReservedWork = {
+  sessionId: number;
+  durationSeconds: number;
+  saleRate: number;
+  amountWithoutVat: number;
+};
+
+async function buildRecordedWorkLines(
+  tx: Tx,
+  jobIds: number[],
+  activityIds: number[],
+  vatMode: VatMode,
+  grouping: "summary" | "worker",
+): Promise<{ lines: RawLine[]; reservations: ReservedWork[]; jobAmounts: Map<number, number>; activityAmounts: Map<number, number> }> {
+  if (!jobIds.length && !activityIds.length) return { lines: [], reservations: [], jobAmounts: new Map(), activityAmounts: new Map() };
+  const parentFilters = [];
+  if (jobIds.length) parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
+  if (activityIds.length) parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
+  const rows = await tx
+    .select({ session: workSessionsTable, personName: peopleTable.name })
+    .from(workSessionsTable)
+    .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
+    .where(and(
+      or(...parentFilters),
+      eq(workSessionsTable.status, "completed"),
+      eq(workSessionsTable.billingStatus, "unbilled"),
+    ))
+    .for("update");
+  const billable = rows.filter(({ session }) => round2((session.durationSeconds ?? 0) / 3600) !== 0);
+  const missingRate = billable.find(({ session }) => session.saleRateSnapshot == null);
+  if (missingRate) {
+    throw appError(409, `Časová session #${missingRate.session.id} nemá historickou prodejní sazbu. Doplňte ji ručně před fakturací.`);
+  }
+  const needsReview = billable.find(({ session }) => session.reviewStatus === "needs_review");
+  if (needsReview) {
+    throw appError(409, `Časová session #${needsReview.session.id} čeká na kontrolu a nelze ji zatím fakturovat.`);
+  }
+
+  const groups = new Map<string, { description: string; jobId: number | null; activityId: number | null; rate: number; hours: number }>();
+  const reservations: ReservedWork[] = [];
+  const jobAmounts = new Map<number, number>();
+  const activityAmounts = new Map<number, number>();
+  for (const { session, personName } of billable) {
+    const rate = num(session.saleRateSnapshot);
+    const seconds = session.durationSeconds ?? 0;
+    const billableHours = round2(seconds / 3600);
+    if (billableHours === 0) continue;
+    const parentKey = session.jobId != null ? `job:${session.jobId}` : `activity:${session.activityId}`;
+    const key = `${parentKey}:rate:${rate}${grouping === "worker" ? `:person:${session.personId}` : ""}`;
+    const description = grouping === "worker" ? `Práce – ${personName}` : "Odpracované práce";
+    const group = groups.get(key) ?? { description, jobId: session.jobId, activityId: session.activityId, rate, hours: 0 };
+    group.hours = round2(group.hours + billableHours);
+    groups.set(key, group);
+    reservations.push({
+      sessionId: session.id,
+      durationSeconds: seconds,
+      saleRate: rate,
+      amountWithoutVat: round2(billableHours * rate),
+    });
+    const amount = round2(billableHours * rate);
+    if (session.jobId != null) jobAmounts.set(session.jobId, round2((jobAmounts.get(session.jobId) ?? 0) + amount));
+    if (session.activityId != null) activityAmounts.set(session.activityId, round2((activityAmounts.get(session.activityId) ?? 0) + amount));
+  }
+  return {
+    lines: [...groups.values()].filter((group) => group.hours !== 0).map((group) => ({
+      sourceType: "work_session",
+      sourceId: null,
+      jobId: group.jobId,
+      activityId: group.activityId,
+      description: group.description,
+      quantity: group.hours,
+      unit: "h",
+      unitPriceWithoutVat: group.rate,
+      vatMode,
+    })),
+    reservations,
+    jobAmounts,
+    activityAmounts,
+  };
+}
+
 export async function createDraft(input: InvoiceCreateInput, actor: Actor, outerTx?: Tx) {
   const exec: DbOrTx = outerTx ?? db;
   const settings = await ensureBillingSettings();
@@ -1455,6 +1582,8 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
     input.vatModeDefault ?? (settings.vatModeDefault as VatMode);
   const jobIds = input.jobIds ?? [];
   const activityIds = input.activityIds ?? [];
+  const labourBillingMode = input.labourBillingMode ?? "job_price";
+  const workGrouping = input.workGrouping ?? "summary";
   const billFineJobIds = input.billFineJobIds ?? [];
   // Material markup: explicit per-invoice value wins, otherwise the saved
   // default from billing settings. Negative/invalid values fall back to 0.
@@ -1493,7 +1622,11 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
       input.customerId,
       vatModeDefault,
       materialMarkupPercent,
-      { lineMarkupOverrides: jobLineMarkupOverrides, categoryMarkupForName },
+      {
+        lineMarkupOverrides: jobLineMarkupOverrides,
+        categoryMarkupForName,
+        includeJobPrice: labourBillingMode === "job_price",
+      },
     );
     const { lines: proposedActivity, activityAmounts } =
       await buildProposedActivityLines(
@@ -1504,6 +1637,10 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
         materialMarkupPercent,
         { lineMarkupOverrides: activityLineMarkupOverrides, categoryMarkupForName },
       );
+
+    const recordedWork = labourBillingMode === "recorded_time"
+      ? await buildRecordedWorkLines(tx, jobIds, activityIds, vatModeDefault, workGrouping)
+      : { lines: [] as RawLine[], reservations: [] as ReservedWork[], jobAmounts: new Map<number, number>(), activityAmounts: new Map<number, number>() };
 
     const manual: RawLine[] = (input.lines ?? []).map((l) => ({
       sourceType: l.sourceType ?? "manual",
@@ -1517,7 +1654,13 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
       vatMode: l.vatMode ?? vatModeDefault,
     }));
 
-    const allLines = [...proposed, ...proposedActivity, ...manual];
+    const allLines = [...proposed, ...proposedActivity, ...recordedWork.lines, ...manual];
+    for (const [jobId, amount] of recordedWork.jobAmounts) {
+      jobAmounts.set(jobId, round2((jobAmounts.get(jobId) ?? 0) + amount));
+    }
+    for (const [activityId, amount] of recordedWork.activityAmounts) {
+      activityAmounts.set(activityId, round2((activityAmounts.get(activityId) ?? 0) + amount));
+    }
 
     const [invoice] = await tx
       .insert(invoicesTable)
@@ -1567,6 +1710,23 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
     ];
     if (sourceLinkValues.length) {
       await tx.insert(invoiceSourceLinksTable).values(sourceLinkValues);
+    }
+
+    if (recordedWork.reservations.length) {
+      await tx.insert(workSessionBillingLinksTable).values(recordedWork.reservations.map((item) => ({
+        sessionId: item.sessionId,
+        invoiceId: invoice.id,
+        invoiceIdSnapshot: invoice.id,
+        status: "reserved",
+        durationSecondsSnapshot: item.durationSeconds,
+        saleRateSnapshot: String(item.saleRate),
+        amountWithoutVatSnapshot: String(item.amountWithoutVat),
+        createdByUserId: actor.userId,
+      })));
+      await tx
+        .update(workSessionsTable)
+        .set({ billingStatus: "ready", updatedAt: new Date() })
+        .where(inArray(workSessionsTable.id, recordedWork.reservations.map((item) => item.sessionId)));
     }
 
     return invoice.id;
@@ -1623,6 +1783,32 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
     await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
 
     if (input.lines !== undefined) {
+      const activeWorkLinks = await tx
+        .select({ id: workSessionBillingLinksTable.id })
+        .from(workSessionBillingLinksTable)
+        .where(and(
+          eq(workSessionBillingLinksTable.invoiceId, id),
+          inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
+        ));
+      if (activeWorkLinks.length) {
+        const currentWorkLines = await tx
+          .select()
+          .from(invoiceLinesTable)
+          .where(and(eq(invoiceLinesTable.invoiceId, id), eq(invoiceLinesTable.sourceType, "work_session")));
+        const signature = (line: { description: string; quantity?: unknown; unitPriceWithoutVat?: unknown; jobId?: number | null; activityId?: number | null }) =>
+          JSON.stringify([
+            line.description,
+            round2(num(line.quantity)),
+            round2(num(line.unitPriceWithoutVat)),
+            line.jobId ?? null,
+            line.activityId ?? null,
+          ]);
+        const before = currentWorkLines.map(signature).sort();
+        const after = input.lines.filter((line) => line.sourceType === "work_session").map(signature).sort();
+        if (JSON.stringify(before) !== JSON.stringify(after)) {
+          throw appError(409, "Položky skutečně odpracovaného času jsou svázané s konkrétními session a nelze je ručně měnit nebo odstranit.");
+        }
+      }
       // Manual edit replaces ALL lines. Lines keep their `jobId` so job billing
       // tracks the lines that actually remain: removing every line of a job drops
       // its source link, returning the job to the unbilled pool (instead of being
@@ -1731,8 +1917,32 @@ export async function deleteDraft(id: number) {
     // Free any reserved cost-document lines + job materials before removal.
     await releaseInvoicedLines(tx, id);
     await releaseInvoicedMaterials(tx, id);
+    await releaseWorkSessionBilling(tx, id, null, "draft_deleted");
     await tx.delete(invoicesTable).where(eq(invoicesTable.id, id));
   });
+}
+
+async function releaseWorkSessionBilling(tx: Tx, invoiceId: number, actorUserId: number | null, reason: string) {
+  const links = await tx
+    .select({ sessionId: workSessionBillingLinksTable.sessionId })
+    .from(workSessionBillingLinksTable)
+    .where(and(
+      eq(workSessionBillingLinksTable.invoiceId, invoiceId),
+      inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
+    ));
+  if (!links.length) return;
+  const now = new Date();
+  await tx
+    .update(workSessionBillingLinksTable)
+    .set({ status: "released", releasedAt: now, releasedByUserId: actorUserId, releaseReason: reason })
+    .where(and(
+      eq(workSessionBillingLinksTable.invoiceId, invoiceId),
+      inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
+    ));
+  await tx
+    .update(workSessionsTable)
+    .set({ billingStatus: "unbilled", updatedAt: now })
+    .where(inArray(workSessionsTable.id, links.map((link) => link.sessionId)));
 }
 
 // ---------------------------------------------------------------------------
@@ -2025,6 +2235,27 @@ export async function issueInvoice(id: number, actor: Actor) {
         .where(inArray(activitiesTable.id, activityIds));
     }
 
+    const workLinks = await tx
+      .select({ sessionId: workSessionBillingLinksTable.sessionId })
+      .from(workSessionBillingLinksTable)
+      .where(and(
+        eq(workSessionBillingLinksTable.invoiceId, id),
+        eq(workSessionBillingLinksTable.status, "reserved"),
+      ));
+    if (workLinks.length) {
+      await tx
+        .update(workSessionBillingLinksTable)
+        .set({ status: "billed", billedAt: new Date() })
+        .where(and(
+          eq(workSessionBillingLinksTable.invoiceId, id),
+          eq(workSessionBillingLinksTable.status, "reserved"),
+        ));
+      await tx
+        .update(workSessionsTable)
+        .set({ billingStatus: "billed", updatedAt: new Date() })
+        .where(inArray(workSessionsTable.id, workLinks.map((link) => link.sessionId)));
+    }
+
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
       actorName: actor.name,
@@ -2073,6 +2304,7 @@ export async function cancelInvoice(
     // Storno frees any re-billed cost-document lines + job materials for re-billing.
     await releaseInvoicedLines(tx, id);
     await releaseInvoicedMaterials(tx, id);
+    await releaseWorkSessionBilling(tx, id, actor.userId, "invoice_cancelled");
 
     const links = await tx
       .select({

@@ -4,6 +4,23 @@ import { useQueryClient } from "@tanstack/react-query";
 import { debugLog } from "@/lib/pwa";
 
 export type Role = "guest" | "master" | "admin";
+export type Permission =
+  | "jobs.view" | "jobs.manage"
+  | "activities.view" | "activities.manage"
+  | "customers.view" | "customers.manage"
+  | "people.view" | "people.manage"
+  | "warehouse.view" | "warehouse.manage"
+  | "machines.view" | "machines.manage"
+  | "time.manage"
+  | "rates.cost.view" | "rates.sale.view" | "rates.manage"
+  | "credentials.view" | "credentials.manage"
+  | "billing.view" | "billing.manage" | "billing.approve" | "billing.settings"
+  | "statistics.view"
+  | "quotes.view" | "quotes.manage"
+  | "settings.view" | "settings.manage"
+  | "diagnostics.view" | "diagnostics.manage"
+  | "audit.view"
+  | "users.manage";
 
 export interface AuthUser {
   id: number;
@@ -13,6 +30,8 @@ export interface AuthUser {
   role: Role;
   isActive: boolean;
   createdAt: string;
+  permissions: Permission[];
+  permissionOverrides: Array<{ permission: Permission; effect: "allow" | "deny" }>;
 }
 
 interface AuthCtx {
@@ -21,7 +40,7 @@ interface AuthCtx {
   isAuthenticated: boolean;
   needsSetup: boolean;
   isLoading: boolean;
-  can: (action: "write" | "manageUsers") => boolean;
+  can: (action: Permission | "write" | "manageUsers") => boolean;
   refresh: () => void;
 }
 
@@ -52,9 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const can: AuthCtx["can"] = (action) => {
     if (!role) return false;
-    if (action === "manageUsers") return role === "admin";
+    if (action === "manageUsers") return user?.permissions.includes("users.manage") ?? false;
     if (action === "write") return role === "master" || role === "admin";
-    return false;
+    return user?.permissions.includes(action) ?? false;
   };
 
   const value: AuthCtx = {

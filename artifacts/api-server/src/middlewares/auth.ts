@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
-import type { UserRole } from "@workspace/db";
+import type { Permission, UserRole } from "@workspace/db";
 import { db, webauthnCredentialsTable } from "@workspace/db";
 import { eq, count } from "drizzle-orm";
+import { getUserAuthorization } from "../lib/permissions";
 
 declare module "express-session" {
   interface SessionData {
@@ -27,6 +28,7 @@ export interface AuthInfo {
   username: string;
   role: UserRole;
   name: string;
+  permissions: Permission[];
 }
 
 declare global {
@@ -38,10 +40,31 @@ declare global {
   }
 }
 
-export function attachAuth(req: Request, _res: Response, next: NextFunction): void {
+export async function attachAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const s = req.session;
   if (s?.userId && s.role && s.username && s.name) {
-    req.auth = { userId: s.userId, username: s.username, role: s.role, name: s.name };
+    try {
+      const authorization = await getUserAuthorization(s.userId);
+      if (!authorization) {
+        req.session.destroy(() => undefined);
+        next();
+        return;
+      }
+      const { user, permissions } = authorization;
+      s.username = user.username;
+      s.role = user.role as UserRole;
+      s.name = user.name;
+      req.auth = {
+        userId: user.id,
+        username: user.username,
+        role: user.role as UserRole,
+        name: user.name,
+        permissions,
+      };
+    } catch (error) {
+      next(error);
+      return;
+    }
   }
   next();
 }

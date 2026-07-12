@@ -2,9 +2,10 @@ import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { db, usersTable, securityQuestionsTable, USER_ROLES, type User, type UserRole } from "@workspace/db";
+import { db, usersTable, securityQuestionsTable, USER_ROLES, resolvePermissions, type PermissionEffect, type User, type UserRole } from "@workspace/db";
 import { LoginBody, SetupFirstAdminBody, ForgotPasswordQuestionsBody, ResetPasswordWithAnswersBody } from "@workspace/api-zod";
 import { normalizeAnswer } from "./security-questions";
+import { getPermissionOverrides } from "../lib/permissions";
 
 const router: IRouter = Router();
 
@@ -25,7 +26,10 @@ const authLimiter = rateLimit({
   },
 });
 
-function serializeUser(u: User) {
+function serializeUser(
+  u: User,
+  overrides: ReadonlyArray<{ permission: string; effect: PermissionEffect }> = [],
+) {
   return {
     id: u.id,
     username: u.username,
@@ -34,6 +38,8 @@ function serializeUser(u: User) {
     role: u.role,
     isActive: u.isActive,
     createdAt: u.createdAt.toISOString(),
+    permissions: resolvePermissions(u.role as UserRole, overrides),
+    permissionOverrides: overrides,
   };
 }
 
@@ -51,7 +57,8 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       res.json({ authenticated: false, needsSetup: totalUsers === 0 });
       return;
     }
-    res.json({ authenticated: true, needsSetup: false, user: serializeUser(u) });
+    const overrides = await getPermissionOverrides(u.id);
+    res.json({ authenticated: true, needsSetup: false, user: serializeUser(u, overrides) });
     return;
   }
   res.json({ authenticated: false, needsSetup: totalUsers === 0 });
@@ -78,7 +85,7 @@ router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {
   req.session.username = user.username;
   req.session.role = user.role as UserRole;
   req.session.name = user.name;
-  res.json(serializeUser(user));
+  res.json(serializeUser(user, await getPermissionOverrides(user.id)));
 });
 
 router.post("/auth/logout", (req, res): void => {
@@ -109,7 +116,7 @@ router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
   req.session.username = user.username;
   req.session.role = user.role as UserRole;
   req.session.name = user.name;
-  res.status(201).json(serializeUser(user));
+  res.status(201).json(serializeUser(user, await getPermissionOverrides(user.id)));
 });
 
 // --- Forgotten-password reset via security questions (public, admin only) ---

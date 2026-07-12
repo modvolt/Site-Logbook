@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq, and, gt, ne, isNull, or, lt, sql } from "drizzle-orm";
 import { db, userSessionsTable, usersTable, auditLogTable } from "@workspace/db";
-import { requireAuth, requireRole } from "../middlewares/auth";
+import { requireAuth } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 
 const router: IRouter = Router();
 
@@ -89,7 +90,7 @@ router.get("/sessions", requireAuth, async (req, res): Promise<void> => {
   res.json(rows.map((r) => serializeSession(r, req.sessionID as string)));
 });
 
-router.get("/admin/sessions", requireRole("admin"), async (req, res): Promise<void> => {
+router.get("/admin/sessions", requirePermission("users.manage"), async (req, res): Promise<void> => {
   const now = new Date();
   const userIdFilter = req.query.userId ? Number(req.query.userId) : null;
   const includeAnonymous = req.query.includeAnonymous === "true";
@@ -121,7 +122,7 @@ router.get("/admin/sessions", requireRole("admin"), async (req, res): Promise<vo
   res.json(rows.map((r) => serializeSession(r, req.sessionID as string)));
 });
 
-router.delete("/admin/sessions/expired", requireRole("admin"), async (req, res): Promise<void> => {
+router.delete("/admin/sessions/expired", requirePermission("users.manage"), async (req, res): Promise<void> => {
   const now = new Date();
   const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -151,7 +152,7 @@ router.delete("/admin/sessions/expired", requireRole("admin"), async (req, res):
 router.delete("/sessions/:sid", requireAuth, async (req, res): Promise<void> => {
   const sid = String(req.params.sid);
   const currentUserId = req.auth!.userId;
-  const isAdmin = req.auth!.role === "admin";
+  const isAdmin = req.auth!.permissions.includes("users.manage");
 
   const [row] = await db
     .select({ userId: userSessionsTable.userId })
@@ -180,7 +181,7 @@ router.delete("/sessions/:sid", requireAuth, async (req, res): Promise<void> => 
   res.sendStatus(204);
 });
 
-router.delete("/users/:id/sessions", requireRole("admin"), async (req, res): Promise<void> => {
+router.delete("/users/:id/sessions", requirePermission("users.manage"), async (req, res): Promise<void> => {
   const userId = Number(req.params.id);
   if (!Number.isInteger(userId) || userId <= 0) {
     res.status(400).json({ error: "Neplatné ID uživatele" });

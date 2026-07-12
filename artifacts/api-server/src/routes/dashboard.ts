@@ -50,7 +50,7 @@ function subtractDaysIso(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-router.get("/dashboard/summary", async (_req, res): Promise<void> => {
+router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const t = today();
   const { from, to } = getWeekRange();
   const { from: monthFrom, to: monthTo } = getMonthRange();
@@ -187,16 +187,16 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     inProgressCount: inProgressCount?.c ?? 0,
     doneCount: doneCount?.c ?? 0,
     totalHoursThisWeek,
-    totalRevenueThisWeek,
+    totalRevenueThisWeek: req.auth!.permissions.includes("billing.view") ? totalRevenueThisWeek : null,
     hoursThisMonth: monthHoursAgg?.total ?? 0,
-    unbilledValue: unbilledAgg[0]?.total ?? 0,
+    unbilledValue: req.auth!.permissions.includes("billing.view") ? (unbilledAgg[0]?.total ?? 0) : null,
     unbilledOldestDays,
     overdueUnbilledCustomers: overdueUnbilledCustomersRow[0]?.c ?? 0,
     problematicJobsCount: problematicAgg?.c ?? 0,
   });
 });
 
-router.get("/dashboard/today", async (_req, res): Promise<void> => {
+router.get("/dashboard/today", async (req, res): Promise<void> => {
   const t = today();
   const jobs = await db
     .select()
@@ -204,7 +204,7 @@ router.get("/dashboard/today", async (_req, res): Promise<void> => {
     .where(eq(jobsTable.date, t))
     .orderBy(jobsTable.sortOrder, jobsTable.startTime);
 
-  const enriched = await enrichJobs(jobs);
+  const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"));
   res.json(enriched);
 });
 

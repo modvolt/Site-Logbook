@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { HealthCheckResponse, GetAdminHealthResponse } from "@workspace/api-zod";
-import { requireAuth, requireRole } from "../middlewares/auth";
+import { requireAuth } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 import {
   db,
   backupLogTable,
@@ -370,7 +371,7 @@ router.get("/healthz", async (_req, res) => {
 router.get(
   "/admin/health",
   requireAuth,
-  requireRole("master", "admin"),
+  requirePermission("diagnostics.view"),
   async (req, res) => {
     const [migration, dbPing, storage, smtp, ai, gmail, imap, backups, errors] =
       await Promise.all([
@@ -435,7 +436,7 @@ router.get(
 router.get(
   "/admin/health/watchdog",
   requireAuth,
-  requireRole("master", "admin"),
+  requirePermission("diagnostics.view"),
   (_req, res) => {
     res.json(getWatchdogState());
   },
@@ -444,7 +445,7 @@ router.get(
 router.get(
   "/admin/health/log",
   requireAuth,
-  requireRole("master", "admin"),
+  requirePermission("diagnostics.view"),
   async (_req, res) => {
     const since = new Date(Date.now() - WINDOW_24H);
     const rows = await db

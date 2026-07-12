@@ -101,6 +101,8 @@ export const billingDocumentsTable = pgTable(
     // status="duplicate". `sourcePriority` records which source wins for the
     // header/lines (isdoc > pdf > ai > manual).
     mergeGroupId: text("merge_group_id"),
+    uploadGroupToken: text("upload_group_token"),
+    uploadCompletedAt: timestamp("upload_completed_at"),
     primaryDocumentId: integer("primary_document_id").references(
       (): AnyPgColumn => billingDocumentsTable.id,
       { onDelete: "set null" },
@@ -156,6 +158,9 @@ export const billingDocumentsTable = pgTable(
     uniqueIndex("billing_documents_sha256_unique_idx")
       .on(t.sha256)
       .where(sql`${t.sha256} is not null`),
+    uniqueIndex("billing_documents_upload_group_token_unique_idx")
+      .on(t.uploadGroupToken)
+      .where(sql`${t.uploadGroupToken} is not null`),
     index("billing_documents_supplier_ic_idx").on(t.supplierIc),
     index("billing_documents_file_name_idx").on(t.fileName),
     index("billing_documents_document_number_idx").on(t.documentNumber),
@@ -320,6 +325,9 @@ export const extractionJobsTable = pgTable(
   (t) => [
     index("extraction_jobs_status_idx").on(t.status),
     index("extraction_jobs_document_id_idx").on(t.documentId),
+    uniqueIndex("extraction_jobs_one_active_per_document_idx")
+      .on(t.documentId)
+      .where(sql`${t.status} in ('queued', 'running')`),
   ],
 );
 
@@ -344,12 +352,16 @@ export const billingDocumentFilesTable = pgTable(
     // Object-storage path only — never the bytes.
     objectPath: text("object_path"),
     sha256Hash: text("sha256_hash"),
+    pageIndex: integer("page_index"),
     sizeBytes: integer("size_bytes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
     index("billing_document_files_document_id_idx").on(t.documentId),
     index("billing_document_files_sha256_idx").on(t.sha256Hash),
+    uniqueIndex("billing_document_files_document_page_unique_idx")
+      .on(t.documentId, t.pageIndex)
+      .where(sql`${t.pageIndex} is not null`),
   ],
 );
 

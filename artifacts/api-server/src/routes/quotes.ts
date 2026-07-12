@@ -4,7 +4,7 @@ import {
   UpdateQuoteBody,
   SendQuoteEmailBody,
 } from "@workspace/api-zod";
-import { requireRole } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import {
   listQuotes,
@@ -97,10 +97,10 @@ router.post("/quotes/public/:token/reject", async (req, res): Promise<void> => {
 });
 
 // ---------------------------------------------------------------------------
-// All remaining quotes routes require admin or manager (master) role.
+// All remaining quote routes require effective module access.
 // ---------------------------------------------------------------------------
 
-router.use("/quotes", requireRole("admin"));
+router.use("/quotes", requirePermission("quotes.view"));
 
 // ---------------------------------------------------------------------------
 // List

@@ -964,6 +964,87 @@ export const DeletePersonParams = zod.object({
 
 
 /**
+ * @summary List historical hourly rates with unauthorized financial fields removed
+ */
+export const ListPersonHourlyRatesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListPersonHourlyRatesResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "validFrom": zod.coerce.date(),
+  "validTo": zod.coerce.date().nullable(),
+  "costRate": zod.number().nullable().describe('Null when the caller lacks rates.cost.view'),
+  "saleRate": zod.number().nullable().describe('Null when the caller lacks rates.sale.view'),
+  "reason": zod.string(),
+  "createdByUserId": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "voidedAt": zod.coerce.date().nullable(),
+  "voidedByUserId": zod.number().nullish(),
+  "voidReason": zod.string().nullable()
+})
+export const ListPersonHourlyRatesResponse = zod.array(ListPersonHourlyRatesResponseItem)
+
+
+/**
+ * @summary Add a new effective hourly-rate version
+ */
+export const CreatePersonHourlyRateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const createPersonHourlyRateBodyCostRateMin = 0;
+
+export const createPersonHourlyRateBodySaleRateMin = 0;
+
+export const createPersonHourlyRateBodyReasonMin = 3;
+export const createPersonHourlyRateBodyReasonMax = 500;
+
+
+
+export const CreatePersonHourlyRateBody = zod.object({
+  "validFrom": zod.coerce.date(),
+  "costRate": zod.number().min(createPersonHourlyRateBodyCostRateMin),
+  "saleRate": zod.number().min(createPersonHourlyRateBodySaleRateMin),
+  "reason": zod.string().min(createPersonHourlyRateBodyReasonMin).max(createPersonHourlyRateBodyReasonMax)
+})
+
+
+/**
+ * @summary Void a rate version while retaining its history
+ */
+export const VoidPersonHourlyRateParams = zod.object({
+  "id": zod.coerce.number(),
+  "rateId": zod.coerce.number()
+})
+
+export const voidPersonHourlyRateBodyReasonMin = 3;
+export const voidPersonHourlyRateBodyReasonMax = 500;
+
+
+
+export const VoidPersonHourlyRateBody = zod.object({
+  "reason": zod.string().min(voidPersonHourlyRateBodyReasonMin).max(voidPersonHourlyRateBodyReasonMax)
+})
+
+export const VoidPersonHourlyRateResponse = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "validFrom": zod.coerce.date(),
+  "validTo": zod.coerce.date().nullable(),
+  "costRate": zod.number().nullable().describe('Null when the caller lacks rates.cost.view'),
+  "saleRate": zod.number().nullable().describe('Null when the caller lacks rates.sale.view'),
+  "reason": zod.string(),
+  "createdByUserId": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "voidedAt": zod.coerce.date().nullable(),
+  "voidedByUserId": zod.number().nullish(),
+  "voidReason": zod.string().nullable()
+})
+
+
+/**
  * @summary List employee leaves, optionally filtered by person / date range
  */
 export const ListLeavesQueryParams = zod.object({
@@ -3269,7 +3350,12 @@ export const LoginResponse = zod.object({
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
   "isActive": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
+  "permissionOverrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 
 
@@ -3286,7 +3372,12 @@ export const GetMeResponse = zod.object({
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
   "isActive": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
+  "permissionOverrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 }).optional()
 })
 
@@ -3420,7 +3511,12 @@ export const WebauthnLoginCompleteResponse = zod.object({
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
   "isActive": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
+  "permissionOverrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 
 
@@ -3659,7 +3755,12 @@ export const ListUsersResponseItem = zod.object({
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
   "isActive": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
+  "permissionOverrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 export const ListUsersResponse = zod.array(ListUsersResponseItem)
 
@@ -3699,6 +3800,7 @@ export const updateUserBodyPasswordMin = 6;
 export const UpdateUserBody = zod.object({
   "name": zod.string().min(1).optional(),
   "email": zod.string().nullish(),
+  "personId": zod.number().nullish(),
   "role": zod.string().optional(),
   "isActive": zod.boolean().optional(),
   "password": zod.string().min(updateUserBodyPasswordMin).optional().describe('Only set when changing the password')
@@ -3711,7 +3813,12 @@ export const UpdateUserResponse = zod.object({
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
   "isActive": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
+  "permissionOverrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 
 
@@ -3720,6 +3827,36 @@ export const UpdateUserResponse = zod.object({
  */
 export const DeleteUserParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Replace individual permission overrides (users.manage required)
+ */
+export const UpdateUserPermissionsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateUserPermissionsBody = zod.object({
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
+})
+
+export const UpdateUserPermissionsResponse = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullish(),
+  "role": zod.string().describe('guest | master | admin'),
+  "isActive": zod.boolean(),
+  "createdAt": zod.string(),
+  "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
+  "permissionOverrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 
 
@@ -4409,6 +4546,15 @@ export const StartActivityTimeEntryParams = zod.object({
   "personId": zod.coerce.number()
 })
 
+export const startActivityTimeEntryHeaderIdempotencyKeyMin = 8;
+export const startActivityTimeEntryHeaderIdempotencyKeyMax = 100;
+
+
+
+export const StartActivityTimeEntryHeader = zod.object({
+  "Idempotency-Key": zod.string().min(startActivityTimeEntryHeaderIdempotencyKeyMin).max(startActivityTimeEntryHeaderIdempotencyKeyMax).optional()
+})
+
 export const StartActivityTimeEntryResponse = zod.object({
   "id": zod.number(),
   "personId": zod.number(),
@@ -4427,6 +4573,15 @@ export const StartActivityTimeEntryResponse = zod.object({
 export const StopActivityTimeEntryParams = zod.object({
   "activityId": zod.coerce.number(),
   "personId": zod.coerce.number()
+})
+
+export const stopActivityTimeEntryHeaderIdempotencyKeyMin = 8;
+export const stopActivityTimeEntryHeaderIdempotencyKeyMax = 100;
+
+
+
+export const StopActivityTimeEntryHeader = zod.object({
+  "Idempotency-Key": zod.string().min(stopActivityTimeEntryHeaderIdempotencyKeyMin).max(stopActivityTimeEntryHeaderIdempotencyKeyMax).optional()
 })
 
 export const StopActivityTimeEntryResponse = zod.object({
@@ -4449,8 +4604,14 @@ export const UpdateActivityTimeEntryParams = zod.object({
   "personId": zod.coerce.number()
 })
 
+export const updateActivityTimeEntryBodyReasonMin = 3;
+export const updateActivityTimeEntryBodyReasonMax = 500;
+
+
+
 export const UpdateActivityTimeEntryBody = zod.object({
-  "hours": zod.number()
+  "hours": zod.number(),
+  "reason": zod.string().min(updateActivityTimeEntryBodyReasonMin).max(updateActivityTimeEntryBodyReasonMax)
 })
 
 export const UpdateActivityTimeEntryResponse = zod.object({
@@ -4515,6 +4676,15 @@ export const StartJobTimeEntryParams = zod.object({
   "personId": zod.coerce.number()
 })
 
+export const startJobTimeEntryHeaderIdempotencyKeyMin = 8;
+export const startJobTimeEntryHeaderIdempotencyKeyMax = 100;
+
+
+
+export const StartJobTimeEntryHeader = zod.object({
+  "Idempotency-Key": zod.string().min(startJobTimeEntryHeaderIdempotencyKeyMin).max(startJobTimeEntryHeaderIdempotencyKeyMax).optional()
+})
+
 export const StartJobTimeEntryResponse = zod.object({
   "id": zod.number(),
   "personId": zod.number(),
@@ -4533,6 +4703,15 @@ export const StartJobTimeEntryResponse = zod.object({
 export const StopJobTimeEntryParams = zod.object({
   "jobId": zod.coerce.number(),
   "personId": zod.coerce.number()
+})
+
+export const stopJobTimeEntryHeaderIdempotencyKeyMin = 8;
+export const stopJobTimeEntryHeaderIdempotencyKeyMax = 100;
+
+
+
+export const StopJobTimeEntryHeader = zod.object({
+  "Idempotency-Key": zod.string().min(stopJobTimeEntryHeaderIdempotencyKeyMin).max(stopJobTimeEntryHeaderIdempotencyKeyMax).optional()
 })
 
 export const StopJobTimeEntryResponse = zod.object({
@@ -4555,8 +4734,14 @@ export const UpdateJobTimeEntryParams = zod.object({
   "personId": zod.coerce.number()
 })
 
+export const updateJobTimeEntryBodyReasonMin = 3;
+export const updateJobTimeEntryBodyReasonMax = 500;
+
+
+
 export const UpdateJobTimeEntryBody = zod.object({
-  "hours": zod.number()
+  "hours": zod.number(),
+  "reason": zod.string().min(updateJobTimeEntryBodyReasonMin).max(updateJobTimeEntryBodyReasonMax)
 })
 
 export const UpdateJobTimeEntryResponse = zod.object({
@@ -4577,6 +4762,214 @@ export const UpdateJobTimeEntryResponse = zod.object({
 export const DeleteJobTimeEntryParams = zod.object({
   "jobId": zod.coerce.number(),
   "personId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List immutable work sessions and corrections for an activity
+ */
+export const ListActivityWorkSessionsParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const ListActivityWorkSessionsQueryParams = zod.object({
+  "personId": zod.coerce.number().optional()
+})
+
+export const ListActivityWorkSessionsResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string().optional(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "startedAt": zod.coerce.date(),
+  "endedAt": zod.coerce.date().nullish(),
+  "durationSeconds": zod.number().nullish(),
+  "status": zod.enum(['active', 'completed', 'voided']),
+  "source": zod.enum(['timer', 'manual', 'correction', 'legacy_manual', 'legacy_timer']),
+  "reviewStatus": zod.enum(['not_required', 'needs_review', 'approved']),
+  "reviewReason": zod.string().nullish(),
+  "reviewFlaggedAt": zod.coerce.date().nullish(),
+  "note": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "endedByUserId": zod.number().nullish(),
+  "voidedAt": zod.coerce.date().nullish(),
+  "voidedByUserId": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().optional()
+})
+export const ListActivityWorkSessionsResponse = zod.array(ListActivityWorkSessionsResponseItem)
+
+
+/**
+ * @summary Add a completed manual work session to an activity
+ */
+export const CreateActivityWorkSessionParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+
+export const createActivityWorkSessionBodyNoteMin = 3;
+export const createActivityWorkSessionBodyNoteMax = 500;
+
+export const createActivityWorkSessionBodyIdempotencyKeyMin = 8;
+export const createActivityWorkSessionBodyIdempotencyKeyMax = 100;
+
+
+
+export const CreateActivityWorkSessionBody = zod.object({
+  "personId": zod.number().min(1),
+  "startedAt": zod.coerce.date(),
+  "endedAt": zod.coerce.date(),
+  "note": zod.string().min(createActivityWorkSessionBodyNoteMin).max(createActivityWorkSessionBodyNoteMax),
+  "idempotencyKey": zod.string().min(createActivityWorkSessionBodyIdempotencyKeyMin).max(createActivityWorkSessionBodyIdempotencyKeyMax).optional()
+})
+
+
+/**
+ * @summary Get exact person-hour totals and worker breakdown for an activity
+ */
+export const GetActivityWorkSummaryParams = zod.object({
+  "activityId": zod.coerce.number()
+})
+
+export const GetActivityWorkSummaryResponse = zod.object({
+  "completedSeconds": zod.number(),
+  "activeSeconds": zod.number(),
+  "totalSeconds": zod.number(),
+  "completedHours": zod.number(),
+  "activeHours": zod.number(),
+  "totalHours": zod.number(),
+  "workerCount": zod.number(),
+  "activeWorkerCount": zod.number(),
+  "needsReviewCount": zod.number(),
+  "workers": zod.array(zod.object({
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "completedSeconds": zod.number(),
+  "activeSeconds": zod.number(),
+  "totalSeconds": zod.number(),
+  "completedHours": zod.number(),
+  "activeHours": zod.number(),
+  "totalHours": zod.number(),
+  "needsReviewCount": zod.number(),
+  "activeSessionId": zod.number().nullable(),
+  "activeStartedAt": zod.coerce.date().nullable()
+})),
+  "calculatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Void a work session while retaining its audit history
+ */
+export const VoidActivityWorkSessionParams = zod.object({
+  "activityId": zod.coerce.number(),
+  "sessionId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List immutable work sessions and corrections for a job
+ */
+export const ListJobWorkSessionsParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const ListJobWorkSessionsQueryParams = zod.object({
+  "personId": zod.coerce.number().optional()
+})
+
+export const ListJobWorkSessionsResponseItem = zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string().optional(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "startedAt": zod.coerce.date(),
+  "endedAt": zod.coerce.date().nullish(),
+  "durationSeconds": zod.number().nullish(),
+  "status": zod.enum(['active', 'completed', 'voided']),
+  "source": zod.enum(['timer', 'manual', 'correction', 'legacy_manual', 'legacy_timer']),
+  "reviewStatus": zod.enum(['not_required', 'needs_review', 'approved']),
+  "reviewReason": zod.string().nullish(),
+  "reviewFlaggedAt": zod.coerce.date().nullish(),
+  "note": zod.string().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "endedByUserId": zod.number().nullish(),
+  "voidedAt": zod.coerce.date().nullish(),
+  "voidedByUserId": zod.number().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date().optional()
+})
+export const ListJobWorkSessionsResponse = zod.array(ListJobWorkSessionsResponseItem)
+
+
+/**
+ * @summary Add a completed manual work session to a job
+ */
+export const CreateJobWorkSessionParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+
+export const createJobWorkSessionBodyNoteMin = 3;
+export const createJobWorkSessionBodyNoteMax = 500;
+
+export const createJobWorkSessionBodyIdempotencyKeyMin = 8;
+export const createJobWorkSessionBodyIdempotencyKeyMax = 100;
+
+
+
+export const CreateJobWorkSessionBody = zod.object({
+  "personId": zod.number().min(1),
+  "startedAt": zod.coerce.date(),
+  "endedAt": zod.coerce.date(),
+  "note": zod.string().min(createJobWorkSessionBodyNoteMin).max(createJobWorkSessionBodyNoteMax),
+  "idempotencyKey": zod.string().min(createJobWorkSessionBodyIdempotencyKeyMin).max(createJobWorkSessionBodyIdempotencyKeyMax).optional()
+})
+
+
+/**
+ * @summary Get exact person-hour totals and worker breakdown for a job
+ */
+export const GetJobWorkSummaryParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const GetJobWorkSummaryResponse = zod.object({
+  "completedSeconds": zod.number(),
+  "activeSeconds": zod.number(),
+  "totalSeconds": zod.number(),
+  "completedHours": zod.number(),
+  "activeHours": zod.number(),
+  "totalHours": zod.number(),
+  "workerCount": zod.number(),
+  "activeWorkerCount": zod.number(),
+  "needsReviewCount": zod.number(),
+  "workers": zod.array(zod.object({
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "completedSeconds": zod.number(),
+  "activeSeconds": zod.number(),
+  "totalSeconds": zod.number(),
+  "completedHours": zod.number(),
+  "activeHours": zod.number(),
+  "totalHours": zod.number(),
+  "needsReviewCount": zod.number(),
+  "activeSessionId": zod.number().nullable(),
+  "activeStartedAt": zod.coerce.date().nullable()
+})),
+  "calculatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Void a work session while retaining its audit history
+ */
+export const VoidJobWorkSessionParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "sessionId": zod.coerce.number()
 })
 
 
@@ -5244,7 +5637,15 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
   "categoryMarkupPercent": zod.number().nullish().describe('Category-default markup (%) resolved from the matching warehouse item\'s category, or null when no category rule applies (falls back to the invoice\/settings default)')
-}))
+})),
+  "recordedWork": zod.object({
+  "sessionCount": zod.number(),
+  "hours": zod.number(),
+  "amount": zod.number(),
+  "missingRateCount": zod.number(),
+  "needsReviewCount": zod.number(),
+  "workers": zod.array(zod.string())
+})
 })),
   "activities": zod.array(zod.object({
   "id": zod.number(),
@@ -5262,7 +5663,15 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "id": zod.number(),
   "description": zod.string(),
   "amount": zod.number()
-}))
+})),
+  "recordedWork": zod.object({
+  "sessionCount": zod.number(),
+  "hours": zod.number(),
+  "amount": zod.number(),
+  "missingRateCount": zod.number(),
+  "needsReviewCount": zod.number(),
+  "workers": zod.array(zod.string())
+})
 }))
 })
 
@@ -5322,6 +5731,8 @@ export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
 /**
  * @summary Create a draft invoice (admin only); does not change job status
  */
+export const createInvoiceBodyLabourBillingModeDefault = `job_price`;
+export const createInvoiceBodyWorkGroupingDefault = `summary`;
 export const createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
 
 
@@ -5331,6 +5742,8 @@ export const CreateInvoiceBody = zod.object({
   "customerId": zod.number(),
   "jobIds": zod.array(zod.number()).optional().describe('Done jobs to auto-propose lines from (práce\/doprava\/parkování\/materiál)'),
   "activityIds": zod.array(zod.number()).optional().describe('Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál)'),
+  "labourBillingMode": zod.enum(['job_price', 'recorded_time', 'none']).default(createInvoiceBodyLabourBillingModeDefault).describe('Source of labour lines; recorded_time reserves immutable work sessions'),
+  "workGrouping": zod.enum(['summary', 'worker']).default(createInvoiceBodyWorkGroupingDefault).describe('Group recorded-time lines by rate only or by worker and rate'),
   "billFineJobIds": zod.array(zod.number()).optional().describe('Subset of jobIds whose fines should also be billed (explicit opt-in)'),
   "materialMarkupPercent": zod.number().nullish().describe('Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted'),
   "materialMarkupOverrides": zod.array(zod.object({

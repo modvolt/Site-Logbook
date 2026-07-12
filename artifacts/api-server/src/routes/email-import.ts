@@ -20,7 +20,6 @@ import {
   type EmailImportMessage,
   type EmailImportAttachment,
 } from "@workspace/db";
-import { requireRole } from "../middlewares/auth";
 import type { Actor } from "../lib/cost-document-service";
 import {
   getGmailConfig,
@@ -37,9 +36,6 @@ import {
 } from "../lib/gmail-import";
 
 const router: IRouter = Router();
-
-// Admin-only across the whole feature (path-scoped, never pathless).
-router.use("/billing/email-import", requireRole("admin"));
 
 // Where to send the browser back to after the OAuth callback (same-origin SPA).
 const FRONTEND_PATH = "/billing/email-import";

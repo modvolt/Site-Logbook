@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
-import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { AuthProvider, useAuth, type Permission } from "@/hooks/use-auth";
 import { QuickAddDateProvider } from "@/hooks/use-quick-add-date";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
@@ -155,26 +155,13 @@ const queryClient = new QueryClient({
   },
 });
 
-function AdminOnly({ component: Component }: { component: React.ComponentType }) {
+function PermissionOnly({ component: Component, permission }: { component: React.ComponentType; permission: Permission }) {
   const { can } = useAuth();
-  if (!can("manageUsers")) {
+  if (!can(permission)) {
     return (
       <div className="p-8 text-center">
         <p className="text-lg font-semibold mb-2">Přístup odepřen</p>
-        <p className="text-sm text-muted-foreground">Tato stránka je dostupná pouze pro administrátory.</p>
-      </div>
-    );
-  }
-  return <Component />;
-}
-
-function WriteOnly({ component: Component }: { component: React.ComponentType }) {
-  const { can } = useAuth();
-  if (!can("write")) {
-    return (
-      <div className="p-8 text-center">
-        <p className="text-lg font-semibold mb-2">Přístup odepřen</p>
-        <p className="text-sm text-muted-foreground">Tato stránka není dostupná pro hosty.</p>
+        <p className="text-sm text-muted-foreground">Pro tento modul nemáte potřebné oprávnění.</p>
       </div>
     );
   }
@@ -204,8 +191,8 @@ function AuthenticatedApp() {
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/customer-sites/:id" component={SiteDetail} />
-        <Route path="/pristupove-udaje/export/:id">{() => <WriteOnly component={PristupoveUdajeExport} />}</Route>
-        <Route path="/pristupove-udaje">{() => <WriteOnly component={PristupoveUdaje} />}</Route>
+        <Route path="/pristupove-udaje/export/:id">{() => <PermissionOnly component={PristupoveUdajeExport} permission="credentials.view" />}</Route>
+        <Route path="/pristupove-udaje">{() => <PermissionOnly component={PristupoveUdaje} permission="credentials.view" />}</Route>
         <Route path="/people" component={People} />
         <Route path="/people/:id" component={PersonDetail} />
         <Route path="/sklad/pohyby" component={SkladPohyby} />
@@ -220,31 +207,31 @@ function AuthenticatedApp() {
         <Route path="/me" component={MyOverview} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />
-        <Route path="/statistika">{() => <AdminOnly component={Statistika} />}</Route>
-        <Route path="/billing/bank-import">{() => <AdminOnly component={BillingBankImport} />}</Route>
-        <Route path="/billing/settings">{() => <AdminOnly component={BillingSettings} />}</Route>
-        <Route path="/billing/documents/review">{() => <AdminOnly component={BillingReviewQueue} />}</Route>
-        <Route path="/billing/documents/:id">{() => <AdminOnly component={BillingDocumentDetail} />}</Route>
-        <Route path="/billing/documents">{() => <AdminOnly component={BillingDocuments} />}</Route>
-        <Route path="/billing/email-import">{() => <AdminOnly component={BillingEmailImport} />}</Route>
-        <Route path="/billing/unbilled/:customerId">{() => <AdminOnly component={BillingUnbilledDetail} />}</Route>
-        <Route path="/billing/unbilled">{() => <AdminOnly component={BillingUnbilled} />}</Route>
-        <Route path="/billing/invoices/:id/edit">{() => <AdminOnly component={BillingInvoiceEdit} />}</Route>
-        <Route path="/billing/invoices/:id">{() => <AdminOnly component={BillingInvoiceDetail} />}</Route>
-        <Route path="/billing/invoices">{() => <AdminOnly component={BillingInvoices} />}</Route>
-        <Route path="/billing/recurring-templates/:id">{() => <AdminOnly component={BillingRecurringTemplateDetail} />}</Route>
-        <Route path="/billing/recurring-templates">{() => <AdminOnly component={BillingRecurringTemplates} />}</Route>
-        <Route path="/billing">{() => <AdminOnly component={Billing} />}</Route>
-        <Route path="/admin/users">{() => <AdminOnly component={UsersAdmin} />}</Route>
-        <Route path="/admin/audit">{() => <AdminOnly component={AuditLog} />}</Route>
-        <Route path="/admin/client-errors">{() => <AdminOnly component={ClientErrors} />}</Route>
-        <Route path="/admin/gdpr">{() => <AdminOnly component={Gdpr} />}</Route>
-        <Route path="/admin/health">{() => <WriteOnly component={AdminHealth} />}</Route>
-        <Route path="/admin/sessions">{() => <AdminOnly component={AdminSessions} />}</Route>
-        <Route path="/admin/warehouse-backfill">{() => <AdminOnly component={AdminWarehouseBackfill} />}</Route>
-        <Route path="/quotes/new">{() => <AdminOnly component={QuoteDetail} />}</Route>
-        <Route path="/quotes/:id">{() => <AdminOnly component={QuoteDetail} />}</Route>
-        <Route path="/quotes">{() => <AdminOnly component={Quotes} />}</Route>
+        <Route path="/statistika">{() => <PermissionOnly component={Statistika} permission="statistics.view" />}</Route>
+        <Route path="/billing/bank-import">{() => <PermissionOnly component={BillingBankImport} permission="billing.manage" />}</Route>
+        <Route path="/billing/settings">{() => <PermissionOnly component={BillingSettings} permission="billing.settings" />}</Route>
+        <Route path="/billing/documents/review">{() => <PermissionOnly component={BillingReviewQueue} permission="billing.approve" />}</Route>
+        <Route path="/billing/documents/:id">{() => <PermissionOnly component={BillingDocumentDetail} permission="billing.view" />}</Route>
+        <Route path="/billing/documents">{() => <PermissionOnly component={BillingDocuments} permission="billing.view" />}</Route>
+        <Route path="/billing/email-import">{() => <PermissionOnly component={BillingEmailImport} permission="billing.settings" />}</Route>
+        <Route path="/billing/unbilled/:customerId">{() => <PermissionOnly component={BillingUnbilledDetail} permission="billing.view" />}</Route>
+        <Route path="/billing/unbilled">{() => <PermissionOnly component={BillingUnbilled} permission="billing.view" />}</Route>
+        <Route path="/billing/invoices/:id/edit">{() => <PermissionOnly component={BillingInvoiceEdit} permission="billing.manage" />}</Route>
+        <Route path="/billing/invoices/:id">{() => <PermissionOnly component={BillingInvoiceDetail} permission="billing.view" />}</Route>
+        <Route path="/billing/invoices">{() => <PermissionOnly component={BillingInvoices} permission="billing.view" />}</Route>
+        <Route path="/billing/recurring-templates/:id">{() => <PermissionOnly component={BillingRecurringTemplateDetail} permission="billing.manage" />}</Route>
+        <Route path="/billing/recurring-templates">{() => <PermissionOnly component={BillingRecurringTemplates} permission="billing.manage" />}</Route>
+        <Route path="/billing">{() => <PermissionOnly component={Billing} permission="billing.view" />}</Route>
+        <Route path="/admin/users">{() => <PermissionOnly component={UsersAdmin} permission="users.manage" />}</Route>
+        <Route path="/admin/audit">{() => <PermissionOnly component={AuditLog} permission="audit.view" />}</Route>
+        <Route path="/admin/client-errors">{() => <PermissionOnly component={ClientErrors} permission="diagnostics.view" />}</Route>
+        <Route path="/admin/gdpr">{() => <PermissionOnly component={Gdpr} permission="settings.manage" />}</Route>
+        <Route path="/admin/health">{() => <PermissionOnly component={AdminHealth} permission="diagnostics.view" />}</Route>
+        <Route path="/admin/sessions">{() => <PermissionOnly component={AdminSessions} permission="users.manage" />}</Route>
+        <Route path="/admin/warehouse-backfill">{() => <PermissionOnly component={AdminWarehouseBackfill} permission="warehouse.manage" />}</Route>
+        <Route path="/quotes/new">{() => <PermissionOnly component={QuoteDetail} permission="quotes.manage" />}</Route>
+        <Route path="/quotes/:id">{() => <PermissionOnly component={QuoteDetail} permission="quotes.view" />}</Route>
+        <Route path="/quotes">{() => <PermissionOnly component={Quotes} permission="quotes.view" />}</Route>
         <Route component={NotFound} />
         </Switch>
         </PageErrorBoundary>

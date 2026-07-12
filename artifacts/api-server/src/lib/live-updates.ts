@@ -100,6 +100,9 @@ export function domainsForPath(relPath: string): LiveDomain[] {
     add("quotes");
     // Converting a quote to a job creates a new job and may touch a customer.
     if (p.includes("/convert-to-job")) add("jobs", "customers");
+  } else if (p.startsWith("/users")) {
+    add("auth");
+    if (p.includes("/sessions")) add("sessions");
   } else if (p.startsWith("/sessions") || p.includes("/sessions")) {
     add("sessions");
   } else if (p.startsWith("/auth/login") || p.startsWith("/auth/setup")) {

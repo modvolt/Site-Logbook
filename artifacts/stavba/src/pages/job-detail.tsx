@@ -16,6 +16,7 @@ import {
   useGetWarehouseJobMarginTrend, getGetWarehouseJobMarginTrendQueryKey,
   useListCustomers, getListCustomersQueryKey,
   useListJobTimeEntries, getListJobTimeEntriesQueryKey,
+  useGetJobWorkSummary, getGetJobWorkSummaryQueryKey,
   useCreateJobTimeEntry, useStartJobTimeEntry, useStopJobTimeEntry,
   useUpdateJobTimeEntry, useDeleteJobTimeEntry,
   useListPeople, getListPeopleQueryKey,
@@ -1681,6 +1682,9 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   const { data: entries } = useListJobTimeEntries(jobId, {
     query: { queryKey: listKey, enabled: Number.isFinite(jobId) },
   });
+  const { data: workSummary } = useGetJobWorkSummary(jobId, {
+    query: { queryKey: getGetJobWorkSummaryQueryKey(jobId), enabled: Number.isFinite(jobId) },
+  });
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
   const addPerson = useCreateJobTimeEntry();
@@ -1694,6 +1698,7 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   // Local state: personId → local start timestamp (ms) for timers started offline.
   // Used for instant optimistic display without waiting for IndexedDB reads.
   const [offlineTimers, setOfflineTimers] = useState<Record<number, number>>({});
+  const offlineStartOpsRef = useRef<Record<number, { id: string; queued: Promise<void> }>>({});
 
   const invalidate = () => {
     invalidateData(queryClient, "jobs");
@@ -1701,7 +1706,12 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
 
   // All pending timer-related ops for this job
   const pendingTimerOps = pendingOps.filter(
-    (op) => op.jobId === jobId && (op.type === "start_timer" || op.type === "stop_timer" || op.type === "set_hours"),
+    (op) =>
+      op.jobId === jobId &&
+      (op.type === "start_timer" ||
+        op.type === "stop_timer" ||
+        op.type === "add_work_session" ||
+        op.type === "set_hours"),
   );
 
   // Merge pending start_timer ops into entries so the UI shows the timer as
@@ -1735,14 +1745,16 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   const handleStart = (personId: number) => {
     if (!isOnline) {
       const localStartedAt = Date.now();
+      const opId = crypto.randomUUID();
       // Record in both local state (for instant UI) and the queue (for persistence)
       setOfflineTimers((prev) => ({ ...prev, [personId]: localStartedAt }));
-      void enqueue({
-        id: crypto.randomUUID(),
+      const queued = enqueue({
+        id: opId,
         type: "start_timer",
         jobId,
         payload: { personId, localStartedAt },
       });
+      offlineStartOpsRef.current[personId] = { id: opId, queued };
       toast({ title: "Časovač spuštěn (offline) — odešle se po obnovení připojení" });
       return;
     }
@@ -1765,28 +1777,36 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
           : null);
 
       if (localStartedAt !== null) {
-        // Convert elapsed time to hours and add to the person's existing hours.
-        // This gives accurate worked time even when both start and stop happen offline,
-        // avoiding the near-zero duration that would result from replaying API calls.
-        const elapsedHours = (Date.now() - localStartedAt) / 3_600_000;
-        const existingEntry = (entries ?? []).find((e) => e.personId === personId);
-        const totalHours = Math.round(((existingEntry?.hours ?? 0) + elapsedHours) * 100) / 100;
-
-        // Discard the pending start_timer — it's now resolved into set_hours
-        if (pendingStart) void discardOp(pendingStart.id);
+        const endedAt = Date.now();
+        const elapsedHours = (endedAt - localStartedAt) / 3_600_000;
+        const localStartOp = offlineStartOpsRef.current[personId];
         setOfflineTimers((prev) => {
           const next = { ...prev };
           delete next[personId];
           return next;
         });
-        void enqueue({
-          id: crypto.randomUUID(),
-          type: "set_hours",
-          jobId,
-          payload: { personId, hours: totalHours },
-        });
+        delete offlineStartOpsRef.current[personId];
+
+        // A completed offline interval is synced as an immutable session so it
+        // cannot overwrite work recorded concurrently on another device.
+        void (async () => {
+          if (localStartOp) await localStartOp.queued;
+          const startOpId = pendingStart?.id ?? localStartOp?.id;
+          if (startOpId) await discardOp(startOpId);
+          await enqueue({
+            id: crypto.randomUUID(),
+            type: "add_work_session",
+            jobId,
+            payload: {
+              personId,
+              startedAt: new Date(localStartedAt).toISOString(),
+              endedAt: new Date(endedAt).toISOString(),
+              note: "Práce zaznamenaná offline časovačem",
+            },
+          });
+        })();
         toast({
-          title: `Časovač zastaven (offline) — ${totalHours.toFixed(2)} h bude odesláno po obnovení připojení`,
+          title: `Časovač zastaven (offline) — ${elapsedHours.toFixed(2)} h bude odesláno po obnovení připojení`,
         });
       } else {
         // Fallback: timer was started online, server holds timerStartedAt.
@@ -1799,13 +1819,13 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
     stopTimer.mutate({ jobId, personId }, { onSuccess: invalidate });
   };
 
-  const handleSetHours = (personId: number, hours: number) => {
+  const handleSetHours = (personId: number, hours: number, reason: string) => {
     if (!isOnline) {
-      void enqueue({ id: crypto.randomUUID(), type: "set_hours", jobId, payload: { personId, hours } });
+      void enqueue({ id: crypto.randomUUID(), type: "set_hours", jobId, payload: { personId, hours, reason } });
       toast({ title: "Hodiny budou uloženy po obnovení připojení" });
       return;
     }
-    setHours.mutate({ jobId, personId, data: { hours } }, { onSuccess: invalidate });
+    setHours.mutate({ jobId, personId, data: { hours, reason } }, { onSuccess: invalidate });
   };
 
   const busy = addPerson.isPending || startTimer.isPending || stopTimer.isPending || setHours.isPending || removeEntry.isPending;
@@ -1820,8 +1840,9 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
       )}
       <TimeEntriesSection
         entries={entriesWithPending}
+        summary={workSummary}
         people={people ?? []}
-        canWrite={can("write")}
+        canWrite={can("time.manage")}
         busy={busy}
         onAddPerson={(personId) => addPerson.mutate({ jobId, data: { personId } }, { onSuccess: invalidate })}
         onStart={handleStart}
@@ -3065,7 +3086,7 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
   const { toast } = useToast();
   const { saved, flash } = useSaveFlash();
   const { can } = useAuth();
-  const isAdmin = can("manageUsers");
+  const canManageFinance = can("billing.manage");
   
   const [hoursVasek, setHoursVasek] = useState(job.hoursVasek?.toString() || "");
   const [hoursJonas, setHoursJonas] = useState(job.hoursJonas?.toString() || "");
@@ -3103,9 +3124,11 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
         hoursSpent: totalHours || null,
         hoursFromPlan: false,
         hoursBeforePlan: null,
-        price: parseDecimal(price),
-        pricingMode: pricingMode as any,
-        contractPrice: isFixedPrice ? (parseDecimal(contractPrice) ?? null) : null,
+        ...(canManageFinance ? {
+          price: parseDecimal(price),
+          pricingMode: pricingMode as any,
+          contractPrice: isFixedPrice ? (parseDecimal(contractPrice) ?? null) : null,
+        } : {}),
       } 
     }, {
       onSuccess: (data) => {
@@ -3175,7 +3198,7 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
           </div>
         )}
 
-        <div className="space-y-2">
+        {canManageFinance && <div className="space-y-2">
           <label className="text-sm font-bold text-muted-foreground">
             Cena za práci (Kč) — volitelné
             {isFixedPrice && <span className="ml-1 text-[10px] font-medium text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-1.5 py-0.5 rounded-full align-middle">interní kalkulace</span>}
@@ -3189,10 +3212,10 @@ function WorkSummarySection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">Kč</span>
           </div>
-        </div>
+        </div>}
 
         {/* Pricing mode toggle — admin only */}
-        {isAdmin && (
+        {canManageFinance && (
           <div className="space-y-3 pt-2 border-t">
             <div className="space-y-1.5">
               <label className="text-sm font-bold text-muted-foreground flex items-center gap-1.5">

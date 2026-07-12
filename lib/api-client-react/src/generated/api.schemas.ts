@@ -831,6 +831,55 @@ export interface ActiveTimer {
   timerStartedAt: string;
 }
 
+export interface PersonHourlyRate {
+  id: number;
+  personId: number;
+  validFrom: string;
+  /** @nullable */
+  validTo: string | null;
+  /**
+     * Null when the caller lacks rates.cost.view
+     * @nullable
+     */
+  costRate: number | null;
+  /**
+     * Null when the caller lacks rates.sale.view
+     * @nullable
+     */
+  saleRate: number | null;
+  reason: string;
+  /** @nullable */
+  createdByUserId?: number | null;
+  createdAt: string;
+  /** @nullable */
+  voidedAt: string | null;
+  /** @nullable */
+  voidedByUserId?: number | null;
+  /** @nullable */
+  voidReason: string | null;
+}
+
+export interface PersonHourlyRateInput {
+  validFrom: string;
+  /** @minimum 0 */
+  costRate: number;
+  /** @minimum 0 */
+  saleRate: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export interface VoidPersonHourlyRateInput {
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
 export type EmployeeLeaveType = typeof EmployeeLeaveType[keyof typeof EmployeeLeaveType];
 
 
@@ -2387,6 +2436,19 @@ export interface LoginInput {
   password: string;
 }
 
+export type UserPermissionOverrideEffect = typeof UserPermissionOverrideEffect[keyof typeof UserPermissionOverrideEffect];
+
+
+export const UserPermissionOverrideEffect = {
+  allow: 'allow',
+  deny: 'deny',
+} as const;
+
+export interface UserPermissionOverride {
+  permission: string;
+  effect: UserPermissionOverrideEffect;
+}
+
 export interface AuthUser {
   id: number;
   username: string;
@@ -2397,6 +2459,9 @@ export interface AuthUser {
   role: string;
   isActive: boolean;
   createdAt: string;
+  /** Effective permissions after applying role defaults and user overrides */
+  permissions: string[];
+  permissionOverrides: UserPermissionOverride[];
 }
 
 export interface ErrorEnvelope {
@@ -2719,6 +2784,8 @@ export interface UserUpdate {
   name?: string;
   /** @nullable */
   email?: string | null;
+  /** @nullable */
+  personId?: number | null;
   role?: string;
   isActive?: boolean;
   /**
@@ -2726,6 +2793,10 @@ export interface UserUpdate {
      * @minLength 6
      */
   password?: string;
+}
+
+export interface UserPermissionUpdate {
+  overrides: UserPermissionOverride[];
 }
 
 export interface SessionEntry {
@@ -3092,6 +3163,121 @@ export interface TimeEntryInput {
 
 export interface TimeEntryUpdate {
   hours: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export type WorkSessionStatus = typeof WorkSessionStatus[keyof typeof WorkSessionStatus];
+
+
+export const WorkSessionStatus = {
+  active: 'active',
+  completed: 'completed',
+  voided: 'voided',
+} as const;
+
+export type WorkSessionSource = typeof WorkSessionSource[keyof typeof WorkSessionSource];
+
+
+export const WorkSessionSource = {
+  timer: 'timer',
+  manual: 'manual',
+  correction: 'correction',
+  legacy_manual: 'legacy_manual',
+  legacy_timer: 'legacy_timer',
+} as const;
+
+export type WorkSessionReviewStatus = typeof WorkSessionReviewStatus[keyof typeof WorkSessionReviewStatus];
+
+
+export const WorkSessionReviewStatus = {
+  not_required: 'not_required',
+  needs_review: 'needs_review',
+  approved: 'approved',
+} as const;
+
+export interface WorkSession {
+  id: number;
+  personId: number;
+  personName?: string;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
+  startedAt: string;
+  /** @nullable */
+  endedAt?: string | null;
+  /** @nullable */
+  durationSeconds?: number | null;
+  status: WorkSessionStatus;
+  source: WorkSessionSource;
+  reviewStatus: WorkSessionReviewStatus;
+  /** @nullable */
+  reviewReason?: string | null;
+  /** @nullable */
+  reviewFlaggedAt?: string | null;
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  createdByUserId?: number | null;
+  /** @nullable */
+  endedByUserId?: number | null;
+  /** @nullable */
+  voidedAt?: string | null;
+  /** @nullable */
+  voidedByUserId?: number | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ManualWorkSessionInput {
+  /** @minimum 1 */
+  personId: number;
+  startedAt: string;
+  endedAt: string;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  note: string;
+  /**
+     * @minLength 8
+     * @maxLength 100
+     */
+  idempotencyKey?: string;
+}
+
+export interface WorkSummaryWorker {
+  personId: number;
+  personName: string;
+  completedSeconds: number;
+  activeSeconds: number;
+  totalSeconds: number;
+  completedHours: number;
+  activeHours: number;
+  totalHours: number;
+  needsReviewCount: number;
+  /** @nullable */
+  activeSessionId: number | null;
+  /** @nullable */
+  activeStartedAt: string | null;
+}
+
+export interface WorkSummary {
+  completedSeconds: number;
+  activeSeconds: number;
+  totalSeconds: number;
+  completedHours: number;
+  activeHours: number;
+  totalHours: number;
+  workerCount: number;
+  activeWorkerCount: number;
+  needsReviewCount: number;
+  workers: WorkSummaryWorker[];
+  calculatedAt: string;
 }
 
 export interface MyStats {
@@ -3753,6 +3939,15 @@ export interface UnbilledJobMaterial {
   categoryMarkupPercent?: number | null;
 }
 
+export interface UnbilledRecordedWork {
+  sessionCount: number;
+  hours: number;
+  amount: number;
+  missingRateCount: number;
+  needsReviewCount: number;
+  workers: string[];
+}
+
 export interface UnbilledJob {
   id: number;
   /**
@@ -3782,6 +3977,7 @@ export interface UnbilledJob {
      */
   daysUnbilled?: number | null;
   materials: UnbilledJobMaterial[];
+  recordedWork: UnbilledRecordedWork;
 }
 
 export interface UnbilledActivityExtraWork {
@@ -3797,6 +3993,7 @@ export interface UnbilledActivity {
   completedAt?: string | null;
   materials: UnbilledJobMaterial[];
   extraWorks: UnbilledActivityExtraWork[];
+  recordedWork: UnbilledRecordedWork;
 }
 
 export interface UnbilledCustomerDetail {
@@ -3916,6 +4113,29 @@ export interface Invoice {
   sourceJobs?: InvoiceSourceJob[];
 }
 
+/**
+ * Source of labour lines; recorded_time reserves immutable work sessions
+ */
+export type InvoiceCreateInputLabourBillingMode = typeof InvoiceCreateInputLabourBillingMode[keyof typeof InvoiceCreateInputLabourBillingMode];
+
+
+export const InvoiceCreateInputLabourBillingMode = {
+  job_price: 'job_price',
+  recorded_time: 'recorded_time',
+  none: 'none',
+} as const;
+
+/**
+ * Group recorded-time lines by rate only or by worker and rate
+ */
+export type InvoiceCreateInputWorkGrouping = typeof InvoiceCreateInputWorkGrouping[keyof typeof InvoiceCreateInputWorkGrouping];
+
+
+export const InvoiceCreateInputWorkGrouping = {
+  summary: 'summary',
+  worker: 'worker',
+} as const;
+
 export type InvoiceCreateInputVatModeDefault = typeof InvoiceCreateInputVatModeDefault[keyof typeof InvoiceCreateInputVatModeDefault];
 
 
@@ -4005,6 +4225,10 @@ export interface InvoiceCreateInput {
   jobIds?: number[];
   /** Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál) */
   activityIds?: number[];
+  /** Source of labour lines; recorded_time reserves immutable work sessions */
+  labourBillingMode?: InvoiceCreateInputLabourBillingMode;
+  /** Group recorded-time lines by rate only or by worker and rate */
+  workGrouping?: InvoiceCreateInputWorkGrouping;
   /** Subset of jobIds whose fines should also be billed (explicit opt-in) */
   billFineJobIds?: number[];
   /**
@@ -5915,6 +6139,14 @@ subjectId: number;
 export type ListActivitiesParams = {
 archived?: boolean;
 mine?: boolean;
+};
+
+export type ListActivityWorkSessionsParams = {
+personId?: number;
+};
+
+export type ListJobWorkSessionsParams = {
+personId?: number;
 };
 
 export type GetMyDoneJobsParams = {

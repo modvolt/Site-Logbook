@@ -899,6 +899,73 @@ paths:
         "204":
           description: Deleted
 
+  /people/{id}/hourly-rates:
+    get:
+      operationId: listPersonHourlyRates
+      tags: [people]
+      summary: List historical hourly rates with unauthorized financial fields removed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Rate history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PersonHourlyRate" }
+    post:
+      operationId: createPersonHourlyRate
+      tags: [people]
+      summary: Add a new effective hourly-rate version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PersonHourlyRateInput" }
+      responses:
+        "201":
+          description: Rate version created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonHourlyRate" }
+        "409":
+          description: A rate already exists for this effective date
+
+  /people/{id}/hourly-rates/{rateId}/void:
+    post:
+      operationId: voidPersonHourlyRate
+      tags: [people]
+      summary: Void a rate version while retaining its history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rateId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VoidPersonHourlyRateInput" }
+      responses:
+        "200":
+          description: Rate version voided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonHourlyRate" }
+
   /leaves:
     get:
       operationId: listLeaves
@@ -3790,6 +3857,43 @@ paths:
         "204":
           description: Deleted
 
+  /users/{id}/permissions:
+    put:
+      operationId: updateUserPermissions
+      tags: [users]
+      summary: Replace individual permission overrides (users.manage required)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserPermissionUpdate"
+      responses:
+        "200":
+          description: Updated user with effective permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "400":
+          description: Invalid permission override or self-lockout attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /sessions:
     get:
       operationId: listMySessions
@@ -4562,6 +4666,10 @@ paths:
           required: true
           schema:
             type: integer
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 100 }
       responses:
         "200":
           description: Time entry with running timer
@@ -4586,6 +4694,10 @@ paths:
           required: true
           schema:
             type: integer
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 100 }
       responses:
         "200":
           description: Time entry with updated hours
@@ -4702,6 +4814,10 @@ paths:
           required: true
           schema:
             type: integer
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 100 }
       responses:
         "200":
           description: Time entry with running timer
@@ -4726,6 +4842,10 @@ paths:
           required: true
           schema:
             type: integer
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 8, maxLength: 100 }
       responses:
         "200":
           description: Time entry with updated hours
@@ -4781,6 +4901,174 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  /activities/{activityId}/work-sessions:
+    get:
+      operationId: listActivityWorkSessions
+      tags: [activities]
+      summary: List immutable work sessions and corrections for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: personId
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Work-session history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkSession"
+    post:
+      operationId: createActivityWorkSession
+      tags: [activities]
+      summary: Add a completed manual work session to an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualWorkSessionInput"
+      responses:
+        "201":
+          description: Manual work session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSession"
+        "409":
+          description: Session overlaps another session or idempotency key conflicts
+
+  /activities/{activityId}/work-summary:
+    get:
+      operationId: getActivityWorkSummary
+      tags: [activities]
+      summary: Get exact person-hour totals and worker breakdown for an activity
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Activity work summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSummary"
+
+  /activities/{activityId}/work-sessions/{sessionId}:
+    delete:
+      operationId: voidActivityWorkSession
+      tags: [activities]
+      summary: Void a work session while retaining its audit history
+      parameters:
+        - name: activityId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Work session voided
+
+  /jobs/{jobId}/work-sessions:
+    get:
+      operationId: listJobWorkSessions
+      tags: [jobs]
+      summary: List immutable work sessions and corrections for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: personId
+          in: query
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Work-session history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkSession"
+    post:
+      operationId: createJobWorkSession
+      tags: [jobs]
+      summary: Add a completed manual work session to a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualWorkSessionInput"
+      responses:
+        "201":
+          description: Manual work session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSession"
+        "409":
+          description: Session overlaps another session or idempotency key conflicts
+
+  /jobs/{jobId}/work-summary:
+    get:
+      operationId: getJobWorkSummary
+      tags: [jobs]
+      summary: Get exact person-hour totals and worker breakdown for a job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Job work summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkSummary"
+
+  /jobs/{jobId}/work-sessions/{sessionId}:
+    delete:
+      operationId: voidJobWorkSession
+      tags: [jobs]
+      summary: Void a work session while retaining its audit history
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Work session voided
 
   /me/stats:
     get:
@@ -5336,6 +5624,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/work-financial-summary:
+    get:
+      operationId: getWorkFinancialSummary
+      tags: [billing]
+      summary: Financial summary of recorded work with cost fields permission-filtered
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { name: personId, in: query, required: false, schema: { type: integer } }
+        - { name: jobId, in: query, required: false, schema: { type: integer } }
+        - { name: activityId, in: query, required: false, schema: { type: integer } }
+        - name: billingStatus
+          in: query
+          required: false
+          schema: { type: string, enum: [unbilled, ready, billed, non_billable] }
+      responses:
+        "200":
+          description: Work financial summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkFinancialSummary" }
 
   /billing/bank-statements/parse:
     post:
@@ -9799,6 +10109,42 @@ components:
           type: ["string", "null"]
           description: Email address used to send PPE confirmation links
 
+    PersonHourlyRate:
+      type: object
+      required: [id, personId, validFrom, validTo, costRate, saleRate, reason, createdAt, voidedAt, voidReason]
+      properties:
+        id: { type: integer }
+        personId: { type: integer }
+        validFrom: { type: string, format: date }
+        validTo: { type: ["string", "null"], format: date }
+        costRate:
+          type: ["number", "null"]
+          description: Null when the caller lacks rates.cost.view
+        saleRate:
+          type: ["number", "null"]
+          description: Null when the caller lacks rates.sale.view
+        reason: { type: string }
+        createdByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        voidedAt: { type: ["string", "null"], format: date-time }
+        voidedByUserId: { type: ["integer", "null"] }
+        voidReason: { type: ["string", "null"] }
+
+    PersonHourlyRateInput:
+      type: object
+      required: [validFrom, costRate, saleRate, reason]
+      properties:
+        validFrom: { type: string, format: date }
+        costRate: { type: number, minimum: 0 }
+        saleRate: { type: number, minimum: 0 }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+
+    VoidPersonHourlyRateInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
+
     PersonStats:
       type: object
       required: [personId, personName, todayJobsCount, weekHours, assignedMachinesCount, hasActiveTimer, assignedPpeCount, ppeAttentionCount]
@@ -9870,10 +10216,11 @@ components:
         totalHoursThisWeek:
           type: number
         totalRevenueThisWeek:
-          type: number
+          type: ["number", "null"]
+          description: Null without billing.view
         unbilledValue:
-          type: number
-          description: Sum of price on done jobs not yet linked to any non-cancelled invoice
+          type: ["number", "null"]
+          description: Sum of price on done jobs not yet linked to any non-cancelled invoice; null without billing.view
         hoursThisMonth:
           type: number
           description: Total hours spent on all jobs this calendar month
@@ -9995,7 +10342,7 @@ components:
 
     AuthUser:
       type: object
-      required: [id, username, name, role, isActive, createdAt]
+      required: [id, username, name, role, isActive, createdAt, permissions, permissionOverrides]
       properties:
         id:
           type: integer
@@ -10012,6 +10359,34 @@ components:
           type: boolean
         createdAt:
           type: string
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Effective permissions after applying role defaults and user overrides
+        permissionOverrides:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserPermissionOverride"
+
+    UserPermissionOverride:
+      type: object
+      required: [permission, effect]
+      properties:
+        permission:
+          type: string
+        effect:
+          type: string
+          enum: [allow, deny]
+
+    UserPermissionUpdate:
+      type: object
+      required: [overrides]
+      properties:
+        overrides:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserPermissionOverride"
 
     LoginInput:
       type: object
@@ -10170,6 +10545,8 @@ components:
           minLength: 1
         email:
           type: ["string", "null"]
+        personId:
+          type: ["integer", "null"]
         role:
           type: string
         isActive:
@@ -10747,10 +11124,102 @@ components:
 
     TimeEntryUpdate:
       type: object
-      required: [hours]
+      required: [hours, reason]
       properties:
         hours:
           type: number
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+
+    WorkSession:
+      type: object
+      required: [id, personId, startedAt, status, source, reviewStatus, createdAt]
+      properties:
+        id: { type: integer }
+        personId: { type: integer }
+        personName: { type: string }
+        jobId: { type: ["integer", "null"] }
+        activityId: { type: ["integer", "null"] }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: ["string", "null"], format: date-time }
+        durationSeconds: { type: ["integer", "null"] }
+        status:
+          type: string
+          enum: [active, completed, voided]
+        source:
+          type: string
+          enum: [timer, manual, correction, legacy_manual, legacy_timer]
+        reviewStatus:
+          type: string
+          enum: [not_required, needs_review, approved]
+        reviewReason: { type: ["string", "null"] }
+        reviewFlaggedAt: { type: ["string", "null"], format: date-time }
+        note: { type: ["string", "null"] }
+        createdByUserId: { type: ["integer", "null"] }
+        endedByUserId: { type: ["integer", "null"] }
+        voidedAt: { type: ["string", "null"], format: date-time }
+        voidedByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    WorkSummaryWorker:
+      type: object
+      required: [personId, personName, completedSeconds, activeSeconds, totalSeconds, completedHours, activeHours, totalHours, needsReviewCount, activeSessionId, activeStartedAt]
+      properties:
+        personId: { type: integer }
+        personName: { type: string }
+        completedSeconds: { type: integer }
+        activeSeconds: { type: integer }
+        totalSeconds: { type: integer }
+        completedHours: { type: number }
+        activeHours: { type: number }
+        totalHours: { type: number }
+        needsReviewCount: { type: integer }
+        activeSessionId: { type: ["integer", "null"] }
+        activeStartedAt: { type: ["string", "null"], format: date-time }
+
+    WorkSummary:
+      type: object
+      required: [completedSeconds, activeSeconds, totalSeconds, completedHours, activeHours, totalHours, workerCount, activeWorkerCount, needsReviewCount, workers, calculatedAt]
+      properties:
+        completedSeconds: { type: integer }
+        activeSeconds: { type: integer }
+        totalSeconds: { type: integer }
+        completedHours: { type: number }
+        activeHours: { type: number }
+        totalHours: { type: number }
+        workerCount: { type: integer }
+        activeWorkerCount: { type: integer }
+        needsReviewCount: { type: integer }
+        workers:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkSummaryWorker"
+        calculatedAt: { type: string, format: date-time }
+
+    ManualWorkSessionInput:
+      type: object
+      required: [personId, startedAt, endedAt, note]
+      properties:
+        personId:
+          type: integer
+          minimum: 1
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+          minLength: 3
+          maxLength: 500
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 100
 
     MyStats:
       type: object
@@ -11708,6 +12177,49 @@ components:
           type: integer
           description: Count of distinct customers with at least one done unbilled job older than 7 days
 
+    WorkFinancialBucket:
+      type: object
+      required: [hours, cost, sale, margin, marginPercent, missingCostRateCount, missingSaleRateCount, sessionCount]
+      properties:
+        hours: { type: number }
+        cost: { type: ["number", "null"], description: Null without rates.cost.view }
+        sale: { type: number }
+        margin: { type: ["number", "null"], description: Null without rates.cost.view }
+        marginPercent: { type: ["number", "null"] }
+        missingCostRateCount: { type: integer }
+        missingSaleRateCount: { type: integer }
+        sessionCount: { type: integer }
+
+    WorkFinancialStatusBucket:
+      allOf:
+        - $ref: "#/components/schemas/WorkFinancialBucket"
+        - type: object
+          required: [billingStatus]
+          properties:
+            billingStatus: { type: string, enum: [unbilled, ready, billed, non_billable] }
+
+    WorkFinancialPersonBucket:
+      allOf:
+        - $ref: "#/components/schemas/WorkFinancialBucket"
+        - type: object
+          required: [personId, personName]
+          properties:
+            personId: { type: integer }
+            personName: { type: string }
+
+    WorkFinancialSummary:
+      allOf:
+        - $ref: "#/components/schemas/WorkFinancialBucket"
+        - type: object
+          required: [byBillingStatus, byPerson]
+          properties:
+            byBillingStatus:
+              type: array
+              items: { $ref: "#/components/schemas/WorkFinancialStatusBucket" }
+            byPerson:
+              type: array
+              items: { $ref: "#/components/schemas/WorkFinancialPersonBucket" }
+
     BillingSettings:
       type: object
       required:
@@ -12151,6 +12663,16 @@ components:
           items:
             type: integer
           description: Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál)
+        labourBillingMode:
+          type: string
+          enum: [job_price, recorded_time, none]
+          default: job_price
+          description: Source of labour lines; recorded_time reserves immutable work sessions
+        workGrouping:
+          type: string
+          enum: [summary, worker]
+          default: summary
+          description: Group recorded-time lines by rate only or by worker and rate
         billFineJobIds:
           type: array
           items:
@@ -12476,7 +12998,7 @@ components:
 
     UnbilledJob:
       type: object
-      required: [id, title, status, materials]
+      required: [id, title, status, materials, recordedWork]
       properties:
         id:
           type: integer
@@ -12508,6 +13030,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UnbilledJobMaterial"
+        recordedWork:
+          $ref: "#/components/schemas/UnbilledRecordedWork"
+
+    UnbilledRecordedWork:
+      type: object
+      required: [sessionCount, hours, amount, missingRateCount, needsReviewCount, workers]
+      properties:
+        sessionCount: { type: integer }
+        hours: { type: number }
+        amount: { type: number }
+        missingRateCount: { type: integer }
+        needsReviewCount: { type: integer }
+        workers:
+          type: array
+          items: { type: string }
 
     UnbilledActivityExtraWork:
       type: object
@@ -12522,7 +13059,7 @@ components:
 
     UnbilledActivity:
       type: object
-      required: [id, name, materials, extraWorks]
+      required: [id, name, materials, extraWorks, recordedWork]
       properties:
         id:
           type: integer
@@ -12538,6 +13075,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UnbilledActivityExtraWork"
+        recordedWork:
+          $ref: "#/components/schemas/UnbilledRecordedWork"
 
     UnbilledCustomerDetail:
       type: object
@@ -12710,6 +13249,10 @@ components:
         isdocUuid:
           type: ["string", "null"]
         mergeGroupId:
+          type: ["string", "null"]
+        uploadGroupToken:
+          type: ["string", "null"]
+        uploadCompletedAt:
           type: ["string", "null"]
         primaryDocumentId:
           type: ["integer", "null"]
@@ -13265,6 +13808,8 @@ components:
         objectPath:
           type: string
         sizeBytes:
+          type: ["integer", "null"]
+        pageIndex:
           type: ["integer", "null"]
         createdAt:
           type: string

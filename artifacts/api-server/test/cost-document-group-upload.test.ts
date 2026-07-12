@@ -64,6 +64,8 @@ describe("ingestGroupFile (multi-page upload)", () => {
           source: "manual",
           groupToken,
           groupComplete: i === pages.length - 1,
+          pageIndex: i,
+          pageCount: pages.length,
         },
         actor,
       );
@@ -90,7 +92,10 @@ describe("ingestGroupFile (multi-page upload)", () => {
       .select()
       .from(billingDocumentsTable)
       .where(eq(billingDocumentsTable.id, documentId!));
-    expect(doc.mergeGroupId).toBe(groupToken);
+    expect(doc.uploadGroupToken).toBe(groupToken);
+    expect(doc.mergeGroupId).toBeNull();
+    expect(doc.uploadCompletedAt).not.toBeNull();
+    expect(files.map((file) => file.pageIndex)).toEqual([0, 1, 2]);
 
     // Extraction is enqueued exactly once — only when the group completed.
     const jobs = await db
@@ -114,6 +119,8 @@ describe("ingestGroupFile (multi-page upload)", () => {
         source: "manual",
         groupToken,
         groupComplete: false,
+        pageIndex: 0,
+        pageCount: 2,
       },
       actor,
     );
@@ -135,6 +142,8 @@ describe("ingestGroupFile (multi-page upload)", () => {
         source: "manual",
         groupToken,
         groupComplete: true,
+        pageIndex: 1,
+        pageCount: 2,
       },
       actor,
     );
@@ -147,5 +156,34 @@ describe("ingestGroupFile (multi-page upload)", () => {
       .from(extractionJobsTable)
       .where(eq(extractionJobsTable.documentId, first.document.id));
     expect(jobsAfterComplete).toHaveLength(1);
+  });
+
+  it("treats retrying an already committed page as an idempotent success", async () => {
+    const groupToken = `${TAG}-group-retry`;
+    const page = Buffer.from(`${TAG}-retry-page`, "utf8");
+    const input = {
+      fileName: `${TAG}-retry.jpg`,
+      contentType: "image/jpeg",
+      source: "manual",
+      groupToken,
+      groupComplete: true,
+      pageIndex: 0,
+      pageCount: 1,
+    };
+    const first = await ingestGroupFile(page, input, actor);
+    expect(first.status).toBe("created");
+    if (first.status !== "created") throw new Error("unreachable");
+    docIds.push(first.document.id);
+
+    const retried = await ingestGroupFile(page, input, actor);
+    expect(retried.status).toBe("created");
+    if (retried.status !== "created") throw new Error("unreachable");
+    expect(retried.document.id).toBe(first.document.id);
+
+    const files = await db
+      .select()
+      .from(billingDocumentFilesTable)
+      .where(eq(billingDocumentFilesTable.documentId, first.document.id));
+    expect(files).toHaveLength(1);
   });
 });

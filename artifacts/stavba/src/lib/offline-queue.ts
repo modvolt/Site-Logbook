@@ -6,6 +6,7 @@ export type OfflineOpType =
   | "add_material"
   | "start_timer"
   | "stop_timer"
+  | "add_work_session"
   | "set_hours"
   | "add_photo";
 

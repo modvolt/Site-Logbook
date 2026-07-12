@@ -172,10 +172,25 @@ async function mergeIncompleteMultipagePageTx(
     .update(billingDocumentReferencesTable)
     .set({ documentId: primary.id, updatedAt: new Date() })
     .where(eq(billingDocumentReferencesTable.documentId, secondary.id));
-  await tx
-    .update(billingDocumentFilesTable)
-    .set({ documentId: primary.id })
-    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
+  const primaryFiles = await tx
+    .select({ pageIndex: billingDocumentFilesTable.pageIndex })
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, primary.id));
+  const secondaryFiles = await tx
+    .select({ id: billingDocumentFilesTable.id })
+    .from(billingDocumentFilesTable)
+    .where(eq(billingDocumentFilesTable.documentId, secondary.id))
+    .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+  const firstMovedPage = primaryFiles.reduce(
+    (max, file) => Math.max(max, file.pageIndex ?? -1),
+    -1,
+  ) + 1;
+  for (const [offset, file] of secondaryFiles.entries()) {
+    await tx
+      .update(billingDocumentFilesTable)
+      .set({ documentId: primary.id, pageIndex: firstMovedPage + offset })
+      .where(eq(billingDocumentFilesTable.id, file.id));
+  }
   await tx
     .update(billingDocumentsTable)
     .set({ mergeGroupId: groupId, updatedAt: new Date() })
@@ -286,6 +301,28 @@ function isDuplicateSha256Violation(err: unknown): boolean {
     if ((candidate as { code: unknown }).code !== "23505") continue;
     const constraint = (candidate as { constraint?: unknown }).constraint;
     if (constraint === "billing_documents_sha256_unique_idx") return true;
+  }
+  return false;
+}
+
+function isActiveExtractionViolation(err: unknown): boolean {
+  for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
+    if (typeof candidate !== "object" || candidate === null || !("code" in candidate)) continue;
+    if ((candidate as { code: unknown }).code !== "23505") continue;
+    if ((candidate as { constraint?: unknown }).constraint === "extraction_jobs_one_active_per_document_idx") {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isUploadGroupViolation(err: unknown): boolean {
+  for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
+    if (typeof candidate !== "object" || candidate === null || !("code" in candidate)) continue;
+    if ((candidate as { code: unknown }).code !== "23505") continue;
+    if ((candidate as { constraint?: unknown }).constraint === "billing_documents_upload_group_token_unique_idx") {
+      return true;
+    }
   }
   return false;
 }
@@ -496,6 +533,8 @@ function serializeDocument(
     bic: row.bic,
     isdocUuid: row.isdocUuid,
     mergeGroupId: row.mergeGroupId,
+    uploadGroupToken: row.uploadGroupToken,
+    uploadCompletedAt: row.uploadCompletedAt ? row.uploadCompletedAt.toISOString() : null,
     primaryDocumentId: row.primaryDocumentId,
     sourcePriority: row.sourcePriority,
     parsedBy: row.parsedBy,
@@ -808,11 +847,6 @@ async function linkAsDuplicateTx(
   const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
 
   await tx
-    .update(billingDocumentFilesTable)
-    .set({ documentId: primary.id })
-    .where(eq(billingDocumentFilesTable.documentId, secondary.id));
-
-  await tx
     .update(billingDocumentsTable)
     .set({ mergeGroupId: groupId, updatedAt: new Date() })
     .where(eq(billingDocumentsTable.id, primary.id));
@@ -1023,40 +1057,45 @@ export async function markDocumentAsDuplicate(
   if (id === primaryDocumentId) {
     throw appError(400, "Doklad nelze spárovat se sebou samým.");
   }
-  const [doc] = await db
-    .select()
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, id));
-  if (!doc) throw appError(404, "Doklad nenalezen.");
-  const [primary] = await db
-    .select()
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, primaryDocumentId));
-  if (!primary) throw appError(404, "Cílový doklad nenalezen.");
-  if (doc.primaryDocumentId != null) {
-    throw appError(409, "Doklad je již spárován jako duplicita jiného dokladu.");
-  }
-  if (primary.primaryDocumentId != null) {
-    throw appError(
-      409,
-      "Cílový doklad je sám duplicitou — spárujte na jeho primární doklad.",
-    );
-  }
-  if (doc.status === "approved" || primary.status === "approved") {
-    throw appError(
-      409,
-      "Schválený doklad nelze spárovat jako duplicitu — nejprve zrušte jeho schválení.",
-    );
-  }
-  await assertCompleteBeforeTerminalAction(db, doc, "duplicate");
-  await db.transaction((tx) =>
-    linkAsDuplicateTx(
+  await db.transaction(async (tx) => {
+    const lockA = Math.min(id, primaryDocumentId);
+    const lockB = Math.max(id, primaryDocumentId);
+    await tx.execute(sql`select pg_advisory_xact_lock(${lockA}, ${lockB})`);
+    const rows = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, [id, primaryDocumentId]));
+    const doc = rows.find((row) => row.id === id);
+    const primary = rows.find((row) => row.id === primaryDocumentId);
+    if (!doc) throw appError(404, "Doklad nenalezen.");
+    if (!primary) throw appError(404, "Cílový doklad nenalezen.");
+    if (doc.primaryDocumentId != null) {
+      throw appError(409, "Doklad je již spárován jako duplicita jiného dokladu.");
+    }
+    if (primary.primaryDocumentId != null) {
+      throw appError(409, "Cílový doklad je sám duplicitou; použijte jeho primární doklad.");
+    }
+    if (doc.status === "approved" || primary.status === "approved") {
+      throw appError(409, "Schválený doklad nelze označit jako duplicitu.");
+    }
+    await assertCompleteBeforeTerminalAction(tx, doc, "duplicate");
+    await linkAsDuplicateTx(
       tx,
       primary,
       doc,
       `Ručně spárováno jako duplicita dokladu #${primary.id}${actor.name ? ` (${actor.name})` : ""}.`,
-    ),
-  );
+    );
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_marked_duplicate",
+      entityType: "billing_documents",
+      entityId: id,
+      summary: `Doklad #${id} ručně označen jako duplicita dokladu #${primaryDocumentId}.`,
+      method: "POST",
+      path: `/billing/documents/${id}/mark-duplicate`,
+    });
+  });
   return getDocument(id);
 }
 
@@ -1076,9 +1115,8 @@ export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
   if (doc.primaryDocumentId == null && doc.status !== "duplicate") {
     throw appError(409, "Doklad není spárován jako duplicita.");
   }
-  await db
-    .update(billingDocumentsTable)
-    .set({
+  await db.transaction(async (tx) => {
+    await tx.update(billingDocumentsTable).set({
       status: "needs_review",
       primaryDocumentId: null,
       mergeGroupId: null,
@@ -1095,6 +1133,17 @@ export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
       updatedAt: new Date(),
     })
     .where(eq(billingDocumentsTable.id, id));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_duplicate_unmarked",
+      entityType: "billing_documents",
+      entityId: id,
+      summary: `Zrušeno označení dokladu #${id} jako duplicity${doc.primaryDocumentId ? ` dokladu #${doc.primaryDocumentId}` : ""}.`,
+      method: "POST",
+      path: `/billing/documents/${id}/unmark-duplicate`,
+    });
+  });
   return getDocument(id);
 }
 
@@ -1115,6 +1164,9 @@ export interface CreateDocumentInput {
   customerId?: number | null;
   /** Tags this document as (the first page of) a multi-page group upload. */
   mergeGroupId?: string | null;
+  uploadGroupToken?: string | null;
+  uploadCompletedAt?: Date | null;
+  filePageIndex?: number | null;
   /**
    * When true, don't enqueue the extraction job yet — more pages are coming
    * and extraction should only run once against the complete set of files.
@@ -1228,6 +1280,8 @@ export async function createDocument(
         jobId: input.jobId ?? null,
         customerId: input.customerId ?? null,
         mergeGroupId: input.mergeGroupId ?? null,
+        uploadGroupToken: input.uploadGroupToken ?? null,
+        uploadCompletedAt: input.uploadCompletedAt ?? null,
         warnings: warnLines.length ? warnLines.join("\n") : null,
         createdByUserId: actor.userId,
       })
@@ -1262,6 +1316,7 @@ export async function createDocument(
       mimeType: input.contentType,
       objectPath: input.objectPath,
       sha256Hash: input.sha256,
+      pageIndex: input.filePageIndex ?? null,
       sizeBytes: input.fileSize,
     });
 
@@ -1310,7 +1365,9 @@ export async function createDocument(
     return doc.id;
   });
 
-  await reconcileDocumentRelationshipsSafely(id, actor);
+  if (!input.skipExtractionQueue) {
+    await reconcileDocumentRelationshipsSafely(id, actor);
+  }
   const detail = await getDocument(id);
   if (!detail) throw appError(500, "Doklad se nepodařilo načíst.");
   return detail.document;
@@ -1362,6 +1419,14 @@ export interface IngestFileInput {
 
 export type IngestFileResult = CreateDocumentResult;
 
+async function cleanupFailedDocumentUpload(objectPath: string): Promise<void> {
+  try {
+    await objectStorage.deletePrivateObject(objectPath);
+  } catch (error) {
+    logger.error({ err: error, objectPath }, "Failed to remove orphaned document upload");
+  }
+}
+
 /**
  * Store a file buffer in object storage and create a cost document from it,
  * skipping when its exact content hash already exists (unless `force`). Centralises
@@ -1392,7 +1457,7 @@ export async function ingestFile(
   const objectPath = `/objects/cost-documents/${randomUUID()}`;
   await objectStorage.putPrivateObject(objectPath, buffer, input.contentType);
 
-  return createDocumentSafe(
+  const result = await createDocumentSafe(
     {
       objectPath,
       fileName: input.fileName,
@@ -1408,6 +1473,8 @@ export async function ingestFile(
     buffer,
     actor,
   );
+  if (result.status === "duplicate") await cleanupFailedDocumentUpload(objectPath);
+  return result;
 }
 
 export interface IngestGroupFileInput extends IngestFileInput {
@@ -1415,6 +1482,10 @@ export interface IngestGroupFileInput extends IngestFileInput {
   groupToken: string;
   /** True on the last page — triggers the (single) extraction job + merge check. */
   groupComplete: boolean;
+  /** Zero-based page order assigned by the uploading client. */
+  pageIndex: number;
+  /** Total number of pages expected when groupComplete is true. */
+  pageCount: number;
 }
 
 /**
@@ -1432,7 +1503,43 @@ export async function ingestGroupFile(
   actor: Actor,
   force = false,
 ): Promise<IngestFileResult> {
+  if (!Number.isInteger(input.pageIndex) || input.pageIndex < 0 || input.pageIndex > 1_000) {
+    throw appError(400, "Neplatné pořadí stránky dokladu.");
+  }
+  if (!Number.isInteger(input.pageCount) || input.pageCount < 1 || input.pageCount > 1_001) {
+    throw appError(400, "Neplatný počet stránek dokladu.");
+  }
+  if (input.pageIndex >= input.pageCount) {
+    throw appError(400, "Pořadí stránky je mimo deklarovaný počet stránek.");
+  }
   const hash = sha256Of(buffer);
+
+  // A lost HTTP response may cause the client to retry a page that was already
+  // committed. Treat the same token + page + hash as success, not as a global
+  // duplicate error.
+  const [committedPage] = await db
+    .select({ documentId: billingDocumentFilesTable.documentId })
+    .from(billingDocumentFilesTable)
+    .innerJoin(
+      billingDocumentsTable,
+      eq(billingDocumentsTable.id, billingDocumentFilesTable.documentId),
+    )
+    .where(and(
+      or(
+        eq(billingDocumentsTable.uploadGroupToken, input.groupToken),
+        and(
+          eq(billingDocumentsTable.mergeGroupId, input.groupToken),
+          isNull(billingDocumentsTable.uploadGroupToken),
+        ),
+      ),
+      eq(billingDocumentFilesTable.pageIndex, input.pageIndex),
+      eq(billingDocumentFilesTable.sha256Hash, hash),
+    ));
+  if (committedPage) {
+    const detail = await getDocument(committedPage.documentId);
+    if (!detail) throw appError(404, "Doklad pro nahranou stránku nebyl nalezen.");
+    return { status: "created", document: detail.document };
+  }
 
   if (!force) {
     const duplicates = await findDuplicates({ sha256: hash });
@@ -1444,51 +1551,100 @@ export async function ingestGroupFile(
   const objectPath = `/objects/cost-documents/${randomUUID()}`;
   await objectStorage.putPrivateObject(objectPath, buffer, input.contentType);
 
-  const [existing] = await db
+  let [existing] = await db
     .select()
     .from(billingDocumentsTable)
     .where(
-      and(
-        eq(billingDocumentsTable.mergeGroupId, input.groupToken),
-        isNull(billingDocumentsTable.primaryDocumentId),
+      or(
+        eq(billingDocumentsTable.uploadGroupToken, input.groupToken),
+        and(
+          eq(billingDocumentsTable.mergeGroupId, input.groupToken),
+          isNull(billingDocumentsTable.uploadGroupToken),
+        ),
       ),
     );
 
   if (!existing) {
-    // First page of the group: create the document as usual, just tagged with
-    // the group token and (unless this is a single-page "group") deferred
-    // extraction/merge.
-    const document = await createDocument(
-      {
-        objectPath,
-        fileName: input.fileName,
-        contentType: input.contentType,
-        fileSize: buffer.length,
-        sha256: hash,
-        source: input.source,
-        sourceRef: input.sourceRef ?? null,
-        docType: input.docType,
-        jobId: input.jobId ?? null,
-        customerId: input.customerId ?? null,
-        mergeGroupId: input.groupToken,
-        skipExtractionQueue: !input.groupComplete,
-      },
-      buffer,
-      actor,
-    );
-    return { status: "created", document };
+    if (input.groupComplete && (input.pageIndex !== 0 || input.pageCount !== 1)) {
+      await cleanupFailedDocumentUpload(objectPath);
+      throw appError(409, "Doklad nelze dokončit, protože některé předchozí stránky chybí.");
+    }
+    try {
+      const document = await createDocument(
+        {
+          objectPath,
+          fileName: input.fileName,
+          contentType: input.contentType,
+          fileSize: buffer.length,
+          sha256: hash,
+          source: input.source,
+          sourceRef: input.sourceRef ?? null,
+          docType: input.docType,
+          jobId: input.jobId ?? null,
+          customerId: input.customerId ?? null,
+          uploadGroupToken: input.groupToken,
+          uploadCompletedAt: input.groupComplete ? new Date() : null,
+          filePageIndex: input.pageIndex,
+          skipExtractionQueue: !input.groupComplete,
+        },
+        buffer,
+        actor,
+      );
+      return { status: "created", document };
+    } catch (error) {
+      if (!isUploadGroupViolation(error)) {
+        if (isDuplicateSha256Violation(error)) {
+          await cleanupFailedDocumentUpload(objectPath);
+        }
+        throw error;
+      }
+      [existing] = await db
+        .select()
+        .from(billingDocumentsTable)
+        .where(eq(billingDocumentsTable.uploadGroupToken, input.groupToken));
+      if (!existing) {
+        await cleanupFailedDocumentUpload(objectPath);
+        throw error;
+      }
+    }
   }
 
-  // A later page of an already-started group: attach the file, don't create a
-  // new billing_documents row.
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.groupToken}))`);
+    const [current] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, existing.id));
+    if (!current) throw appError(404, "Skupina stránek dokladu již neexistuje.");
+
+    const [samePage] = await tx
+      .select()
+      .from(billingDocumentFilesTable)
+      .where(and(
+        eq(billingDocumentFilesTable.documentId, current.id),
+        eq(billingDocumentFilesTable.pageIndex, input.pageIndex),
+      ));
+    if (samePage) {
+      await cleanupFailedDocumentUpload(objectPath);
+      if (samePage.sha256Hash !== hash) {
+        throw appError(409, `Stránka ${input.pageIndex + 1} už obsahuje jiný soubor.`);
+      }
+      return;
+    }
+    if (current.uploadCompletedAt) {
+      await cleanupFailedDocumentUpload(objectPath);
+      throw appError(409, "Vícestránkový doklad už byl dokončen.");
+    }
+
     await tx.insert(billingDocumentFilesTable).values({
-      documentId: existing.id,
+      documentId: current.id,
       role: "attachment",
       originalFileName: input.fileName,
       mimeType: input.contentType,
       objectPath,
       sha256Hash: hash,
+      pageIndex: input.pageIndex,
       sizeBytes: buffer.length,
     });
 
@@ -1497,17 +1653,39 @@ export async function ingestGroupFile(
       actorName: actor.name,
       action: "update",
       entityType: "billing_documents",
-      entityId: existing.id,
+      entityId: current.id,
       summary: `Přidána další strana dokladu: ${input.fileName}`,
       method: "POST",
       path: "/billing/documents/upload",
     });
 
     if (input.groupComplete) {
-      await mergeRelatedDocumentsTx(tx, existing, null);
-      await tx.insert(extractionJobsTable).values({ documentId: existing.id });
+      const pages = await tx
+        .select({ pageIndex: billingDocumentFilesTable.pageIndex })
+        .from(billingDocumentFilesTable)
+        .where(eq(billingDocumentFilesTable.documentId, current.id));
+      const uploaded = new Set(pages.map((page) => page.pageIndex));
+      const complete =
+        pages.length === input.pageCount &&
+        Array.from({ length: input.pageCount }, (_, index) => index).every((index) => uploaded.has(index));
+      if (!complete) {
+        throw appError(409, "Doklad nelze dokončit, protože některé stránky chybí.");
+      }
+      await tx
+        .update(billingDocumentsTable)
+        .set({ uploadCompletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(billingDocumentsTable.id, current.id));
+      await mergeRelatedDocumentsTx(tx, current, null);
+      await tx
+        .insert(extractionJobsTable)
+        .values({ documentId: current.id })
+        .onConflictDoNothing();
     }
-  });
+    });
+  } catch (error) {
+    await cleanupFailedDocumentUpload(objectPath);
+    throw error;
+  }
 
   const detail = await getDocument(existing.id);
   if (!detail) throw appError(500, "Doklad se nepodařilo načíst.");
@@ -1743,7 +1921,7 @@ export async function getDocument(id: number) {
           linkedDuplicateRows.map((d) => d.id),
         ),
       )
-      .orderBy(billingDocumentFilesTable.id);
+      .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
     for (const f of linkedDuplicateFileRows) {
       const list = linkedDuplicateFilesByDocId.get(f.documentId) ?? [];
       list.push(f);
@@ -1787,7 +1965,7 @@ export async function getDocument(id: number) {
         .select()
         .from(billingDocumentFilesTable)
         .where(eq(billingDocumentFilesTable.documentId, primaryDoc.id))
-        .orderBy(billingDocumentFilesTable.id);
+        .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
       duplicateOf = {
         id: primaryDoc.id,
         reason: "Primární doklad",
@@ -1811,7 +1989,7 @@ export async function getDocument(id: number) {
     .select()
     .from(billingDocumentFilesTable)
     .where(eq(billingDocumentFilesTable.documentId, id))
-    .orderBy(billingDocumentFilesTable.id);
+    .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
 
   // Job materials whose price was propagated from this document (auto-links).
   const linkedMaterials = await db
@@ -1863,6 +2041,7 @@ function serializeFile(f: typeof billingDocumentFilesTable.$inferSelect) {
     mimeType: f.mimeType,
     objectPath: f.objectPath,
     sizeBytes: f.sizeBytes,
+    pageIndex: f.pageIndex,
     createdAt: f.createdAt.toISOString(),
   };
 }
@@ -1893,6 +2072,7 @@ function ownFile(d: {
       mimeType: d.contentType,
       objectPath: d.objectPath,
       sizeBytes: null,
+      pageIndex: null,
       createdAt: d.createdAt.toISOString(),
     },
   ];
@@ -1921,7 +2101,11 @@ export interface AddReferenceInput {
   confidence?: number | null;
 }
 
-export async function addReference(documentId: number, input: AddReferenceInput) {
+export async function addReference(
+  documentId: number,
+  input: AddReferenceInput,
+  actor: Actor = SYSTEM_ACTOR,
+) {
   const [doc] = await db
     .select({ id: billingDocumentsTable.id })
     .from(billingDocumentsTable)
@@ -1932,12 +2116,24 @@ export async function addReference(documentId: number, input: AddReferenceInput)
     : "other";
   const refNum = input.referenceNumber.trim();
   if (!refNum) throw appError(400, "Číslo reference je povinné.");
-  await db.insert(billingDocumentReferencesTable).values({
-    documentId,
-    referenceType,
-    referenceNumber: refNum,
-    source: input.source ?? "manual",
-    confidence: input.confidence != null ? String(round2(input.confidence)) : null,
+  await db.transaction(async (tx) => {
+    const [created] = await tx.insert(billingDocumentReferencesTable).values({
+      documentId,
+      referenceType,
+      referenceNumber: refNum,
+      source: input.source ?? "manual",
+      confidence: input.confidence != null ? String(round2(input.confidence)) : null,
+    }).returning({ id: billingDocumentReferencesTable.id });
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_reference_created",
+      entityType: "billing_document_references",
+      entityId: created.id,
+      summary: `Přidána reference ${referenceType}: ${refNum} k dokladu #${documentId}.`,
+      method: "POST",
+      path: `/billing/documents/${documentId}/references`,
+    });
   });
   await reconcileDocumentRelationshipsSafely(documentId, SYSTEM_ACTOR);
   return getDocument(documentId);
@@ -1992,12 +2188,30 @@ export async function updateReference(
     patch.matchConfirmed = input.matchConfirmed ? 1 : 0;
   if (input.rejected !== undefined && input.rejected != null)
     patch.rejected = input.rejected ? 1 : 0;
+  if (input.matchConfirmed === true) patch.rejected = 0;
+  if (input.rejected === true) patch.matchConfirmed = 0;
   if (input.notes !== undefined) patch.notes = input.notes;
 
-  await db
-    .update(billingDocumentReferencesTable)
-    .set(patch)
-    .where(eq(billingDocumentReferencesTable.id, referenceId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(billingDocumentReferencesTable)
+      .set(patch)
+      .where(eq(billingDocumentReferencesTable.id, referenceId));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: input.rejected === true
+        ? "document_reference_rejected"
+        : input.matchConfirmed === true
+          ? "document_reference_confirmed"
+          : "document_reference_updated",
+      entityType: "billing_document_references",
+      entityId: referenceId,
+      summary: `Reference dokladu #${documentId} změněna; původní vazba zakázka=${ref.matchedJobId ?? "-"}, doklad=${ref.matchedDocumentId ?? "-"}, potvrzeno=${ref.matchConfirmed}, odmítnuto=${ref.rejected}.`,
+      method: "PATCH",
+      path: `/billing/documents/${documentId}/references/${referenceId}`,
+    });
+  });
   await reconcileDocumentRelationshipsSafely(documentId, actor);
   if (input.matchConfirmed === true) {
     await refreshApprovedDocumentPropagation(documentId, actor);
@@ -2005,9 +2219,13 @@ export async function updateReference(
   return getDocument(documentId);
 }
 
-export async function deleteReference(documentId: number, referenceId: number) {
+export async function deleteReference(
+  documentId: number,
+  referenceId: number,
+  actor: Actor = SYSTEM_ACTOR,
+) {
   const [ref] = await db
-    .select({ id: billingDocumentReferencesTable.id })
+    .select()
     .from(billingDocumentReferencesTable)
     .where(
       and(
@@ -2016,9 +2234,21 @@ export async function deleteReference(documentId: number, referenceId: number) {
       ),
     );
   if (!ref) throw appError(404, "Reference nenalezena.");
-  await db
-    .delete(billingDocumentReferencesTable)
-    .where(eq(billingDocumentReferencesTable.id, referenceId));
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(billingDocumentReferencesTable)
+      .where(eq(billingDocumentReferencesTable.id, referenceId));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_reference_deleted",
+      entityType: "billing_document_references",
+      entityId: referenceId,
+      summary: `Odstraněna reference ${ref.referenceType}: ${ref.referenceNumber} z dokladu #${documentId}.`,
+      method: "DELETE",
+      path: `/billing/documents/${documentId}/references/${referenceId}`,
+    });
+  });
   return getDocument(documentId);
 }
 
@@ -3990,10 +4220,34 @@ export async function requeueExtraction(id: number, options: RequeueExtractionOp
   if (options.force && EXTRACTION_REQUEUE_TERMINAL_STATUSES.has(doc.status)) {
     throw appError(409, "Doklad je ve finálním stavu a hromadná AI analýza jej nepřepíše.");
   }
-  await db.insert(extractionJobsTable).values({
-    documentId: id,
-    force: options.force === true,
-  });
+  const [active] = await db
+    .select({ id: extractionJobsTable.id, status: extractionJobsTable.status })
+    .from(extractionJobsTable)
+    .where(and(
+      eq(extractionJobsTable.documentId, id),
+      inArray(extractionJobsTable.status, ["queued", "running"]),
+    ))
+    .orderBy(desc(extractionJobsTable.id))
+    .limit(1);
+
+  if (active) {
+    if (options.force && active.status === "queued") {
+      await db
+        .update(extractionJobsTable)
+        .set({ force: true, updatedAt: new Date() })
+        .where(eq(extractionJobsTable.id, active.id));
+    }
+    return getDocument(id);
+  }
+
+  try {
+    await db.insert(extractionJobsTable).values({
+      documentId: id,
+      force: options.force === true,
+    });
+  } catch (error) {
+    if (!isActiveExtractionViolation(error)) throw error;
+  }
   return getDocument(id);
 }
 
@@ -5631,7 +5885,7 @@ export async function getDocumentAllFileBuffers(
     .select()
     .from(billingDocumentFilesTable)
     .where(eq(billingDocumentFilesTable.documentId, documentId))
-    .orderBy(billingDocumentFilesTable.id);
+    .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
   const supported = rows.filter(
     (r): r is typeof r & { objectPath: string } =>
       !!r.objectPath && isSupportedForAi(r.mimeType, r.originalFileName),

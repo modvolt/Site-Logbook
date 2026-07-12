@@ -11,11 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye, Monitor, Fingerprint, ChevronDown } from "lucide-react";
+import { Users, Plus, Trash2, Save, X, Edit3, Key, ShieldCheck, Hammer, Eye, Monitor, Fingerprint, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WebAuthnDeviceManager } from "@/components/webauthn-device-manager";
 import { QueryErrorState } from "@/components/query-error-state";
+import { UserPermissionEditor } from "@/components/user-permission-editor";
 
 const ROLE_META: Record<string, { label: string; color: string; icon: any; desc: string }> = {
   admin: { label: "Admin", color: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300", icon: ShieldCheck, desc: "Plný přístup + správa uživatelů" },
@@ -39,6 +40,7 @@ export default function UsersAdmin() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [permissionsUserId, setPermissionsUserId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "guest", isActive: true, password: "" });
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -298,6 +300,9 @@ export default function UsersAdmin() {
                           <Button size="sm" variant="ghost" onClick={() => startEdit(u)} className="h-8 px-2" title="Upravit">
                             <Edit3 className="w-3.5 h-3.5" />
                           </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setPermissionsUserId(u.id)} className="h-8 px-2" title="Oprávnění">
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                          </Button>
                           {!isSelf && (
                             <Button size="sm" variant="ghost" onClick={() => handleDelete(u.id, u.username)} className="h-8 px-2 text-destructive hover:text-destructive hover:bg-destructive/10" title="Smazat">
                               <Trash2 className="w-3.5 h-3.5" />
@@ -313,6 +318,12 @@ export default function UsersAdmin() {
           </div>
         </div>
         )}
+        {permissionsUserId != null && users && (() => {
+          const permissionUser = users.find((candidate) => candidate.id === permissionsUserId);
+          return permissionUser ? (
+            <UserPermissionEditor user={permissionUser} currentUserId={me?.id} onClose={() => setPermissionsUserId(null)} />
+          ) : null;
+        })()}
       </div>
       {/* Biometric device management per user */}
       <div className="mt-6">

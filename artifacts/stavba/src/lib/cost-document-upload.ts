@@ -196,6 +196,10 @@ export interface UploadCostDocumentOptions {
   groupToken?: string;
   /** True on the last page of a group upload — triggers extraction + merge check. */
   groupComplete?: boolean;
+  /** Zero-based order of this page in the multi-page document. */
+  pageIndex?: number;
+  /** Total number of pages in this multi-page document. */
+  pageCount?: number;
 }
 
 /** Generates a client-side token to tag every page of one multi-page upload. */
@@ -232,6 +236,8 @@ export async function uploadCostDocument(
   if (opts.groupToken) {
     query.set("groupToken", opts.groupToken);
     query.set("groupComplete", opts.groupComplete ? "true" : "false");
+    query.set("pageIndex", String(opts.pageIndex ?? 0));
+    query.set("pageCount", String(opts.pageCount ?? 1));
   }
 
   let res: Response;

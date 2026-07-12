@@ -75,6 +75,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       const { personId } = payload as { personId: number };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}/start`, {
         method: "POST",
+        headers: { "Idempotency-Key": op.id },
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -86,6 +87,19 @@ async function executeOp(op: OfflineOp): Promise<void> {
       const { personId } = payload as { personId: number };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}/stop`, {
         method: "POST",
+        headers: { "Idempotency-Key": op.id },
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+      }
+      break;
+    }
+    case "add_work_session": {
+      const res = await fetch(`/api/jobs/${jobId}/work-sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, idempotencyKey: op.id }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -94,11 +108,11 @@ async function executeOp(op: OfflineOp): Promise<void> {
       break;
     }
     case "set_hours": {
-      const { personId, hours } = payload as { personId: number; hours: number };
+      const { personId, hours, reason } = payload as { personId: number; hours: number; reason: string };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hours }),
+        body: JSON.stringify({ hours, reason }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -156,6 +170,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
 // Human-readable Czech labels for each op type
 export function opTypeLabel(type: OfflineOpType): string {
   switch (type) {
+    case "add_work_session": return "Uložení offline práce";
     case "add_material": return "Přidání materiálu";
     case "start_timer": return "Spuštění časovače";
     case "stop_timer": return "Zastavení časovače";

@@ -16,6 +16,7 @@ import {
   useGetWarehouseActivityMarginTrend, getGetWarehouseActivityMarginTrendQueryKey,
   useListCustomers, getGetMyStatsQueryKey,
   useListActivityTimeEntries, getListActivityTimeEntriesQueryKey,
+  useGetActivityWorkSummary, getGetActivityWorkSummaryQueryKey,
   useCreateActivityTimeEntry, useStartActivityTimeEntry, useStopActivityTimeEntry,
   useUpdateActivityTimeEntry, useDeleteActivityTimeEntry,
   useListPeople, getListPeopleQueryKey,
@@ -274,8 +275,8 @@ export default function ActivityDetail() {
           name: form.name.trim(),
           description: form.description.trim() || null,
           customerId: form.customerId ? Number(form.customerId) : null,
-          fixedPrice: form.fixedPrice !== "" ? Number(form.fixedPrice.replace(",", ".")) : null,
-          hourlyRate: form.hourlyRate !== "" ? Number(form.hourlyRate.replace(",", ".")) : null,
+          ...(can("billing.manage") ? { fixedPrice: form.fixedPrice !== "" ? Number(form.fixedPrice.replace(",", ".")) : null } : {}),
+          ...(can("rates.manage") ? { hourlyRate: form.hourlyRate !== "" ? Number(form.hourlyRate.replace(",", ".")) : null } : {}),
         },
       },
       {
@@ -619,24 +620,24 @@ export default function ActivityDetail() {
                   <option key={c.id} value={c.id}>{c.companyName}</option>
                 ))}
               </select>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
+              {(can("billing.manage") || can("rates.manage")) && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {can("billing.manage") && <div>
                   <label className="text-xs font-medium block mb-1">Smluvní cena (paušál) Kč</label>
                   <DecimalInput
                     placeholder="Volitelné"
                     value={form.fixedPrice}
                     onChange={(v) => setForm({ ...form, fixedPrice: v })}
                   />
-                </div>
-                <div>
+                </div>}
+                {can("rates.manage") && <div>
                   <label className="text-xs font-medium block mb-1">Interní hodinová sazba Kč/h</label>
                   <DecimalInput
                     placeholder="Volitelné"
                     value={form.hourlyRate}
                     onChange={(v) => setForm({ ...form, hourlyRate: v })}
                   />
-                </div>
-              </div>
+                </div>}
+              </div>}
               <div className="flex gap-2">
                 <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" /> Uložit</Button>
                 <Button variant="ghost" onClick={() => { setEditing(false); initialized.current = false; }}>
@@ -722,7 +723,7 @@ export default function ActivityDetail() {
       />
 
       {/* Per-employee time tracking */}
-      <ActivityTimeEntries activityId={id} canWrite={can("write")} onChange={invalidate} />
+      <ActivityTimeEntries activityId={id} canWrite={can("time.manage")} onChange={invalidate} />
 
       {/* Extra works (vícepráce) */}
       <ExtraWorksSection activityId={id} canWrite={can("write")} />
@@ -1202,6 +1203,9 @@ function ActivityTimeEntries({ activityId, canWrite, onChange }: { activityId: n
   const { data: entries } = useListActivityTimeEntries(activityId, {
     query: { queryKey: listKey, enabled: Number.isFinite(activityId) },
   });
+  const { data: workSummary } = useGetActivityWorkSummary(activityId, {
+    query: { queryKey: getGetActivityWorkSummaryQueryKey(activityId), enabled: Number.isFinite(activityId) },
+  });
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
   const addPerson = useCreateActivityTimeEntry();
@@ -1220,13 +1224,14 @@ function ActivityTimeEntries({ activityId, canWrite, onChange }: { activityId: n
   return (
     <TimeEntriesSection
       entries={entries ?? []}
+      summary={workSummary}
       people={people ?? []}
       canWrite={canWrite}
       busy={busy}
       onAddPerson={(personId) => addPerson.mutate({ activityId, data: { personId } }, { onSuccess: invalidate })}
       onStart={(personId) => startTimer.mutate({ activityId, personId }, { onSuccess: invalidate })}
       onStop={(personId) => stopTimer.mutate({ activityId, personId }, { onSuccess: invalidate })}
-      onSetHours={(personId, hours) => setHours.mutate({ activityId, personId, data: { hours } }, { onSuccess: invalidate })}
+      onSetHours={(personId, hours, reason) => setHours.mutate({ activityId, personId, data: { hours, reason } }, { onSuccess: invalidate })}
       onRemove={(personId) => removeEntry.mutate({ activityId, personId }, { onSuccess: invalidate })}
     />
   );

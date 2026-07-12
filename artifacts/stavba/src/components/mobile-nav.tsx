@@ -17,6 +17,7 @@ import {
   MOBILE_QUICK_STORAGE_KEY,
   type NavItem,
 } from "@/components/nav-items";
+import type { Permission } from "@/hooks/use-auth";
 
 function loadQuick(): string[] {
   try {
@@ -59,7 +60,7 @@ function sameOrder(a: string[], b: string[]): boolean {
 type Props = {
   location: string;
   isActive: (item: NavItem) => boolean;
-  can: (action: "write" | "manageUsers") => boolean;
+  can: (action: Permission | "write" | "manageUsers") => boolean;
 };
 
 export function MobileNav({ location, isActive, can }: Props) {
@@ -71,7 +72,7 @@ export function MobileNav({ location, isActive, can }: Props) {
   const availableHrefs = new Set(available.map((i) => i.href));
   const availableKey = available.map((i) => i.href).join(",");
 
-  const isManager = can("manageUsers");
+  const isManager = can("billing.view");
   const roleDefaults = isManager ? MOBILE_DEFAULT_QUICK_MANAGER : MOBILE_DEFAULT_QUICK;
 
   // Drop stale/unauthorized/duplicate hrefs whenever the available set changes

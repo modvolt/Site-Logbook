@@ -34,6 +34,7 @@ const REDACT_KEYS = new Set([
   "token", "secret", "secretKey", "privateKey",
   "cardNumber", "cvv", "cvc",
   "answers",
+  "costRate", "saleRate", "cost_rate", "sale_rate",
 ]);
 
 function redactSensitive(value: unknown): unknown {

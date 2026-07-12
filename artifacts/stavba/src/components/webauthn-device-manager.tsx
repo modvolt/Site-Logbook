@@ -179,7 +179,7 @@ export function WebAuthnDeviceManager({ userId, readOnly = false, title = "Biome
           title="Nepodařilo se načíst zařízení"
           error={credsErr}
           onRetry={() => refetchCreds()}
-          diagnosticsLink={can("manageUsers") ? "/admin/health" : undefined}
+          diagnosticsLink={can("diagnostics.view") ? "/admin/health" : undefined}
         />
       ) : credentials?.length === 0 ? (
         <p className="text-sm text-muted-foreground py-2">Žádná biometrická zařízení nejsou registrována.</p>

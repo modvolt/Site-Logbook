@@ -56,7 +56,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const logout = useLogout();
 
-  const canSeeErrors = can("manageUsers");
+  const canSeeErrors = can("diagnostics.view");
   const { count: crashCount, markSeen } = useCrashBadgeCount(canSeeErrors);
 
   const { data: watchdog } = useGetWatchdogStatus({

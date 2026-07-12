@@ -98,10 +98,15 @@ function numericJobFields(data: Record<string, unknown>) {
   return out;
 }
 
+function containsFinancialJobFields(data: Record<string, unknown>): boolean {
+  return ["price", "transportCost", "fines", "parking", "contractPrice", "pricingMode"]
+    .some((field) => Object.prototype.hasOwnProperty.call(data, field));
+}
+
 // Batch enrichment: a fixed number of grouped queries regardless of how many
 // jobs are passed in. Replaces the old per-job version that issued ~6 queries
 // per job (N+1 — the jobs list with hundreds of jobs fired thousands of queries).
-export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[]) {
+export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[], canViewFinancial = false) {
   if (jobList.length === 0) return [];
   const jobIds = jobList.map((j) => j.id);
   const customerIds = [...new Set(jobList.map((j) => j.customerId).filter((x): x is number => x != null))];
@@ -196,17 +201,17 @@ export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[]) {
       hoursBeforePlan: job.hoursBeforePlan != null ? Number(job.hoursBeforePlan) : null,
       hoursVasek: job.hoursVasek != null ? Number(job.hoursVasek) : null,
       hoursJonas: job.hoursJonas != null ? Number(job.hoursJonas) : null,
-      price: job.price != null ? Number(job.price) : null,
+      price: canViewFinancial && job.price != null ? Number(job.price) : null,
       transportKm: job.transportKm != null ? Number(job.transportKm) : null,
-      transportCost: job.transportCost != null ? Number(job.transportCost) : null,
-      fines: job.fines != null ? Number(job.fines) : null,
-      parking: job.parking != null ? Number(job.parking) : null,
-      contractPrice: job.contractPrice != null ? Number(job.contractPrice) : null,
+      transportCost: canViewFinancial && job.transportCost != null ? Number(job.transportCost) : null,
+      fines: canViewFinancial && job.fines != null ? Number(job.fines) : null,
+      parking: canViewFinancial && job.parking != null ? Number(job.parking) : null,
+      contractPrice: canViewFinancial && job.contractPrice != null ? Number(job.contractPrice) : null,
       taskCount: taskCounts?.total ?? 0,
       taskDoneCount: taskCounts?.done ?? 0,
       attachmentCount: attachmentCountByJob.get(job.id) ?? 0,
       materialCount: materialAgg?.total ?? 0,
-      materialTotalCost: rawCost != null ? Number(rawCost) : null,
+      materialTotalCost: canViewFinancial && rawCost != null ? Number(rawCost) : null,
       billingLinked: billedJobIds.has(job.id),
       assignedPersonName:
         job.assignedPersonId != null ? (peopleById.get(job.assignedPersonId) ?? null) : null,
@@ -226,8 +231,8 @@ export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[]) {
   });
 }
 
-async function enrichJob(job: typeof jobsTable.$inferSelect) {
-  const [enriched] = await enrichJobs([job]);
+async function enrichJob(job: typeof jobsTable.$inferSelect, canViewFinancial = false) {
+  const [enriched] = await enrichJobs([job], canViewFinancial);
   return enriched;
 }
 
@@ -419,7 +424,7 @@ router.get("/jobs", async (req, res): Promise<void> => {
       .orderBy(jobsTable.date, jobsTable.startTime);
   }
 
-  const enriched = await enrichJobs(jobs);
+  const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"));
   res.json(enriched);
 });
 
@@ -428,6 +433,9 @@ router.post("/jobs", async (req, res): Promise<void> => {
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+  if (containsFinancialJobFields(parsed.data as Record<string, unknown>) && !req.auth!.permissions.includes("billing.manage")) {
+    res.status(403).json({ error: "Forbidden", requiredPermission: "billing.manage" }); return;
   }
 
   const { assignedPersonId, date } = parsed.data as any;
@@ -457,7 +465,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
   }
 
   const [job] = await db.insert(jobsTable).values(values as any).returning();
-  res.status(201).json(await enrichJob(job));
+  res.status(201).json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
 });
 
 router.patch("/jobs/status", async (req, res): Promise<void> => {
@@ -571,7 +579,7 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await enrichJob(job));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
 });
 
 router.put("/jobs/:id/assignees", async (req, res): Promise<void> => {
@@ -633,7 +641,7 @@ router.put("/jobs/:id/assignees", async (req, res): Promise<void> => {
   });
 
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
-  res.json(await enrichJob(job));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
 });
 
 router.patch("/jobs/:id", async (req, res): Promise<void> => {
@@ -647,6 +655,9 @@ router.patch("/jobs/:id", async (req, res): Promise<void> => {
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+  if (containsFinancialJobFields(parsed.data as Record<string, unknown>) && !req.auth!.permissions.includes("billing.manage")) {
+    res.status(403).json({ error: "Forbidden", requiredPermission: "billing.manage" }); return;
   }
 
   const data = parsed.data as any;
@@ -690,7 +701,7 @@ router.patch("/jobs/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await enrichJob(job));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
 });
 
 router.delete("/jobs/:id", async (req, res): Promise<void> => {
@@ -784,7 +795,7 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
       )
       .limit(1);
     if (duplicate) {
-      res.json(await enrichJob(job));
+      res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
       return;
     }
     const [agg] = await db
@@ -808,7 +819,7 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     });
   }
 
-  res.json(await enrichJob(job));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
 });
 
 router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {

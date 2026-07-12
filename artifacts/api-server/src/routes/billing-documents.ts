@@ -14,7 +14,7 @@ import {
   AddCostDocumentReferenceBody,
   UpdateCostDocumentReferenceBody,
 } from "@workspace/api-zod";
-import { requireRole } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 import {
   contentMatchesType,
   validateZipContents,
@@ -70,14 +70,6 @@ import {
 } from "../lib/document-linking-config";
 
 const router: IRouter = Router();
-
-// Received cost documents (přijaté nákladové doklady) live under /billing and are
-// admin-only. Path-scoped so the gate never leaks to downstream pathless routers.
-router.use("/billing/documents", requireRole("admin"));
-router.use("/billing/approved-lines", requireRole("admin"));
-router.use("/billing/ai-extraction", requireRole("admin"));
-router.use("/billing/document-linking", requireRole("admin"));
-router.use("/billing/review-queue", requireRole("admin"));
 
 // --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
 
@@ -332,8 +324,18 @@ router.post(
         ? req.query.groupToken.trim()
         : undefined;
     const groupComplete = req.query.groupComplete === "true";
+    const pageIndex = optInt(req.query.pageIndex);
+    const pageCount = optInt(req.query.pageCount);
     if (groupToken && groupToken.length > 100) {
       res.status(400).json({ error: "Neplatný identifikátor skupiny stránek." });
+      return;
+    }
+    if (
+      groupToken &&
+      (pageIndex == null || pageIndex < 0 || pageIndex > 1_000 ||
+        pageCount == null || pageCount < 1 || pageCount > 1_001)
+    ) {
+      res.status(400).json({ error: "Chybí platné pořadí nebo počet stránek dokladu." });
       return;
     }
 
@@ -384,6 +386,8 @@ router.post(
               customerId,
               groupToken,
               groupComplete,
+              pageIndex: pageIndex!,
+              pageCount: pageCount!,
             },
             actorOf(req),
             force,
@@ -713,7 +717,7 @@ router.post(
         referenceNumber: parsed.data.referenceNumber,
         source: parsed.data.source ?? undefined,
         confidence: parsed.data.confidence,
-      });
+      }, actorOf(req));
       res.json(detail);
     } catch (error) {
       handleError(error, "Referenci se nepodařilo přidat.", res);
@@ -759,7 +763,7 @@ router.delete(
       return;
     }
     try {
-      const detail = await deleteReference(id, referenceId);
+      const detail = await deleteReference(id, referenceId, actorOf(req));
       res.json(detail);
     } catch (error) {
       handleError(error, "Referenci se nepodařilo odstranit.", res);
@@ -929,7 +933,8 @@ router.post("/billing/review-queue/:lineId/assign-warehouse", async (req, res): 
 
 router.post(
   "/jobs/:id/analyze-documents",
-  requireRole("admin"),
+  requirePermission("billing.view"),
+  requirePermission("billing.manage"),
   async (req, res): Promise<void> => {
     const id = parseId(req.params.id);
     if (id == null) {

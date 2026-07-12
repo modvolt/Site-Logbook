@@ -22,6 +22,7 @@
  *   ppe                 — PPE catalogue, handover records
  *   quotes              — quote CRUD / convert to job
  *   sessions            — login / logout / admin session revoke
+ *   auth                — role, active state, and individual permission changes
  */
 export type LiveDomain =
   | "jobs"
@@ -39,7 +40,8 @@ export type LiveDomain =
   | "reviewQueue"
   | "ppe"
   | "quotes"
-  | "sessions";
+  | "sessions"
+  | "auth";
 
 /**
  * All valid domain strings as a runtime-accessible tuple. Use this wherever
@@ -63,6 +65,7 @@ export const LIVE_DOMAINS = [
   "ppe",
   "quotes",
   "sessions",
+  "auth",
 ] as const satisfies readonly LiveDomain[];
 
 const LIVE_DOMAIN_SET = new Set<string>(LIVE_DOMAINS);

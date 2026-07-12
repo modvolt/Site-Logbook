@@ -55,7 +55,16 @@ function actorOf(req: { auth?: { userId: number; name: string } }): Actor {
   return { userId: req.auth?.userId ?? null, name: req.auth?.name ?? "Systém" };
 }
 
-export async function serializeActivity(a: typeof activitiesTable.$inferSelect) {
+type ActivityFinancialAccess = { canViewCost: boolean; canViewSale: boolean };
+const financialAccess = (req: import("express").Request): ActivityFinancialAccess => ({
+  canViewCost: req.auth?.permissions.includes("rates.cost.view") ?? false,
+  canViewSale: req.auth?.permissions.includes("billing.view") ?? false,
+});
+
+export async function serializeActivity(
+  a: typeof activitiesTable.$inferSelect,
+  access: ActivityFinancialAccess = { canViewCost: false, canViewSale: false },
+) {
   let customerName: string | null = null;
   if (a.customerId) {
     const [c] = await db
@@ -175,13 +184,13 @@ export async function serializeActivity(a: typeof activitiesTable.$inferSelect) 
     createdByUserName,
     timerStartedAt: a.timerStartedAt ? a.timerStartedAt.toISOString() : null,
     hoursSpent,
-    fixedPrice,
-    hourlyRate,
-    revenueTotal,
-    costTotal,
-    marginAmount,
-    marginPct,
-    materialsTotalCost,
+    fixedPrice: access.canViewSale ? fixedPrice : null,
+    hourlyRate: access.canViewCost ? hourlyRate : null,
+    revenueTotal: access.canViewSale ? revenueTotal : null,
+    costTotal: access.canViewCost ? costTotal : null,
+    marginAmount: access.canViewSale && access.canViewCost ? marginAmount : null,
+    marginPct: access.canViewSale && access.canViewCost ? marginPct : null,
+    materialsTotalCost: access.canViewSale ? materialsTotalCost : null,
     photosCount: attRow?.photosCount ?? 0,
     attachmentsCount: attRow?.attachmentsCount ?? 0,
     extraWorksTotalAmount,
@@ -249,7 +258,7 @@ router.get("/activities", requireAuth, async (req, res): Promise<void> => {
     .where(and(...conds))
     .orderBy(desc(activitiesTable.updatedAt));
 
-  res.json(await Promise.all(rows.map(serializeActivity)));
+  res.json(await Promise.all(rows.map((row) => serializeActivity(row, financialAccess(req)))));
 });
 
 router.post("/activities", requireAuth, async (req, res): Promise<void> => {
@@ -268,7 +277,7 @@ router.post("/activities", requireAuth, async (req, res): Promise<void> => {
       createdByUserId: userId,
     })
     .returning();
-  res.status(201).json(await serializeActivity(a));
+  res.status(201).json(await serializeActivity(a, financialAccess(req)));
 });
 
 router.get("/activities/:id", requireAuth, async (req, res): Promise<void> => {
@@ -285,7 +294,7 @@ router.get("/activities/:id", requireAuth, async (req, res): Promise<void> => {
     res.status(404).json({ error: "Activity not found" });
     return;
   }
-  res.json(await serializeActivity(a));
+  res.json(await serializeActivity(a, financialAccess(req)));
 });
 
 router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => {
@@ -301,6 +310,12 @@ router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => 
   }
   const update: Record<string, unknown> = { updatedAt: new Date() };
   const d = parsed.data;
+  if ("hourlyRate" in d && !req.auth!.permissions.includes("rates.manage")) {
+    res.status(403).json({ error: "Forbidden", requiredPermission: "rates.manage" }); return;
+  }
+  if ("fixedPrice" in d && !req.auth!.permissions.includes("billing.manage")) {
+    res.status(403).json({ error: "Forbidden", requiredPermission: "billing.manage" }); return;
+  }
   if (d.name !== undefined) update.name = d.name;
   if (d.description !== undefined) update.description = d.description;
   if (d.customerId !== undefined) update.customerId = d.customerId;
@@ -320,7 +335,7 @@ router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => 
     res.status(404).json({ error: "Activity not found" });
     return;
   }
-  res.json(await serializeActivity(a));
+  res.json(await serializeActivity(a, financialAccess(req)));
 });
 
 router.delete("/activities/:id", requireAuth, async (req, res): Promise<void> => {
@@ -371,10 +386,10 @@ router.post("/activities/:id/timer/start", requireAuth, async (req, res): Promis
     // Either not found, or already running — return current state.
     const [existing] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.id));
     if (!existing) { res.status(404).json({ error: "Activity not found" }); return; }
-    res.json(await serializeActivity(existing));
+    res.json(await serializeActivity(existing, financialAccess(req)));
     return;
   }
-  res.json(await serializeActivity(a));
+  res.json(await serializeActivity(a, financialAccess(req)));
 });
 
 router.post("/activities/:id/timer/stop", requireAuth, async (req, res): Promise<void> => {
@@ -398,7 +413,7 @@ router.post("/activities/:id/timer/stop", requireAuth, async (req, res): Promise
     .where(eq(activitiesTable.id, params.data.id))
     .returning();
   if (!a) { res.status(404).json({ error: "Activity not found" }); return; }
-  res.json(await serializeActivity(a));
+  res.json(await serializeActivity(a, financialAccess(req)));
 });
 
 // Materials

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { and, count, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { db, peopleTable, jobsTable, activitiesTable, timeEntriesTable, machinesTable, ppeAssignmentsTable } from "@workspace/db";
+import { and, count, eq, gte, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { db, auditLogTable, peopleTable, jobsTable, activitiesTable, timeEntriesTable, workSessionsTable, personHourlyRatesTable, machinesTable, ppeAssignmentsTable } from "@workspace/db";
 import {
   CreatePersonBody,
   UpdatePersonParams,
@@ -8,6 +8,7 @@ import {
   DeletePersonParams,
 } from "@workspace/api-zod";
 import { z } from "zod/v4";
+import { createHourlyRate, listHourlyRates, voidHourlyRate } from "../lib/hourly-rate-service";
 
 const router: IRouter = Router();
 
@@ -19,6 +20,32 @@ function serializePerson(p: typeof peopleTable.$inferSelect) {
 }
 
 const IdParamSchema = z.object({ id: z.coerce.number().int().positive() });
+const HourlyRateInput = z.object({
+  validFrom: z.iso.date(),
+  costRate: z.number().finite().min(0).max(10_000_000),
+  saleRate: z.number().finite().min(0).max(10_000_000),
+  reason: z.string().trim().min(3).max(500),
+});
+const VoidRateInput = z.object({ reason: z.string().trim().min(3).max(500) });
+
+function serializeRate(rate: Awaited<ReturnType<typeof listHourlyRates>>[number], permissions: readonly string[]) {
+  const canViewCost = permissions.includes("rates.cost.view");
+  const canViewSale = permissions.includes("rates.sale.view");
+  return {
+    id: rate.id,
+    personId: rate.personId,
+    validFrom: rate.validFrom,
+    validTo: rate.validTo,
+    costRate: canViewCost ? Number(rate.costRate) : null,
+    saleRate: canViewSale ? Number(rate.saleRate) : null,
+    reason: rate.reason,
+    createdByUserId: rate.createdByUserId,
+    createdAt: rate.createdAt.toISOString(),
+    voidedAt: rate.voidedAt?.toISOString() ?? null,
+    voidedByUserId: rate.voidedByUserId,
+    voidReason: rate.voidReason,
+  };
+}
 
 router.get("/people", async (_req, res): Promise<void> => {
   const people = await db.select().from(peopleTable).orderBy(peopleTable.name);
@@ -44,20 +71,26 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
       .where(and(sql`${jobsTable.date}::date = ${todayStr}::date`, isNotNull(jobsTable.assignedPersonId))),
     db
       .select({
-        personId: timeEntriesTable.personId,
-        hours: sql<number>`coalesce(sum(${timeEntriesTable.hours}), 0)`.mapWith(Number),
+        personId: workSessionsTable.personId,
+        hours: sql<number>`coalesce(sum(
+          case
+            when ${workSessionsTable.status} = 'completed' then ${workSessionsTable.durationSeconds}
+            when ${workSessionsTable.status} = 'active' then greatest(0, extract(epoch from (now() - ${workSessionsTable.startedAt})))
+            else 0
+          end
+        ), 0) / 3600.0`.mapWith(Number),
       })
-      .from(timeEntriesTable)
-      .where(gte(timeEntriesTable.updatedAt, weekStart))
-      .groupBy(timeEntriesTable.personId),
+      .from(workSessionsTable)
+      .where(and(gte(workSessionsTable.startedAt, weekStart), ne(workSessionsTable.status, "voided")))
+      .groupBy(workSessionsTable.personId),
     db
       .select({ personId: machinesTable.assignedPersonId })
       .from(machinesTable)
       .where(isNotNull(machinesTable.assignedPersonId)),
     db
-      .select({ personId: timeEntriesTable.personId })
-      .from(timeEntriesTable)
-      .where(isNotNull(timeEntriesTable.timerStartedAt)),
+      .select({ personId: workSessionsTable.personId })
+      .from(workSessionsTable)
+      .where(eq(workSessionsTable.status, "active")),
     // Issued (non-returned) PPE per person
     db
       .select({ personId: ppeAssignmentsTable.personId, cnt: count() })
@@ -124,21 +157,21 @@ router.get("/people/stats", async (_req, res): Promise<void> => {
 router.get("/people/active-timers", async (_req, res): Promise<void> => {
   const rows = await db
     .select({
-      id: timeEntriesTable.id,
-      personId: timeEntriesTable.personId,
+      id: workSessionsTable.id,
+      personId: workSessionsTable.personId,
       personName: peopleTable.name,
-      jobId: timeEntriesTable.jobId,
-      activityId: timeEntriesTable.activityId,
+      jobId: workSessionsTable.jobId,
+      activityId: workSessionsTable.activityId,
       jobTitle: jobsTable.title,
       activityName: activitiesTable.name,
-      timerStartedAt: timeEntriesTable.timerStartedAt,
+      timerStartedAt: workSessionsTable.startedAt,
     })
-    .from(timeEntriesTable)
-    .innerJoin(peopleTable, eq(timeEntriesTable.personId, peopleTable.id))
-    .leftJoin(jobsTable, eq(timeEntriesTable.jobId, jobsTable.id))
-    .leftJoin(activitiesTable, eq(timeEntriesTable.activityId, activitiesTable.id))
-    .where(isNotNull(timeEntriesTable.timerStartedAt))
-    .orderBy(timeEntriesTable.timerStartedAt);
+    .from(workSessionsTable)
+    .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
+    .leftJoin(jobsTable, eq(workSessionsTable.jobId, jobsTable.id))
+    .leftJoin(activitiesTable, eq(workSessionsTable.activityId, activitiesTable.id))
+    .where(eq(workSessionsTable.status, "active"))
+    .orderBy(workSessionsTable.startedAt);
 
   res.json(
     rows.map((r) => {
@@ -168,6 +201,48 @@ router.get("/people/:id", async (req, res): Promise<void> => {
     return;
   }
   res.json(serializePerson(person));
+});
+
+router.get("/people/:id/hourly-rates", async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: "Neplatné ID" }); return; }
+  const rows = await listHourlyRates(params.data.id);
+  await db.insert(auditLogTable).values({
+    actorUserId: req.auth!.userId,
+    actorName: req.auth!.name ?? req.auth!.username,
+    action: "view",
+    entityType: "person_hourly_rates",
+    entityId: params.data.id,
+    summary: `Zobrazení hodinových sazeb (${req.auth!.permissions.includes("rates.cost.view") ? "náklad" : ""}${req.auth!.permissions.includes("rates.cost.view") && req.auth!.permissions.includes("rates.sale.view") ? "+" : ""}${req.auth!.permissions.includes("rates.sale.view") ? "prodej" : ""})`,
+    method: "GET",
+    path: `/people/${params.data.id}/hourly-rates`,
+  });
+  res.json(rows.map((row) => serializeRate(row, req.auth!.permissions)));
+});
+
+router.post("/people/:id/hourly-rates", async (req, res): Promise<void> => {
+  const params = IdParamSchema.safeParse(req.params);
+  const body = HourlyRateInput.safeParse(req.body);
+  if (!params.success || !body.success) { res.status(400).json({ error: "Neplatné údaje sazby" }); return; }
+  const [person] = await db.select({ id: peopleTable.id }).from(peopleTable).where(eq(peopleTable.id, params.data.id));
+  if (!person) { res.status(404).json({ error: "Pracovník nenalezen" }); return; }
+  try {
+    const rate = await createHourlyRate({ ...body.data, personId: params.data.id, actorUserId: req.auth!.userId });
+    res.status(201).json(serializeRate(rate, req.auth!.permissions));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") { res.status(409).json({ error: "Pro toto datum již sazba existuje." }); return; }
+    throw error;
+  }
+});
+
+router.post("/people/:id/hourly-rates/:rateId/void", async (req, res): Promise<void> => {
+  const personId = Number(req.params.id);
+  const rateId = Number(req.params.rateId);
+  const body = VoidRateInput.safeParse(req.body);
+  if (!Number.isInteger(personId) || !Number.isInteger(rateId) || !body.success) { res.status(400).json({ error: "Neplatné údaje" }); return; }
+  const rate = await voidHourlyRate({ personId, rateId, reason: body.data.reason, actorUserId: req.auth!.userId });
+  if (!rate) { res.status(404).json({ error: "Aktivní sazba nenalezena" }); return; }
+  res.json(serializeRate(rate, req.auth!.permissions));
 });
 
 router.post("/people", async (req, res): Promise<void> => {
@@ -224,6 +299,15 @@ router.delete("/people/:id", async (req, res): Promise<void> => {
     res.status(409).json({
       error: `Pracovník má ${ppeCount.cnt} záznam/ů BOZP výdeje a nelze jej smazat. Nejprve vraťte nebo archivujte všechny výdeje OOPP.`,
     });
+    return;
+  }
+
+  const [rateCount] = await db
+    .select({ cnt: count() })
+    .from(personHourlyRatesTable)
+    .where(eq(personHourlyRatesTable.personId, params.data.id));
+  if (rateCount && Number(rateCount.cnt) > 0) {
+    res.status(409).json({ error: "Pracovník má historii hodinových sazeb a kvůli finančnímu auditu jej nelze smazat." });
     return;
   }
 

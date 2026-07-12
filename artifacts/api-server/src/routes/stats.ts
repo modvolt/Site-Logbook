@@ -5,7 +5,7 @@ import {
   jobsTable,
   materialsTable,
   peopleTable,
-  timeEntriesTable,
+  workSessionsTable,
   warehouseItemsTable,
   warehouseMovementsTable,
   invoicesTable,
@@ -15,12 +15,9 @@ import {
   activityExtraWorksTable,
 } from "@workspace/db";
 import { GetStatsOverviewQueryParams } from "@workspace/api-zod";
-import { requireRole } from "../middlewares/auth";
 import { round2 } from "../lib/invoice-calc";
 
 const router: IRouter = Router();
-
-router.use("/stats", requireRole("admin"));
 
 function num(v: string | number | null | undefined): number {
   if (v == null) return 0;
@@ -228,13 +225,19 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
 
   const hoursRows = await db
     .select({
-      personId: timeEntriesTable.personId,
-      hours: sql<number>`coalesce(sum(${timeEntriesTable.hours}), 0)`.mapWith(Number),
+      personId: workSessionsTable.personId,
+      hours: sql<number>`coalesce(sum(
+        case
+          when ${workSessionsTable.status} = 'completed' then ${workSessionsTable.durationSeconds}
+          when ${workSessionsTable.status} = 'active' then greatest(0, extract(epoch from (now() - ${workSessionsTable.startedAt})))
+          else 0
+        end
+      ), 0) / 3600.0`.mapWith(Number),
     })
-    .from(timeEntriesTable)
-    .innerJoin(jobsTable, eq(timeEntriesTable.jobId, jobsTable.id))
+    .from(workSessionsTable)
+    .innerJoin(jobsTable, eq(workSessionsTable.jobId, jobsTable.id))
     .where(inPeriod)
-    .groupBy(timeEntriesTable.personId);
+    .groupBy(workSessionsTable.personId);
 
   const people = await db
     .select({ id: peopleTable.id, name: peopleTable.name })

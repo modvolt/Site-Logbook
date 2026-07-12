@@ -101,8 +101,8 @@ export const invoicesTable = pgTable(
  * quantity/unitPrice/discount/vat by the invoice service and persisted) so the
  * PDF and listings never have to re-derive money.
  *
- * sourceType: job | activity | material | billing_document_line | transport |
- *             parking | fine | manual
+ * sourceType: job | activity | material | billing_document_line | work_session |
+ *             transport | parking | fine | manual
  * vatMode:    standard | reverse_charge | zero | non_vat
  * vatRate:    21 | 12 | 0 | null  (null for reverse_charge / non_vat)
  */

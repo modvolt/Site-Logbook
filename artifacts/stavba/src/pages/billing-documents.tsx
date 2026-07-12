@@ -246,6 +246,8 @@ export default function BillingDocuments() {
         const detail = await uploadCostDocument(files[i], {
           groupToken,
           groupComplete: i === files.length - 1,
+          pageIndex: i,
+          pageCount: files.length,
         });
         lastDocumentId = detail.document.id;
         setProgress({ done: i + 1, total: files.length });
