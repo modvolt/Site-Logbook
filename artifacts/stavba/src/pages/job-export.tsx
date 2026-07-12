@@ -46,6 +46,7 @@ export default function JobExport() {
   const params = useParams();
   const id = parseInt(params.id || "0", 10);
   const [showPrice, setShowPrice] = useState(true);
+  const [showTime, setShowTime] = useState(true);
   const [customerSig, setCustomerSig] = useState<string | null>(null);
   const [sigTimestamp, setSigTimestamp] = useState<string | null>(null);
   const [padOpen, setPadOpen] = useState(false);
@@ -199,6 +200,15 @@ export default function JobExport() {
             />
             Zobrazit ceny
           </label>
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showTime}
+              onChange={(e) => setShowTime(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+            />
+            Zobrazit čas
+          </label>
           <Button
             variant="outline"
             onClick={handleSendEmail}
@@ -280,10 +290,12 @@ export default function JobExport() {
               <MetaRow label="Druh" value={typeLabel(job.type)} />
               <MetaRow label="Stav" value={statusLabel(job.status)} />
               <MetaRow label="Datum" value={format(new Date(job.date), "d. M. yyyy")} />
-              <MetaRow
-                label="Čas"
-                value={job.startTime || job.endTime ? `${job.startTime || "?"} – ${job.endTime || "?"}` : "—"}
-              />
+              {showTime && (
+                <MetaRow
+                  label="Čas"
+                  value={job.startTime || job.endTime ? `${job.startTime || "?"} – ${job.endTime || "?"}` : "—"}
+                />
+              )}
               {place && <MetaRow label="Místo" value={place} className="col-span-2" />}
             </div>
           </div>
@@ -370,7 +382,7 @@ export default function JobExport() {
           )}
 
           {/* Hours summary */}
-          {(hoursVasek > 0 || hoursJonas > 0 || hoursTotal > 0) && (
+          {showTime && (hoursVasek > 0 || hoursJonas > 0 || hoursTotal > 0) && (
             <Section title="Odpracované hodiny">
               <div className="text-sm grid grid-cols-3 gap-2 max-w-sm">
                 {hoursVasek > 0 && <MetaRow label="Vašek" value={`${hoursVasek} h`} />}

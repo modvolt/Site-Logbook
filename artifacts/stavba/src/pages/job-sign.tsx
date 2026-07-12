@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { CheckCircle2, PenLine, RotateCcw, Clock, AlertCircle } from "lucide-react";
+import { CheckCircle2, PenLine, RotateCcw, Clock, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface JobSignInfo {
@@ -126,6 +126,7 @@ export default function JobSign() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [signedAt, setSignedAt] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     if (!token) {
@@ -133,22 +134,49 @@ export default function JobSign() {
       setLoading(false);
       return;
     }
-    fetch(`/api/sign/${token}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setInfo(data as JobSignInfo);
-          if ((data as JobSignInfo).alreadySigned) {
-            setDone(true);
-            setSignedAt((data as JobSignInfo).signedAt);
-          }
+    const controller = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+
+    setLoading(true);
+    setError(null);
+    setInfo(null);
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/sign/${encodeURIComponent(token)}`, {
+          signal: controller.signal,
+          cache: "no-store",
+          headers: { Accept: "application/json" },
+        });
+        const data = await response.json().catch(() => null) as (JobSignInfo & { error?: string }) | null;
+        if (!response.ok || !data) {
+          throw new Error(data?.error || `Server vrátil chybu ${response.status}.`);
         }
-      })
-      .catch(() => setError("Nepodařilo se načíst informace o zakázce."))
-      .finally(() => setLoading(false));
-  }, [token]);
+        setInfo(data);
+        if (data.alreadySigned) {
+          setDone(true);
+          setSignedAt(data.signedAt);
+        }
+      } catch (err) {
+        if (!active) return;
+        if (controller.signal.aborted) {
+          setError("Načítání trvalo příliš dlouho. Zkontrolujte připojení a zkuste to znovu.");
+        } else {
+          setError(err instanceof Error ? err.message : "Nepodařilo se načíst informace o zakázce.");
+        }
+      } finally {
+        window.clearTimeout(timeout);
+        if (active) setLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [token, loadAttempt]);
 
   async function handleSign() {
     if (!signatureDataUrl || !token) return;
@@ -182,8 +210,9 @@ export default function JobSign() {
 
       <div className="flex-1 p-4 max-w-lg mx-auto w-full">
         {loading && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-            Načítám…
+          <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground text-sm" role="status">
+            <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
+            <span>Načítám zakázkový list…</span>
           </div>
         )}
 
@@ -192,6 +221,15 @@ export default function JobSign() {
             <AlertCircle className="h-10 w-10 text-destructive mx-auto" />
             <p className="text-base font-semibold text-destructive">Odkaz není platný</p>
             <p className="text-sm text-muted-foreground">{error}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3"
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Zkusit znovu
+            </Button>
           </div>
         )}
 

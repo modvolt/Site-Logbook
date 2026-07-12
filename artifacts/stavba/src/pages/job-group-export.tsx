@@ -37,6 +37,7 @@ export default function JobGroupExport() {
   const params = useParams();
   const id = Number(params.id || 0);
   const [showPrice, setShowPrice] = useState(true);
+  const [showTime, setShowTime] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [company] = useState(() => loadCompanySettings());
 
@@ -108,6 +109,15 @@ export default function JobGroupExport() {
             />
             Zobrazit ceny
           </label>
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showTime}
+              onChange={(event) => setShowTime(event.target.checked)}
+              className="h-4 w-4 accent-primary"
+            />
+            Zobrazit čas
+          </label>
           <Button variant="outline" onClick={handleDownload} disabled={downloading}>
             {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
             PDF
@@ -163,15 +173,17 @@ export default function JobGroupExport() {
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-3 mb-6 text-sm">
+          <div className={`grid gap-3 mb-6 text-sm ${showTime ? "grid-cols-3" : "grid-cols-2"}`}>
             <div className="border border-neutral-300 rounded-md p-3">
               <div className="text-neutral-500">Zakázek</div>
               <div className="text-xl font-semibold">{group.jobs.length}</div>
             </div>
-            <div className="border border-neutral-300 rounded-md p-3">
-              <div className="text-neutral-500">Hodin</div>
-              <div className="text-xl font-semibold">{totalHours.toLocaleString("cs-CZ")}</div>
-            </div>
+            {showTime && (
+              <div className="border border-neutral-300 rounded-md p-3">
+                <div className="text-neutral-500">Hodin</div>
+                <div className="text-xl font-semibold">{totalHours.toLocaleString("cs-CZ")}</div>
+              </div>
+            )}
             <div className="border border-neutral-300 rounded-md p-3">
               <div className="text-neutral-500">Materiál</div>
               <div className="text-xl font-semibold">{showPrice ? formatKc(materialTotal) : "-"}</div>
@@ -189,7 +201,7 @@ export default function JobGroupExport() {
                       <div className="text-sm text-neutral-600">{formatDate(job.date)} · {job.address || job.clientSite || "-"}</div>
                     </div>
                     <div className="text-right text-sm">
-                      <div>{(job.hoursSpent ?? 0).toLocaleString("cs-CZ")} h</div>
+                      {showTime && <div>{(job.hoursSpent ?? 0).toLocaleString("cs-CZ")} h</div>}
                       <div>{showPrice ? formatKc(jobMaterialTotal) : ""}</div>
                     </div>
                   </div>

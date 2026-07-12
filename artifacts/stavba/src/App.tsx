@@ -243,6 +243,7 @@ function AuthenticatedApp() {
 
 function Router() {
   const [path] = useLocation();
+  const { isAuthenticated, isLoading } = useAuth();
   // Public pages — accessible without authentication
   if (path.startsWith("/sign/")) {
     return <JobSign />;
@@ -253,10 +254,7 @@ function Router() {
   if (path.startsWith("/quote-share/")) {
     return <QuoteShare />;
   }
-  const { isAuthenticated, isLoading } = useAuth();
-  const [location] = useLocation();
-
-  if (location === "/oopp/potvrdit" || location.startsWith("/oopp/potvrdit?")) {
+  if (path === "/oopp/potvrdit" || path.startsWith("/oopp/potvrdit?")) {
     return <PpeConfirm />;
   }
   if (isLoading) {
