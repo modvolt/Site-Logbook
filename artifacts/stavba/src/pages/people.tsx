@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon, Shield, AlertCircle, Download, FileText, FileSpreadsheet } from "lucide-react";
+import { User, Trash2, Plus, UserPlus, Briefcase, Clock, Wrench, Timer, Palmtree, Pencil, X, Stethoscope, Calendar as CalendarIcon, Shield, AlertCircle, Download, FileText, FileSpreadsheet, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { QueryErrorState } from "@/components/query-error-state";
 
@@ -592,6 +592,15 @@ function PersonCard({
               )}
             </div>
             <div className="flex flex-col gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onNavigate(`/people/${person.id}`)}
+                title="Detail zaměstnance a hodinové sazby"
+                aria-label={`Detail zaměstnance ${person.name}`}
+              >
+                <ChevronRight className="h-5 w-5" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
