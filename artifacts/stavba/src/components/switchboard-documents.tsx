@@ -8,13 +8,13 @@ import { useToast } from "@/hooks/use-toast";
 import { switchboardFetch, type SwitchboardDocument } from "@/lib/switchboards-api";
 
 const TYPES: Record<string, string> = { schrack_norm_dbo: "SchrackNorm DBO PDF", schrack_design: "Schrack Design", measurement_protocol: "Protokol měření", checklist_protocol: "Kontrolní protokol", other: "Ostatní" };
-const STATUS: Record<string, string> = { pending: "Čeká", queued: "Ve frontě", analyzing_pdf: "Analyzuje PDF", ocr: "Probíhá OCR", completed: "Dokončeno", needs_review: "Vyžaduje kontrolu", failed: "Zpracování selhalo", stored: "Uloženo" };
+const STATUS: Record<string, string> = { pending: "Čeká", queued: "Ve frontě", analyzing_pdf: "Analyzuje PDF", ocr: "Probíhá OCR", generating_label: "Generuje QR a štítek", completed: "Dokončeno", needs_review: "Vyžaduje kontrolu", failed: "Zpracování selhalo", stored: "Uloženo" };
 
 export function SwitchboardDocuments({ switchboardId }: { switchboardId: number }) {
   const { can } = useAuth(); const { toast } = useToast(); const qc = useQueryClient();
   const input = useRef<HTMLInputElement>(null); const [type, setType] = useState("schrack_norm_dbo");
   const key = ["switchboard-documents", switchboardId];
-  const { data = [], isLoading } = useQuery({ queryKey: key, queryFn: () => switchboardFetch<SwitchboardDocument[]>(`/api/switchboards/${switchboardId}/documents`), enabled: can("switchboards.documents.view"), refetchInterval: (query) => (query.state.data as SwitchboardDocument[] | undefined)?.some((d) => ["queued", "analyzing_pdf", "ocr"].includes(d.processingStatus)) ? 5000 : false });
+  const { data = [], isLoading } = useQuery({ queryKey: key, queryFn: () => switchboardFetch<SwitchboardDocument[]>(`/api/switchboards/${switchboardId}/documents`), enabled: can("switchboards.documents.view"), refetchInterval: (query) => (query.state.data as SwitchboardDocument[] | undefined)?.some((d) => ["queued", "analyzing_pdf", "ocr", "generating_label"].includes(d.processingStatus)) ? 5000 : false });
   const upload = useMutation({ mutationFn: async (file: File) => {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) throw new Error("Vyberte PDF soubor.");
     const params = new URLSearchParams({ type, name: file.name });

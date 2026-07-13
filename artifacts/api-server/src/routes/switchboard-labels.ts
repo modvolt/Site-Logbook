@@ -1,13 +1,12 @@
 import { Router, type IRouter } from "express";
-import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
-import { db, billingSettingsTable, switchboardsTable, switchboardDocumentsTable, switchboardLabelVersionsTable, switchboardEventsTable } from "@workspace/db";
+import { db, switchboardDocumentsTable, switchboardLabelVersionsTable, switchboardEventsTable } from "@workspace/db";
 import { requirePermission } from "../middlewares/permissions";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
-import { decryptQrToken, publicQrUrl } from "../lib/switchboard-qr";
-import { generateSwitchboardLabel, SWITCHBOARD_LABEL_GENERATOR_VERSION, validateLabelSnapshot, type SwitchboardLabelSnapshot } from "../lib/switchboard-label";
+import { validateLabelSnapshot, type SwitchboardLabelSnapshot } from "../lib/switchboard-label";
 import { compareSnapshotRecords } from "../lib/switchboard-admin";
+import { createSwitchboardLabelVersion, latestCompletedDboDocumentId } from "../lib/switchboard-label-version";
 
 const router: IRouter = Router(); const storage = new ObjectStorageService(); const id = z.coerce.number().int().positive();
 const serialize = (row: typeof switchboardLabelVersionsTable.$inferSelect) => {
@@ -39,30 +38,20 @@ router.get("/switchboards/:id/labels/compare", requirePermission("switchboards.v
 
 router.post("/switchboards/:id/labels/generate", requirePermission("switchboards.labels.generate"), async (req, res) => {
   const boardId = id.safeParse(req.params.id); if (!boardId.success) { res.status(400).json({ error: "Neplatný rozvaděč." }); return; }
-  const [[board], [settings], [sourceDocument]] = await Promise.all([
-    db.select().from(switchboardsTable).where(eq(switchboardsTable.id, boardId.data)),
-    db.select().from(billingSettingsTable).where(eq(billingSettingsTable.id, 1)),
-    db.select({ id: switchboardDocumentsTable.id }).from(switchboardDocumentsTable)
-      .where(and(eq(switchboardDocumentsTable.switchboardId, boardId.data), eq(switchboardDocumentsTable.documentType, "schrack_norm_dbo"), eq(switchboardDocumentsTable.processingStatus, "completed")))
-      .orderBy(desc(switchboardDocumentsTable.version)).limit(1),
-  ]);
-  if (!board) { res.status(404).json({ error: "Rozvaděč nebyl nalezen." }); return; }
-  if (!board.qrEnabled || !board.qrTokenCiphertext) { res.status(409).json({ error: "Nejprve aktivujte QR přístup rozvaděče." }); return; }
-  let token: string; try { token = decryptQrToken(board.qrTokenCiphertext); } catch (error) { res.status(503).json({ error: (error as Error).message }); return; }
-  const snapshot: SwitchboardLabelSnapshot = { designation: board.designation, serialNumber: board.serialNumber ?? "", productionDate: board.productionDate ?? "", typeDesignation: board.typeDesignation ?? "", manufacturer: board.manufacturer, standards: board.standards, networkSystem: board.networkSystem ?? "", ratedVoltage: board.ratedVoltage ?? "", ratedFrequency: board.ratedFrequency ?? "", ratedCurrent: board.ratedCurrent ?? "", dimensions: board.dimensions, weight: board.weight, ipRating: board.ipRating ?? "", ikRating: board.ikRating, companyAddress: settings?.supplierAddress, companyPhone: settings?.supplierPhone };
-  const missing = validateLabelSnapshot(snapshot); if (missing.length) { res.status(409).json({ error: "Typový štítek nelze vytvořit, chybí povinné potvrzené údaje.", missingFields: missing }); return; }
-  const url = publicQrUrl(token, `${req.protocol}://${req.get("host")}`); const output = await generateSwitchboardLabel(snapshot, url);
-  const nonce = randomUUID(); const pdfPath = `/objects/switchboards/${board.id}/labels/${nonce}.pdf`; const pngPath = `/objects/switchboards/${board.id}/labels/${nonce}.png`;
   try {
-    await Promise.all([storage.putPrivateObject(pdfPath, output.pdf, "application/pdf"), storage.putPrivateObject(pngPath, output.png, "image/png")]);
-    const label = await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(${board.id}, 8403)`);
-      const [{ value }] = await tx.select({ value: max(switchboardLabelVersionsTable.version) }).from(switchboardLabelVersionsTable).where(eq(switchboardLabelVersionsTable.switchboardId, board.id));
-      const [created] = await tx.insert(switchboardLabelVersionsTable).values({ switchboardId: board.id, version: Number(value ?? 0) + 1, sourceDocumentId: sourceDocument?.id ?? null, inputSnapshot: snapshot, pdfStoragePath: pdfPath, pngStoragePath: pngPath, qrTarget: `/q/board/${board.qrTokenPrefix ?? "unknown"}…`, status: "draft", generatorVersion: SWITCHBOARD_LABEL_GENERATOR_VERSION, createdByUserId: req.auth?.userId ?? null }).returning();
-      await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "label_generated", entityType: "switchboard_label_version", entityId: created.id, payload: { version: created.version, sourceDocumentId: sourceDocument?.id ?? null, generatorVersion: SWITCHBOARD_LABEL_GENERATOR_VERSION, qrTokenPrefix: board.qrTokenPrefix }, actorUserId: req.auth?.userId ?? null, actorName: req.auth?.name ?? req.auth?.username ?? null }); return created;
+    const sourceDocumentId = await latestCompletedDboDocumentId(boardId.data);
+    const { label } = await createSwitchboardLabelVersion({
+      switchboardId: boardId.data,
+      sourceDocumentId,
+      mode: "manual",
+      actor: { userId: req.auth?.userId ?? null, name: req.auth?.name ?? req.auth?.username ?? null },
+      requestBaseUrl: `${req.protocol}://${req.get("host")}`,
     });
     res.status(201).json(serialize(label));
-  } catch (error) { await Promise.allSettled([storage.deletePrivateObject(pdfPath), storage.deletePrivateObject(pngPath)]); res.status(500).json({ error: `Generování štítku selhalo: ${(error as Error).message}` }); }
+  } catch (error) {
+    const typed = error as Error & { statusCode?: number; missingFields?: string[] };
+    res.status(typed.statusCode ?? 500).json({ error: typed.message || "Generování štítku selhalo.", ...(typed.missingFields ? { missingFields: typed.missingFields } : {}) });
+  }
 });
 
 router.post("/switchboards/:id/labels/:labelId/approve", requirePermission("switchboards.labels.approve"), async (req, res) => {

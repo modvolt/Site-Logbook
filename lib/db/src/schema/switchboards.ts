@@ -140,6 +140,14 @@ export const switchboardExtractedFieldsTable = pgTable("switchboard_extracted_fi
   relativeRelation: text("relative_relation").notNull(),
   validationStatus: text("validation_status").notNull(),
   validationMessage: text("validation_message"),
+  valueCandidates: jsonb("value_candidates").$type<Array<{
+    raw: string;
+    normalized: string | null;
+    relation: string;
+    score: number;
+    valid: boolean;
+    message: string | null;
+  }>>().notNull().default([]),
   parserVersion: text("parser_version").notNull(),
   manuallyCorrected: boolean("manually_corrected").notNull().default(false),
   correctedValue: text("corrected_value"),

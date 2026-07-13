@@ -4,6 +4,10 @@ import type { TextElement } from "./switchboard-parser";
 
 type PdfDocument = Awaited<ReturnType<(typeof import("pdfjs-dist/legacy/build/pdf.mjs"))["getDocument"]>["promise"]>;
 
+export function shouldUseOcrFallback(parserStatus: string): boolean {
+  return parserStatus === "label_not_found";
+}
+
 async function loadPdf(buffer: Buffer): Promise<PdfDocument> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   try { return await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise; }

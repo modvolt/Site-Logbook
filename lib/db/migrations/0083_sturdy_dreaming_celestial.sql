@@ -1,0 +1,1 @@
+ALTER TABLE "switchboard_extracted_fields" ADD COLUMN "value_candidates" jsonb DEFAULT '[]'::jsonb NOT NULL;

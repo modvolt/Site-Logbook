@@ -5,12 +5,14 @@ import { resolve } from "node:path";
 const sql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0080_third_rumiko_fujikawa.sql"), "utf8");
 const qrSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0081_silent_marrow.sql"), "utf8");
 const operationsSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0082_tense_rhino.sql"), "utf8");
+const extractionCandidatesSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0083_sturdy_dreaming_celestial.sql"), "utf8");
 
 describe("switchboard migration safety", () => {
   it("creates the complete append-only domain without altering existing domain tables", () => {
     expect(sql).toContain('CREATE TABLE "switchboards"');
     expect(sql).toContain('CREATE TABLE "switchboard_documents"');
     expect(sql).toContain('CREATE TABLE "switchboard_protocol_versions"');
+    expect(sql).toContain('CREATE UNIQUE INDEX "switchboard_documents_hash_unique_idx"');
     expect(sql).not.toMatch(/ALTER TABLE "(?:jobs|billing_|invoices|materials|attachments)/);
     expect(sql).not.toMatch(/DROP\s+(?:TABLE|COLUMN)/i);
   });
@@ -35,5 +37,12 @@ describe("switchboard migration safety", () => {
     expect(operationsSql).toContain('CREATE INDEX "switchboard_defects_board_status_idx"');
     expect(operationsSql).toContain('CREATE INDEX "switchboard_measurements_board_idx"');
     expect(operationsSql).not.toMatch(/DROP\s+(?:TABLE|COLUMN|INDEX)/i);
+  });
+
+  it("adds reviewable extraction candidates without rewriting historical values", () => {
+    expect(extractionCandidatesSql).toContain('ADD COLUMN "value_candidates" jsonb');
+    expect(extractionCandidatesSql).toContain("DEFAULT '[]'::jsonb NOT NULL");
+    expect(extractionCandidatesSql).not.toMatch(/DROP\s+(?:TABLE|COLUMN|INDEX)/i);
+    expect(extractionCandidatesSql).not.toMatch(/UPDATE\s+/i);
   });
 });

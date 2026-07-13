@@ -189,6 +189,7 @@ router.post("/switchboards/:id/documents/:documentId/reprocess", requirePermissi
     if (active.length) throw Object.assign(new Error("Dokument už čeká na zpracování."), { statusCode: 409 });
     const [created] = await tx.insert(switchboardProcessingJobsTable).values({ documentId: document.id, parserVersion: SWITCHBOARD_PARSER_VERSION }).returning();
     await tx.update(switchboardDocumentsTable).set({ processingStatus: "queued", processingErrorCode: null, processingErrorMessage: null }).where(eq(switchboardDocumentsTable.id, document.id));
+    await tx.update(switchboardsTable).set({ processingStatus: "queued", updatedAt: new Date() }).where(eq(switchboardsTable.id, boardId.data));
     await tx.insert(switchboardEventsTable).values({ switchboardId: boardId.data, eventType: "document_reprocessing_requested", entityType: "switchboard_document", entityId: document.id, payload: { parserVersion: SWITCHBOARD_PARSER_VERSION, processingJobId: created.id }, ...actor(req) });
     return created;
   }).catch((error: unknown) => {

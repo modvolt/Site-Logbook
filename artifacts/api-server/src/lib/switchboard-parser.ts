@@ -35,6 +35,14 @@ export type ExtractedField = {
   relativeRelation: string;
   validationStatus: "valid" | "invalid" | "missing";
   validationMessage: string | null;
+  valueCandidates: Array<{
+    raw: string;
+    normalized: string | null;
+    relation: string;
+    score: number;
+    valid: boolean;
+    message: string | null;
+  }>;
   parserVersion: string;
 };
 
@@ -74,7 +82,12 @@ export function validateSwitchboardValue(dataType: string, raw: string): Validat
     const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     const cs = /^(\d{1,2})[.\/]\s*(\d{1,2})[.\/]\s*(\d{4})$/.exec(value);
     const normalized = iso ? value : cs ? `${cs[3]}-${cs[2].padStart(2, "0")}-${cs[1].padStart(2, "0")}` : null;
-    const valid = normalized != null && !Number.isNaN(Date.parse(`${normalized}T00:00:00Z`));
+    const parts = normalized?.split("-").map(Number) ?? [];
+    const parsed = parts.length === 3 ? new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])) : null;
+    const valid = parsed != null
+      && parsed.getUTCFullYear() === parts[0]
+      && parsed.getUTCMonth() === parts[1] - 1
+      && parsed.getUTCDate() === parts[2];
     return valid ? { valid: true, normalized, message: null } : { valid: false, normalized: null, message: "Neplatné datum." };
   }
   if (dataType === "standards") return /\b(?:ČSN|CSN|EN|IEC)\b/i.test(value) ? { valid: true, normalized: value, message: null } : { valid: false, normalized: null, message: "Hodnota neobsahuje označení normy." };
@@ -131,21 +144,53 @@ export function parseSwitchboardLabel(elements: TextElement[], registry: FieldDe
   const fields: ExtractedField[] = [];
   for (const { element: label, field, match } of activeMatches.filter((item) => item.element.page === selectedPage)) {
     const inlineCandidate = match.inlineValue ? { raw: match.inlineValue, relation: "same_line", score: 0.98 } : null;
-    const candidates = elements.filter((candidate) => !knownLabelOrders.has(candidate.order)).flatMap((candidate) => {
+    const relationCandidates = elements.filter((candidate) => !knownLabelOrders.has(candidate.order)).flatMap((candidate) => {
       const scored = relationAndScore(label, candidate); return scored ? [{ raw: candidate.text, ...scored }] : [];
-    }).filter((candidate) => field.allowedRelations.includes(candidate.relation)).map((candidate) => ({ ...candidate, validation: validateSwitchboardValue(field.dataType, candidate.raw) }))
+    }).filter((candidate) => field.allowedRelations.includes(candidate.relation));
+    if (field.allowedRelations.includes("until_next_label")) {
+      const nextLabelOrder = [...knownLabelOrders].filter((order) => order > label.order).sort((a, b) => a - b)[0] ?? label.order + 7;
+      const between = elements.filter((candidate) => candidate.page === label.page && candidate.order > label.order && candidate.order < nextLabelOrder && !knownLabelOrders.has(candidate.order)).sort((a, b) => a.order - b.order);
+      if (between.length) relationCandidates.push({ raw: between.map((candidate) => candidate.text).join(", "), relation: "until_next_label", score: 1.05 });
+    }
+    const candidates = relationCandidates.map((candidate) => ({ ...candidate, validation: validateSwitchboardValue(field.dataType, candidate.raw) }))
       .sort((a, b) => (Number(b.validation.valid) - Number(a.validation.valid)) || b.score - a.score);
     const best = inlineCandidate ? { ...inlineCandidate, validation: validateSwitchboardValue(field.dataType, inlineCandidate.raw) } : candidates[0];
+    const ambiguous = !inlineCandidate && !!best && !!candidates[1]
+      && best.validation.valid && candidates[1].validation.valid
+      && Math.abs(best.score - candidates[1].score) <= 0.03
+      && best.validation.normalized !== candidates[1].validation.normalized;
+    const valueCandidates = (inlineCandidate ? [{ ...inlineCandidate, validation: validateSwitchboardValue(field.dataType, inlineCandidate.raw) }] : candidates)
+      .slice(0, 10)
+      .map((candidate) => ({ raw: candidate.raw, normalized: candidate.validation.normalized, relation: candidate.relation, score: candidate.score, valid: candidate.validation.valid, message: candidate.validation.message }));
     fields.push({
       fieldKey: field.fieldKey, foundLabel: match.label, matchedAlias: match.alias,
       rawValue: best?.raw ?? null, normalizedValue: best?.validation.normalized ?? null,
-      confidence: best ? Math.min(1, best.score * (best.validation.valid ? 1 : 0.65) * (label.method === "ocr" ? 0.9 : 1) * (match.fuzzy ? 0.88 : 1)) : 0,
+      confidence: best ? Math.min(1, best.score * (best.validation.valid ? 1 : 0.65) * (label.method === "ocr" ? 0.9 : 1) * (match.fuzzy ? 0.88 : 1) * (ambiguous ? 0.5 : 1)) : 0,
       pageNumber: selectedPage, blockId: label.blockId ?? null,
       extractionMethod: label.method ?? "text_layer", relativeRelation: best?.relation ?? "none",
-      validationStatus: !best ? "missing" : best.validation.valid ? "valid" : "invalid",
-      validationMessage: best?.validation.message ?? "Název pole byl nalezen, ale hodnota chybí.", parserVersion: SWITCHBOARD_PARSER_VERSION,
+      validationStatus: !best ? "missing" : ambiguous ? "invalid" : best.validation.valid ? "valid" : "invalid",
+      validationMessage: ambiguous ? "Bylo nalezeno více rovnocenných hodnot. Vyberte a potvrďte správnou hodnotu." : best?.validation.message ?? "Název pole byl nalezen, ale hodnota chybí.",
+      valueCandidates,
+      parserVersion: SWITCHBOARD_PARSER_VERSION,
     });
   }
-  const missingRequired = registry.filter((field) => field.required && !fields.some((item) => item.fieldKey === field.fieldKey && item.validationStatus === "valid" && item.confidence >= field.minimumConfidence));
-  return { status: tied.length > 1 || missingRequired.length ? "needs_review" as const : "complete" as const, candidatePages: ranked, selectedPage, ambiguousPages: tied.length > 1 ? tied.map((item) => item.page) : [], fields, missingRequired: missingRequired.map((field) => field.fieldKey) };
+  const uniqueFields: ExtractedField[] = [];
+  for (const field of fields) {
+    const existing = uniqueFields.find((item) => item.fieldKey === field.fieldKey);
+    if (!existing) { uniqueFields.push(field); continue; }
+    const candidates = [...existing.valueCandidates, ...field.valueCandidates].filter((candidate, index, all) => all.findIndex((item) => item.raw === candidate.raw && item.relation === candidate.relation) === index);
+    if (existing.normalizedValue && field.normalizedValue && existing.normalizedValue !== field.normalizedValue) {
+      existing.validationStatus = "invalid";
+      existing.validationMessage = "Bylo nalezeno více rovnocenných hodnot. Vyberte a potvrďte správnou hodnotu.";
+      existing.confidence = Math.min(existing.confidence, field.confidence, 0.5);
+      existing.valueCandidates = candidates;
+    } else if (field.confidence > existing.confidence) {
+      Object.assign(existing, field, { valueCandidates: candidates });
+    } else {
+      existing.valueCandidates = candidates;
+    }
+  }
+  const ambiguousFields = uniqueFields.filter((field) => field.validationMessage?.startsWith("Bylo nalezeno více rovnocenných hodnot")).map((field) => field.fieldKey);
+  const missingRequired = registry.filter((field) => field.required && !uniqueFields.some((item) => item.fieldKey === field.fieldKey && item.validationStatus === "valid" && item.confidence >= field.minimumConfidence));
+  return { status: tied.length > 1 || missingRequired.length || ambiguousFields.length ? "needs_review" as const : "complete" as const, candidatePages: ranked, selectedPage, ambiguousPages: tied.length > 1 ? tied.map((item) => item.page) : [], ambiguousFields, fields: uniqueFields, missingRequired: missingRequired.map((field) => field.fieldKey) };
 }

@@ -54,6 +54,7 @@ export type SwitchboardExtractedField = {
   effectiveValue: string | null; confidence: number; pageNumber: number; blockId: string | null;
   extractionMethod: string; relativeRelation: string; validationStatus: string;
   validationMessage: string | null; parserVersion: string; manuallyCorrected: boolean;
+  valueCandidates: Array<{ raw: string; normalized: string | null; relation: string; score: number; valid: boolean; message: string | null }>;
   correctedAt: string | null; createdAt: string;
 };
 export type SwitchboardExtractionDocument = SwitchboardDocument & { fields: SwitchboardExtractedField[]; missingFields: Array<{ fieldKey: string; canonicalNameCs: string; dataType: string }> };

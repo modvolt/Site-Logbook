@@ -582,6 +582,13 @@
       "when": 1783902773028,
       "tag": "0082_tense_rhino",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1783929120248,
+      "tag": "0083_sturdy_dreaming_celestial",
+      "breakpoints": true
     }
   ]
 }

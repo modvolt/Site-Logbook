@@ -20,6 +20,7 @@ export function SwitchboardLabels({ board }: { board: Switchboard }) {
   const { data = [] } = useQuery({
     queryKey: key,
     queryFn: () => switchboardFetch<SwitchboardLabel[]>(`/api/switchboards/${board.id}/labels`),
+    refetchInterval: ["queued", "analyzing_pdf", "ocr", "generating_label"].includes(board.processingStatus) ? 5000 : false,
   });
   useEffect(() => { if (data.length < 2) return; if (!data.some((label) => String(label.id) === compareFromId)) setCompareFromId(String(data[1].id)); if (!data.some((label) => String(label.id) === compareToId)) setCompareToId(String(data[0].id)); }, [data, compareFromId, compareToId]);
   const compareEnabled = !!compareFromId && !!compareToId && compareFromId !== compareToId;

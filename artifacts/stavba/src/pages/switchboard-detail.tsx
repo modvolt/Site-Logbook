@@ -27,7 +27,7 @@ export default function SwitchboardDetail() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [form, setForm] = useState<Form>(empty);
-  const { data: board, isLoading, error } = useQuery({ queryKey: ["switchboards", id], queryFn: () => switchboardFetch<Switchboard>(`/api/switchboards/${id}`), enabled: id > 0 });
+  const { data: board, isLoading, error } = useQuery({ queryKey: ["switchboards", id], queryFn: () => switchboardFetch<Switchboard>(`/api/switchboards/${id}`), enabled: id > 0, refetchInterval: (query) => ["queued", "analyzing_pdf", "ocr", "generating_label"].includes((query.state.data as Switchboard | undefined)?.processingStatus ?? "") ? 5000 : false });
   useEffect(() => { if (board) setForm({ ...empty, ...board, standards: board.standards.join(", ") }); }, [board]);
   const save = useMutation({
     mutationFn: () => switchboardFetch<Switchboard>(`/api/switchboards/${id}`, { method: "PATCH", body: JSON.stringify({
@@ -88,7 +88,7 @@ export default function SwitchboardDetail() {
       <SwitchboardOperationsPanel switchboardId={id} jobId={board.jobId} />
       <SwitchboardProtocols switchboardId={id} />
       <SwitchboardDocuments switchboardId={id} />
-      <SwitchboardExtractionReview switchboardId={id} />
+      <SwitchboardExtractionReview switchboardId={id} processingStatus={board.processingStatus} />
       <SwitchboardLabels board={board} />
       {can("switchboards.audit.view") && <SwitchboardAuditTrail boardId={id} compact />}
     </div>
