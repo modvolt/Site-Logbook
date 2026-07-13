@@ -31,6 +31,7 @@ export type Switchboard = {
   assemblyStatus: string;
   inspectionStatus: string;
   measurementStatus: string;
+  qrEnabled: boolean; qrTokenPrefix: string | null; qrExpiresAt: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -53,6 +54,7 @@ export type SwitchboardExtractedField = {
   correctedAt: string | null; createdAt: string;
 };
 export type SwitchboardExtractionDocument = SwitchboardDocument & { fields: SwitchboardExtractedField[]; missingFields: Array<{ fieldKey: string; canonicalNameCs: string; dataType: string }> };
+export type SwitchboardLabel = { id: number; switchboardId: number; version: number; inputSnapshot: Record<string, unknown>; qrTarget: string; status: string; generatorVersion: string; createdAt: string; approvedAt: string | null };
 
 export async function switchboardFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {

@@ -139,7 +139,7 @@ app.use("/api", trackSessionActivity);
 
 // Public endpoints must bypass both authentication and permission enforcement.
 // Keep this list centralized so a route cannot pass one guard and fail the next.
-const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/", "/api/quotes/public/", "/api/internal/"];
+const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/", "/api/quotes/public/", "/api/q/board/", "/api/internal/"];
 
 function isPublicApiRequest(req: Request): boolean {
   const url = req.originalUrl.split("?")[0];

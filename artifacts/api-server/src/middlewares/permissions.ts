@@ -72,6 +72,10 @@ function permissionForRequest(req: Request): Permission | null {
   if (/^\/switchboards\/\d+\/extractions(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.extraction.review" : "switchboards.extraction.correct";
   if (/^\/switchboards\/\d+\/documents\/compare$/.test(path)) return "switchboards.extraction.review";
   if (/^\/switchboards\/\d+\/documents\/\d+\/reprocess$/.test(path)) return "switchboards.extraction.review";
+  if (/^\/switchboards\/\d+\/documents\/\d+\/public$/.test(path)) return "switchboards.documents.publish";
+  if (/^\/switchboards\/\d+\/qr(?:\/|$)/.test(path)) return "switchboards.qr.manage";
+  if (/^\/switchboards\/\d+\/labels\/generate$/.test(path)) return "switchboards.labels.generate";
+  if (/^\/switchboards\/\d+\/labels\/\d+\/approve$/.test(path)) return "switchboards.labels.approve";
   if (/^\/switchboards\/\d+\/documents(?:\/|$)/.test(path)) {
     return READ_METHODS.has(req.method) ? "switchboards.documents.view" : "switchboards.documents.upload";
   }

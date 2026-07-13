@@ -33,6 +33,7 @@ export const switchboardsTable = pgTable("switchboards", {
   inspectionStatus: text("inspection_status").notNull().default("not_started"),
   measurementStatus: text("measurement_status").notNull().default("not_started"),
   qrTokenHash: text("qr_token_hash"),
+  qrTokenCiphertext: text("qr_token_ciphertext"),
   qrTokenPrefix: text("qr_token_prefix"),
   qrEnabled: boolean("qr_enabled").notNull().default(false),
   qrExpiresAt: timestamp("qr_expires_at"),
@@ -44,7 +45,19 @@ export const switchboardsTable = pgTable("switchboards", {
   index("switchboards_job_id_idx").on(t.jobId),
   index("switchboards_status_idx").on(t.status),
   uniqueIndex("switchboards_serial_number_unique_idx").on(t.serialNumber),
+  uniqueIndex("switchboards_qr_token_hash_unique_idx").on(t.qrTokenHash),
 ]);
+
+export const switchboardQrAccessLogsTable = pgTable("switchboard_qr_access_logs", {
+  id: serial("id").primaryKey(),
+  switchboardId: integer("switchboard_id").references(() => switchboardsTable.id, { onDelete: "set null" }),
+  tokenPrefix: text("token_prefix"),
+  outcome: text("outcome").notNull(),
+  ipHash: text("ip_hash"),
+  userAgent: text("user_agent"),
+  authenticatedUserId: integer("authenticated_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("switchboard_qr_access_logs_board_idx").on(t.switchboardId, t.createdAt)]);
 
 export const switchboardAssigneesTable = pgTable("switchboard_assignees", {
   id: serial("id").primaryKey(),

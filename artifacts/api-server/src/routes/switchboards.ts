@@ -69,6 +69,7 @@ function actor(req: Request) {
 }
 
 async function serializeBoard(board: typeof switchboardsTable.$inferSelect) {
+  const { qrTokenHash: _qrTokenHash, qrTokenCiphertext: _qrTokenCiphertext, ...publicBoard } = board;
   const [job, assignees] = await Promise.all([
     db.select({ id: jobsTable.id, title: jobsTable.title, jobNumber: jobsTable.jobNumber })
       .from(jobsTable).where(eq(jobsTable.id, board.jobId)).then((rows) => rows[0] ?? null),
@@ -84,7 +85,7 @@ async function serializeBoard(board: typeof switchboardsTable.$inferSelect) {
       .orderBy(desc(switchboardAssigneesTable.isResponsible), asc(peopleTable.name)),
   ]);
   return {
-    ...board,
+    ...publicBoard,
     job,
     assignees: assignees.map((item) => ({ ...item, assignedAt: item.assignedAt.toISOString() })),
     productionDate: board.productionDate ?? null,
@@ -179,6 +180,15 @@ router.get("/switchboards/:id/documents/:documentId/download", requirePermission
   res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(document.originalFileName)}`);
   try { await objectStorage.servePrivateObject(document.storagePath, res); }
   catch (error) { if (!res.headersSent) res.status(error instanceof ObjectNotFoundError ? 404 : 500).json({ error: "Soubor dokumentu není dostupný." }); }
+});
+
+router.patch("/switchboards/:id/documents/:documentId/public", requirePermission("switchboards.documents.publish"), async (req, res): Promise<void> => {
+  const boardId = idSchema.safeParse(req.params.id); const documentId = idSchema.safeParse(req.params.documentId); const body = z.object({ isPublic: z.boolean() }).safeParse(req.body);
+  if (!boardId.success || !documentId.success || !body.success) { res.status(400).json({ error: "Neplatné nastavení zveřejnění." }); return; }
+  const [document] = await db.update(switchboardDocumentsTable).set({ isPublic: body.data.isPublic }).where(and(eq(switchboardDocumentsTable.id, documentId.data), eq(switchboardDocumentsTable.switchboardId, boardId.data))).returning();
+  if (!document) { res.status(404).json({ error: "Dokument nebyl nalezen." }); return; }
+  await db.insert(switchboardEventsTable).values({ switchboardId: boardId.data, eventType: body.data.isPublic ? "document_published" : "document_unpublished", entityType: "switchboard_document", entityId: document.id, payload: { documentType: document.documentType, version: document.version }, ...actor(req) });
+  res.json({ id: document.id, isPublic: document.isPublic });
 });
 
 router.get("/switchboards/:id", requirePermission("switchboards.view"), async (req, res): Promise<void> => {

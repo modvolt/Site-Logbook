@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const sql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0080_third_rumiko_fujikawa.sql"), "utf8");
+const qrSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0081_silent_marrow.sql"), "utf8");
 
 describe("switchboard migration safety", () => {
   it("creates the complete append-only domain without altering existing domain tables", () => {
@@ -11,6 +12,13 @@ describe("switchboard migration safety", () => {
     expect(sql).toContain('CREATE TABLE "switchboard_protocol_versions"');
     expect(sql).not.toMatch(/ALTER TABLE "(?:jobs|billing_|invoices|materials|attachments)/);
     expect(sql).not.toMatch(/DROP\s+(?:TABLE|COLUMN)/i);
+  });
+
+  it("adds QR token protection and access audit without destructive changes", () => {
+    expect(qrSql).toContain('CREATE TABLE "switchboard_qr_access_logs"');
+    expect(qrSql).toContain('ADD COLUMN "qr_token_ciphertext"');
+    expect(qrSql).toContain('CREATE UNIQUE INDEX "switchboards_qr_token_hash_unique_idx"');
+    expect(qrSql).not.toMatch(/DROP\s+(?:TABLE|COLUMN)/i);
   });
 
   it("seeds the central named-field registry idempotently", () => {

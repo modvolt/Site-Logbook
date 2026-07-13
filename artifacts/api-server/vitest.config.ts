@@ -10,9 +10,10 @@ function ttfBase64(): Plugin {
   return {
     name: "ttf-base64",
     transform(_code, id) {
-      if (!id.endsWith(".ttf")) return null;
+      if (!id.endsWith(".ttf") && !id.endsWith(".png")) return null;
       const base64 = readFileSync(id).toString("base64");
-      return { code: `export default ${JSON.stringify(base64)};`, map: null };
+      const value = id.endsWith(".png") ? `data:image/png;base64,${base64}` : base64;
+      return { code: `export default ${JSON.stringify(value)};`, map: null };
     },
   };
 }

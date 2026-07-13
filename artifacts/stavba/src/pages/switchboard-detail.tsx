@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from "@/hooks/use-auth";
 import { SwitchboardDocuments } from "@/components/switchboard-documents";
 import { SwitchboardExtractionReview } from "@/components/switchboard-extraction-review";
+import { SwitchboardLabels } from "@/components/switchboard-labels";
 import { useToast } from "@/hooks/use-toast";
 import { SWITCHBOARD_STATUS_LABELS, switchboardFetch, type Switchboard } from "@/lib/switchboards-api";
 
@@ -64,6 +65,7 @@ export default function SwitchboardDetail() {
       </div>
       <SwitchboardDocuments switchboardId={id} />
       <SwitchboardExtractionReview switchboardId={id} />
+      <SwitchboardLabels board={board} />
     </div>
   );
 }

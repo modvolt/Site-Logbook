@@ -24,6 +24,7 @@ COPY .npmrc ./
 COPY artifacts ./artifacts
 COPY lib ./lib
 COPY scripts ./scripts
+COPY attached_assets ./attached_assets
 
 # Persist pnpm's content-addressable store across builds via a BuildKit cache
 # mount, so a slow npm registry isn't re-hit for every dependency on every

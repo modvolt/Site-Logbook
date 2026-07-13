@@ -15,6 +15,7 @@ import { OfflineBanner } from "@/components/offline-banner";
 import OoppSign from "@/pages/oopp-sign";
 import JobSign from "@/pages/job-sign";
 import QuoteShare from "@/pages/quote-share";
+import SwitchboardPublic from "@/pages/switchboard-public";
 
 import Dashboard from "@/pages/dashboard";
 import Calendar from "@/pages/calendar";
@@ -259,6 +260,9 @@ function Router() {
   }
   if (path.startsWith("/quote-share/")) {
     return <QuoteShare />;
+  }
+  if (path.startsWith("/q/board/")) {
+    return <SwitchboardPublic />;
   }
   if (path === "/oopp/potvrdit" || path.startsWith("/oopp/potvrdit?")) {
     return <PpeConfirm />;
