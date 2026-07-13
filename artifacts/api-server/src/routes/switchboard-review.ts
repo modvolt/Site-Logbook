@@ -6,8 +6,9 @@ import {
   switchboardFieldRegistryTable, switchboardEventsTable, switchboardProcessingJobsTable,
 } from "@workspace/db";
 import { requirePermission } from "../middlewares/permissions";
-import { validateSwitchboardValue, SWITCHBOARD_PARSER_VERSION } from "../lib/switchboard-parser";
+import { normalizeFieldLabel, validateSwitchboardValue, SWITCHBOARD_PARSER_VERSION } from "../lib/switchboard-parser";
 import { compareExtractionVersions, extractionIsComplete } from "../lib/switchboard-review-logic";
+import { findRegistryNameCollision, normalizeRegistryAliases } from "../lib/switchboard-admin";
 
 const router: IRouter = Router();
 const id = z.coerce.number().int().positive();
@@ -35,7 +36,7 @@ async function refreshReviewStatus(documentId: number, switchboardId: number): P
   });
 }
 
-router.get("/switchboards/field-registry", requirePermission("switchboards.extraction.review"), async (_req, res) => {
+router.get("/switchboards/field-registry", requirePermission("switchboards.parser.manage"), async (_req, res) => {
   const rows = await db.select().from(switchboardFieldRegistryTable).orderBy(asc(switchboardFieldRegistryTable.labelOrder), asc(switchboardFieldRegistryTable.id));
   res.json(rows.map((row) => ({ ...row, minimumConfidence: Number(row.minimumConfidence), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() })));
 });
@@ -49,12 +50,39 @@ const registryPatch = z.object({
 router.patch("/switchboards/field-registry/:registryId", requirePermission("switchboards.parser.manage"), async (req, res) => {
   const parsedId = id.safeParse(req.params.registryId); const parsed = registryPatch.safeParse(req.body);
   if (!parsedId.success || !parsed.success) { res.status(400).json({ error: "Neplatná konfigurace pole." }); return; }
-  const [before] = await db.select().from(switchboardFieldRegistryTable).where(eq(switchboardFieldRegistryTable.id, parsedId.data));
-  if (!before) { res.status(404).json({ error: "Pole registru nebylo nalezeno." }); return; }
-  const patch = { ...parsed.data, minimumConfidence: parsed.data.minimumConfidence == null ? undefined : String(parsed.data.minimumConfidence), updatedByUserId: req.auth?.userId ?? null, updatedAt: new Date() };
-  const [updated] = await db.update(switchboardFieldRegistryTable).set(patch).where(eq(switchboardFieldRegistryTable.id, parsedId.data)).returning();
-  await db.insert(switchboardEventsTable).values({ eventType: "field_registry_updated", entityType: "switchboard_field_registry", entityId: updated.id, payload: { before, patch: parsed.data }, ...actor(req) });
-  res.json({ ...updated, minimumConfidence: Number(updated.minimumConfidence), createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() });
+  try {
+    const updated = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(0, 8410)`);
+      const registry = await tx.select().from(switchboardFieldRegistryTable).orderBy(asc(switchboardFieldRegistryTable.id));
+      const before = registry.find((field) => field.id === parsedId.data);
+      if (!before) throw Object.assign(new Error("Pole registru nebylo nalezeno."), { statusCode: 404 });
+      const aliases = parsed.data.aliases == null
+        ? before.aliases
+        : normalizeRegistryAliases(parsed.data.aliases).filter((alias) => normalizeFieldLabel(alias) !== normalizeFieldLabel(before.canonicalNameCs));
+      const collision = findRegistryNameCollision(registry, before.id, {
+        aliases,
+        isActive: parsed.data.isActive ?? before.isActive,
+      });
+      if (collision) {
+        throw Object.assign(new Error(`Název „${collision.submittedName}“ koliduje s polem ${collision.conflictingFieldKey} („${collision.conflictingName}“).`), { statusCode: 409 });
+      }
+      const patch = {
+        ...parsed.data,
+        aliases,
+        minimumConfidence: parsed.data.minimumConfidence == null ? undefined : String(parsed.data.minimumConfidence),
+        updatedByUserId: req.auth?.userId ?? null,
+        updatedAt: new Date(),
+      };
+      const [row] = await tx.update(switchboardFieldRegistryTable).set(patch).where(eq(switchboardFieldRegistryTable.id, before.id)).returning();
+      await tx.insert(switchboardEventsTable).values({ eventType: "field_registry_updated", entityType: "switchboard_field_registry", entityId: row.id, payload: { before: { aliases: before.aliases, required: before.required, minimumConfidence: Number(before.minimumConfidence), labelOrder: before.labelOrder, protocolOrder: before.protocolOrder, isActive: before.isActive }, after: { aliases: row.aliases, required: row.required, minimumConfidence: Number(row.minimumConfidence), labelOrder: row.labelOrder, protocolOrder: row.protocolOrder, isActive: row.isActive } }, ...actor(req) });
+      return row;
+    });
+    res.json({ ...updated, minimumConfidence: Number(updated.minimumConfidence), createdAt: updated.createdAt.toISOString(), updatedAt: updated.updatedAt.toISOString() });
+  } catch (error) {
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode) { res.status(statusCode).json({ error: (error as Error).message }); return; }
+    throw error;
+  }
 });
 
 router.get("/switchboards/:id/extractions", requirePermission("switchboards.extraction.review"), async (req, res) => {
@@ -136,13 +164,18 @@ router.post("/switchboards/:id/extractions", requirePermission("switchboards.ext
 router.get("/switchboards/:id/documents/compare", requirePermission("switchboards.extraction.review"), async (req, res) => {
   const boardId = id.safeParse(req.params.id); const fromId = id.safeParse(req.query.from); const toId = id.safeParse(req.query.to);
   if (!boardId.success || !fromId.success || !toId.success) { res.status(400).json({ error: "Vyberte dvě platné verze dokumentu." }); return; }
+  if (fromId.data === toId.data) { res.status(400).json({ error: "Pro porovnání vyberte dvě rozdílné verze dokumentu." }); return; }
   const docs = await db.select().from(switchboardDocumentsTable).where(and(eq(switchboardDocumentsTable.switchboardId, boardId.data), inArray(switchboardDocumentsTable.id, [fromId.data, toId.data])));
   if (docs.length !== 2) { res.status(404).json({ error: "Jedna z verzí dokumentu nebyla nalezena." }); return; }
-  const fields = await db.select().from(switchboardExtractedFieldsTable).where(inArray(switchboardExtractedFieldsTable.documentId, [fromId.data, toId.data]));
+  const [fields, registry] = await Promise.all([
+    db.select().from(switchboardExtractedFieldsTable).where(inArray(switchboardExtractedFieldsTable.documentId, [fromId.data, toId.data])),
+    db.select({ fieldKey: switchboardFieldRegistryTable.fieldKey, canonicalNameCs: switchboardFieldRegistryTable.canonicalNameCs }).from(switchboardFieldRegistryTable),
+  ]);
   const reviewRows = (documentId: number) => fields.filter((field) => field.documentId === documentId).map((field) => ({ ...field, confidence: Number(field.confidence) }));
   const keys = compareExtractionVersions(reviewRows(fromId.data), reviewRows(toId.data)).map((change) => change.fieldKey);
   const valueFor = (documentId: number, key: string) => { const field = fields.find((item) => item.documentId === documentId && item.fieldKey === key); return field ? { rawValue: field.rawValue, normalizedValue: field.normalizedValue, correctedValue: field.correctedValue, effectiveValue: effective(field), confidence: Number(field.confidence) } : null; };
-  res.json({ from: { id: fromId.data, version: docs.find((d) => d.id === fromId.data)!.version }, to: { id: toId.data, version: docs.find((d) => d.id === toId.data)!.version }, changes: keys.map((key) => ({ fieldKey: key, before: valueFor(fromId.data, key), after: valueFor(toId.data, key) })) });
+  const documentMeta = (documentId: number) => { const document = docs.find((row) => row.id === documentId)!; return { id: document.id, version: document.version, originalFileName: document.originalFileName, sha256: document.sha256, processingStatus: document.processingStatus, uploadedAt: document.uploadedAt.toISOString() }; };
+  res.json({ from: documentMeta(fromId.data), to: documentMeta(toId.data), changes: keys.map((key) => ({ fieldKey: key, canonicalNameCs: registry.find((field) => field.fieldKey === key)?.canonicalNameCs ?? key, before: valueFor(fromId.data, key), after: valueFor(toId.data, key) })) });
 });
 
 router.post("/switchboards/:id/documents/:documentId/reprocess", requirePermission("switchboards.extraction.review"), async (req, res) => {

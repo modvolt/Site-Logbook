@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, max, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { db, billingSettingsTable, switchboardsTable, switchboardDocumentsTable, switchboardLabelVersionsTable, switchboardEventsTable } from "@workspace/db";
 import { requirePermission } from "../middlewares/permissions";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { decryptQrToken, publicQrUrl } from "../lib/switchboard-qr";
 import { generateSwitchboardLabel, SWITCHBOARD_LABEL_GENERATOR_VERSION, validateLabelSnapshot, type SwitchboardLabelSnapshot } from "../lib/switchboard-label";
+import { compareSnapshotRecords } from "../lib/switchboard-admin";
 
 const router: IRouter = Router(); const storage = new ObjectStorageService(); const id = z.coerce.number().int().positive();
 const serialize = (row: typeof switchboardLabelVersionsTable.$inferSelect) => {
@@ -17,6 +18,23 @@ const serialize = (row: typeof switchboardLabelVersionsTable.$inferSelect) => {
 router.get("/switchboards/:id/labels", requirePermission("switchboards.view"), async (req, res) => {
   const boardId = id.safeParse(req.params.id); if (!boardId.success) { res.status(400).json({ error: "Neplatný rozvaděč." }); return; }
   const rows = await db.select().from(switchboardLabelVersionsTable).where(eq(switchboardLabelVersionsTable.switchboardId, boardId.data)).orderBy(desc(switchboardLabelVersionsTable.version)); res.json(rows.map(serialize));
+});
+
+router.get("/switchboards/:id/labels/compare", requirePermission("switchboards.view"), async (req, res) => {
+  const boardId = id.safeParse(req.params.id); const fromId = id.safeParse(req.query.from); const toId = id.safeParse(req.query.to);
+  if (!boardId.success || !fromId.success || !toId.success) { res.status(400).json({ error: "Vyberte dvě platné verze štítku." }); return; }
+  if (fromId.data === toId.data) { res.status(400).json({ error: "Pro porovnání vyberte dvě rozdílné verze štítku." }); return; }
+  const labels = await db.select().from(switchboardLabelVersionsTable).where(and(eq(switchboardLabelVersionsTable.switchboardId, boardId.data), inArray(switchboardLabelVersionsTable.id, [fromId.data, toId.data])));
+  if (labels.length !== 2) { res.status(404).json({ error: "Jedna z verzí štítku nebyla nalezena." }); return; }
+  const sourceIds = labels.map((label) => label.sourceDocumentId).filter((value): value is number => value != null);
+  const sources = sourceIds.length ? await db.select({ id: switchboardDocumentsTable.id, version: switchboardDocumentsTable.version }).from(switchboardDocumentsTable).where(and(eq(switchboardDocumentsTable.switchboardId, boardId.data), inArray(switchboardDocumentsTable.id, sourceIds))) : [];
+  const meta = (labelId: number) => {
+    const label = labels.find((row) => row.id === labelId)!;
+    return { id: label.id, version: label.version, status: label.status, generatorVersion: label.generatorVersion, sourceDocumentId: label.sourceDocumentId, sourceDocumentVersion: sources.find((source) => source.id === label.sourceDocumentId)?.version ?? null, createdAt: label.createdAt.toISOString(), approvedAt: label.approvedAt?.toISOString() ?? null };
+  };
+  const before = labels.find((label) => label.id === fromId.data)!;
+  const after = labels.find((label) => label.id === toId.data)!;
+  res.json({ from: meta(fromId.data), to: meta(toId.data), changes: compareSnapshotRecords(before.inputSnapshot, after.inputSnapshot) });
 });
 
 router.post("/switchboards/:id/labels/generate", requirePermission("switchboards.labels.generate"), async (req, res) => {

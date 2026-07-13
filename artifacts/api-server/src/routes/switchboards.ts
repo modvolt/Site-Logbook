@@ -1,14 +1,16 @@
 import express, { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, sql, type SQL } from "drizzle-orm";
 import { z } from "zod/v4";
 import {
   db, jobsTable, peopleTable, switchboardsTable, switchboardAssigneesTable,
   switchboardEventsTable, switchboardDocumentsTable, switchboardProcessingJobsTable,
+  switchboardDefectsTable,
 } from "@workspace/db";
 import { requirePermission } from "../middlewares/permissions";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { SWITCHBOARD_PARSER_VERSION } from "../lib/switchboard-parser";
+import { redactSwitchboardAuditPayload } from "../lib/switchboard-admin";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -68,12 +70,14 @@ function actor(req: Request) {
   };
 }
 
-async function serializeBoard(board: typeof switchboardsTable.$inferSelect) {
-  const { qrTokenHash: _qrTokenHash, qrTokenCiphertext: _qrTokenCiphertext, ...publicBoard } = board;
-  const [job, assignees] = await Promise.all([
-    db.select({ id: jobsTable.id, title: jobsTable.title, jobNumber: jobsTable.jobNumber })
-      .from(jobsTable).where(eq(jobsTable.id, board.jobId)).then((rows) => rows[0] ?? null),
+async function serializeBoards(boards: Array<typeof switchboardsTable.$inferSelect>) {
+  if (!boards.length) return [];
+  const boardIds = boards.map((board) => board.id);
+  const jobIds = [...new Set(boards.map((board) => board.jobId))];
+  const [jobs, assignees, defectCounts] = await Promise.all([
+    db.select({ id: jobsTable.id, title: jobsTable.title, jobNumber: jobsTable.jobNumber }).from(jobsTable).where(inArray(jobsTable.id, jobIds)),
     db.select({
+      switchboardId: switchboardAssigneesTable.switchboardId,
       id: switchboardAssigneesTable.id,
       personId: switchboardAssigneesTable.personId,
       personName: peopleTable.name,
@@ -81,19 +85,42 @@ async function serializeBoard(board: typeof switchboardsTable.$inferSelect) {
       assignedAt: switchboardAssigneesTable.assignedAt,
     }).from(switchboardAssigneesTable)
       .innerJoin(peopleTable, eq(switchboardAssigneesTable.personId, peopleTable.id))
-      .where(eq(switchboardAssigneesTable.switchboardId, board.id))
+      .where(inArray(switchboardAssigneesTable.switchboardId, boardIds))
       .orderBy(desc(switchboardAssigneesTable.isResponsible), asc(peopleTable.name)),
+    db.select({
+      switchboardId: switchboardDefectsTable.switchboardId,
+      openDefectCount: sql<number>`count(*) filter (where ${switchboardDefectsTable.status} <> 'closed')::int`,
+      criticalOpenDefectCount: sql<number>`count(*) filter (where ${switchboardDefectsTable.status} <> 'closed' and ${switchboardDefectsTable.isCritical} = true)::int`,
+    }).from(switchboardDefectsTable).where(inArray(switchboardDefectsTable.switchboardId, boardIds)).groupBy(switchboardDefectsTable.switchboardId),
   ]);
-  return {
-    ...publicBoard,
-    job,
-    assignees: assignees.map((item) => ({ ...item, assignedAt: item.assignedAt.toISOString() })),
-    productionDate: board.productionDate ?? null,
-    qrExpiresAt: board.qrExpiresAt?.toISOString() ?? null,
-    archivedAt: board.archivedAt?.toISOString() ?? null,
-    createdAt: board.createdAt.toISOString(),
-    updatedAt: board.updatedAt.toISOString(),
-  };
+  const jobsById = new Map(jobs.map((job) => [job.id, job]));
+  const assigneesByBoardId = new Map<number, Array<Omit<(typeof assignees)[number], "switchboardId">>>();
+  for (const { switchboardId, ...assignee } of assignees) {
+    const current = assigneesByBoardId.get(switchboardId) ?? [];
+    current.push(assignee);
+    assigneesByBoardId.set(switchboardId, current);
+  }
+  const defectCountsByBoardId = new Map(defectCounts.map((counts) => [counts.switchboardId, counts]));
+  return boards.map((board) => {
+    const { qrTokenHash: _qrTokenHash, qrTokenCiphertext: _qrTokenCiphertext, ...publicBoard } = board;
+    const counts = defectCountsByBoardId.get(board.id);
+    return {
+      ...publicBoard,
+      job: jobsById.get(board.jobId) ?? null,
+      assignees: (assigneesByBoardId.get(board.id) ?? []).map((item) => ({ ...item, assignedAt: item.assignedAt.toISOString() })),
+      openDefectCount: Number(counts?.openDefectCount ?? 0),
+      criticalOpenDefectCount: Number(counts?.criticalOpenDefectCount ?? 0),
+      productionDate: board.productionDate ?? null,
+      qrExpiresAt: board.qrExpiresAt?.toISOString() ?? null,
+      archivedAt: board.archivedAt?.toISOString() ?? null,
+      createdAt: board.createdAt.toISOString(),
+      updatedAt: board.updatedAt.toISOString(),
+    };
+  });
+}
+
+async function serializeBoard(board: typeof switchboardsTable.$inferSelect) {
+  return (await serializeBoards([board]))[0];
 }
 
 async function assertPeopleExist(ids: number[]): Promise<void> {
@@ -104,19 +131,28 @@ async function assertPeopleExist(ids: number[]): Promise<void> {
 
 router.get("/switchboards", requirePermission("switchboards.view"), async (req, res): Promise<void> => {
   const jobId = req.query.jobId == null ? null : idSchema.safeParse(req.query.jobId);
-  if (jobId && !jobId.success) {
-    res.status(400).json({ error: "Neplatné ID zakázky." });
+  const personId = req.query.personId == null ? null : idSchema.safeParse(req.query.personId);
+  const status = req.query.status == null ? null : z.enum(statuses).safeParse(req.query.status);
+  const openDefects = req.query.openDefects == null ? null : z.enum(["true", "false"]).safeParse(req.query.openDefects);
+  if ((jobId && !jobId.success) || (personId && !personId.success) || (status && !status.success) || (openDefects && !openDefects.success)) {
+    res.status(400).json({ error: "Neplatný filtr přehledu rozvaděčů." });
     return;
   }
   const includeArchived = req.query.includeArchived === "true";
-  const filters = [
+  const statusValue = status?.success ? status.data : null;
+  const filters: SQL[] = [
     ...(jobId?.success ? [eq(switchboardsTable.jobId, jobId.data)] : []),
-    ...(!includeArchived ? [isNull(switchboardsTable.archivedAt)] : []),
+    ...(status?.success ? [eq(switchboardsTable.status, status.data)] : []),
+    ...(!includeArchived && statusValue !== "archived" ? [isNull(switchboardsTable.archivedAt)] : []),
+    ...(personId?.success ? [sql`exists (select 1 from switchboard_assignees sa where sa.switchboard_id = ${switchboardsTable.id} and sa.person_id = ${personId.data})`] : []),
+    ...(openDefects?.success ? [openDefects.data === "true"
+      ? sql`exists (select 1 from switchboard_defects sd where sd.switchboard_id = ${switchboardsTable.id} and sd.status <> 'closed')`
+      : sql`not exists (select 1 from switchboard_defects sd where sd.switchboard_id = ${switchboardsTable.id} and sd.status <> 'closed')`] : []),
   ];
   const rows = await db.select().from(switchboardsTable)
     .where(filters.length ? and(...filters) : undefined)
     .orderBy(desc(switchboardsTable.updatedAt), desc(switchboardsTable.id));
-  res.json(await Promise.all(rows.map(serializeBoard)));
+  res.json(await serializeBoards(rows));
 });
 
 router.get("/switchboards/:id/documents", requirePermission("switchboards.documents.view"), async (req, res): Promise<void> => {
@@ -255,7 +291,7 @@ router.patch("/switchboards/:id", requirePermission("switchboards.update"), asyn
       }
       await tx.insert(switchboardEventsTable).values({
         switchboardId: row.id, eventType: "switchboard_updated", entityType: "switchboard",
-        entityId: row.id, payload: { before, patch: parsed.data }, ...actor(req),
+        entityId: row.id, payload: { before: redactSwitchboardAuditPayload(before), patch: redactSwitchboardAuditPayload(parsed.data) }, ...actor(req),
       });
       return row;
     });

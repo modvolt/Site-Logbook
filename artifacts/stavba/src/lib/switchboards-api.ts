@@ -38,6 +38,8 @@ export type Switchboard = {
   updatedAt: string;
   job: { id: number; title: string; jobNumber: number | null } | null;
   assignees: SwitchboardAssignee[];
+  openDefectCount: number;
+  criticalOpenDefectCount: number;
 };
 
 export type SwitchboardDocument = {
@@ -56,6 +58,48 @@ export type SwitchboardExtractedField = {
 };
 export type SwitchboardExtractionDocument = SwitchboardDocument & { fields: SwitchboardExtractedField[]; missingFields: Array<{ fieldKey: string; canonicalNameCs: string; dataType: string }> };
 export type SwitchboardLabel = { id: number; switchboardId: number; version: number; inputSnapshot: Record<string, unknown>; qrTarget: string; status: string; generatorVersion: string; createdAt: string; approvedAt: string | null };
+export type SwitchboardDocumentComparison = {
+  from: { id: number; version: number; originalFileName: string; sha256: string; processingStatus: string; uploadedAt: string };
+  to: { id: number; version: number; originalFileName: string; sha256: string; processingStatus: string; uploadedAt: string };
+  changes: Array<{ fieldKey: string; canonicalNameCs: string; before: { effectiveValue: string | null; confidence: number } | null; after: { effectiveValue: string | null; confidence: number } | null }>;
+};
+export type SwitchboardLabelComparison = {
+  from: { id: number; version: number; status: string; generatorVersion: string; sourceDocumentId: number | null; sourceDocumentVersion: number | null; createdAt: string; approvedAt: string | null };
+  to: { id: number; version: number; status: string; generatorVersion: string; sourceDocumentId: number | null; sourceDocumentVersion: number | null; createdAt: string; approvedAt: string | null };
+  changes: Array<{ fieldKey: string; before: unknown; after: unknown }>;
+};
+
+export type SwitchboardFieldRegistry = {
+  id: number; fieldKey: string; canonicalNameCs: string; aliases: string[]; dataType: string;
+  required: boolean; minimumConfidence: number; labelOrder: number; protocolOrder: number;
+  isActive: boolean; createdAt: string; updatedAt: string;
+};
+
+export type SwitchboardChecklistDefinitionItem = {
+  key: string; title: string; details: string[]; required: boolean; critical: boolean;
+  kind: "check" | "measurement" | "photo";
+  relevance?: { property: string; equals: boolean };
+};
+export type SwitchboardChecklistDefinition = {
+  schemaVersion: 1;
+  phases: Array<{ key: "assembly" | "inspection" | "measurement"; title: string; items: SwitchboardChecklistDefinitionItem[] }>;
+};
+export type SwitchboardChecklistTemplateVersion = {
+  id: number; templateId: number; version: number; definition: SwitchboardChecklistDefinition;
+  createdByUserId: number | null; createdAt: string;
+};
+export type SwitchboardChecklistTemplate = {
+  id: number; name: string; boardType: string | null; isActive: boolean;
+  createdByUserId: number | null; createdAt: string; updatedAt: string;
+  versions: SwitchboardChecklistTemplateVersion[];
+};
+
+export type SwitchboardEvent = {
+  id: number; switchboardId: number | null; eventType: string; entityType: string; entityId: number | null;
+  payload: Record<string, unknown>; actorUserId: number | null; actorName: string | null; createdAt: string;
+  board: null | { id: number; designation: string | null; internalName: string | null; job: null | { id: number; jobNumber: number | null; title: string | null } };
+};
+export type SwitchboardEventPage = { items: SwitchboardEvent[]; total: number; eventTypes: string[] };
 
 export type SwitchboardChecklistResponse = {
   id: number; phaseKey: string; itemKey: string; result: "done" | "defect" | "not_applicable" | null;

@@ -29,6 +29,8 @@ import JobGroupExport from "@/pages/job-group-export";
 import Switchboards from "@/pages/switchboards";
 import SwitchboardDetail from "@/pages/switchboard-detail";
 import SwitchboardParserSettings from "@/pages/switchboard-parser-settings";
+import SwitchboardTemplateSettings from "@/pages/switchboard-template-settings";
+import SwitchboardAudit from "@/pages/switchboard-audit";
 import People from "@/pages/people";
 import Customers from "@/pages/customers";
 import CustomerDetail from "@/pages/customer-detail";
@@ -195,6 +197,8 @@ function AuthenticatedApp() {
         <Route path="/switchboards/:id">{() => <PermissionOnly component={SwitchboardDetail} permission="switchboards.view" />}</Route>
         <Route path="/switchboards">{() => <PermissionOnly component={Switchboards} permission="switchboards.view" />}</Route>
         <Route path="/admin/switchboard-parser">{() => <PermissionOnly component={SwitchboardParserSettings} permission="switchboards.parser.manage" />}</Route>
+        <Route path="/admin/switchboard-templates">{() => <PermissionOnly component={SwitchboardTemplateSettings} permission="switchboards.templates.manage" />}</Route>
+        <Route path="/admin/switchboard-audit">{() => <PermissionOnly component={SwitchboardAudit} permission="switchboards.audit.view" />}</Route>
         <Route path="/customers" component={Customers} />
         <Route path="/customers/:id" component={CustomerDetail} />
         <Route path="/customer-sites/:id" component={SiteDetail} />

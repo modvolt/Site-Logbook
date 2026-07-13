@@ -14,6 +14,7 @@ import { SwitchboardLabels } from "@/components/switchboard-labels";
 import { SwitchboardChecklist } from "@/components/switchboard-checklist";
 import { SwitchboardOperationsPanel } from "@/components/switchboard-operations";
 import { SwitchboardProtocols } from "@/components/switchboard-protocols";
+import { SwitchboardAuditTrail } from "@/components/switchboard-audit-trail";
 import { useToast } from "@/hooks/use-toast";
 import { SWITCHBOARD_STATUS_LABELS, switchboardFetch, type Switchboard } from "@/lib/switchboards-api";
 
@@ -89,6 +90,7 @@ export default function SwitchboardDetail() {
       <SwitchboardDocuments switchboardId={id} />
       <SwitchboardExtractionReview switchboardId={id} />
       <SwitchboardLabels board={board} />
+      {can("switchboards.audit.view") && <SwitchboardAuditTrail boardId={id} compact />}
     </div>
   );
 }

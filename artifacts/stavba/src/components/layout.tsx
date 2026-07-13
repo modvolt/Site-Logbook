@@ -186,7 +186,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content. Bottom padding clears the fixed mobile nav (h-16) plus the
           iOS home-indicator safe area so content is never hidden behind it. */}
-      <main className="flex-1 flex flex-col pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0 relative min-h-[100dvh]">
+      <main className="flex-1 min-w-0 flex flex-col pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0 relative min-h-[100dvh]">
         {role === "guest" && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 px-4 py-2 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
             <Eye className="w-3.5 h-3.5" />

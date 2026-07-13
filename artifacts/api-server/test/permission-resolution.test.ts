@@ -35,11 +35,18 @@ describe("role permissions with individual overrides", () => {
 
   it("keeps switchboard administration restricted while allowing operational work", () => {
     const master = resolvePermissions("master", []);
+    const admin = resolvePermissions("admin", []);
     expect(master).toContain("switchboards.view");
     expect(master).toContain("switchboards.checklist.fill");
     expect(master).not.toContain("switchboards.archive");
     expect(master).not.toContain("switchboards.protocol.override");
-    expect(resolvePermissions("admin", [])).toContain("switchboards.protocol.override");
+    expect(master).not.toContain("switchboards.templates.manage");
+    expect(master).not.toContain("switchboards.parser.manage");
+    expect(master).not.toContain("switchboards.audit.view");
+    expect(admin).toContain("switchboards.protocol.override");
+    expect(admin).toContain("switchboards.templates.manage");
+    expect(admin).toContain("switchboards.parser.manage");
+    expect(admin).toContain("switchboards.audit.view");
   });
 
   it("can individually remove switchboard access from an admin", () => {

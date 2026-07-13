@@ -12,6 +12,7 @@ import {
   DEFAULT_SWITCHBOARD_CHECKLIST, checklistDefinitionSchema, checklistResultSchema,
   evaluatePhaseCompletion, findChecklistItem, isIdempotentChecklistRetry, itemIsRelevant, validateChecklistResponse,
 } from "../lib/switchboard-checklist";
+import { snapshotValuesEqual } from "../lib/switchboard-admin";
 
 const router: IRouter = Router();
 const id = z.coerce.number().int().positive();
@@ -144,6 +145,25 @@ router.post("/switchboards/checklist-templates", requirePermission("switchboards
   res.status(201).json(result);
 });
 
+const templateMetadataPatch = z.object({
+  name: z.string().trim().min(3).max(200).optional(),
+  boardType: z.string().trim().min(1).max(200).nullable().optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, { message: "Není zadána žádná změna." });
+
+router.patch("/switchboards/checklist-templates/:templateId", requirePermission("switchboards.templates.manage"), async (req, res) => {
+  const templateId = id.safeParse(req.params.templateId); const body = templateMetadataPatch.safeParse(req.body);
+  if (!templateId.success || !body.success) { res.status(400).json({ error: body.success ? "Neplatná šablona." : body.error.issues[0]?.message }); return; }
+  const result = await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(switchboardChecklistTemplatesTable).where(eq(switchboardChecklistTemplatesTable.id, templateId.data)).for("update");
+    if (!before) return null;
+    const [updated] = await tx.update(switchboardChecklistTemplatesTable).set({ ...body.data, updatedAt: new Date() }).where(eq(switchboardChecklistTemplatesTable.id, before.id)).returning();
+    await tx.insert(switchboardEventsTable).values({ eventType: "checklist_template_metadata_updated", entityType: "switchboard_checklist_template", entityId: updated.id, payload: { before: { name: before.name, boardType: before.boardType }, after: { name: updated.name, boardType: updated.boardType } }, ...actor(req) });
+    return updated;
+  });
+  if (!result) { res.status(404).json({ error: "Šablona nebyla nalezena." }); return; }
+  res.json({ ...result, createdAt: result.createdAt.toISOString(), updatedAt: result.updatedAt.toISOString() });
+});
+
 router.post("/switchboards/checklist-templates/:templateId/versions", requirePermission("switchboards.templates.manage"), async (req, res) => {
   const templateId = id.safeParse(req.params.templateId);
   const definition = checklistDefinitionSchema.safeParse(req.body?.definition);
@@ -153,13 +173,19 @@ router.post("/switchboards/checklist-templates/:templateId/versions", requirePer
       await tx.execute(sql`select pg_advisory_xact_lock(${templateId.data}, 8406)`);
       const [template] = await tx.select().from(switchboardChecklistTemplatesTable).where(eq(switchboardChecklistTemplatesTable.id, templateId.data));
       if (!template) throw Object.assign(new Error("Šablona nebyla nalezena."), { statusCode: 404 });
+      const [latest] = await tx.select().from(switchboardChecklistTemplateVersionsTable).where(eq(switchboardChecklistTemplateVersionsTable.templateId, template.id)).orderBy(desc(switchboardChecklistTemplateVersionsTable.version)).limit(1);
+      if (latest && snapshotValuesEqual(latest.definition, definition.data)) throw Object.assign(new Error("Definice se proti poslední verzi nezměnila."), { statusCode: 409 });
       const [{ value }] = await tx.select({ value: max(switchboardChecklistTemplateVersionsTable.version) }).from(switchboardChecklistTemplateVersionsTable).where(eq(switchboardChecklistTemplateVersionsTable.templateId, template.id));
       const [created] = await tx.insert(switchboardChecklistTemplateVersionsTable).values({ templateId: template.id, version: Number(value ?? 0) + 1, definition: definition.data, createdByUserId: req.auth?.userId ?? null }).returning();
       await tx.insert(switchboardEventsTable).values({ eventType: "checklist_template_version_created", entityType: "switchboard_checklist_template_version", entityId: created.id, payload: { templateId: template.id, version: created.version }, ...actor(req) });
       return created;
     });
     res.status(201).json(version);
-  } catch (error) { res.status((error as { statusCode?: number }).statusCode ?? 500).json({ error: (error as Error).message }); }
+  } catch (error) {
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode) { res.status(statusCode).json({ error: (error as Error).message }); return; }
+    throw error;
+  }
 });
 
 router.patch("/switchboards/checklist-templates/:templateId/active", requirePermission("switchboards.templates.manage"), async (req, res) => {
