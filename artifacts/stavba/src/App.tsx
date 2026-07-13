@@ -175,6 +175,7 @@ function PermissionOnly({ component: Component, permission }: { component: React
 }
 
 function AuthenticatedApp() {
+  const [path] = useLocation();
   // Keep open screens live with changes made on other devices (SSE push).
   // Only active while authenticated, so the stream is never opened on /login.
   useLiveUpdates();
@@ -183,7 +184,7 @@ function AuthenticatedApp() {
     <QuickAddDateProvider>
       <Layout>
         <OfflineBanner />
-        <PageErrorBoundary>
+        <PageErrorBoundary key={path}>
         <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/calendar" component={Calendar} />

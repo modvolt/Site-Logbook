@@ -768,10 +768,12 @@ function MaterialsSection({
   onChange: () => void;
 }) {
   const { toast } = useToast();
+  const { can } = useAuth();
+  const canViewCostRates = can("rates.cost.view");
   const { data: warehouseItems } = useListWarehouseItems(undefined, { query: { queryKey: getListWarehouseItemsQueryKey() } });
   const { data: marginTrend } = useGetWarehouseActivityMarginTrend(
     { activityId },
-    { query: { queryKey: getGetWarehouseActivityMarginTrendQueryKey({ activityId }) } },
+    { query: { enabled: canViewCostRates, queryKey: getGetWarehouseActivityMarginTrendQueryKey({ activityId }) } },
   );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => String(w.name ?? ""));
   // Name-keyed map for resolving warehouseItemId from the autocomplete selection.

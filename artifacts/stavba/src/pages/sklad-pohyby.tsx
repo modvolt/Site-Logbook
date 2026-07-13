@@ -147,6 +147,7 @@ export default function SkladPohyby() {
 
   const { can } = useAuth();
   const canEditCostPrice = can("write");
+  const canViewCostRates = can("rates.cost.view");
   const queryClient = useQueryClient();
 
   const refreshMovements = useCallback(() => {
@@ -181,11 +182,11 @@ export default function SkladPohyby() {
   const trendParams = selectedJobId != null ? { jobId: selectedJobId, granularity: trendGranularity } : undefined;
   const { data: margin } = useGetWarehouseJobMarginSummary(
     marginParams!,
-    { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginSummaryQueryKey(marginParams) } },
+    { query: { enabled: selectedJobId != null && canViewCostRates, queryKey: getGetWarehouseJobMarginSummaryQueryKey(marginParams) } },
   );
   const { data: marginTrend } = useGetWarehouseJobMarginTrend(
     trendParams!,
-    { query: { enabled: selectedJobId != null, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
+    { query: { enabled: selectedJobId != null && canViewCostRates, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
   );
 
   const hasCostOrSale = margin && (margin.totalQtyOut > 0);

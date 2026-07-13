@@ -134,6 +134,7 @@ export default function JobDetail() {
   const id = parseInt(params.id || "0", 10);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { can } = useAuth();
 
   const initialSection = new URLSearchParams(search).get("section");
   const VALID_SECTIONS = ["info", "doklady", "attachments", "tasks", "materials", "jobsheets", "summary", "costs"];
@@ -577,7 +578,7 @@ export default function JobDetail() {
             </div>
           </DialogContent>
         </Dialog>
-        <JobMarginAlert jobId={id} />
+        {can("rates.cost.view") && <JobMarginAlert jobId={id} />}
         <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
@@ -2115,6 +2116,7 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const { can } = useAuth();
   const isAdmin = can("manageUsers");
+  const canViewCostRates = can("rates.cost.view");
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
   });
@@ -2129,12 +2131,12 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>("week");
   const { data: warehouseMargin } = useGetWarehouseJobMarginSummary(
     { jobId },
-    { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginSummaryQueryKey({ jobId }) } },
+    { query: { enabled: isExpanded && canViewCostRates, queryKey: getGetWarehouseJobMarginSummaryQueryKey({ jobId }) } },
   );
   const trendParams = { jobId, granularity: trendGranularity };
   const { data: marginTrend } = useGetWarehouseJobMarginTrend(
     trendParams,
-    { query: { enabled: isExpanded, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
+    { query: { enabled: isExpanded && canViewCostRates, queryKey: getGetWarehouseJobMarginTrendQueryKey(trendParams) } },
   );
   const materialSuggestions = (warehouseItems ?? []).map((w: any) => String(w.name ?? ""));
   // Name-keyed map for resolving warehouseItemId when user picks from autocomplete.

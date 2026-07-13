@@ -10,6 +10,7 @@ import {
   getGetMyPreferencesQueryKey,
   useBulkUpdateJobStatus,
   useGetWarehouseJobsMarginSummary,
+  getGetWarehouseJobsMarginSummaryQueryKey,
 } from "@workspace/api-client-react";
 import type { ListJobsParams, JobBulkStatusUpdateStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -132,6 +133,7 @@ export default function Jobs() {
   const [exporting, setExporting] = useState(false);
   const [groupByCustomer, setGroupByCustomer] = useState(true);
   const { isAuthenticated, can } = useAuth();
+  const canViewCostRates = can("rates.cost.view");
   const { openConfirm, dialogProps } = useConfirmDialog();
   const queryClient = useQueryClient();
   const [selectedColumns, setSelectedColumns] = useState<ExportColumnKey[]>(
@@ -311,7 +313,9 @@ export default function Jobs() {
     { query: { queryKey: getListJobsQueryKey(queryParams) } }
   );
 
-  const { data: jobMargins } = useGetWarehouseJobsMarginSummary();
+  const { data: jobMargins } = useGetWarehouseJobsMarginSummary({
+    query: { enabled: canViewCostRates, queryKey: getGetWarehouseJobsMarginSummaryQueryKey() },
+  });
   const marginByJobId = new Map<number, number | null>(
     (jobMargins?.items ?? []).map((m) => [m.jobId, m.marginPercent ?? null])
   );

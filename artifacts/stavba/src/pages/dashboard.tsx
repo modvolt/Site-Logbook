@@ -8,6 +8,7 @@ import {
   useListPeople, getListPeopleQueryKey, useListJobs, getListJobsQueryKey,
   useReorderJobs, useGetRisksSummary, getGetRisksSummaryQueryKey,
   useGetWarehouseJobsMarginSummary,
+  getGetWarehouseJobsMarginSummaryQueryKey,
   useGetStatsOverview, getGetStatsOverviewQueryKey,
 } from "@workspace/api-client-react";
 import { type RiskMetricFilter } from "@workspace/api-client-react";
@@ -704,6 +705,7 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { can, role } = useAuth();
   const canViewBilling = can("billing.view");
+  const canViewCostRates = can("rates.cost.view");
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() }
   });
@@ -714,7 +716,9 @@ export default function Dashboard() {
 
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
-  const { data: jobMargins } = useGetWarehouseJobsMarginSummary();
+  const { data: jobMargins } = useGetWarehouseJobsMarginSummary({
+    query: { enabled: canViewCostRates, queryKey: getGetWarehouseJobsMarginSummaryQueryKey() },
+  });
   const marginByJobId = new Map<number, number | null>(
     (jobMargins?.items ?? []).map((m) => [m.jobId, m.marginPercent ?? null])
   );
