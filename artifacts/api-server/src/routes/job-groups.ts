@@ -9,6 +9,7 @@ import {
   tasksTable,
   customersTable,
 } from "@workspace/db";
+import { activeWorkSessionStarts } from "../lib/work-session-service";
 
 const router: IRouter = Router();
 
@@ -66,7 +67,7 @@ function serializeGroup(
   };
 }
 
-function serializeJob(job: typeof jobsTable.$inferSelect) {
+function serializeJob(job: typeof jobsTable.$inferSelect, personalTimerStarts = new Map<number, Date>()) {
   return {
     ...job,
     hoursSpent: num(job.hoursSpent),
@@ -79,7 +80,7 @@ function serializeJob(job: typeof jobsTable.$inferSelect) {
     fines: num(job.fines),
     parking: num(job.parking),
     contractPrice: num(job.contractPrice),
-    timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
+    timerStartedAt: personalTimerStarts.get(job.id)?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
     signatureRequestedAt: job.signatureRequestedAt ? job.signatureRequestedAt.toISOString() : null,
     signatureTokenExpiresAt: job.signatureTokenExpiresAt ? job.signatureTokenExpiresAt.toISOString() : null,
@@ -195,6 +196,7 @@ router.get("/job-groups/:id", async (req, res): Promise<void> => {
   }
   const jobs = await loadJobs(row.group.id);
   const jobIds = jobs.map((job) => job.id);
+  const personalTimerStarts = await activeWorkSessionStarts("job", jobIds, req.auth!.personId);
   const materials = jobIds.length > 0
     ? await db.select().from(materialsTable).where(inArray(materialsTable.jobId, jobIds)).orderBy(asc(materialsTable.jobId), asc(materialsTable.sortOrder), asc(materialsTable.id))
     : [];
@@ -225,7 +227,7 @@ router.get("/job-groups/:id", async (req, res): Promise<void> => {
   res.json({
     ...serializeGroup(row.group, row.customerCompanyName ?? null, jobs, materialTotalCost),
     jobs: jobs.map((job) => ({
-      ...serializeJob(job),
+      ...serializeJob(job, personalTimerStarts),
       materials: materialsByJob.get(job.id) ?? [],
       tasks: tasksByJob.get(job.id) ?? [],
     })),

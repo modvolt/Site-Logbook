@@ -45,6 +45,7 @@ import {
   DeleteActivityExtraWorkParams,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import { ActiveWorkSessionConflict, activeWorkSessionStarts, startWorkSession, stopWorkSession } from "../lib/work-session-service";
 
 const router: IRouter = Router();
 
@@ -64,7 +65,10 @@ const financialAccess = (req: import("express").Request): ActivityFinancialAcces
 export async function serializeActivity(
   a: typeof activitiesTable.$inferSelect,
   access: ActivityFinancialAccess = { canViewCost: false, canViewSale: false },
+  timerPersonId?: number | null,
+  timerStarts?: Map<number, Date>,
 ) {
+  const personalTimerStarts = timerStarts ?? await activeWorkSessionStarts("activity", [a.id], timerPersonId);
   let customerName: string | null = null;
   if (a.customerId) {
     const [c] = await db
@@ -182,7 +186,7 @@ export async function serializeActivity(
     customerName,
     createdByUserId: a.createdByUserId,
     createdByUserName,
-    timerStartedAt: a.timerStartedAt ? a.timerStartedAt.toISOString() : null,
+    timerStartedAt: personalTimerStarts.get(a.id)?.toISOString() ?? null,
     hoursSpent,
     fixedPrice: access.canViewSale ? fixedPrice : null,
     hourlyRate: access.canViewCost ? hourlyRate : null,
@@ -258,7 +262,8 @@ router.get("/activities", requireAuth, async (req, res): Promise<void> => {
     .where(and(...conds))
     .orderBy(desc(activitiesTable.updatedAt));
 
-  res.json(await Promise.all(rows.map((row) => serializeActivity(row, financialAccess(req)))));
+  const personalTimerStarts = await activeWorkSessionStarts("activity", rows.map((row) => row.id), req.auth!.personId);
+  res.json(await Promise.all(rows.map((row) => serializeActivity(row, financialAccess(req), req.auth!.personId, personalTimerStarts))));
 });
 
 router.post("/activities", requireAuth, async (req, res): Promise<void> => {
@@ -277,7 +282,7 @@ router.post("/activities", requireAuth, async (req, res): Promise<void> => {
       createdByUserId: userId,
     })
     .returning();
-  res.status(201).json(await serializeActivity(a, financialAccess(req)));
+  res.status(201).json(await serializeActivity(a, financialAccess(req), req.auth!.personId));
 });
 
 router.get("/activities/:id", requireAuth, async (req, res): Promise<void> => {
@@ -294,7 +299,7 @@ router.get("/activities/:id", requireAuth, async (req, res): Promise<void> => {
     res.status(404).json({ error: "Activity not found" });
     return;
   }
-  res.json(await serializeActivity(a, financialAccess(req)));
+  res.json(await serializeActivity(a, financialAccess(req), req.auth!.personId));
 });
 
 router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => {
@@ -335,7 +340,7 @@ router.patch("/activities/:id", requireAuth, async (req, res): Promise<void> => 
     res.status(404).json({ error: "Activity not found" });
     return;
   }
-  res.json(await serializeActivity(a, financialAccess(req)));
+  res.json(await serializeActivity(a, financialAccess(req), req.auth!.personId));
 });
 
 router.delete("/activities/:id", requireAuth, async (req, res): Promise<void> => {
@@ -376,20 +381,23 @@ router.post("/activities/:id/timer/start", requireAuth, async (req, res): Promis
     res.status(400).json({ error: params.error.message });
     return;
   }
-  // Only set timerStartedAt if it's not already running, to avoid losing accumulated time.
-  const [a] = await db
-    .update(activitiesTable)
-    .set({ timerStartedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(activitiesTable.id, params.data.id), sql`${activitiesTable.timerStartedAt} IS NULL`))
-    .returning();
-  if (!a) {
-    // Either not found, or already running — return current state.
-    const [existing] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.id));
-    if (!existing) { res.status(404).json({ error: "Activity not found" }); return; }
-    res.json(await serializeActivity(existing, financialAccess(req)));
+  const personId = req.auth!.personId;
+  if (!personId) {
+    res.status(409).json({ error: "Uživatelský účet není propojen se zaměstnancem. Propojení nastavte ve správě uživatelů.", code: "time_person_unlinked" });
     return;
   }
-  res.json(await serializeActivity(a, financialAccess(req)));
+  const [activity] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.id));
+  if (!activity) { res.status(404).json({ error: "Activity not found" }); return; }
+  try {
+    await startWorkSession("activity", params.data.id, personId, req.auth!.userId);
+  } catch (error) {
+    if (error instanceof ActiveWorkSessionConflict) {
+      res.status(409).json({ error: error.message, activeSession: error.active });
+      return;
+    }
+    throw error;
+  }
+  res.json(await serializeActivity(activity, financialAccess(req), personId));
 });
 
 router.post("/activities/:id/timer/stop", requireAuth, async (req, res): Promise<void> => {
@@ -398,22 +406,16 @@ router.post("/activities/:id/timer/stop", requireAuth, async (req, res): Promise
     res.status(400).json({ error: params.error.message });
     return;
   }
-  // Atomic update: accumulate elapsed hours and clear the timer in one statement.
-  const [a] = await db
-    .update(activitiesTable)
-    .set({
-      hoursSpent: sql`round(
-        (coalesce(${activitiesTable.hoursSpent}, 0)
-          + case when ${activitiesTable.timerStartedAt} is not null
-                 then extract(epoch from (now() - ${activitiesTable.timerStartedAt})) / 3600.0
-                 else 0 end)::numeric, 2)`,
-      timerStartedAt: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(activitiesTable.id, params.data.id))
-    .returning();
-  if (!a) { res.status(404).json({ error: "Activity not found" }); return; }
-  res.json(await serializeActivity(a, financialAccess(req)));
+  const personId = req.auth!.personId;
+  if (!personId) {
+    res.status(409).json({ error: "Uživatelský účet není propojen se zaměstnancem. Propojení nastavte ve správě uživatelů.", code: "time_person_unlinked" });
+    return;
+  }
+  const [activity] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.id));
+  if (!activity) { res.status(404).json({ error: "Activity not found" }); return; }
+  await stopWorkSession("activity", params.data.id, personId, req.auth!.userId);
+  const [updated] = await db.select().from(activitiesTable).where(eq(activitiesTable.id, params.data.id));
+  res.json(await serializeActivity(updated ?? activity, financialAccess(req), personId));
 });
 
 // Materials

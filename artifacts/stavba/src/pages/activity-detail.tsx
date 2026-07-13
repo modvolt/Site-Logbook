@@ -255,6 +255,7 @@ export default function ActivityDetail() {
           invalidate();
           toast({ title: "Časovač zastaven, čas uložen" });
         },
+        onError: (error: any) => toast({ title: "Časovač se nepodařilo zastavit", description: error?.message, variant: "destructive" }),
       });
     } else {
       startTimer.mutate({ id }, {
@@ -262,6 +263,7 @@ export default function ActivityDetail() {
           invalidate();
           toast({ title: "Časovač spuštěn" });
         },
+        onError: (error: any) => toast({ title: "Časovač se nepodařilo spustit", description: error?.message, variant: "destructive" }),
       });
     }
   };

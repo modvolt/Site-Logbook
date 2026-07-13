@@ -70,7 +70,7 @@ import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
 import { AttachmentViewer } from "@/components/attachment-viewer";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { prepareImageFile } from "@/lib/prepare-image";
-import { computeTimerHours, hoursFromPresetTimes } from "@/pages/dashboard";
+import { hoursFromPresetTimes } from "@/pages/dashboard";
 import {
   ensureNotificationPermission,
   showTimerNotification,
@@ -242,27 +242,28 @@ export default function JobDetail() {
         invalidateJobLists(queryClient);
         if (notify) void showTimerNotification(job?.title ?? "");
         toast({ title: "Měření času spuštěno" });
-      }
+      },
+      onError: (error: any) => toast({
+        title: "Měření času se nepodařilo spustit",
+        description: error?.message,
+        variant: "destructive",
+      }),
     });
   };
 
   const handleTimerStop = () => {
-    const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, job?.hoursSpent);
-    // Only count as a new actual measurement (and drop the plan revert option) when time was actually added
-    const data = belowThreshold
-      ? { timerStartedAt: null }
-      : { timerStartedAt: null, hoursSpent: newTotal || null, hoursFromPlan: false, hoursBeforePlan: null };
-    updateJob.mutate({ id, data }, {
+    updateJob.mutate({ id, data: { timerStartedAt: null } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
         invalidateJobLists(queryClient);
         void clearTimerNotification();
-        toast({
-          title: belowThreshold
-            ? `Čas zastaven — pod 5 min, nezapočítáno`
-            : `Čas zastaven — +${added.toFixed(2)} h (celkem ${newTotal.toFixed(2)} h)`,
-        });
-      }
+        toast({ title: "Čas zastaven a uložen" });
+      },
+      onError: (error: any) => toast({
+        title: "Měření času se nepodařilo zastavit",
+        description: error?.message,
+        variant: "destructive",
+      }),
     });
   };
 

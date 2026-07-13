@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import {
   db,
+  peopleTable,
   usersTable,
   userPermissionOverridesTable,
   USER_ROLES,
@@ -19,6 +20,19 @@ import { getPermissionOverrides } from "../lib/permissions";
 const router: IRouter = Router();
 
 router.use("/users", requirePermission("users.manage"));
+
+async function validatePersonLink(personId: number | null | undefined, currentUserId?: number) {
+  if (personId == null) return null;
+  const [[person], [linkedUser]] = await Promise.all([
+    db.select({ id: peopleTable.id }).from(peopleTable).where(eq(peopleTable.id, personId)),
+    db.select({ id: usersTable.id, username: usersTable.username }).from(usersTable).where(eq(usersTable.personId, personId)),
+  ]);
+  if (!person) return "Vybraný zaměstnanec neexistuje.";
+  if (linkedUser && linkedUser.id !== currentUserId) {
+    return `Zaměstnanec je již propojen s účtem ${linkedUser.username}.`;
+  }
+  return null;
+}
 
 async function overridesByUser(userIds: number[]) {
   const grouped = new Map<number, Array<{ permission: string; effect: PermissionEffect }>>();
@@ -48,7 +62,7 @@ router.post("/users", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { username, password, name, email, role, isActive } = parsed.data;
+  const { username, password, name, email, personId, role, isActive } = parsed.data;
   if (!USER_ROLES.includes(role as UserRole)) {
     res.status(400).json({ error: "Neplatná role" });
     return;
@@ -58,6 +72,11 @@ router.post("/users", async (req, res): Promise<void> => {
     res.status(409).json({ error: "Uživatelské jméno již existuje" });
     return;
   }
+  const personLinkError = await validatePersonLink(personId);
+  if (personLinkError) {
+    res.status(409).json({ error: personLinkError });
+    return;
+  }
   const passwordHash = await bcrypt.hash(password, 10);
   const [user] = await db
     .insert(usersTable)
@@ -65,6 +84,7 @@ router.post("/users", async (req, res): Promise<void> => {
       username,
       passwordHash,
       name,
+      personId: personId ?? null,
       email: email ?? null,
       role,
       isActive: isActive ?? true,
@@ -84,12 +104,20 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { name, email, role, isActive, password } = parsed.data;
+  const { name, email, personId, role, isActive, password } = parsed.data;
   const [currentUser] = await db.select().from(usersTable).where(eq(usersTable.id, params.data.id));
   if (!currentUser) { res.status(404).json({ error: "User not found" }); return; }
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (email !== undefined) updates.email = email;
+  if (personId !== undefined) {
+    const personLinkError = await validatePersonLink(personId, params.data.id);
+    if (personLinkError) {
+      res.status(409).json({ error: personLinkError });
+      return;
+    }
+    updates.personId = personId;
+  }
   if (role !== undefined) {
     if (!USER_ROLES.includes(role as UserRole)) {
       res.status(400).json({ error: "Neplatná role" });

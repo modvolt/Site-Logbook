@@ -28,6 +28,7 @@ export interface AuthInfo {
   username: string;
   role: UserRole;
   name: string;
+  personId: number | null;
   permissions: Permission[];
 }
 
@@ -59,6 +60,7 @@ export async function attachAuth(req: Request, _res: Response, next: NextFunctio
         username: user.username,
         role: user.role as UserRole,
         name: user.name,
+        personId: user.personId,
         permissions,
       };
     } catch (error) {

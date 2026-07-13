@@ -10342,7 +10342,7 @@ components:
 
     AuthUser:
       type: object
-      required: [id, username, name, role, isActive, createdAt, permissions, permissionOverrides]
+      required: [id, username, name, personId, role, isActive, createdAt, permissions, permissionOverrides]
       properties:
         id:
           type: integer
@@ -10350,6 +10350,9 @@ components:
           type: string
         name:
           type: string
+        personId:
+          type: ["integer", "null"]
+          description: Employee record used for personal time tracking
         email:
           type: ["string", "null"]
         role:
@@ -10531,6 +10534,8 @@ components:
           minLength: 1
         email:
           type: ["string", "null"]
+        personId:
+          type: ["integer", "null"]
         role:
           type: string
           description: "guest | master | admin"

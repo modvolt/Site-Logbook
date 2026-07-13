@@ -32,6 +32,24 @@ async function createJob(label: string) {
   return job.id;
 }
 
+async function createLinkedAdmin(label: string, personId: number): Promise<Agent> {
+  const [user] = await db
+    .insert(usersTable)
+    .values({
+      username: `${TAG}-${label}`,
+      passwordHash: await bcrypt.hash(PASSWORD, 10),
+      name: `${label} ${TAG}`,
+      personId,
+      role: "admin",
+      isActive: true,
+    })
+    .returning();
+  userIds.push(user.id);
+  const agent = request.agent(app);
+  expect((await agent.post("/api/auth/login").send({ username: user.username, password: PASSWORD })).status).toBe(200);
+  return agent;
+}
+
 beforeAll(async () => {
   const [user] = await db
     .insert(usersTable)
@@ -60,6 +78,44 @@ afterAll(async () => {
 });
 
 describe("work-session lifecycle", () => {
+  it("keeps legacy job timer controls personal for concurrent users", async () => {
+    const firstPersonId = await createPerson("Personal timer first");
+    const secondPersonId = await createPerson("Personal timer second");
+    const firstUser = await createLinkedAdmin("personal-first", firstPersonId);
+    const secondUser = await createLinkedAdmin("personal-second", secondPersonId);
+    const jobId = await createJob("Shared timer parent");
+
+    const unlinkedStart = await admin.patch(`/api/jobs/${jobId}`).send({ timerStartedAt: new Date().toISOString() });
+    expect(unlinkedStart.status).toBe(409);
+    expect(unlinkedStart.body.code).toBe("time_person_unlinked");
+
+    const firstStart = await firstUser.patch(`/api/jobs/${jobId}`).send({ timerStartedAt: new Date().toISOString() });
+    const secondStart = await secondUser.patch(`/api/jobs/${jobId}`).send({ timerStartedAt: new Date().toISOString() });
+    expect(firstStart.status).toBe(200);
+    expect(secondStart.status).toBe(200);
+    expect(firstStart.body.timerStartedAt).toEqual(expect.any(String));
+    expect(secondStart.body.timerStartedAt).toEqual(expect.any(String));
+
+    const activeTogether = await db
+      .select()
+      .from(workSessionsTable)
+      .where(and(eq(workSessionsTable.jobId, jobId), eq(workSessionsTable.status, "active")));
+    expect(activeTogether).toHaveLength(2);
+    expect(new Set(activeTogether.map((session) => session.personId))).toEqual(new Set([firstPersonId, secondPersonId]));
+
+    expect((await firstUser.patch(`/api/jobs/${jobId}`).send({ timerStartedAt: null })).status).toBe(200);
+    expect((await firstUser.get(`/api/jobs/${jobId}`)).body.timerStartedAt).toBeNull();
+    expect((await secondUser.get(`/api/jobs/${jobId}`)).body.timerStartedAt).toEqual(expect.any(String));
+
+    const secondStillActive = await db
+      .select()
+      .from(workSessionsTable)
+      .where(and(eq(workSessionsTable.jobId, jobId), eq(workSessionsTable.status, "active")));
+    expect(secondStillActive).toHaveLength(1);
+    expect(secondStillActive[0].personId).toBe(secondPersonId);
+    expect((await secondUser.patch(`/api/jobs/${jobId}`).send({ timerStartedAt: null })).status).toBe(200);
+  });
+
   it("keeps repeated Start idempotent and rejects another active parent", async () => {
     const personId = await createPerson("Single active");
     const firstJob = await createJob("First parent");

@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import {
   useListUsers, getListUsersQueryKey,
+  useListPeople, getListPeopleQueryKey,
   useCreateUser, useUpdateUser, useDeleteUser,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -30,18 +31,19 @@ export default function UsersAdmin() {
   const { toast } = useToast();
   const { openConfirm, dialogProps } = useConfirmDialog();
   const { data: users, isLoading, isError, error, refetch } = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
+  const { data: people = [] } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
 
   const [showCreate, setShowCreate] = useState(false);
-  const [newUser, setNewUser] = useState({ username: "", password: "", name: "", email: "", role: "guest" });
+  const [newUser, setNewUser] = useState({ username: "", password: "", name: "", email: "", personId: "none", role: "guest" });
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [permissionsUserId, setPermissionsUserId] = useState<number | null>(null);
-  const [editDraft, setEditDraft] = useState({ name: "", email: "", role: "guest", isActive: true, password: "" });
+  const [editDraft, setEditDraft] = useState({ name: "", email: "", personId: "none", role: "guest", isActive: true, password: "" });
   const [editError, setEditError] = useState<string | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
@@ -59,6 +61,7 @@ export default function UsersAdmin() {
         password: newUser.password,
         name: newUser.name,
         email: newUser.email || null,
+        personId: newUser.personId === "none" ? null : Number(newUser.personId),
         role: newUser.role,
         isActive: true,
       },
@@ -66,7 +69,7 @@ export default function UsersAdmin() {
       onSuccess: () => {
         refresh();
         setShowCreate(false);
-        setNewUser({ username: "", password: "", name: "", email: "", role: "guest" });
+        setNewUser({ username: "", password: "", name: "", email: "", personId: "none", role: "guest" });
         setCreateError(null);
         toast({ title: "Uživatel vytvořen" });
       },
@@ -76,7 +79,7 @@ export default function UsersAdmin() {
 
   const startEdit = (u: any) => {
     setEditingId(u.id);
-    setEditDraft({ name: u.name, email: u.email || "", role: u.role, isActive: u.isActive, password: "" });
+    setEditDraft({ name: u.name, email: u.email || "", personId: u.personId == null ? "none" : String(u.personId), role: u.role, isActive: u.isActive, password: "" });
   };
 
   const saveEdit = () => {
@@ -86,6 +89,7 @@ export default function UsersAdmin() {
     const data: any = {
       name: editDraft.name,
       email: editDraft.email || null,
+      personId: editDraft.personId === "none" ? null : Number(editDraft.personId),
       role: editDraft.role,
       isActive: editDraft.isActive,
     };
@@ -176,6 +180,16 @@ export default function UsersAdmin() {
                 <Input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} placeholder="pro notifikace" />
               </div>
               <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Zaměstnanec pro měření času</label>
+                <Select value={newUser.personId} onValueChange={value => setNewUser({ ...newUser, personId: value })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nepřiřazeno</SelectItem>
+                    {people.map(person => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Role *</label>
                 <Select value={newUser.role} onValueChange={v => setNewUser({ ...newUser, role: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
@@ -215,6 +229,7 @@ export default function UsersAdmin() {
                   <th className="px-3 py-3 text-left">Jméno</th>
                   <th className="px-3 py-3 text-left">Uživatel</th>
                   <th className="px-3 py-3 text-left">Email</th>
+                  <th className="px-3 py-3 text-left">Zaměstnanec</th>
                   <th className="px-3 py-3 text-left">Role</th>
                   <th className="px-3 py-3 text-left">Stav</th>
                   <th className="px-3 py-3 w-32"></th>
@@ -223,10 +238,10 @@ export default function UsersAdmin() {
               <tbody>
                 {isLoading ? (
                   [1, 2, 3].map(i => (
-                    <tr key={i} className="border-t"><td colSpan={6} className="px-3 py-2"><Skeleton className="h-8 w-full" /></td></tr>
+                    <tr key={i} className="border-t"><td colSpan={7} className="px-3 py-2"><Skeleton className="h-8 w-full" /></td></tr>
                   ))
                 ) : users?.length === 0 ? (
-                  <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">Žádní uživatelé</td></tr>
+                  <tr><td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">Žádní uživatelé</td></tr>
                 ) : users?.map(u => {
                   const isEditing = editingId === u.id;
                   const meta = ROLE_META[u.role] || ROLE_META.guest;
@@ -240,6 +255,15 @@ export default function UsersAdmin() {
                         <td className="px-2 py-2 text-muted-foreground">{u.username}</td>
                         <td className="px-2 py-2">
                           <Input type="email" value={editDraft.email} onChange={e => setEditDraft({ ...editDraft, email: e.target.value })} className="h-9 text-sm" placeholder="email" />
+                        </td>
+                        <td className="px-2 py-2 min-w-48">
+                          <Select value={editDraft.personId} onValueChange={value => setEditDraft({ ...editDraft, personId: value })}>
+                            <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Nepřiřazeno</SelectItem>
+                              {people.map(person => <SelectItem key={person.id} value={String(person.id)}>{person.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="px-2 py-2">
                           <Select value={editDraft.role} onValueChange={v => setEditDraft({ ...editDraft, role: v })} disabled={isSelf}>
@@ -282,6 +306,7 @@ export default function UsersAdmin() {
                       </td>
                       <td className="px-3 py-3 text-muted-foreground font-mono text-xs">{u.username}</td>
                       <td className="px-3 py-3 text-muted-foreground">{u.email || "—"}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{people.find(person => person.id === u.personId)?.name ?? "—"}</td>
                       <td className="px-3 py-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${meta.color}`}>
                           <meta.icon className="w-3 h-3" />

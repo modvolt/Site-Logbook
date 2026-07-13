@@ -434,16 +434,6 @@ export function hoursFromPresetTimes(startTime: string | null | undefined, endTi
   return Math.round((mins / 60) * 100) / 100;
 }
 
-export function computeTimerHours(elapsedSeconds: number, existingHoursSpent: number | string | null | undefined) {
-  const existing = existingHoursSpent ? Number(existingHoursSpent) : 0;
-  if (elapsedSeconds < 300) {
-    return { newTotal: existing, added: 0, belowThreshold: true };
-  }
-  const added = Math.round((elapsedSeconds / 3600) * 100) / 100;
-  const newTotal = Math.round((existing + added) * 100) / 100;
-  return { newTotal, added, belowThreshold: false };
-}
-
 function formatElapsed(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -474,6 +464,11 @@ function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; ma
           if (notify) void showTimerNotification(job.title);
           toast({ title: "Čas spuštěn" });
         },
+        onError: (error: any) => toast({
+          title: "Čas se nepodařilo spustit",
+          description: error?.message,
+          variant: "destructive",
+        }),
       }
     );
   };
@@ -481,20 +476,20 @@ function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; ma
   const handleStop = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, job.hoursSpent);
     updateJob.mutate(
-      { id: job.id, data: { timerStartedAt: null, hoursSpent: newTotal } },
+      { id: job.id, data: { timerStartedAt: null } },
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(job.id), data);
           invalidateData(queryClient, "jobs");
           void clearTimerNotification();
-          toast({
-            title: belowThreshold
-              ? `Čas zastaven — pod 5 min, nezapočítáno`
-              : `Čas zastaven — +${added.toFixed(2)} h (celkem ${newTotal.toFixed(2)} h)`,
-          });
+          toast({ title: "Čas zastaven a uložen" });
         },
+        onError: (error: any) => toast({
+          title: "Čas se nepodařilo zastavit",
+          description: error?.message,
+          variant: "destructive",
+        }),
       }
     );
   };
@@ -633,20 +628,20 @@ function ActiveTimerBanner({ jobs }: { jobs: any[] }) {
   if (!runningJob) return null;
 
   const handleStop = () => {
-    const { newTotal, added, belowThreshold } = computeTimerHours(elapsed, runningJob.hoursSpent);
     updateJob.mutate(
-      { id: runningJob.id, data: { timerStartedAt: null, hoursSpent: newTotal } },
+      { id: runningJob.id, data: { timerStartedAt: null } },
       {
         onSuccess: (data) => {
           queryClient.setQueryData(getGetJobQueryKey(runningJob.id), data);
           invalidateData(queryClient, "jobs");
           void clearTimerNotification();
-          toast({
-            title: belowThreshold
-              ? `Čas zastaven — pod 5 min, nezapočítáno`
-              : `Čas zastaven — +${added.toFixed(2)} h (celkem ${newTotal.toFixed(2)} h)`,
-          });
+          toast({ title: "Čas zastaven a uložen" });
         },
+        onError: (error: any) => toast({
+          title: "Čas se nepodařilo zastavit",
+          description: error?.message,
+          variant: "destructive",
+        }),
       }
     );
   };

@@ -204,7 +204,7 @@ router.get("/dashboard/today", async (req, res): Promise<void> => {
     .where(eq(jobsTable.date, t))
     .orderBy(jobsTable.sortOrder, jobsTable.startTime);
 
-  const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"));
+  const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"), req.auth!.personId);
   res.json(enriched);
 });
 

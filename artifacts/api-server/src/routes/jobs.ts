@@ -22,6 +22,7 @@ import {
 import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { randomUUID } from "node:crypto";
+import { ActiveWorkSessionConflict, activeWorkSessionStarts, startWorkSession, stopWorkSession } from "../lib/work-session-service";
 
 const router: IRouter = Router();
 
@@ -106,13 +107,17 @@ function containsFinancialJobFields(data: Record<string, unknown>): boolean {
 // Batch enrichment: a fixed number of grouped queries regardless of how many
 // jobs are passed in. Replaces the old per-job version that issued ~6 queries
 // per job (N+1 — the jobs list with hundreds of jobs fired thousands of queries).
-export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[], canViewFinancial = false) {
+export async function enrichJobs(
+  jobList: (typeof jobsTable.$inferSelect)[],
+  canViewFinancial = false,
+  timerPersonId?: number | null,
+) {
   if (jobList.length === 0) return [];
   const jobIds = jobList.map((j) => j.id);
   const customerIds = [...new Set(jobList.map((j) => j.customerId).filter((x): x is number => x != null))];
   const assignedPersonIds = [...new Set(jobList.map((j) => j.assignedPersonId).filter((x): x is number => x != null))];
 
-  const [taskCountRows, attachmentCountRows, materialAggRows, billingLinkRows, assigneeRows, customerRows, personRows] =
+  const [taskCountRows, attachmentCountRows, materialAggRows, billingLinkRows, assigneeRows, customerRows, personRows, personalTimerStarts] =
     await Promise.all([
       db
         .select({
@@ -171,6 +176,7 @@ export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[], can
             .from(peopleTable)
             .where(inArray(peopleTable.id, assignedPersonIds))
         : Promise.resolve([]),
+      activeWorkSessionStarts("job", jobIds, timerPersonId),
     ]);
 
   const taskCountsByJob = new Map(taskCountRows.map((r) => [r.jobId, r]));
@@ -220,7 +226,7 @@ export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[], can
       customerCompanyName: customer?.companyName ?? null,
       customerPhone: customer?.phone ?? null,
       customerEmail: customer?.email ?? null,
-      timerStartedAt: job.timerStartedAt ? job.timerStartedAt.toISOString() : null,
+      timerStartedAt: personalTimerStarts.get(job.id)?.toISOString() ?? null,
       createdAt: job.createdAt.toISOString(),
       signatureRequestedAt: job.signatureRequestedAt ? job.signatureRequestedAt.toISOString() : null,
       signatureTokenExpiresAt: job.signatureTokenExpiresAt ? job.signatureTokenExpiresAt.toISOString() : null,
@@ -231,8 +237,12 @@ export async function enrichJobs(jobList: (typeof jobsTable.$inferSelect)[], can
   });
 }
 
-async function enrichJob(job: typeof jobsTable.$inferSelect, canViewFinancial = false) {
-  const [enriched] = await enrichJobs([job], canViewFinancial);
+async function enrichJob(
+  job: typeof jobsTable.$inferSelect,
+  canViewFinancial = false,
+  timerPersonId?: number | null,
+) {
+  const [enriched] = await enrichJobs([job], canViewFinancial, timerPersonId);
   return enriched;
 }
 
@@ -424,7 +434,7 @@ router.get("/jobs", async (req, res): Promise<void> => {
       .orderBy(jobsTable.date, jobsTable.startTime);
   }
 
-  const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"));
+  const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"), req.auth!.personId);
   res.json(enriched);
 });
 
@@ -465,7 +475,7 @@ router.post("/jobs", async (req, res): Promise<void> => {
   }
 
   const [job] = await db.insert(jobsTable).values(values as any).returning();
-  res.status(201).json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
+  res.status(201).json(await enrichJob(job, req.auth!.permissions.includes("billing.view"), req.auth!.personId));
 });
 
 router.patch("/jobs/status", async (req, res): Promise<void> => {
@@ -579,7 +589,7 @@ router.get("/jobs/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view"), req.auth!.personId));
 });
 
 router.put("/jobs/:id/assignees", async (req, res): Promise<void> => {
@@ -641,7 +651,7 @@ router.put("/jobs/:id/assignees", async (req, res): Promise<void> => {
   });
 
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
-  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view"), req.auth!.personId));
 });
 
 router.patch("/jobs/:id", async (req, res): Promise<void> => {
@@ -689,19 +699,51 @@ router.patch("/jobs/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Při způsobu fakturace „Smluvní cena“ je smluvní cena povinná a musí být větší než 0.` });
     return;
   }
-
-  const [job] = await db
-    .update(jobsTable)
-    .set(updateValues as any)
-    .where(eq(jobsTable.id, params.data.id))
-    .returning();
+  const timerRequested = Object.prototype.hasOwnProperty.call(parsed.data, "timerStartedAt");
+  if (timerRequested) {
+    const personId = req.auth!.personId;
+    if (!personId) {
+      res.status(409).json({
+        error: "Uživatelský účet není propojen se zaměstnancem. Propojení nastavte ve správě uživatelů.",
+        code: "time_person_unlinked",
+      });
+      return;
+    }
+    const [existingJob] = await db.select({ id: jobsTable.id }).from(jobsTable).where(eq(jobsTable.id, params.data.id));
+    if (!existingJob) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+    try {
+      if (parsed.data.timerStartedAt != null) {
+        await startWorkSession("job", params.data.id, personId, req.auth!.userId);
+      } else {
+        await stopWorkSession("job", params.data.id, personId, req.auth!.userId);
+      }
+    } catch (error) {
+      if (error instanceof ActiveWorkSessionConflict) {
+        res.status(409).json({ error: error.message, activeSession: error.active });
+        return;
+      }
+      throw error;
+    }
+    delete updateValues.timerStartedAt;
+    // Legacy clients calculate a shared total locally. The immutable sessions
+    // are authoritative, so never let that stale projection overwrite them.
+    delete updateValues.hoursSpent;
+    delete updateValues.hoursFromPlan;
+    delete updateValues.hoursBeforePlan;
+  }
+  const [job] = Object.keys(updateValues).length > 0
+    ? await db.update(jobsTable).set(updateValues as any).where(eq(jobsTable.id, params.data.id)).returning()
+    : await db.select().from(jobsTable).where(eq(jobsTable.id, params.data.id));
 
   if (!job) {
     res.status(404).json({ error: "Job not found" });
     return;
   }
 
-  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view"), req.auth!.personId));
 });
 
 router.delete("/jobs/:id", async (req, res): Promise<void> => {
@@ -795,7 +837,7 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
       )
       .limit(1);
     if (duplicate) {
-      res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
+      res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view"), req.auth!.personId));
       return;
     }
     const [agg] = await db
@@ -819,7 +861,7 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     });
   }
 
-  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view")));
+  res.json(await enrichJob(job, req.auth!.permissions.includes("billing.view"), req.auth!.personId));
 });
 
 router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {

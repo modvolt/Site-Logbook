@@ -34,6 +34,7 @@ function serializeUser(
     id: u.id,
     username: u.username,
     name: u.name,
+    personId: u.personId,
     email: u.email,
     role: u.role,
     isActive: u.isActive,

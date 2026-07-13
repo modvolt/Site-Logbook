@@ -293,6 +293,24 @@ export async function ensureWorkTracking(kind: WorkKind, parentId: number, perso
   });
 }
 
+export async function activeWorkSessionStarts(
+  kind: WorkKind,
+  parentIds: number[],
+  personId: number | null | undefined,
+): Promise<Map<number, Date>> {
+  if (!personId || parentIds.length === 0) return new Map();
+  const parentColumn = kind === "job" ? workSessionsTable.jobId : workSessionsTable.activityId;
+  const rows = await db
+    .select({ parentId: parentColumn, startedAt: workSessionsTable.startedAt })
+    .from(workSessionsTable)
+    .where(and(
+      eq(workSessionsTable.personId, personId),
+      eq(workSessionsTable.status, "active"),
+      inArray(parentColumn, parentIds),
+    ));
+  return new Map(rows.flatMap((row) => row.parentId == null ? [] : [[row.parentId, row.startedAt] as const]));
+}
+
 export async function stopWorkSession(
   kind: WorkKind,
   parentId: number,

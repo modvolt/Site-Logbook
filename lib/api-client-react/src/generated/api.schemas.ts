@@ -2453,6 +2453,10 @@ export interface AuthUser {
   id: number;
   username: string;
   name: string;
+  /** Employee record used for personal time tracking
+   * @nullable
+   */
+  personId: number | null;
   /** @nullable */
   email?: string | null;
   /** guest | master | admin */
@@ -2774,6 +2778,8 @@ export interface UserInput {
   name: string;
   /** @nullable */
   email?: string | null;
+  /** @nullable */
+  personId?: number | null;
   /** guest | master | admin */
   role: string;
   isActive?: boolean;
