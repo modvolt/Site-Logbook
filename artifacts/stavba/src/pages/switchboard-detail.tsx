@@ -13,6 +13,7 @@ import { SwitchboardExtractionReview } from "@/components/switchboard-extraction
 import { SwitchboardLabels } from "@/components/switchboard-labels";
 import { SwitchboardChecklist } from "@/components/switchboard-checklist";
 import { SwitchboardOperationsPanel } from "@/components/switchboard-operations";
+import { SwitchboardProtocols } from "@/components/switchboard-protocols";
 import { useToast } from "@/hooks/use-toast";
 import { SWITCHBOARD_STATUS_LABELS, switchboardFetch, type Switchboard } from "@/lib/switchboards-api";
 
@@ -84,6 +85,7 @@ export default function SwitchboardDetail() {
       </div>
       <SwitchboardChecklist switchboardId={id} jobId={board.jobId} />
       <SwitchboardOperationsPanel switchboardId={id} jobId={board.jobId} />
+      <SwitchboardProtocols switchboardId={id} />
       <SwitchboardDocuments switchboardId={id} />
       <SwitchboardExtractionReview switchboardId={id} />
       <SwitchboardLabels board={board} />

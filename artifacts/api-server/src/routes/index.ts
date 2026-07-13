@@ -50,6 +50,7 @@ import switchboardQrRouter from "./switchboard-qr";
 import switchboardLabelsRouter from "./switchboard-labels";
 import switchboardChecklistsRouter from "./switchboard-checklists";
 import switchboardOperationsRouter from "./switchboard-operations";
+import switchboardProtocolsRouter from "./switchboard-protocols";
 
 const router: IRouter = Router();
 
@@ -103,6 +104,7 @@ router.use(switchboardQrRouter);
 router.use(switchboardLabelsRouter);
 router.use(switchboardChecklistsRouter);
 router.use(switchboardOperationsRouter);
+router.use(switchboardProtocolsRouter);
 router.use(switchboardsRouter);
 
 export default router;

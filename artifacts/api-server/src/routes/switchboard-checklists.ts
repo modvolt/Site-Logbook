@@ -56,7 +56,7 @@ async function loadChecklistPayload(switchboardId: number) {
   }).from(switchboardsTable).where(eq(switchboardsTable.id, switchboardId));
   if (!board) return null;
   const [instance] = await db.select().from(switchboardChecklistInstancesTable)
-    .where(and(eq(switchboardChecklistInstancesTable.switchboardId, switchboardId), eq(switchboardChecklistInstancesTable.status, "in_progress")))
+    .where(eq(switchboardChecklistInstancesTable.switchboardId, switchboardId))
     .orderBy(desc(switchboardChecklistInstancesTable.id)).limit(1);
   if (!instance) return { board, instance: null, phases: [] };
   const parsed = checklistDefinitionSchema.safeParse(instance.templateSnapshot);
@@ -211,7 +211,7 @@ router.post("/switchboards/:id/checklist/start", requirePermission("switchboards
       if (!templateVersion) throw Object.assign(new Error("Pro tento rozvaděč není aktivní checklistová šablona."), { statusCode: 409 });
       const definition = checklistDefinitionSchema.parse(templateVersion.definition);
       const [instance] = await tx.insert(switchboardChecklistInstancesTable).values({ switchboardId: board.id, templateVersionId: templateVersion.id, templateSnapshot: definition, status: "in_progress", currentPhase: "assembly" }).returning();
-      await tx.update(switchboardsTable).set({ assemblyStatus: "in_progress", status: "assembly", updatedAt: new Date() }).where(eq(switchboardsTable.id, board.id));
+      await tx.update(switchboardsTable).set({ assemblyStatus: "in_progress", inspectionStatus: "not_started", measurementStatus: "not_started", status: "assembly", updatedAt: new Date() }).where(eq(switchboardsTable.id, board.id));
       await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "checklist_started", entityType: "switchboard_checklist_instance", entityId: instance.id, payload: { templateVersionId: templateVersion.id, templateVersion: templateVersion.version }, ...actor(req) });
       return { instance, created: true };
     });

@@ -74,7 +74,7 @@ export type SwitchboardChecklistPhase = {
 };
 export type SwitchboardChecklist = {
   board: { id: number; properties: Record<string, boolean>; assemblyStatus: string; inspectionStatus: string; measurementStatus: string };
-  instance: null | { id: number; currentPhase: "assembly" | "inspection" | "measurement"; revision: number; status: string; startedAt: string; updatedAt: string };
+  instance: null | { id: number; currentPhase: "assembly" | "inspection" | "measurement"; revision: number; status: string; startedAt: string; completedAt: string | null; updatedAt: string };
   phases: SwitchboardChecklistPhase[];
 };
 
@@ -98,6 +98,14 @@ export type SwitchboardPhoto = {
   takenAt: string | null; createdAt: string; contentUrl: string;
 };
 export type SwitchboardOperations = { measurements: SwitchboardMeasurement[]; defects: SwitchboardDefect[]; photos: SwitchboardPhoto[] };
+
+export type SwitchboardProtocolBlocker = { code: string; message: string; phaseKey?: string; itemKey?: string };
+export type SwitchboardProtocolReadiness = { ready: boolean; blockers: SwitchboardProtocolBlocker[] };
+export type SwitchboardProtocol = {
+  id: number; switchboardId: number; version: number; protocolNumber: string; generatorVersion: string;
+  status: "generating" | "final" | "failed"; createdByUserId: number | null; createdByName: string | null;
+  createdAt: string; downloadUrl: string | null;
+};
 
 export async function uploadSwitchboardPhoto(switchboardId: number, file: File | Blob, metadata: Record<string, string>) {
   const name = file instanceof File ? file.name : "fotografie.jpg";

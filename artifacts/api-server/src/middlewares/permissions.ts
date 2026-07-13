@@ -84,6 +84,8 @@ function permissionForRequest(req: Request): Permission | null {
   if (/^\/switchboards\/\d+\/defects\/\d+\/(?:close|reopen)$/.test(path)) return "switchboards.defects.close";
   if (/^\/switchboards\/\d+\/defects(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.view" : "switchboards.defects.create";
   if (/^\/switchboards\/\d+\/operations$/.test(path)) return "switchboards.view";
+  if (/^\/switchboards\/\d+\/protocols\/generate$/.test(path)) return "switchboards.protocol.complete";
+  if (/^\/switchboards\/\d+\/protocols(?:\/|$)/.test(path)) return "switchboards.view";
   if (/^\/switchboards\/\d+\/documents(?:\/|$)/.test(path)) {
     return READ_METHODS.has(req.method) ? "switchboards.documents.view" : "switchboards.documents.upload";
   }
