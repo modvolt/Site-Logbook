@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const sql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0080_third_rumiko_fujikawa.sql"), "utf8");
 const qrSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0081_silent_marrow.sql"), "utf8");
+const operationsSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0082_tense_rhino.sql"), "utf8");
 
 describe("switchboard migration safety", () => {
   it("creates the complete append-only domain without altering existing domain tables", () => {
@@ -25,5 +26,14 @@ describe("switchboard migration safety", () => {
     expect(sql).toContain("'serialNumber', 'Výrobní číslo'");
     expect(sql).toContain("'boardDesignation', 'Označení rozvaděče'");
     expect(sql).toContain('ON CONFLICT ("field_key") DO NOTHING');
+  });
+
+  it("adds operation relations and lookup indexes without destructive changes", () => {
+    expect(operationsSql).toContain('ALTER TABLE "switchboard_defects" ADD COLUMN "phase_key" text');
+    expect(operationsSql).toContain('ALTER TABLE "switchboard_measurements" ADD COLUMN "phase_key" text');
+    expect(operationsSql).toContain('ALTER TABLE "switchboard_photos" ADD COLUMN "checklist_item_key" text');
+    expect(operationsSql).toContain('CREATE INDEX "switchboard_defects_board_status_idx"');
+    expect(operationsSql).toContain('CREATE INDEX "switchboard_measurements_board_idx"');
+    expect(operationsSql).not.toMatch(/DROP\s+(?:TABLE|COLUMN|INDEX)/i);
   });
 });

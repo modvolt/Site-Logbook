@@ -12,6 +12,7 @@ import { SwitchboardDocuments } from "@/components/switchboard-documents";
 import { SwitchboardExtractionReview } from "@/components/switchboard-extraction-review";
 import { SwitchboardLabels } from "@/components/switchboard-labels";
 import { SwitchboardChecklist } from "@/components/switchboard-checklist";
+import { SwitchboardOperationsPanel } from "@/components/switchboard-operations";
 import { useToast } from "@/hooks/use-toast";
 import { SWITCHBOARD_STATUS_LABELS, switchboardFetch, type Switchboard } from "@/lib/switchboards-api";
 
@@ -82,6 +83,7 @@ export default function SwitchboardDetail() {
         {!disabled && <Button className="w-full md:w-auto" disabled={!form.designation.trim() || !form.internalName.trim() || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}Uložit změny</Button>}
       </div>
       <SwitchboardChecklist switchboardId={id} jobId={board.jobId} />
+      <SwitchboardOperationsPanel switchboardId={id} jobId={board.jobId} />
       <SwitchboardDocuments switchboardId={id} />
       <SwitchboardExtractionReview switchboardId={id} />
       <SwitchboardLabels board={board} />

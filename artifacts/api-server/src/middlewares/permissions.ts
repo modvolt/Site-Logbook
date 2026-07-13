@@ -79,6 +79,11 @@ function permissionForRequest(req: Request): Permission | null {
   if (/^\/switchboards\/checklist-templates(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.templates.manage" : "switchboards.templates.manage";
   if (/^\/switchboards\/\d+\/checklist\/phases\/[^/]+\/complete$/.test(path)) return "switchboards.phases.complete";
   if (/^\/switchboards\/\d+\/checklist(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.view" : "switchboards.checklist.fill";
+  if (/^\/switchboards\/\d+\/measurements(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.view" : "switchboards.measurements.create";
+  if (/^\/switchboards\/\d+\/photos(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.view" : "switchboards.photos.create";
+  if (/^\/switchboards\/\d+\/defects\/\d+\/(?:close|reopen)$/.test(path)) return "switchboards.defects.close";
+  if (/^\/switchboards\/\d+\/defects(?:\/|$)/.test(path)) return READ_METHODS.has(req.method) ? "switchboards.view" : "switchboards.defects.create";
+  if (/^\/switchboards\/\d+\/operations$/.test(path)) return "switchboards.view";
   if (/^\/switchboards\/\d+\/documents(?:\/|$)/.test(path)) {
     return READ_METHODS.has(req.method) ? "switchboards.documents.view" : "switchboards.documents.upload";
   }

@@ -221,6 +221,7 @@ export const switchboardMeasurementsTable = pgTable("switchboard_measurements", 
   id: serial("id").primaryKey(),
   switchboardId: integer("switchboard_id").notNull().references(() => switchboardsTable.id, { onDelete: "restrict" }),
   checklistResponseId: integer("checklist_response_id").references(() => switchboardChecklistResponsesTable.id, { onDelete: "set null" }),
+  phaseKey: text("phase_key"),
   measurementType: text("measurement_type").notNull(),
   subjectLabel: text("subject_label"),
   value: numeric("value", { precision: 14, scale: 4 }),
@@ -231,12 +232,13 @@ export const switchboardMeasurementsTable = pgTable("switchboard_measurements", 
   note: text("note"),
   measuredByUserId: integer("measured_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   measuredAt: timestamp("measured_at").notNull().defaultNow(),
-});
+}, (t) => [index("switchboard_measurements_board_idx").on(t.switchboardId, t.phaseKey, t.measuredAt)]);
 
 export const switchboardDefectsTable = pgTable("switchboard_defects", {
   id: serial("id").primaryKey(),
   switchboardId: integer("switchboard_id").notNull().references(() => switchboardsTable.id, { onDelete: "restrict" }),
   checklistResponseId: integer("checklist_response_id").references(() => switchboardChecklistResponsesTable.id, { onDelete: "set null" }),
+  phaseKey: text("phase_key"),
   title: text("title").notNull(),
   description: text("description"),
   severity: text("severity").notNull().default("medium"),
@@ -249,7 +251,7 @@ export const switchboardDefectsTable = pgTable("switchboard_defects", {
   foundAt: timestamp("found_at").notNull().defaultNow(),
   closedByUserId: integer("closed_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   closedAt: timestamp("closed_at"),
-});
+}, (t) => [index("switchboard_defects_board_status_idx").on(t.switchboardId, t.status, t.isCritical)]);
 
 export const switchboardPhotosTable = pgTable("switchboard_photos", {
   id: serial("id").primaryKey(),
@@ -257,6 +259,8 @@ export const switchboardPhotosTable = pgTable("switchboard_photos", {
   category: text("category").notNull(),
   relatedType: text("related_type"),
   relatedId: integer("related_id"),
+  phaseKey: text("phase_key"),
+  checklistItemKey: text("checklist_item_key"),
   storagePath: text("storage_path").notNull(),
   originalFileName: text("original_file_name").notNull(),
   mimeType: text("mime_type").notNull(),

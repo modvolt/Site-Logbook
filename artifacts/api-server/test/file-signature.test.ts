@@ -99,6 +99,13 @@ describe("contentMatchesType", () => {
     expect(contentMatchesType("image/heif", buf)).toBe(true);
   });
 
+  it("rejects a non-image ISO-BMFF container declared as HEIC", () => {
+    const buf = Buffer.alloc(16);
+    buf.write("ftyp", 4, "ascii");
+    buf.write("mp42", 8, "ascii");
+    expect(contentMatchesType("image/heic", buf)).toBe(false);
+  });
+
   it("accepts a valid XML declaration (application/xml)", () => {
     const buf = Buffer.from('<?xml version="1.0" encoding="UTF-8"?><Invoice/>');
     expect(contentMatchesType("application/xml", buf)).toBe(true);

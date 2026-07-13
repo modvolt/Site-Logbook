@@ -1,10 +1,11 @@
 import { Router, type IRouter, type Request } from "express";
-import { and, asc, desc, eq, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, max, ne, or, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import {
   db, usersTable, switchboardsTable, switchboardChecklistTemplatesTable,
   switchboardChecklistTemplateVersionsTable, switchboardChecklistInstancesTable,
-  switchboardChecklistResponsesTable, switchboardEventsTable,
+  switchboardChecklistResponsesTable, switchboardMeasurementsTable, switchboardDefectsTable,
+  switchboardPhotosTable, switchboardEventsTable,
 } from "@workspace/db";
 import { requirePermission } from "../middlewares/permissions";
 import {
@@ -247,6 +248,15 @@ router.patch("/switchboards/:id/checklist/responses/:itemKey", requirePermission
       const validationError = validateChecklistResponse(found.item, body.data);
       if (validationError) throw Object.assign(new Error(validationError), { statusCode: 400 });
       const [before] = await tx.select().from(switchboardChecklistResponsesTable).where(and(eq(switchboardChecklistResponsesTable.instanceId, instance.id), eq(switchboardChecklistResponsesTable.itemKey, itemKey.data)));
+      if (found.item.kind === "photo" && body.data.result === "done") {
+        const [photo] = await tx.select({ id: switchboardPhotosTable.id }).from(switchboardPhotosTable).where(and(eq(switchboardPhotosTable.switchboardId, board.id), eq(switchboardPhotosTable.relatedType, "checklist_item"), eq(switchboardPhotosTable.relatedId, instance.id), eq(switchboardPhotosTable.checklistItemKey, itemKey.data))).limit(1);
+        if (!photo) throw Object.assign(new Error("Nejprve k položce nahrajte požadovanou fotografii."), { statusCode: 409 });
+      }
+      if (found.item.kind === "measurement" && body.data.result !== "not_applicable") {
+        if (!before) throw Object.assign(new Error("Měřicí položku dokončete přidáním strukturovaného měření."), { statusCode: 409 });
+        const [measurement] = await tx.select({ id: switchboardMeasurementsTable.id }).from(switchboardMeasurementsTable).where(eq(switchboardMeasurementsTable.checklistResponseId, before.id)).limit(1);
+        if (!measurement) throw Object.assign(new Error("Měřicí položku dokončete přidáním strukturovaného měření."), { statusCode: 409 });
+      }
       const normalized = {
         result: body.data.result,
         value: body.data.value || null,
@@ -263,6 +273,10 @@ router.patch("/switchboards/:id/checklist/responses/:itemKey", requirePermission
       if ((before?.revision ?? 0) !== body.data.expectedRevision) {
         if (isIdempotentRetry) return;
         throw Object.assign(new Error("Odpověď mezitím změnil jiný pracovník. Načtěte aktuální stav a změnu zopakujte."), { statusCode: 409 });
+      }
+      if (before?.result === "defect" && normalized.result !== "defect") {
+        const [openDefect] = await tx.select({ id: switchboardDefectsTable.id }).from(switchboardDefectsTable).where(and(eq(switchboardDefectsTable.checklistResponseId, before.id), ne(switchboardDefectsTable.status, "closed"))).limit(1);
+        if (openDefect) throw Object.assign(new Error("Nejprve závadu uzavřete a popište způsob opravy."), { statusCode: 409 });
       }
       if (before && before.performedByUserId !== req.auth?.userId && !req.auth?.permissions.includes("switchboards.checklist.edit_all")) throw Object.assign(new Error("Cizí odpověď může změnit pouze uživatel s rozšířeným oprávněním."), { statusCode: 403 });
       if (before && before.performedByUserId === req.auth?.userId && !req.auth?.permissions.includes("switchboards.checklist.edit_own") && !req.auth?.permissions.includes("switchboards.checklist.edit_all")) throw Object.assign(new Error("Nemáte oprávnění upravovat již uloženou odpověď."), { statusCode: 403 });
@@ -283,7 +297,14 @@ router.patch("/switchboards/:id/checklist/responses/:itemKey", requirePermission
         [updated] = await tx.insert(switchboardChecklistResponsesTable).values({ instanceId: instance.id, itemKey: itemKey.data, ...values }).returning();
       }
       await tx.update(switchboardChecklistInstancesTable).set({ revision: sql`${switchboardChecklistInstancesTable.revision} + 1`, currentPhase: found.phase.key, updatedAt: now }).where(eq(switchboardChecklistInstancesTable.id, instance.id));
-      await tx.update(switchboardsTable).set({ ...phaseStatusPatch(found.phase.key, "in_progress"), updatedAt: now }).where(eq(switchboardsTable.id, board.id));
+      if (updated.result === "defect") {
+        const [existingDefect] = await tx.select({ id: switchboardDefectsTable.id }).from(switchboardDefectsTable).where(and(eq(switchboardDefectsTable.checklistResponseId, updated.id), ne(switchboardDefectsTable.status, "closed"))).limit(1);
+        if (!existingDefect) {
+          const [defect] = await tx.insert(switchboardDefectsTable).values({ switchboardId: board.id, checklistResponseId: updated.id, phaseKey: found.phase.key, title: found.item.title, description: updated.note ?? "Závada zjištěná při kontrole.", severity: found.item.critical ? "critical" : "medium", isCritical: found.item.critical, status: "open", foundByUserId: req.auth?.userId ?? null, foundAt: now }).returning();
+          await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "defect_created_from_checklist", entityType: "switchboard_defect", entityId: defect.id, payload: { checklistResponseId: updated.id, phaseKey: found.phase.key, itemKey: found.item.key, isCritical: defect.isCritical }, ...actor(req) });
+        }
+      }
+      await tx.update(switchboardsTable).set({ ...phaseStatusPatch(found.phase.key, "in_progress"), ...(updated.result === "defect" ? { status: "defects_found" } : {}), updatedAt: now }).where(eq(switchboardsTable.id, board.id));
       await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: before ? "checklist_response_changed" : "checklist_response_recorded", entityType: "switchboard_checklist_response", entityId: updated.id, payload: { instanceId: instance.id, phaseKey: found.phase.key, itemKey: itemKey.data, before: before ? { result: before.result, value: before.value, unit: before.unit, passed: before.passed, note: before.note, justification: before.justification, revision: before.revision } : null, after: { result: updated.result, value: updated.value, unit: updated.unit, passed: updated.passed, note: updated.note, justification: updated.justification, revision: updated.revision } }, ...actor(req) });
     });
     res.json(await loadChecklistPayload(boardId.data));
@@ -303,7 +324,8 @@ router.patch("/switchboards/:id/checklist/current-phase", requirePermission("swi
 router.post("/switchboards/:id/checklist/phases/:phaseKey/complete", requirePermission("switchboards.phases.complete"), async (req, res) => {
   const boardId = id.safeParse(req.params.id);
   const phaseKey = z.enum(PHASE_KEYS).safeParse(req.params.phaseKey);
-  if (!boardId.success || !phaseKey.success) { res.status(400).json({ error: "Neplatná fáze." }); return; }
+  const completionBody = z.object({ overrideReason: z.string().trim().min(10).max(2000).nullable().optional() }).safeParse(req.body ?? {});
+  if (!boardId.success || !phaseKey.success || !completionBody.success) { res.status(400).json({ error: "Neplatná fáze nebo zdůvodnění výjimky." }); return; }
   try {
     await db.transaction(async (tx) => {
       const [board] = await tx.select().from(switchboardsTable).where(eq(switchboardsTable.id, boardId.data));
@@ -315,12 +337,18 @@ router.post("/switchboards/:id/checklist/phases/:phaseKey/complete", requirePerm
       const responses = await tx.select().from(switchboardChecklistResponsesTable).where(and(eq(switchboardChecklistResponsesTable.instanceId, instance.id), eq(switchboardChecklistResponsesTable.phaseKey, phase.key)));
       const evaluation = evaluatePhaseCompletion(phase, board.properties, responses);
       if (evaluation.missing.length) throw Object.assign(new Error(`Fázi nelze dokončit. Chybí ${evaluation.missing.length} povinných položek.`), { statusCode: 409 });
-      if (evaluation.defects.length) throw Object.assign(new Error(`Fázi nelze dokončit. ${evaluation.defects.length} položek je označeno jako závada.`), { statusCode: 409 });
+      const criticalResponseDefects = evaluation.defects.filter((item) => item.critical);
+      const criticalResponseIds = new Set(criticalResponseDefects.map((item) => responses.find((response) => response.itemKey === item.key)?.id).filter((value): value is number => value != null));
+      const openCriticalDefects = await tx.select({ id: switchboardDefectsTable.id, checklistResponseId: switchboardDefectsTable.checklistResponseId }).from(switchboardDefectsTable).where(and(eq(switchboardDefectsTable.switchboardId, board.id), eq(switchboardDefectsTable.isCritical, true), ne(switchboardDefectsTable.status, "closed"), or(eq(switchboardDefectsTable.phaseKey, phase.key), isNull(switchboardDefectsTable.phaseKey))));
+      const criticalBlockers = criticalResponseIds.size + openCriticalDefects.filter((defect) => !defect.checklistResponseId || !criticalResponseIds.has(defect.checklistResponseId)).length;
+      const overrideReason = completionBody.data.overrideReason ?? null;
+      if (criticalBlockers && !overrideReason) throw Object.assign(new Error(`Fázi nelze dokončit. Existuje ${criticalBlockers} kritických blokací.`), { statusCode: 409 });
+      if (criticalBlockers && !req.auth?.permissions.includes("switchboards.protocol.override")) throw Object.assign(new Error("Kritickou blokaci může obejít pouze oprávněný administrátor."), { statusCode: 403 });
       const next = PHASE_KEYS[PHASE_KEYS.indexOf(phase.key) + 1] ?? phase.key;
       const now = new Date();
       await tx.update(switchboardsTable).set({ ...phaseStatusPatch(phase.key, "completed"), ...(phase.key === "assembly" ? { status: "awaiting_inspection" } : phase.key === "inspection" ? { status: "awaiting_measurement" } : { status: "ready_for_handover" }), updatedAt: now }).where(eq(switchboardsTable.id, board.id));
       await tx.update(switchboardChecklistInstancesTable).set({ currentPhase: next, revision: sql`${switchboardChecklistInstancesTable.revision} + 1`, updatedAt: now }).where(eq(switchboardChecklistInstancesTable.id, instance.id));
-      await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "checklist_phase_completed", entityType: "switchboard_checklist_instance", entityId: instance.id, payload: { phaseKey: phase.key, relevantItemCount: evaluation.relevant.length, responseCount: responses.length }, ...actor(req) });
+      await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: criticalBlockers ? "checklist_phase_completed_with_override" : "checklist_phase_completed", entityType: "switchboard_checklist_instance", entityId: instance.id, payload: { phaseKey: phase.key, relevantItemCount: evaluation.relevant.length, responseCount: responses.length, nonCriticalDefectCount: evaluation.defects.length - criticalResponseDefects.length, criticalBlockers, overrideReason }, ...actor(req) });
     });
     res.json(await loadChecklistPayload(boardId.data));
   } catch (error) { res.status((error as { statusCode?: number }).statusCode ?? 500).json({ error: (error as Error).message }); }

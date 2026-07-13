@@ -162,6 +162,30 @@ async function executeOp(op: OfflineOp): Promise<void> {
       await deleteBlob(blobKey);
       break;
     }
+    case "add_switchboard_photo": {
+      const { blobKey, fileName, contentType, boardId, metadata, completeChecklist } = payload as {
+        blobKey: string; fileName: string; contentType: string; boardId: number;
+        metadata: Record<string, string>;
+        completeChecklist?: { itemKey: string; body: Record<string, unknown> };
+      };
+      const blobEntry = await getBlob(blobKey);
+      if (!blobEntry) throw new Error("Fotografie rozvaděče nebyla nalezena v lokálním úložišti.");
+      const query = new URLSearchParams({ ...metadata, name: fileName, contentType });
+      const uploadRes = await fetch(`/api/switchboards/${boardId}/photos?${query}`, { method: "POST", headers: { "Content-Type": contentType, "Idempotency-Key": op.id }, body: blobEntry.blob });
+      if (!uploadRes.ok) {
+        const responseBody = await uploadRes.text().catch(() => "");
+        throw new Error(`Nahrání fotografie rozvaděče selhalo (HTTP ${uploadRes.status}): ${responseBody.slice(0, 200)}`);
+      }
+      if (completeChecklist) {
+        const response = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(completeChecklist.itemKey)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "Idempotency-Key": `${op.id}-complete` }, body: JSON.stringify(completeChecklist.body) });
+        if (!response.ok) {
+          const responseBody = await response.text().catch(() => "");
+          throw new Error(`Dokončení fotografického bodu selhalo (HTTP ${response.status}): ${responseBody.slice(0, 200)}`);
+        }
+      }
+      await deleteBlob(blobKey);
+      break;
+    }
     case "set_switchboard_checklist_response": {
       const { boardId, itemKey, body } = payload as {
         boardId: number;
@@ -193,6 +217,7 @@ export function opTypeLabel(type: OfflineOpType): string {
     case "stop_timer": return "Zastavení časovače";
     case "set_hours": return "Nastavení hodin";
     case "add_photo": return "Nahrání fotky";
+    case "add_switchboard_photo": return "Nahrání fotografie rozvaděče";
     case "set_switchboard_checklist_response": return "Uložení kontroly rozvaděče";
     default: return "Neznámá akce";
   }
@@ -265,7 +290,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
           if (op.type === "add_material" || op.type === "add_photo") {
             domainsToInvalidate.add("warehouse");
           }
-          if (op.type === "set_switchboard_checklist_response") {
+          if (op.type === "set_switchboard_checklist_response" || op.type === "add_switchboard_photo") {
             domainsToInvalidate.add("switchboards");
           }
         } catch (err) {
@@ -355,7 +380,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const discardOp = useCallback(
     async (id: string) => {
       const op = ops.find((o) => o.id === id);
-      if (op?.type === "add_photo") {
+      if (op?.type === "add_photo" || op?.type === "add_switchboard_photo") {
         const blobKey = op.payload.blobKey as string | undefined;
         if (blobKey) await deleteBlob(blobKey).catch(() => {});
       }
@@ -368,7 +393,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const discardAll = useCallback(async () => {
     const failed = ops.filter((o) => o.status === "failed");
     for (const op of failed) {
-      if (op.type === "add_photo") {
+      if (op.type === "add_photo" || op.type === "add_switchboard_photo") {
         const blobKey = op.payload.blobKey as string | undefined;
         if (blobKey) await deleteBlob(blobKey).catch(() => {});
       }

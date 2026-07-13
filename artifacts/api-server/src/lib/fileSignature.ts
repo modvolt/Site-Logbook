@@ -39,10 +39,12 @@ function isGif(b: Buffer): boolean {
 function isWebp(b: Buffer): boolean {
   return asciiAt(b, "RIFF", 0) && asciiAt(b, "WEBP", 8);
 }
-// HEIC/HEIF are ISO-BMFF containers: a `ftyp` box at offset 4, brand follows.
-// Accept any brand to avoid rejecting valid variants (heic/heix/mif1/msf1/...).
+// HEIC/HEIF are ISO-BMFF containers: a `ftyp` box at offset 4, major brand follows.
+// Checking the brand prevents an MP4 video from passing merely because it uses
+// the same generic container structure.
 function isHeif(b: Buffer): boolean {
-  return asciiAt(b, "ftyp", 4);
+  if (!asciiAt(b, "ftyp", 4) || b.length < 12) return false;
+  return new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1", "avif", "avis"]).has(b.toString("ascii", 8, 12));
 }
 function isPdf(b: Buffer): boolean {
   return asciiAt(b, "%PDF");

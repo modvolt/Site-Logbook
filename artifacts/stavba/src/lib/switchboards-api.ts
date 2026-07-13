@@ -78,6 +78,37 @@ export type SwitchboardChecklist = {
   phases: SwitchboardChecklistPhase[];
 };
 
+export type SwitchboardMeasurement = {
+  id: number; switchboardId: number; checklistResponseId: number | null; checklistItemKey: string | null;
+  phaseKey: string | null; measurementType: string; subjectLabel: string | null; value: number | null;
+  valueText: string | null; unit: string; result: "pass" | "fail"; instrument: string | null;
+  note: string | null; measuredByUserId: number | null; measuredByName: string | null; measuredAt: string;
+};
+export type SwitchboardDefect = {
+  id: number; switchboardId: number; checklistResponseId: number | null; checklistItemKey: string | null;
+  phaseKey: string | null; title: string; description: string | null; severity: string; isCritical: boolean;
+  status: "open" | "in_repair" | "closed"; responsiblePersonId: number | null; responsiblePersonName: string | null;
+  dueDate: string | null; repairDescription: string | null; foundByName: string | null; foundAt: string;
+  closedByName: string | null; closedAt: string | null;
+};
+export type SwitchboardPhoto = {
+  id: number; switchboardId: number; category: string; relatedType: string | null; relatedId: number | null;
+  phaseKey: string | null; checklistItemKey: string | null; originalFileName: string; mimeType: string;
+  sizeBytes: number; sha256: string; description: string | null; uploadedByName: string | null;
+  takenAt: string | null; createdAt: string; contentUrl: string;
+};
+export type SwitchboardOperations = { measurements: SwitchboardMeasurement[]; defects: SwitchboardDefect[]; photos: SwitchboardPhoto[] };
+
+export async function uploadSwitchboardPhoto(switchboardId: number, file: File | Blob, metadata: Record<string, string>) {
+  const name = file instanceof File ? file.name : "fotografie.jpg";
+  const contentType = file.type || "image/jpeg";
+  const query = new URLSearchParams({ ...metadata, name, contentType });
+  const response = await fetch(`/api/switchboards/${switchboardId}/photos?${query}`, { method: "POST", headers: { "Content-Type": contentType }, body: file });
+  const body = await response.json().catch(() => null) as { error?: string; operations?: SwitchboardOperations } | null;
+  if (!response.ok) throw new Error(body?.error || `Nahrání fotografie selhalo (${response.status}).`);
+  return body!;
+}
+
 export async function switchboardFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,

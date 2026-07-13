@@ -9,6 +9,7 @@ export type OfflineOpType =
   | "add_work_session"
   | "set_hours"
   | "add_photo"
+  | "add_switchboard_photo"
   | "set_switchboard_checklist_response";
 
 export type OfflineOpStatus = "pending" | "failed";
