@@ -11,11 +11,12 @@ import { useAuth } from "@/hooks/use-auth";
 import { SwitchboardDocuments } from "@/components/switchboard-documents";
 import { SwitchboardExtractionReview } from "@/components/switchboard-extraction-review";
 import { SwitchboardLabels } from "@/components/switchboard-labels";
+import { SwitchboardChecklist } from "@/components/switchboard-checklist";
 import { useToast } from "@/hooks/use-toast";
 import { SWITCHBOARD_STATUS_LABELS, switchboardFetch, type Switchboard } from "@/lib/switchboards-api";
 
-type Form = Pick<Switchboard, "internalName" | "designation" | "installationLocation" | "serialNumber" | "productionDate" | "typeDesignation" | "manufacturer" | "networkSystem" | "ratedVoltage" | "ratedFrequency" | "ratedCurrent" | "ipRating" | "ikRating" | "dimensions" | "weight" | "notes" | "status"> & { standards: string };
-const empty: Form = { internalName: "", designation: "", installationLocation: "", serialNumber: "", productionDate: "", typeDesignation: "", manufacturer: "Modvolt s.r.o.", networkSystem: "", ratedVoltage: "", ratedFrequency: "", ratedCurrent: "", ipRating: "", ikRating: "", dimensions: "", weight: "", notes: "", status: "created", standards: "" };
+type Form = Pick<Switchboard, "internalName" | "designation" | "installationLocation" | "serialNumber" | "productionDate" | "typeDesignation" | "manufacturer" | "networkSystem" | "ratedVoltage" | "ratedFrequency" | "ratedCurrent" | "ipRating" | "ikRating" | "dimensions" | "weight" | "notes" | "status" | "properties"> & { standards: string };
+const empty: Form = { internalName: "", designation: "", installationLocation: "", serialNumber: "", productionDate: "", typeDesignation: "", manufacturer: "Modvolt s.r.o.", networkSystem: "", ratedVoltage: "", ratedFrequency: "", ratedCurrent: "", ipRating: "", ikRating: "", dimensions: "", weight: "", notes: "", status: "created", standards: "", properties: {} };
 
 export default function SwitchboardDetail() {
   const id = Number(useParams().id || 0);
@@ -36,7 +37,7 @@ export default function SwitchboardDetail() {
       weight: form.weight || null, notes: form.notes || null,
       standards: form.standards.split(",").map((v) => v.trim()).filter(Boolean),
     }) }),
-    onSuccess: (data) => { qc.setQueryData(["switchboards", id], data); void qc.invalidateQueries({ queryKey: ["switchboards"] }); toast({ title: "Rozvaděč uložen" }); },
+    onSuccess: (data) => { qc.setQueryData(["switchboards", id], data); void qc.invalidateQueries({ queryKey: ["switchboards"] }); void qc.invalidateQueries({ queryKey: ["switchboard-checklist", id] }); toast({ title: "Rozvaděč uložen" }); },
     onError: (err) => toast({ variant: "destructive", title: "Uložení selhalo", description: err.message }),
   });
   const set = (key: keyof Form, value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -51,6 +52,16 @@ export default function SwitchboardDetail() {
     ["ratedFrequency", "Frekvence", "50 Hz"], ["ratedCurrent", "Jmenovitý proud", "63 A"],
     ["ipRating", "IP", "IP40"], ["ikRating", "IK", "IK08"], ["dimensions", "Rozměry", "600 × 800 × 250 mm"], ["weight", "Hmotnost", "35 kg"],
   ];
+  const propertyOptions = [
+    ["hasRcd", "Proudové chrániče"], ["hasSpd", "SPD"], ["hasContactors", "Stykače nebo relé"],
+    ["hasControlCircuits", "Ovládací obvody"], ["hasThreePhase", "Třífázový přívod"], ["hasMetalEnclosure", "Kovová skříň nebo dveře"],
+  ] as const;
+  const setProperty = (key: string, value: string) => setForm((current) => {
+    const properties = { ...current.properties };
+    if (value === "unknown") delete properties[key];
+    else properties[key] = value === "yes";
+    return { ...current, properties };
+  });
   return (
     <div className="max-w-4xl mx-auto w-full p-4 md:p-6 pb-24">
       <div className="flex items-center gap-3 mb-5"><Button variant="ghost" size="icon" asChild><Link href="/switchboards"><ArrowLeft className="h-5 w-5" /></Link></Button><CircuitBoard className="h-6 w-6 text-cyan-600" /><div className="flex-1"><h1 className="text-xl font-bold">{board.designation}</h1><p className="text-xs text-muted-foreground">Zakázka #{board.job?.jobNumber ?? board.jobId} · {board.job?.title}</p></div></div>
@@ -60,9 +71,17 @@ export default function SwitchboardDetail() {
           <div className="space-y-1.5"><Label>Stav</Label><Select value={form.status} disabled={disabled} onValueChange={(value) => set("status", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(SWITCHBOARD_STATUS_LABELS).filter(([value]) => value !== "archived").map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
           <div className="space-y-1.5"><Label htmlFor="board-standards">Použité normy</Label><Input id="board-standards" value={form.standards} disabled={disabled} onChange={(e) => set("standards", e.target.value)} placeholder="ČSN EN 61439-1, ČSN EN 61439-3" /></div>
         </div>
+        <div className="space-y-2">
+          <Label>Vlastnosti pro dynamický checklist</Label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {propertyOptions.map(([key, label]) => <div key={key} className="grid grid-cols-[1fr_8rem] items-center gap-2 min-h-11 border px-3 py-2 text-sm"><span>{label}</span><Select value={form.properties[key] == null ? "unknown" : form.properties[key] ? "yes" : "no"} disabled={disabled} onValueChange={(value) => setProperty(key, value)}><SelectTrigger className="h-8"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unknown">Neurčeno</SelectItem><SelectItem value="yes">Ano</SelectItem><SelectItem value="no">Ne</SelectItem></SelectContent></Select></div>)}
+          </div>
+          <p className="text-xs text-muted-foreground">Při volbě Ne se související body skryjí. Neurčené vlastnosti zůstávají v checklistu viditelné k ručnímu posouzení.</p>
+        </div>
         <div className="space-y-1.5"><Label htmlFor="board-notes">Poznámka</Label><Textarea id="board-notes" rows={4} value={form.notes ?? ""} disabled={disabled} onChange={(e) => set("notes", e.target.value)} /></div>
         {!disabled && <Button className="w-full md:w-auto" disabled={!form.designation.trim() || !form.internalName.trim() || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}Uložit změny</Button>}
       </div>
+      <SwitchboardChecklist switchboardId={id} jobId={board.jobId} />
       <SwitchboardDocuments switchboardId={id} />
       <SwitchboardExtractionReview switchboardId={id} />
       <SwitchboardLabels board={board} />

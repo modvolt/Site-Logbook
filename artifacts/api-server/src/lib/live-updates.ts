@@ -64,6 +64,8 @@ export function domainsForPath(relPath: string): LiveDomain[] {
     // affected document — so open job and warehouse screens must refresh too,
     // or they show a stale price after this mutation's SSE event.
     add("jobs", "warehouse");
+  } else if (p.startsWith("/switchboards")) {
+    add("switchboards");
   } else if (p.startsWith("/jobs")) {
     add("jobs");
     if (p.includes("/materials")) add("warehouse");

@@ -41,7 +41,8 @@ export type LiveDomain =
   | "ppe"
   | "quotes"
   | "sessions"
-  | "auth";
+  | "auth"
+  | "switchboards";
 
 /**
  * All valid domain strings as a runtime-accessible tuple. Use this wherever
@@ -66,6 +67,7 @@ export const LIVE_DOMAINS = [
   "quotes",
   "sessions",
   "auth",
+  "switchboards",
 ] as const satisfies readonly LiveDomain[];
 
 const LIVE_DOMAIN_SET = new Set<string>(LIVE_DOMAINS);

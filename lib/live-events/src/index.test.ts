@@ -39,6 +39,7 @@ describe("LIVE_DOMAINS", () => {
       "ppe",
       "quotes",
       "sessions",
+      "switchboards",
     ];
     for (const d of expected) {
       expect(LIVE_DOMAINS).toContain(d);

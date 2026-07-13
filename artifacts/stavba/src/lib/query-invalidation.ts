@@ -85,6 +85,7 @@ const DOMAIN_PREFIXES: Record<LiveDomain, readonly string[]> = {
   sessions: ["/api/admin/sessions", "/api/sessions"],
   // Role and permission changes must update navigation in already-open sessions.
   auth: ["/api/auth/me", "/api/users"],
+  switchboards: ["/api/switchboards"],
 };
 
 /**

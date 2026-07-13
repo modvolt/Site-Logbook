@@ -162,6 +162,23 @@ async function executeOp(op: OfflineOp): Promise<void> {
       await deleteBlob(blobKey);
       break;
     }
+    case "set_switchboard_checklist_response": {
+      const { boardId, itemKey, body } = payload as {
+        boardId: number;
+        itemKey: string;
+        body: Record<string, unknown>;
+      };
+      const res = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(itemKey)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": op.id },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const responseBody = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${responseBody.slice(0, 200)}`);
+      }
+      break;
+    }
     default:
       throw new Error(`Neznámý typ operace: ${String(type)}`);
   }
@@ -176,6 +193,7 @@ export function opTypeLabel(type: OfflineOpType): string {
     case "stop_timer": return "Zastavení časovače";
     case "set_hours": return "Nastavení hodin";
     case "add_photo": return "Nahrání fotky";
+    case "set_switchboard_checklist_response": return "Uložení kontroly rozvaděče";
     default: return "Neznámá akce";
   }
 }
@@ -204,7 +222,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const enqueue = useCallback(
     async (params: EnqueueParams) => {
       const op = await enqueueOp(params);
-      setOps((prev) => [...prev, op]);
+      setOps((prev) => [...prev.filter((existing) => existing.id !== op.id), op]);
       // Register a Background Sync tag so the browser can trigger a flush
       // even when the tab is backgrounded and connectivity returns.
       // Falls back to the online-event flush on browsers without Sync API (Safari).
@@ -246,6 +264,9 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
           domainsToInvalidate.add("jobs");
           if (op.type === "add_material" || op.type === "add_photo") {
             domainsToInvalidate.add("warehouse");
+          }
+          if (op.type === "set_switchboard_checklist_response") {
+            domainsToInvalidate.add("switchboards");
           }
         } catch (err) {
           const errorMessage =

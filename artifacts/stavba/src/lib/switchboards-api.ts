@@ -25,6 +25,7 @@ export type Switchboard = {
   dimensions: string | null;
   weight: string | null;
   standards: string[];
+  properties: Record<string, boolean>;
   notes: string | null;
   status: string;
   processingStatus: string;
@@ -55,6 +56,27 @@ export type SwitchboardExtractedField = {
 };
 export type SwitchboardExtractionDocument = SwitchboardDocument & { fields: SwitchboardExtractedField[]; missingFields: Array<{ fieldKey: string; canonicalNameCs: string; dataType: string }> };
 export type SwitchboardLabel = { id: number; switchboardId: number; version: number; inputSnapshot: Record<string, unknown>; qrTarget: string; status: string; generatorVersion: string; createdAt: string; approvedAt: string | null };
+
+export type SwitchboardChecklistResponse = {
+  id: number; phaseKey: string; itemKey: string; result: "done" | "defect" | "not_applicable" | null;
+  value: string | null; unit: string | null; passed: boolean | null; note: string | null; justification: string | null;
+  revision: number; performedByUserId: number | null; performedByName: string | null;
+  performedAt: string | null; updatedAt: string; pending?: boolean;
+};
+export type SwitchboardChecklistItem = {
+  key: string; title: string; details: string[]; required: boolean; critical: boolean;
+  kind: "check" | "measurement" | "photo";
+  response: SwitchboardChecklistResponse | null;
+};
+export type SwitchboardChecklistPhase = {
+  key: "assembly" | "inspection" | "measurement"; title: string; items: SwitchboardChecklistItem[];
+  summary: { completed: number; total: number; defects: number; criticalDefects: number; status: string; lastWorker: string | null; lastChangedAt: string | null };
+};
+export type SwitchboardChecklist = {
+  board: { id: number; properties: Record<string, boolean>; assemblyStatus: string; inspectionStatus: string; measurementStatus: string };
+  instance: null | { id: number; currentPhase: "assembly" | "inspection" | "measurement"; revision: number; status: string; startedAt: string; updatedAt: string };
+  phases: SwitchboardChecklistPhase[];
+};
 
 export async function switchboardFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {

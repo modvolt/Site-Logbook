@@ -48,6 +48,7 @@ import switchboardsRouter from "./switchboards";
 import switchboardReviewRouter from "./switchboard-review";
 import switchboardQrRouter from "./switchboard-qr";
 import switchboardLabelsRouter from "./switchboard-labels";
+import switchboardChecklistsRouter from "./switchboard-checklists";
 
 const router: IRouter = Router();
 
@@ -99,6 +100,7 @@ router.use(webauthnRouter);
 router.use(switchboardReviewRouter);
 router.use(switchboardQrRouter);
 router.use(switchboardLabelsRouter);
+router.use(switchboardChecklistsRouter);
 router.use(switchboardsRouter);
 
 export default router;
