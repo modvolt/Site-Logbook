@@ -2069,9 +2069,9 @@ export interface DashboardSummary {
   inProgressCount: number;
   doneCount: number;
   totalHoursThisWeek: number;
-  totalRevenueThisWeek: number;
+  totalRevenueThisWeek: number | null;
   /** Sum of price on done jobs not yet linked to any non-cancelled invoice */
-  unbilledValue: number;
+  unbilledValue: number | null;
   /** Total hours spent on all jobs this calendar month */
   hoursThisMonth: number;
   /** Count of active jobs that have no customer, no price, or are stale */
@@ -2081,8 +2081,8 @@ export interface DashboardSummary {
      * @nullable
      */
   unbilledOldestDays?: number | null;
-  /** Count of distinct customers with at least one done unbilled job older than 7 days */
-  overdueUnbilledCustomers: number;
+  /** Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view */
+  overdueUnbilledCustomers: number | null;
 }
 
 /**

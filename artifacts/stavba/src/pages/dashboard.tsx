@@ -703,6 +703,7 @@ function WeekEmployeeRow({ person, weekFrom, weekTo }: { person: any; weekFrom: 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { can, role } = useAuth();
+  const canViewBilling = can("billing.view");
   const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() }
   });
@@ -840,8 +841,8 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 mb-6">
-            <Card
+          <div className={`grid ${canViewBilling ? "grid-cols-3" : "grid-cols-2"} gap-2 mb-6`}>
+            {canViewBilling && <Card
               role="button"
               tabIndex={0}
               onClick={() => setLocation("/billing/unbilled")}
@@ -863,7 +864,7 @@ export default function Dashboard() {
                   <div className="text-[9px] uppercase font-bold tracking-wider opacity-70 mt-1 text-center">Nevyfakturováno</div>
                 )}
               </CardContent>
-            </Card>
+            </Card>}
             <Card
               role="button"
               tabIndex={0}
@@ -929,19 +930,19 @@ export default function Dashboard() {
       {summary && (
         <div className="mt-8 pt-8 border-t space-y-4">
           <h2 className="text-lg font-bold text-muted-foreground">Tento týden</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className={`grid ${canViewBilling ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
             <Card className="bg-muted border-none">
               <CardContent className="p-4">
                 <div className="text-sm text-muted-foreground font-medium mb-1">Celkem hodin</div>
                 <div className="text-2xl font-bold">{Number(Number(summary.totalHoursThisWeek).toFixed(2))} h</div>
               </CardContent>
             </Card>
-            <Card className="bg-muted border-none">
+            {canViewBilling && <Card className="bg-muted border-none">
               <CardContent className="p-4">
                 <div className="text-sm text-muted-foreground font-medium mb-1">Tržby</div>
-                <div className="text-2xl font-bold">{summary.totalRevenueThisWeek.toLocaleString("cs-CZ")} Kč</div>
+                <div className="text-2xl font-bold">{fmtKc(summary.totalRevenueThisWeek, 0)}</div>
               </CardContent>
-            </Card>
+            </Card>}
           </div>
 
           {people && people.length > 0 && (

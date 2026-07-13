@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const sql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0084_shocking_martin_li.sql"), "utf8");
+const accountLinkSql = readFileSync(resolve(process.cwd(), "../../lib/db/migrations/0085_link_users_to_people.sql"), "utf8");
 
 describe("personal timer compatibility migration", () => {
   it("adds a unique optional user-to-person link", () => {
@@ -21,5 +22,12 @@ describe("personal timer compatibility migration", () => {
     expect(sql).toContain('WHERE activity.timer_started_at IS NOT NULL');
     expect(sql).toContain('AND EXISTS (');
     expect(sql).toContain("event_type = 'legacy_imported'");
+  });
+
+  it("links unmatched accounts across Czech diacritics only on unique matches", () => {
+    expect(accountLinkSql).toContain("translate(lower(trim(p.name))");
+    expect(accountLinkSql).toContain("WHERE u.person_id IS NULL");
+    expect(accountLinkSql).toContain('linked.person_id = p.id');
+    expect(accountLinkSql.match(/HAVING count\(DISTINCT/g)).toHaveLength(2);
   });
 });

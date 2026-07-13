@@ -2674,12 +2674,12 @@ export const GetDashboardSummaryResponse = zod.object({
   "inProgressCount": zod.number(),
   "doneCount": zod.number(),
   "totalHoursThisWeek": zod.number(),
-  "totalRevenueThisWeek": zod.number(),
-  "unbilledValue": zod.number().describe('Sum of price on done jobs not yet linked to any non-cancelled invoice'),
+  "totalRevenueThisWeek": zod.number().nullable().describe('Null without billing.view'),
+  "unbilledValue": zod.number().nullable().describe('Sum of price on done jobs not yet linked to any non-cancelled invoice; null without billing.view'),
   "hoursThisMonth": zod.number().describe('Total hours spent on all jobs this calendar month'),
   "problematicJobsCount": zod.number().describe('Count of active jobs that have no customer, no price, or are stale'),
-  "unbilledOldestDays": zod.number().nullish().describe('Days since the oldest done unbilled job date; null if no unbilled done jobs exist'),
-  "overdueUnbilledCustomers": zod.number().describe('Count of distinct customers with at least one done unbilled job older than 7 days')
+  "unbilledOldestDays": zod.number().nullish().describe('Days since the oldest done unbilled job date; null without billing.view or when no matching job exists'),
+  "overdueUnbilledCustomers": zod.number().nullable().describe('Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view')
 })
 
 

@@ -180,6 +180,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     unbilledOldestDays = Math.max(0, Math.floor((now - due) / msPerDay));
   }
 
+  const canViewBilling = req.auth!.permissions.includes("billing.view");
   res.json({
     todayCount: todayCount?.c ?? 0,
     weekCount: weekCount?.c ?? 0,
@@ -187,11 +188,11 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     inProgressCount: inProgressCount?.c ?? 0,
     doneCount: doneCount?.c ?? 0,
     totalHoursThisWeek,
-    totalRevenueThisWeek: req.auth!.permissions.includes("billing.view") ? totalRevenueThisWeek : null,
+    totalRevenueThisWeek: canViewBilling ? totalRevenueThisWeek : null,
     hoursThisMonth: monthHoursAgg?.total ?? 0,
-    unbilledValue: req.auth!.permissions.includes("billing.view") ? (unbilledAgg[0]?.total ?? 0) : null,
-    unbilledOldestDays,
-    overdueUnbilledCustomers: overdueUnbilledCustomersRow[0]?.c ?? 0,
+    unbilledValue: canViewBilling ? (unbilledAgg[0]?.total ?? 0) : null,
+    unbilledOldestDays: canViewBilling ? unbilledOldestDays : null,
+    overdueUnbilledCustomers: canViewBilling ? (overdueUnbilledCustomersRow[0]?.c ?? 0) : null,
     problematicJobsCount: problematicAgg?.c ?? 0,
   });
 });

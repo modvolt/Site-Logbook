@@ -10229,10 +10229,10 @@ components:
           description: Count of active jobs that have no customer, no price, or are stale
         unbilledOldestDays:
           type: ["integer", "null"]
-          description: Days since the oldest done unbilled job date; null if no unbilled done jobs exist
+          description: Days since the oldest done unbilled job date; null without billing.view or when no matching job exists
         overdueUnbilledCustomers:
-          type: integer
-          description: Count of distinct customers with at least one done unbilled job older than 7 days
+          type: ["integer", "null"]
+          description: Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view
 
     UploadUrlRequest:
       type: object

@@ -90,8 +90,8 @@ router.post("/client-errors", requireAuth, errorLimiter, async (req, res): Promi
     return;
   }
   const { message, stack, componentStack, path } = parsed.data;
-  const userId: number | undefined = (req.session as { userId?: number }).userId;
-  const userRole: string | undefined = (req.session as { userRole?: string }).userRole;
+  const userId = req.auth!.userId;
+  const userRole = req.auth!.role;
   const userAgent = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 500) : undefined;
 
   await db.insert(clientErrorsTable).values({
