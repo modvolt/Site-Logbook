@@ -39,6 +39,8 @@ interface Props {
   entries: TimeEntryItem[];
   people: PersonOption[];
   canWrite: boolean;
+  canControlTimer?: boolean;
+  title?: string;
   onStart: (personId: number) => void;
   onStop: (personId: number) => void;
   onSetHours: (personId: number, hours: number, reason: string) => void;
@@ -49,7 +51,7 @@ interface Props {
 }
 
 export function TimeEntriesSection({
-  entries, people, canWrite, onStart, onStop, onSetHours, onAddPerson, onRemove, summary, busy,
+  entries, people, canWrite, canControlTimer = canWrite, title = "Čas zaměstnanců", onStart, onStop, onSetHours, onAddPerson, onRemove, summary, busy,
 }: Props) {
   const [now, setNow] = useState(() => Date.now());
   const [adding, setAdding] = useState(false);
@@ -115,7 +117,7 @@ export function TimeEntriesSection({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-semibold flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Users className="h-4 w-4 text-indigo-500" /> Čas zaměstnanců
+              <Users className="h-4 w-4 text-indigo-500" /> {title}
               {liveTotal > 0 && (
                 <span className="text-sm font-normal text-muted-foreground">· celkem {fmtH(liveTotal)}</span>
               )}
@@ -174,7 +176,6 @@ export function TimeEntriesSection({
                   (running && worker.activeSessionId === null ? elapsedSeconds(e.timerStartedAt, now) / 3600 : 0)
                 : e.hours + elapsedSeconds(e.timerStartedAt, now) / 3600;
               const isEditing = editId === e.personId;
-              const canControlTimer = canWrite;
               return (
                 <li
                   key={e.id}

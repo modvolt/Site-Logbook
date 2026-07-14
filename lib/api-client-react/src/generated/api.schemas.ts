@@ -268,6 +268,11 @@ export interface Job {
   assigneeNames: string[];
   /** @nullable */
   customerId?: number | null;
+  /**
+     * Action/job-group containing this job
+     * @nullable
+     */
+  groupId?: number | null;
   /** @nullable */
   customerCompanyName?: string | null;
   /** @nullable */
@@ -315,8 +320,10 @@ export interface Job {
   taskDoneCount?: number;
   attachmentCount?: number;
   materialCount?: number;
+  consumedMaterialCount?: number;
+  plannedMaterialCount?: number;
   /**
-     * Sum of (quantity * pricePerUnit) for all materials on the job; null if no priced materials
+     * Sum of (quantity * pricePerUnit) for consumed materials on the job; null if no consumed priced materials
      * @nullable
      */
   materialTotalCost?: number | null;
@@ -330,6 +337,23 @@ export interface Job {
      */
   contractPrice?: number | null;
   createdAt: string;
+  /**
+     * ISO timestamp when the job was archived
+     * @nullable
+     */
+  archivedAt?: string | null;
+  /** True when today's occurrence comes from a job visit */
+  scheduledByVisit?: boolean;
+  scheduleOccurrenceKeys?: string[];
+  schedulePersonNames?: string[];
+  scheduleVisitIds?: number[];
+  /** @nullable */
+  archivedByUserId?: number | null;
+  /**
+     * Lifecycle status restored when the job is unarchived
+     * @nullable
+     */
+  statusBeforeArchive?: string | null;
   /**
      * ISO timestamp when a signature request email was last sent
      * @nullable
@@ -373,6 +397,29 @@ export const JobInputPricingMode = {
   fixed_price: 'fixed_price',
 } as const;
 
+export interface TaskInput {
+  /** @minLength 1 */
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  isChangeRequest?: boolean;
+}
+
+export interface MaterialInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  /** @nullable */
+  warehouseItemId?: number | null;
+  /** Create as consumed. Defaults to planned (false). */
+  done?: boolean;
+}
+
 export interface JobInput {
   /** @minLength 1 */
   title: string;
@@ -392,8 +439,28 @@ export interface JobInput {
   status: JobInputStatus;
   /** @nullable */
   assignedPersonId?: number | null;
+  /**
+     * Additional workers created atomically with the job
+     * @maxItems 100
+     */
+  assigneeIds?: number[];
+  /**
+     * Initial tasks created atomically with the job
+     * @maxItems 200
+     */
+  tasks?: TaskInput[];
+  /**
+     * Initial planned materials created atomically with the job; stock changes only after explicit consumption
+     * @maxItems 200
+     */
+  materials?: MaterialInput[];
   /** @nullable */
   customerId?: number | null;
+  /**
+     * Optional action/job-group assigned atomically on creation
+     * @nullable
+     */
+  groupId?: number | null;
   /** @nullable */
   notes?: string | null;
   /** @nullable */
@@ -448,12 +515,22 @@ export interface JobBulkStatusUpdate {
   ids: number[];
   /** New status for all selected jobs. "vyfakturovano" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write. */
   status: JobBulkStatusUpdateStatus;
+  /** Explicitly accept completion warnings for every selected job; hard blockers still reject the entire batch. */
+  acknowledgeWarnings?: boolean;
 }
 
 export interface BulkUpdateResult {
   /** Number of jobs whose status was changed */
   updated: number;
 }
+
+export type CalendarJobOccurrenceType = typeof CalendarJobOccurrenceType[keyof typeof CalendarJobOccurrenceType];
+
+
+export const CalendarJobOccurrenceType = {
+  job: 'job',
+  visit: 'visit',
+} as const;
 
 export interface CalendarJob {
   id: number;
@@ -480,6 +557,15 @@ export interface CalendarJob {
   assignedPersonId?: number | null;
   /** @nullable */
   assignedPersonName?: string | null;
+  /** Stable identifier of this calendar occurrence */
+  occurrenceKey: string;
+  occurrenceType: CalendarJobOccurrenceType;
+  /** @nullable */
+  visitId?: number | null;
+  /** @nullable */
+  visitStatus?: string | null;
+  /** @nullable */
+  visitNote?: string | null;
 }
 
 /**
@@ -575,6 +661,41 @@ export const JobStatusUpdateStatus = {
 export interface JobStatusUpdate {
   /** Client-editable lifecycle status only. "vyfakturovano" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to "done" on storno), never by a direct client status write. */
   status: JobStatusUpdateStatus;
+  /** Explicit confirmation of non-blocking completion warnings. */
+  acknowledgeWarnings?: boolean;
+}
+
+export interface JobReadinessIssue {
+  code: string;
+  message: string;
+  count?: number;
+}
+
+export interface JobActiveSession {
+  id: number;
+  personId: number;
+  personName: string;
+  startedAt: string;
+}
+
+export interface JobCompletionReadiness {
+  jobId: number;
+  status: string;
+  canComplete: boolean;
+  blockers: JobReadinessIssue[];
+  warnings: JobReadinessIssue[];
+  activeSessions: JobActiveSession[];
+  unfinishedTaskCount: number;
+  plannedMaterialCount: number;
+  consumedMaterialCount: number;
+  hoursSpent: number;
+}
+
+export interface JobStatusTransitionError {
+  error: string;
+  code: string;
+  jobId?: number;
+  readiness?: JobCompletionReadiness;
 }
 
 export interface SendJobEmailInput {
@@ -656,14 +777,6 @@ export interface Task {
   createdAt: string;
 }
 
-export interface TaskInput {
-  /** @minLength 1 */
-  title: string;
-  /** @nullable */
-  description?: string | null;
-  isChangeRequest?: boolean;
-}
-
 export interface TaskUpdate {
   /** @minLength 1 */
   title?: string;
@@ -683,7 +796,12 @@ export interface Material {
   unit?: string | null;
   /** @nullable */
   pricePerUnit?: number | null;
+  /** True when the material was actually consumed; only consumed job materials affect stock and billing. */
   done: boolean;
+  /** @nullable */
+  consumedAt?: string | null;
+  /** @nullable */
+  consumedByUserId?: number | null;
   sortOrder: number;
   /** @nullable */
   warehouseItemId?: number | null;
@@ -712,19 +830,6 @@ export interface Material {
   /** @nullable */
   invoicedInvoiceId?: number | null;
   createdAt: string;
-}
-
-export interface MaterialInput {
-  /** @minLength 1 */
-  name: string;
-  /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  pricePerUnit?: number | null;
-  /** @nullable */
-  warehouseItemId?: number | null;
 }
 
 export interface MaterialUpdate {
@@ -2069,19 +2174,29 @@ export interface DashboardSummary {
   inProgressCount: number;
   doneCount: number;
   totalHoursThisWeek: number;
+  /**
+     * Null without billing.view
+     * @nullable
+     */
   totalRevenueThisWeek: number | null;
-  /** Sum of price on done jobs not yet linked to any non-cancelled invoice */
+  /**
+     * Sum of price on done jobs not yet linked to any non-cancelled invoice; null without billing.view
+     * @nullable
+     */
   unbilledValue: number | null;
   /** Total hours spent on all jobs this calendar month */
   hoursThisMonth: number;
   /** Count of active jobs that have no customer, no price, or are stale */
   problematicJobsCount: number;
   /**
-     * Days since the oldest done unbilled job date; null if no unbilled done jobs exist
+     * Days since the oldest done unbilled job date; null without billing.view or when no matching job exists
      * @nullable
      */
   unbilledOldestDays?: number | null;
-  /** Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view */
+  /**
+     * Count of distinct customers with at least one done unbilled job older than 7 days; null without billing.view
+     * @nullable
+     */
   overdueUnbilledCustomers: number | null;
 }
 
@@ -2453,9 +2568,10 @@ export interface AuthUser {
   id: number;
   username: string;
   name: string;
-  /** Employee record used for personal time tracking
-   * @nullable
-   */
+  /**
+     * Employee record used for personal time tracking
+     * @nullable
+     */
   personId: number | null;
   /** @nullable */
   email?: string | null;
@@ -3362,6 +3478,15 @@ export interface MyPpeSignResult {
   documentNumber: string;
 }
 
+export type JobVisitStatus = typeof JobVisitStatus[keyof typeof JobVisitStatus];
+
+
+export const JobVisitStatus = {
+  planned: 'planned',
+  done: 'done',
+  cancelled: 'cancelled',
+} as const;
+
 export interface JobVisit {
   id: number;
   jobId: number;
@@ -3372,9 +3497,19 @@ export interface JobVisit {
   date: string;
   /** @nullable */
   note?: string | null;
-  /** planned | done */
-  status: string;
+  /**
+     * Optional HH:MM override; otherwise the job time is used
+     * @nullable
+     */
+  startTime?: string | null;
+  /**
+     * Optional HH:MM override; otherwise the job time is used
+     * @nullable
+     */
+  endTime?: string | null;
+  status: JobVisitStatus;
   createdAt: string;
+  updatedAt: string;
 }
 
 export type JobVisitInputStatus = typeof JobVisitInputStatus[keyof typeof JobVisitInputStatus];
@@ -3383,6 +3518,7 @@ export type JobVisitInputStatus = typeof JobVisitInputStatus[keyof typeof JobVis
 export const JobVisitInputStatus = {
   planned: 'planned',
   done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobVisitInput {
@@ -3392,6 +3528,10 @@ export interface JobVisitInput {
   personId?: number | null;
   /** @nullable */
   note?: string | null;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endTime?: string | null;
   status?: JobVisitInputStatus;
 }
 
@@ -3401,6 +3541,7 @@ export type JobVisitUpdateStatus = typeof JobVisitUpdateStatus[keyof typeof JobV
 export const JobVisitUpdateStatus = {
   planned: 'planned',
   done: 'done',
+  cancelled: 'cancelled',
 } as const;
 
 export interface JobVisitUpdate {
@@ -3410,6 +3551,10 @@ export interface JobVisitUpdate {
   personId?: number | null;
   /** @nullable */
   note?: string | null;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endTime?: string | null;
   status?: JobVisitUpdateStatus;
 }
 
@@ -3677,6 +3822,50 @@ export interface BillingSummary {
   /** Count of distinct customers with at least one done unbilled job older than 7 days */
   overdueUnbilledCustomers: number;
 }
+
+export interface WorkFinancialBucket {
+  hours: number;
+  /**
+     * Null without rates.cost.view
+     * @nullable
+     */
+  cost: number | null;
+  sale: number;
+  /**
+     * Null without rates.cost.view
+     * @nullable
+     */
+  margin: number | null;
+  /** @nullable */
+  marginPercent: number | null;
+  missingCostRateCount: number;
+  missingSaleRateCount: number;
+  sessionCount: number;
+}
+
+export type WorkFinancialStatusBucketBillingStatus = typeof WorkFinancialStatusBucketBillingStatus[keyof typeof WorkFinancialStatusBucketBillingStatus];
+
+
+export const WorkFinancialStatusBucketBillingStatus = {
+  unbilled: 'unbilled',
+  ready: 'ready',
+  billed: 'billed',
+  non_billable: 'non_billable',
+} as const;
+
+export type WorkFinancialStatusBucket = WorkFinancialBucket & {
+  billingStatus: WorkFinancialStatusBucketBillingStatus;
+};
+
+export type WorkFinancialPersonBucket = WorkFinancialBucket & {
+  personId: number;
+  personName: string;
+};
+
+export type WorkFinancialSummary = WorkFinancialBucket & {
+  byBillingStatus: WorkFinancialStatusBucket[];
+  byPerson: WorkFinancialPersonBucket[];
+};
 
 export interface BankStatementParseInput {
   filename: string;
@@ -4017,6 +4206,243 @@ export interface UnbilledCustomerDetail {
   activities: UnbilledActivity[];
 }
 
+export type QuoteJobGroupInvoiceDraftInputLabourBillingMode = typeof QuoteJobGroupInvoiceDraftInputLabourBillingMode[keyof typeof QuoteJobGroupInvoiceDraftInputLabourBillingMode];
+
+
+export const QuoteJobGroupInvoiceDraftInputLabourBillingMode = {
+  job_price: 'job_price',
+  recorded_time: 'recorded_time',
+  none: 'none',
+} as const;
+
+export type QuoteJobGroupInvoiceDraftInputWorkGrouping = typeof QuoteJobGroupInvoiceDraftInputWorkGrouping[keyof typeof QuoteJobGroupInvoiceDraftInputWorkGrouping];
+
+
+export const QuoteJobGroupInvoiceDraftInputWorkGrouping = {
+  summary: 'summary',
+  worker: 'worker',
+} as const;
+
+export type QuoteJobGroupInvoiceDraftInputVatModeDefault = typeof QuoteJobGroupInvoiceDraftInputVatModeDefault[keyof typeof QuoteJobGroupInvoiceDraftInputVatModeDefault];
+
+
+export const QuoteJobGroupInvoiceDraftInputVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+/**
+ * Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).
+ */
+export type MaterialMarkupOverrideSourceType = typeof MaterialMarkupOverrideSourceType[keyof typeof MaterialMarkupOverrideSourceType];
+
+
+export const MaterialMarkupOverrideSourceType = {
+  material: 'material',
+  activity_material: 'activity_material',
+} as const;
+
+export interface MaterialMarkupOverride {
+  materialId: number;
+  /**
+     * Effective markup percent for this material line (0 = no markup)
+     * @minimum 0
+     */
+  markupPercent: number;
+  /** Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible). */
+  sourceType?: MaterialMarkupOverrideSourceType;
+}
+
+export interface QuoteJobGroupInvoiceDraftInput {
+  /** Explicitly approved completed follow-up jobs to bill in addition to the accepted quote */
+  extraJobIds?: number[];
+  labourBillingMode?: QuoteJobGroupInvoiceDraftInputLabourBillingMode;
+  workGrouping?: QuoteJobGroupInvoiceDraftInputWorkGrouping;
+  /** Subset of extraJobIds whose fines are explicitly approved */
+  billFineJobIds?: number[];
+  /** @nullable */
+  materialMarkupPercent?: number | null;
+  materialMarkupOverrides?: MaterialMarkupOverride[];
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  /** @nullable */
+  paymentMethod?: string | null;
+  vatModeDefault?: QuoteJobGroupInvoiceDraftInputVatModeDefault;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type InvoiceDetailStatus = typeof InvoiceDetailStatus[keyof typeof InvoiceDetailStatus];
+
+
+export const InvoiceDetailStatus = {
+  draft: 'draft',
+  issued: 'issued',
+  sent: 'sent',
+  paid: 'paid',
+  cancelled: 'cancelled',
+} as const;
+
+export type InvoiceDetailVatModeDefault = typeof InvoiceDetailVatModeDefault[keyof typeof InvoiceDetailVatModeDefault];
+
+
+export const InvoiceDetailVatModeDefault = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof InvoiceLineSourceType];
+
+
+export const InvoiceLineSourceType = {
+  job: 'job',
+  activity: 'activity',
+  activity_material: 'activity_material',
+  activity_work: 'activity_work',
+  material: 'material',
+  billing_document_line: 'billing_document_line',
+  work_session: 'work_session',
+  quote_item: 'quote_item',
+  transport: 'transport',
+  parking: 'parking',
+  fine: 'fine',
+  manual: 'manual',
+} as const;
+
+export type InvoiceLineVatMode = typeof InvoiceLineVatMode[keyof typeof InvoiceLineVatMode];
+
+
+export const InvoiceLineVatMode = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export interface InvoiceLine {
+  id: number;
+  invoiceId: number;
+  sourceType: InvoiceLineSourceType;
+  /** @nullable */
+  sourceId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  discountPercent?: number | null;
+  /** @nullable */
+  vatRate?: number | null;
+  vatMode: InvoiceLineVatMode;
+  totalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  sortOrder: number;
+}
+
+export interface InvoiceSourceJob {
+  id: number;
+  /**
+     * Sequential job number
+     * @nullable
+     */
+  jobNumber?: number | null;
+  title: string;
+  date: string;
+}
+
+export interface InvoiceSourceActivity {
+  id: number;
+  name: string;
+}
+
+export interface InvoiceDetail {
+  id: number;
+  /** @nullable */
+  invoiceNumber?: string | null;
+  status: InvoiceDetailStatus;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  customerIc?: string | null;
+  /** @nullable */
+  customerDic?: string | null;
+  /** @nullable */
+  customerAddress?: string | null;
+  /** @nullable */
+  customerEmail?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  currency: string;
+  /** @nullable */
+  paymentMethod?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  vatModeDefault: InvoiceDetailVatModeDefault;
+  subtotalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  /** @nullable */
+  notes?: string | null;
+  /**
+     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
+     * @nullable
+     */
+  paidDate?: string | null;
+  /**
+     * Amount actually received (supports partial payments)
+     * @nullable
+     */
+  paidAmount?: number | null;
+  /** @nullable */
+  pdfObjectPath?: string | null;
+  /** @nullable */
+  isdocObjectPath?: string | null;
+  /** @nullable */
+  createdByUserId?: number | null;
+  /** @nullable */
+  issuedByUserId?: number | null;
+  /** @nullable */
+  issuedAt?: string | null;
+  /** @nullable */
+  cancelledAt?: string | null;
+  /**
+     * ID of the recurring template that generated this invoice (if any)
+     * @nullable
+     */
+  recurringTemplateId?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  lines: InvoiceLine[];
+  sourceJobIds: number[];
+  sourceActivityIds?: number[];
+  sourceJobs?: InvoiceSourceJob[];
+  sourceActivities?: InvoiceSourceActivity[];
+}
+
 export type InvoiceStatus = typeof InvoiceStatus[keyof typeof InvoiceStatus];
 
 
@@ -4037,17 +4463,6 @@ export const InvoiceVatModeDefault = {
   zero: 'zero',
   non_vat: 'non_vat',
 } as const;
-
-export interface InvoiceSourceJob {
-  id: number;
-  /**
-     * Sequential job number
-     * @nullable
-     */
-  jobNumber?: number | null;
-  title: string;
-  date: string;
-}
 
 export interface Invoice {
   id: number;
@@ -4152,28 +4567,6 @@ export const InvoiceCreateInputVatModeDefault = {
   non_vat: 'non_vat',
 } as const;
 
-/**
- * Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).
- */
-export type MaterialMarkupOverrideSourceType = typeof MaterialMarkupOverrideSourceType[keyof typeof MaterialMarkupOverrideSourceType];
-
-
-export const MaterialMarkupOverrideSourceType = {
-  material: 'material',
-  activity_material: 'activity_material',
-} as const;
-
-export interface MaterialMarkupOverride {
-  materialId: number;
-  /**
-     * Effective markup percent for this material line (0 = no markup)
-     * @minimum 0
-     */
-  markupPercent: number;
-  /** Which material table the id belongs to — a job material ("material") or an activity material ("activity_material"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible). */
-  sourceType?: MaterialMarkupOverrideSourceType;
-}
-
 export type InvoiceLineInputSourceType = typeof InvoiceLineInputSourceType[keyof typeof InvoiceLineInputSourceType];
 
 
@@ -4184,6 +4577,8 @@ export const InvoiceLineInputSourceType = {
   activity_work: 'activity_work',
   material: 'material',
   billing_document_line: 'billing_document_line',
+  work_session: 'work_session',
+  quote_item: 'quote_item',
   transport: 'transport',
   parking: 'parking',
   fine: 'fine',
@@ -4263,158 +4658,6 @@ export interface InvoiceCreateInput {
   vatModeDefault?: InvoiceCreateInputVatModeDefault;
   /** @nullable */
   notes?: string | null;
-}
-
-export type InvoiceDetailStatus = typeof InvoiceDetailStatus[keyof typeof InvoiceDetailStatus];
-
-
-export const InvoiceDetailStatus = {
-  draft: 'draft',
-  issued: 'issued',
-  sent: 'sent',
-  paid: 'paid',
-  cancelled: 'cancelled',
-} as const;
-
-export type InvoiceDetailVatModeDefault = typeof InvoiceDetailVatModeDefault[keyof typeof InvoiceDetailVatModeDefault];
-
-
-export const InvoiceDetailVatModeDefault = {
-  standard: 'standard',
-  reverse_charge: 'reverse_charge',
-  zero: 'zero',
-  non_vat: 'non_vat',
-} as const;
-
-export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof InvoiceLineSourceType];
-
-
-export const InvoiceLineSourceType = {
-  job: 'job',
-  activity: 'activity',
-  activity_material: 'activity_material',
-  activity_work: 'activity_work',
-  material: 'material',
-  billing_document_line: 'billing_document_line',
-  transport: 'transport',
-  parking: 'parking',
-  fine: 'fine',
-  manual: 'manual',
-} as const;
-
-export type InvoiceLineVatMode = typeof InvoiceLineVatMode[keyof typeof InvoiceLineVatMode];
-
-
-export const InvoiceLineVatMode = {
-  standard: 'standard',
-  reverse_charge: 'reverse_charge',
-  zero: 'zero',
-  non_vat: 'non_vat',
-} as const;
-
-export interface InvoiceLine {
-  id: number;
-  invoiceId: number;
-  sourceType: InvoiceLineSourceType;
-  /** @nullable */
-  sourceId?: number | null;
-  /** @nullable */
-  jobId?: number | null;
-  /** @nullable */
-  activityId?: number | null;
-  description: string;
-  quantity: number;
-  /** @nullable */
-  unit?: string | null;
-  unitPriceWithoutVat: number;
-  /** @nullable */
-  discountPercent?: number | null;
-  /** @nullable */
-  vatRate?: number | null;
-  vatMode: InvoiceLineVatMode;
-  totalWithoutVat: number;
-  totalVat: number;
-  totalWithVat: number;
-  sortOrder: number;
-}
-
-export interface InvoiceSourceActivity {
-  id: number;
-  name: string;
-}
-
-export interface InvoiceDetail {
-  id: number;
-  /** @nullable */
-  invoiceNumber?: string | null;
-  status: InvoiceDetailStatus;
-  /** @nullable */
-  customerId?: number | null;
-  /** @nullable */
-  customerName?: string | null;
-  /** @nullable */
-  customerIc?: string | null;
-  /** @nullable */
-  customerDic?: string | null;
-  /** @nullable */
-  customerAddress?: string | null;
-  /** @nullable */
-  customerEmail?: string | null;
-  /** @nullable */
-  issueDate?: string | null;
-  /** @nullable */
-  taxableSupplyDate?: string | null;
-  /** @nullable */
-  dueDate?: string | null;
-  currency: string;
-  /** @nullable */
-  paymentMethod?: string | null;
-  /** @nullable */
-  variableSymbol?: string | null;
-  /** @nullable */
-  constantSymbol?: string | null;
-  /** @nullable */
-  specificSymbol?: string | null;
-  vatModeDefault: InvoiceDetailVatModeDefault;
-  subtotalWithoutVat: number;
-  totalVat: number;
-  totalWithVat: number;
-  /** @nullable */
-  notes?: string | null;
-  /**
-     * Payment date (ISO YYYY-MM-DD) when the invoice was paid
-     * @nullable
-     */
-  paidDate?: string | null;
-  /**
-     * Amount actually received (supports partial payments)
-     * @nullable
-     */
-  paidAmount?: number | null;
-  /** @nullable */
-  pdfObjectPath?: string | null;
-  /** @nullable */
-  isdocObjectPath?: string | null;
-  /** @nullable */
-  createdByUserId?: number | null;
-  /** @nullable */
-  issuedByUserId?: number | null;
-  /** @nullable */
-  issuedAt?: string | null;
-  /** @nullable */
-  cancelledAt?: string | null;
-  /**
-     * ID of the recurring template that generated this invoice (if any)
-     * @nullable
-     */
-  recurringTemplateId?: number | null;
-  createdAt: string;
-  updatedAt: string;
-  lines: InvoiceLine[];
-  sourceJobIds: number[];
-  sourceActivityIds?: number[];
-  sourceJobs?: InvoiceSourceJob[];
-  sourceActivities?: InvoiceSourceActivity[];
 }
 
 export type InvoiceUpdateInputVatModeDefault = typeof InvoiceUpdateInputVatModeDefault[keyof typeof InvoiceUpdateInputVatModeDefault];
@@ -4763,6 +5006,10 @@ export interface CostDocument {
   /** @nullable */
   mergeGroupId?: string | null;
   /** @nullable */
+  uploadGroupToken?: string | null;
+  /** @nullable */
+  uploadCompletedAt?: string | null;
+  /** @nullable */
   primaryDocumentId?: number | null;
   /** @nullable */
   sourcePriority?: string | null;
@@ -4891,6 +5138,8 @@ export interface CostDocumentFile {
   objectPath: string;
   /** @nullable */
   sizeBytes?: number | null;
+  /** @nullable */
+  pageIndex?: number | null;
   createdAt: string;
 }
 
@@ -5648,6 +5897,8 @@ export interface Quote {
   /** @nullable */
   convertedToJobId?: number | null;
   /** @nullable */
+  convertedToJobGroupId?: number | null;
+  /** @nullable */
   convertedToInvoiceId?: number | null;
   itemCount: number;
   totalWithVat: number;
@@ -5735,6 +5986,8 @@ export interface QuoteDetail {
   /** @nullable */
   convertedToJobId?: number | null;
   /** @nullable */
+  convertedToJobGroupId?: number | null;
+  /** @nullable */
   convertedToInvoiceId?: number | null;
   items: QuoteItem[];
   createdAt: string;
@@ -5762,8 +6015,14 @@ export interface SendQuoteEmailInput {
   message?: string | null;
 }
 
+export interface ConvertQuoteToJobInput {
+  /** @nullable */
+  plannedDate?: string | null;
+}
+
 export interface ConvertQuoteToJobResult {
   jobId: number;
+  jobGroupId: number;
 }
 
 export type PublicQuoteDetailStatus = typeof PublicQuoteDetailStatus[keyof typeof PublicQuoteDetailStatus];
@@ -5853,6 +6112,10 @@ segment?: ListJobsSegment;
  * For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).
  */
 staleDays?: number;
+/**
+ * Include archived jobs. Requires jobs.manage permission.
+ */
+includeArchived?: boolean;
 };
 
 export type ListJobsSegment = typeof ListJobsSegment[keyof typeof ListJobsSegment];
@@ -6185,6 +6448,25 @@ export type TriggerBackup200 = {
   triggered: boolean;
   reason: string;
 };
+
+export type GetWorkFinancialSummaryParams = {
+from?: string;
+to?: string;
+personId?: number;
+jobId?: number;
+activityId?: number;
+billingStatus?: GetWorkFinancialSummaryBillingStatus;
+};
+
+export type GetWorkFinancialSummaryBillingStatus = typeof GetWorkFinancialSummaryBillingStatus[keyof typeof GetWorkFinancialSummaryBillingStatus];
+
+
+export const GetWorkFinancialSummaryBillingStatus = {
+  unbilled: 'unbilled',
+  ready: 'ready',
+  billed: 'billed',
+  non_billable: 'non_billable',
+} as const;
 
 export type ListInvoicesParams = {
 status?: string;

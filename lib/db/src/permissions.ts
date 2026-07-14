@@ -2,6 +2,7 @@ import type { UserRole } from "./schema/users";
 
 export const PERMISSIONS = [
   "jobs.view",
+  "jobs.work",
   "jobs.manage",
   "activities.view",
   "activities.manage",
@@ -74,7 +75,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     "switchboards.view",
   ],
   master: [
-    "jobs.view", "jobs.manage",
+    "jobs.view", "jobs.work", "jobs.manage",
     "activities.view", "activities.manage",
     "customers.view", "customers.manage",
     "people.view", "people.manage",

@@ -116,7 +116,7 @@ describe("duplicate-name items", () => {
     const jobId = await makeJob();
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name, quantity: "3", pricePerUnit: "150", warehouseItemId: id1 })
+      .values({ jobId, name, quantity: "3", pricePerUnit: "150", warehouseItemId: id1, done: true })
       .returning();
     materialIds.push(m.id);
 
@@ -155,7 +155,7 @@ describe("item rename stability", () => {
     const jobId = await makeJob();
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name: originalName, quantity: "2", warehouseItemId: itemId })
+      .values({ jobId, name: originalName, quantity: "2", warehouseItemId: itemId, done: true })
       .returning();
     materialIds.push(m.id);
 
@@ -206,7 +206,7 @@ describe("material lifecycle movements", () => {
 
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name: `Spínač ${TAG}`, quantity: "5", warehouseItemId: itemId })
+      .values({ jobId, name: `Spínač ${TAG}`, quantity: "5", warehouseItemId: itemId, done: true })
       .returning();
     materialIds.push(m.id);
 
@@ -226,7 +226,7 @@ describe("material lifecycle movements", () => {
     // Create with qty 4
     const [m1] = await db
       .insert(materialsTable)
-      .values({ jobId, name: `Relé ${TAG}`, quantity: "4", warehouseItemId: itemId })
+      .values({ jobId, name: `Relé ${TAG}`, quantity: "4", warehouseItemId: itemId, done: true })
       .returning();
     materialIds.push(m1.id);
     await db.transaction((tx) => reconcileMaterialStockMovement(tx, m1, ACTOR));
@@ -252,7 +252,7 @@ describe("material lifecycle movements", () => {
 
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name: `Jistič ${TAG}`, quantity: "3", warehouseItemId: itemId })
+      .values({ jobId, name: `Jistič ${TAG}`, quantity: "3", warehouseItemId: itemId, done: true })
       .returning();
     // Note: NOT adding to materialIds since we delete it below
 
@@ -351,7 +351,7 @@ describe("null warehouseItemId guard", () => {
     // an ambiguous-name row that the backfill skipped).
     const [m] = await db
       .insert(materialsTable)
-      .values({ jobId, name, quantity: "3", warehouseItemId: null })
+      .values({ jobId, name, quantity: "3", warehouseItemId: null, done: true })
       .returning();
     materialIds.push(m.id);
 

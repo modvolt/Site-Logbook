@@ -12,6 +12,11 @@ export type JobGroupSummary = {
   totalHours: number;
   materialTotalCost: number;
   jobNumbers: number[];
+  sourceQuoteId: number | null;
+  sourceQuoteNumber: string | null;
+  sourceQuoteTitle: string | null;
+  sourceInvoiceId: number | null;
+  sourceQuoteJobId: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -78,7 +83,10 @@ export type JobListItem = {
   clientSite: string | null;
 };
 
-export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+export async function fetchJson<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<T> {
   const response = await fetch(url, {
     ...init,
     headers: {

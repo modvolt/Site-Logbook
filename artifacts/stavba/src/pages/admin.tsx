@@ -5,11 +5,11 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 import {
   useListJobs, getListJobsQueryKey,
-  useUpdateJob, useDeleteJob, getGetJobQueryKey,
+  useUpdateJob, useUpdateJobStatus, useDeleteJob, useRestoreJob, getGetJobQueryKey,
   useListCustomers, getListCustomersQueryKey,
   useListPeople, getListPeopleQueryKey,
 } from "@workspace/api-client-react";
-import type { JobUpdateStatus } from "@workspace/api-client-react";
+import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { TimePicker } from "@/components/time-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JOB_STATUSES, JOB_TYPES } from "@/components/badges";
-import { Trash2, Save, X, Edit3, Search, ExternalLink, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Archive, RotateCcw, Save, X, Edit3, Search, ExternalLink, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type EditDraft = {
@@ -63,10 +63,12 @@ export default function Admin() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
 
   const queryParams: any = {};
   if (fromDate) queryParams.from = fromDate;
   if (toDate) queryParams.to = toDate;
+  if (showArchived) queryParams.includeArchived = true;
 
   const { data: jobs, isLoading } = useListJobs(queryParams, {
     query: { queryKey: getListJobsQueryKey(queryParams) }
@@ -75,12 +77,15 @@ export default function Admin() {
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
 
   const updateJob = useUpdateJob();
+  const updateStatus = useUpdateJobStatus();
   const deleteJob = useDeleteJob();
+  const restoreJob = useRestoreJob();
 
   const filtered = useMemo(() => {
     if (!jobs) return [];
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
+      if (showArchived ? !j.archivedAt : !!j.archivedAt) return false;
       if (statusFilter !== "all" && j.status !== statusFilter) return false;
       if (typeFilter !== "all" && j.type !== typeFilter) return false;
       if (q) {
@@ -89,7 +94,7 @@ export default function Admin() {
       }
       return true;
     });
-  }, [jobs, search, statusFilter, typeFilter]);
+  }, [jobs, search, statusFilter, typeFilter, showArchived]);
 
   const startEdit = (job: any) => {
     setEditingId(job.id);
@@ -105,6 +110,7 @@ export default function Admin() {
     if (!draft || editingId == null) return;
     if (!draft.title.trim()) { toast({ title: "Název je povinný", variant: "destructive" }); return; }
     if (!draft.date) { toast({ title: "Datum je povinné", variant: "destructive" }); return; }
+    const originalStatus = jobs?.find((job) => job.id === editingId)?.status;
     updateJob.mutate({
       id: editingId,
       data: {
@@ -112,7 +118,6 @@ export default function Admin() {
         date: draft.date,
         startTime: draft.startTime || null,
         endTime: draft.endTime || null,
-        status: draft.status as JobUpdateStatus,
         type: draft.type,
         customerId: draft.customerId,
         assignedPersonId: draft.assignedPersonId,
@@ -123,6 +128,28 @@ export default function Admin() {
     }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(editingId), data);
+        if (originalStatus != null && draft.status !== originalStatus) {
+          updateStatus.mutate(
+            { id: editingId, data: { status: draft.status as JobStatusUpdateStatus } },
+            {
+              onSuccess: (updated) => {
+                queryClient.setQueryData(getGetJobQueryKey(editingId), updated);
+                invalidateData(queryClient, "jobs");
+                toast({ title: "Zakázka uložena" });
+                cancelEdit();
+              },
+              onError: (error: any) => {
+                invalidateData(queryClient, "jobs");
+                toast({
+                  title: "Údaje jsou uložené, stav změněn nebyl",
+                   description: error?.data?.error ?? error?.message ?? "Dokončení proveďte v detailu zakázky.",
+                  variant: "destructive",
+                });
+              },
+            },
+          );
+          return;
+        }
         invalidateData(queryClient, "jobs");
         toast({ title: "Zakázka uložena" });
         cancelEdit();
@@ -131,55 +158,55 @@ export default function Admin() {
     });
   };
 
-  const visitSuffix = (n: number) => (n === 1 ? "" : n < 5 ? "y" : "ů");
-
-  const doDeleteOne = (id: number, title: string, force: boolean) => {
-    const url = `/api/jobs/${id}${force ? "?force=true" : ""}`;
+  const doArchiveOne = (id: number) => {
+    const url = `/api/jobs/${id}`;
     fetch(url, { method: "DELETE", credentials: "include" })
       .then(async (res) => {
         if (res.ok) {
           invalidateData(queryClient, "jobs");
-          toast({ title: "Zakázka smazána" });
+          toast({ title: "Zakázka archivována" });
           setSelected(s => { const n = new Set(s); n.delete(id); return n; });
-        } else if (res.status === 409 && !force) {
-          const body: { visitCount?: number } = await res.json().catch(() => ({}));
-          const count = body.visitCount ?? 1;
-          openConfirm(
-            {
-              title: "Smazat včetně výjezdů?",
-              description: `Zakázka „${title}" má ${count} výjezd${visitSuffix(count)}, které budou trvale smazány. Chcete pokračovat?`,
-              confirmLabel: "Smazat vše",
-              destructive: true,
-            },
-            () => doDeleteOne(id, title, true),
-          );
         } else {
           const body: { error?: string } = await res.json().catch(() => ({}));
-          toast({ title: body.error ?? "Smazání selhalo", variant: "destructive" });
+          toast({ title: body.error ?? "Archivace selhala", variant: "destructive" });
         }
       })
-      .catch(() => toast({ title: "Smazání selhalo", variant: "destructive" }));
+      .catch(() => toast({ title: "Archivace selhala", variant: "destructive" }));
   };
 
-  const deleteOne = (id: number, title: string) => {
-    openConfirm({ title: `Smazat „${title}"?`, description: "Tato akce je nevratná." }, () => {
-      doDeleteOne(id, title, false);
+  const archiveOne = (id: number, title: string) => {
+    openConfirm({ title: `Archivovat „${title}"?`, description: "Zakázka a její data zůstanou uložené a půjdou obnovit." }, () => {
+      doArchiveOne(id);
     });
   };
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    openConfirm({ title: `Smazat ${selected.size} zakázek?`, description: "Tato akce je nevratná (včetně výjezdů)." }, async () => {
+    openConfirm({ title: `Archivovat ${selected.size} zakázek?`, description: "Zakázky a jejich data zůstanou uložené a půjdou obnovit." }, async () => {
       let ok = 0, fail = 0;
       for (const id of Array.from(selected)) {
         try {
-          const res = await fetch(`/api/jobs/${id}?force=true`, { method: "DELETE", credentials: "include" });
+          const res = await fetch(`/api/jobs/${id}`, { method: "DELETE", credentials: "include" });
           if (res.ok) ok++; else fail++;
         } catch { fail++; }
       }
       invalidateData(queryClient, "jobs");
       setSelected(new Set());
-      toast({ title: `Smazáno ${ok}, selhalo ${fail}` });
+      toast({ title: `Archivováno ${ok}, selhalo ${fail}` });
+    });
+  };
+
+  const restoreOne = (id: number) => {
+    restoreJob.mutate({ id }, {
+      onSuccess: () => {
+        invalidateData(queryClient, "jobs");
+        toast({ title: "Zakázka obnovena" });
+      },
+      onError: (error: any) => toast({
+        title: "Obnovení selhalo",
+        description: error?.message,
+        variant: "destructive",
+      }),
     });
   };
 
@@ -207,6 +234,15 @@ export default function Admin() {
           <AlertTriangle className="w-4 h-4 text-amber-500" />
           Hromadná editace všech zakázek. Změny zde se ihned ukládají na server.
         </p>
+
+        <div className="mb-4 flex gap-2" role="group" aria-label="Zobrazení zakázek">
+          <Button variant={!showArchived ? "default" : "outline"} onClick={() => { setShowArchived(false); setSelected(new Set()); }}>
+            Aktivní zakázky
+          </Button>
+          <Button variant={showArchived ? "default" : "outline"} onClick={() => { setShowArchived(true); setSelected(new Set()); }}>
+            <Archive className="w-4 h-4 mr-2" /> Archiv
+          </Button>
+        </div>
 
         {/* Filters */}
         <div className="bg-card border rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
@@ -253,13 +289,13 @@ export default function Admin() {
         </div>
 
         {/* Bulk actions */}
-        {selected.size > 0 && (
+        {selected.size > 0 && !showArchived && (
           <div className="bg-rose-50 border border-rose-200 dark:bg-rose-950/30 dark:border-rose-900 rounded-xl px-4 py-3 mb-4 flex items-center justify-between">
             <span className="text-sm font-medium">Vybráno: {selected.size}</span>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Zrušit výběr</Button>
               <Button variant="destructive" size="sm" onClick={deleteSelected} disabled={deleteJob.isPending}>
-                <Trash2 className="w-4 h-4 mr-1" /> Smazat vybrané
+                <Archive className="w-4 h-4 mr-1" /> Archivovat vybrané
               </Button>
             </div>
           </div>
@@ -276,6 +312,7 @@ export default function Admin() {
                       type="checkbox"
                       checked={filtered.length > 0 && selected.size === filtered.length}
                       onChange={toggleAll}
+                      disabled={showArchived}
                       className="w-4 h-4 cursor-pointer"
                     />
                   </th>
@@ -386,6 +423,7 @@ export default function Admin() {
                           type="checkbox"
                           checked={selected.has(job.id)}
                           onChange={() => toggleSelect(job.id)}
+                          disabled={showArchived}
                           className="w-4 h-4 cursor-pointer"
                         />
                       </td>
@@ -413,12 +451,18 @@ export default function Admin() {
                               <ExternalLink className="w-3.5 h-3.5" />
                             </Button>
                           </Link>
-                          <Button size="sm" variant="ghost" onClick={() => startEdit(job)} className="h-8 px-2" title="Upravit">
+                          {!job.archivedAt && <Button size="sm" variant="ghost" onClick={() => startEdit(job)} className="h-8 px-2" title="Upravit">
                             <Edit3 className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => deleteOne(job.id, job.title)} className="h-8 px-2 text-destructive hover:text-destructive hover:bg-destructive/10" title="Smazat">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          </Button>}
+                          {job.archivedAt ? (
+                            <Button size="sm" variant="ghost" onClick={() => restoreOne(job.id)} disabled={restoreJob.isPending} className="h-8 px-2" title="Obnovit">
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="ghost" onClick={() => archiveOne(job.id, job.title)} className="h-8 px-2 text-destructive hover:text-destructive hover:bg-destructive/10" title="Archivovat">
+                              <Archive className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>

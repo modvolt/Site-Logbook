@@ -112,7 +112,8 @@ export const ListJobsQueryParams = zod.object({
   "status": zod.coerce.string().optional(),
   "assignedPersonId": zod.coerce.number().nullish(),
   "segment": zod.enum(['in_progress', 'ready_to_bill', 'problematic', 'without_customer', 'without_price', 'cancelled']).optional().describe('Work-queue segment filter. Mutually exclusive with `status`.\n- `in_progress` — status = in_progress\n- `ready_to_bill` — status = done AND not linked to an active invoice\n- `problematic` — active jobs missing customer, price, or stale in_progress\n- `without_customer` — planned\/in_progress without a customer\n- `without_price` — planned\/in_progress without a price\n- `cancelled` — status = cancelled\n'),
-  "staleDays": zod.coerce.number().optional().describe('For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).')
+  "staleDays": zod.coerce.number().optional().describe('For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14).'),
+  "includeArchived": zod.coerce.boolean().optional().describe('Include archived jobs. Requires jobs.manage permission.')
 })
 
 export const ListJobsResponseItem = zod.object({
@@ -132,6 +133,7 @@ export const ListJobsResponseItem = zod.object({
   "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
   "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
   "customerEmail": zod.string().nullish(),
@@ -153,11 +155,20 @@ export const ListJobsResponseItem = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
-  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
   "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
   "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
   "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
@@ -169,6 +180,15 @@ export const ListJobsResponse = zod.array(ListJobsResponseItem)
 /**
  * @summary Create a new job
  */
+
+export const createJobBodyAssigneeIdsMax = 100;
+
+
+export const createJobBodyTasksMax = 200;
+
+
+export const createJobBodyMaterialsItemDoneDefault = false;
+export const createJobBodyMaterialsMax = 200;
 
 
 
@@ -183,7 +203,22 @@ export const CreateJobBody = zod.object({
   "endTime": zod.string().nullish(),
   "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('Client-editable lifecycle status only. \"vyfakturovano\" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to \"done\" on storno), never by a direct client status write.'),
   "assignedPersonId": zod.number().nullish(),
+  "assigneeIds": zod.array(zod.number()).max(createJobBodyAssigneeIdsMax).optional().describe('Additional workers created atomically with the job'),
+  "tasks": zod.array(zod.object({
+  "title": zod.string().min(1),
+  "description": zod.string().nullish(),
+  "isChangeRequest": zod.boolean().optional()
+})).max(createJobBodyTasksMax).optional().describe('Initial tasks created atomically with the job'),
+  "materials": zod.array(zod.object({
+  "name": zod.string().min(1),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "warehouseItemId": zod.number().nullish(),
+  "done": zod.boolean().default(createJobBodyMaterialsItemDoneDefault).describe('Create as consumed. Defaults to planned (false).')
+})).max(createJobBodyMaterialsMax).optional().describe('Initial planned materials created atomically with the job; stock changes only after explicit consumption'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Optional action\/job-group assigned atomically on creation'),
   "notes": zod.string().nullish(),
   "hoursSpent": zod.number().nullish(),
   "hoursFromPlan": zod.boolean().optional(),
@@ -213,11 +248,12 @@ export const ReorderJobsBody = zod.object({
  * @summary Bulk-update status on multiple jobs (admin)
  */
 
-
+export const bulkUpdateJobStatusBodyAcknowledgeWarningsDefault = false;
 
 export const BulkUpdateJobStatusBody = zod.object({
   "ids": zod.array(zod.number()).min(1).describe('IDs of jobs to update'),
-  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('New status for all selected jobs. \"vyfakturovano\" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write.')
+  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('New status for all selected jobs. \"vyfakturovano\" (invoiced) is intentionally NOT accepted — the invoiced state is set server-side only when an invoice is issued, never by a direct client write.'),
+  "acknowledgeWarnings": zod.boolean().default(bulkUpdateJobStatusBodyAcknowledgeWarningsDefault).describe('Explicitly accept completion warnings for every selected job; hard blockers still reject the entire batch.')
 })
 
 export const BulkUpdateJobStatusResponse = zod.object({
@@ -243,7 +279,12 @@ export const GetJobsCalendarResponseItem = zod.object({
   "startTime": zod.string().nullish().describe('HH:MM'),
   "endTime": zod.string().nullish().describe('HH:MM'),
   "assignedPersonId": zod.number().nullish(),
-  "assignedPersonName": zod.string().nullish()
+  "assignedPersonName": zod.string().nullish(),
+  "occurrenceKey": zod.string().describe('Stable identifier of this calendar occurrence'),
+  "occurrenceType": zod.enum(['job', 'visit']),
+  "visitId": zod.number().nullish(),
+  "visitStatus": zod.string().nullish(),
+  "visitNote": zod.string().nullish()
 })
 export const GetJobsCalendarResponse = zod.array(GetJobsCalendarResponseItem)
 
@@ -272,6 +313,7 @@ export const GetJobResponse = zod.object({
   "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
   "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
   "customerEmail": zod.string().nullish(),
@@ -293,11 +335,20 @@ export const GetJobResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
-  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
   "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
   "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
   "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
@@ -361,6 +412,7 @@ export const UpdateJobResponse = zod.object({
   "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
   "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
   "customerEmail": zod.string().nullish(),
@@ -382,11 +434,20 @@ export const UpdateJobResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
-  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
   "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
   "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
   "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
@@ -395,10 +456,77 @@ export const UpdateJobResponse = zod.object({
 
 
 /**
- * @summary Delete a job
+ * @summary Archive a job without deleting its related data
  */
 export const DeleteJobParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Restore an archived job to its previous lifecycle status
+ */
+export const RestoreJobParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RestoreJobResponse = zod.object({
+  "id": zod.number(),
+  "jobNumber": zod.number().describe('Sequential job number assigned on creation (unique, auto-increment)'),
+  "title": zod.string(),
+  "shortName": zod.string().nullish().describe('Short internal identifier \/ reference number shown on cards'),
+  "type": zod.string().describe('site_visit | consultation | planned_work | service_call | change | other'),
+  "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish().describe('Physical address for navigation (Waze\/Maps)'),
+  "date": zod.string().describe('ISO date (YYYY-MM-DD)'),
+  "startTime": zod.string().nullish().describe('HH:MM'),
+  "endTime": zod.string().nullish().describe('HH:MM'),
+  "status": zod.string().describe('planned | in_progress | done | cancelled'),
+  "assignedPersonId": zod.number().nullish(),
+  "assignedPersonName": zod.string().nullish(),
+  "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
+  "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
+  "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
+  "customerCompanyName": zod.string().nullish(),
+  "customerPhone": zod.string().nullish(),
+  "customerEmail": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "hoursSpent": zod.number().nullish(),
+  "hoursFromPlan": zod.boolean().optional().describe('True when hoursSpent was set from the planned start\/end time'),
+  "hoursBeforePlan": zod.number().nullish().describe('Previous actual hoursSpent, kept so plan time can be reverted'),
+  "hoursVasek": zod.number().nullish(),
+  "hoursJonas": zod.number().nullish(),
+  "price": zod.number().nullish(),
+  "transportKm": zod.number().nullish(),
+  "transportCost": zod.number().nullish(),
+  "fines": zod.number().nullish(),
+  "parking": zod.number().nullish(),
+  "recurrenceIntervalDays": zod.number().nullish().describe('For service_call jobs — auto-create next occurrence this many days after completion'),
+  "timerStartedAt": zod.string().nullish().describe('ISO timestamp when timer was started'),
+  "sortOrder": zod.number().describe('Manual ordering within a day (lower shows first)'),
+  "taskCount": zod.number().optional(),
+  "taskDoneCount": zod.number().optional(),
+  "attachmentCount": zod.number().optional(),
+  "materialCount": zod.number().optional(),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
+  "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
+  "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
+  "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
+  "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
+  "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
+  "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
+  "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
 })
 
 
@@ -430,6 +558,7 @@ export const UpdateJobAssigneesResponse = zod.object({
   "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
   "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
   "customerEmail": zod.string().nullish(),
@@ -451,11 +580,20 @@ export const UpdateJobAssigneesResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
-  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
   "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
   "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
   "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
@@ -470,8 +608,11 @@ export const UpdateJobStatusParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const updateJobStatusBodyAcknowledgeWarningsDefault = false;
+
 export const UpdateJobStatusBody = zod.object({
-  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('Client-editable lifecycle status only. \"vyfakturovano\" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to \"done\" on storno), never by a direct client status write.')
+  "status": zod.enum(['planned', 'in_progress', 'done', 'cancelled']).describe('Client-editable lifecycle status only. \"vyfakturovano\" (invoiced) is intentionally NOT accepted here — the authoritative invoiced state is set server-side by invoice-service when an invoice is issued (and reverted to \"done\" on storno), never by a direct client status write.'),
+  "acknowledgeWarnings": zod.boolean().default(updateJobStatusBodyAcknowledgeWarningsDefault).describe('Explicit confirmation of non-blocking completion warnings.')
 })
 
 export const UpdateJobStatusResponse = zod.object({
@@ -491,6 +632,7 @@ export const UpdateJobStatusResponse = zod.object({
   "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
   "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
   "customerEmail": zod.string().nullish(),
@@ -512,15 +654,58 @@ export const UpdateJobStatusResponse = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
-  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
   "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
   "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
   "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
   "signatureObjectPath": zod.string().nullish().describe('Object-storage path to the customer\'s signature PNG')
+})
+
+
+/**
+ * @summary Validate whether a job can be safely completed
+ */
+export const GetJobCompletionReadinessParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetJobCompletionReadinessResponse = zod.object({
+  "jobId": zod.number(),
+  "status": zod.string(),
+  "canComplete": zod.boolean(),
+  "blockers": zod.array(zod.object({
+  "code": zod.string(),
+  "message": zod.string(),
+  "count": zod.number().optional()
+})),
+  "warnings": zod.array(zod.object({
+  "code": zod.string(),
+  "message": zod.string(),
+  "count": zod.number().optional()
+})),
+  "activeSessions": zod.array(zod.object({
+  "id": zod.number(),
+  "personId": zod.number(),
+  "personName": zod.string(),
+  "startedAt": zod.string()
+})),
+  "unfinishedTaskCount": zod.number(),
+  "plannedMaterialCount": zod.number(),
+  "consumedMaterialCount": zod.number(),
+  "hoursSpent": zod.number()
 })
 
 
@@ -663,7 +848,9 @@ export const ListMaterialsResponseItem = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
-  "done": zod.boolean(),
+  "done": zod.boolean().describe('True when the material was actually consumed; only consumed job materials affect stock and billing.'),
+  "consumedAt": zod.string().nullish(),
+  "consumedByUserId": zod.number().nullish(),
   "sortOrder": zod.number(),
   "warehouseItemId": zod.number().nullish(),
   "sourceType": zod.string().nullish(),
@@ -691,14 +878,15 @@ export const CreateMaterialParams = zod.object({
 })
 
 
-
+export const createMaterialBodyDoneDefault = false;
 
 export const CreateMaterialBody = zod.object({
   "name": zod.string().min(1),
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
-  "warehouseItemId": zod.number().nullish()
+  "warehouseItemId": zod.number().nullish(),
+  "done": zod.boolean().default(createMaterialBodyDoneDefault).describe('Create as consumed. Defaults to planned (false).')
 })
 
 
@@ -729,7 +917,9 @@ export const UpdateMaterialResponse = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
-  "done": zod.boolean(),
+  "done": zod.boolean().describe('True when the material was actually consumed; only consumed job materials affect stock and billing.'),
+  "consumedAt": zod.string().nullish(),
+  "consumedByUserId": zod.number().nullish(),
   "sortOrder": zod.number(),
   "warehouseItemId": zod.number().nullish(),
   "sourceType": zod.string().nullish(),
@@ -798,7 +988,9 @@ export const LinkMaterialToDocumentResponse = zod.object({
   "quantity": zod.number().nullish(),
   "unit": zod.string().nullish(),
   "pricePerUnit": zod.number().nullish(),
-  "done": zod.boolean(),
+  "done": zod.boolean().describe('True when the material was actually consumed; only consumed job materials affect stock and billing.'),
+  "consumedAt": zod.string().nullish(),
+  "consumedByUserId": zod.number().nullish(),
   "sortOrder": zod.number(),
   "warehouseItemId": zod.number().nullish(),
   "sourceType": zod.string().nullish(),
@@ -2703,6 +2895,7 @@ export const GetTodayJobsResponseItem = zod.object({
   "assigneeIds": zod.array(zod.number()).describe('Additional workers assigned to the job, beyond assignedPersonId'),
   "assigneeNames": zod.array(zod.string()).describe('Names corresponding to assigneeIds, same order'),
   "customerId": zod.number().nullish(),
+  "groupId": zod.number().nullish().describe('Action\/job-group containing this job'),
   "customerCompanyName": zod.string().nullish(),
   "customerPhone": zod.string().nullish(),
   "customerEmail": zod.string().nullish(),
@@ -2724,11 +2917,20 @@ export const GetTodayJobsResponseItem = zod.object({
   "taskDoneCount": zod.number().optional(),
   "attachmentCount": zod.number().optional(),
   "materialCount": zod.number().optional(),
-  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for all materials on the job; null if no priced materials'),
+  "consumedMaterialCount": zod.number().optional(),
+  "plannedMaterialCount": zod.number().optional(),
+  "materialTotalCost": zod.number().nullish().describe('Sum of (quantity \* pricePerUnit) for consumed materials on the job; null if no consumed priced materials'),
   "billingLinked": zod.boolean().describe('True when the job is linked to at least one non-cancelled invoice'),
   "pricingMode": zod.enum(['time_material', 'fixed_price']).optional().describe('time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice'),
   "contractPrice": zod.number().nullish().describe('Agreed-upon fixed price (only used when pricingMode = \'fixed_price\')'),
   "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish().describe('ISO timestamp when the job was archived'),
+  "scheduledByVisit": zod.boolean().optional().describe('True when today\'s occurrence comes from a job visit'),
+  "scheduleOccurrenceKeys": zod.array(zod.string()).optional(),
+  "schedulePersonNames": zod.array(zod.string()).optional(),
+  "scheduleVisitIds": zod.array(zod.number()).optional(),
+  "archivedByUserId": zod.number().nullish(),
+  "statusBeforeArchive": zod.string().nullish().describe('Lifecycle status restored when the job is unarchived'),
   "signatureRequestedAt": zod.string().nullish().describe('ISO timestamp when a signature request email was last sent'),
   "signatureTokenExpiresAt": zod.string().nullish().describe('ISO timestamp when the active signature token expires (7 days from request)'),
   "signedAt": zod.string().nullish().describe('ISO timestamp when the customer signed the handover protocol'),
@@ -5085,8 +5287,11 @@ export const ListJobVisitsResponseItem = zod.object({
   "personName": zod.string().nullish(),
   "date": zod.string(),
   "note": zod.string().nullish(),
-  "status": zod.string().describe('planned | done'),
-  "createdAt": zod.string()
+  "startTime": zod.string().nullish().describe('Optional HH:MM override; otherwise the job time is used'),
+  "endTime": zod.string().nullish().describe('Optional HH:MM override; otherwise the job time is used'),
+  "status": zod.enum(['planned', 'done', 'cancelled']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
 })
 export const ListJobVisitsResponse = zod.array(ListJobVisitsResponseItem)
 
@@ -5105,7 +5310,9 @@ export const CreateJobVisitBody = zod.object({
   "date": zod.string().min(1),
   "personId": zod.number().nullish(),
   "note": zod.string().nullish(),
-  "status": zod.enum(['planned', 'done']).optional()
+  "startTime": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "status": zod.enum(['planned', 'done', 'cancelled']).optional()
 })
 
 
@@ -5124,7 +5331,9 @@ export const UpdateJobVisitBody = zod.object({
   "date": zod.string().min(1).optional(),
   "personId": zod.number().nullish(),
   "note": zod.string().nullish(),
-  "status": zod.enum(['planned', 'done']).optional()
+  "startTime": zod.string().nullish(),
+  "endTime": zod.string().nullish(),
+  "status": zod.enum(['planned', 'done', 'cancelled']).optional()
 })
 
 export const UpdateJobVisitResponse = zod.object({
@@ -5134,13 +5343,16 @@ export const UpdateJobVisitResponse = zod.object({
   "personName": zod.string().nullish(),
   "date": zod.string(),
   "note": zod.string().nullish(),
-  "status": zod.string().describe('planned | done'),
-  "createdAt": zod.string()
+  "startTime": zod.string().nullish().describe('Optional HH:MM override; otherwise the job time is used'),
+  "endTime": zod.string().nullish().describe('Optional HH:MM override; otherwise the job time is used'),
+  "status": zod.enum(['planned', 'done', 'cancelled']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
 })
 
 
 /**
- * @summary Delete a job visit
+ * @summary Cancel a job visit while preserving its history
  */
 export const DeleteJobVisitParams = zod.object({
   "jobId": zod.coerce.number(),
@@ -5394,6 +5606,56 @@ export const GetBillingSummaryResponse = zod.object({
   "overdueTotalWithVat": zod.number().describe('Sum with VAT of overdue unpaid invoices'),
   "overdueUnbilledCustomers": zod.number().describe('Count of distinct customers with at least one done unbilled job older than 7 days')
 })
+
+
+/**
+ * @summary Financial summary of recorded work with cost fields permission-filtered
+ */
+export const GetWorkFinancialSummaryQueryParams = zod.object({
+  "from": zod.date().optional(),
+  "to": zod.date().optional(),
+  "personId": zod.coerce.number().optional(),
+  "jobId": zod.coerce.number().optional(),
+  "activityId": zod.coerce.number().optional(),
+  "billingStatus": zod.enum(['unbilled', 'ready', 'billed', 'non_billable']).optional()
+})
+
+export const GetWorkFinancialSummaryResponse = zod.object({
+  "hours": zod.number(),
+  "cost": zod.number().nullable().describe('Null without rates.cost.view'),
+  "sale": zod.number(),
+  "margin": zod.number().nullable().describe('Null without rates.cost.view'),
+  "marginPercent": zod.number().nullable(),
+  "missingCostRateCount": zod.number(),
+  "missingSaleRateCount": zod.number(),
+  "sessionCount": zod.number()
+}).and(zod.object({
+  "byBillingStatus": zod.array(zod.object({
+  "hours": zod.number(),
+  "cost": zod.number().nullable().describe('Null without rates.cost.view'),
+  "sale": zod.number(),
+  "margin": zod.number().nullable().describe('Null without rates.cost.view'),
+  "marginPercent": zod.number().nullable(),
+  "missingCostRateCount": zod.number(),
+  "missingSaleRateCount": zod.number(),
+  "sessionCount": zod.number()
+}).and(zod.object({
+  "billingStatus": zod.enum(['unbilled', 'ready', 'billed', 'non_billable'])
+}))),
+  "byPerson": zod.array(zod.object({
+  "hours": zod.number(),
+  "cost": zod.number().nullable().describe('Null without rates.cost.view'),
+  "sale": zod.number(),
+  "margin": zod.number().nullable().describe('Null without rates.cost.view'),
+  "marginPercent": zod.number().nullable(),
+  "missingCostRateCount": zod.number(),
+  "missingSaleRateCount": zod.number(),
+  "sessionCount": zod.number()
+}).and(zod.object({
+  "personId": zod.number(),
+  "personName": zod.string()
+})))
+}))
 
 
 /**
@@ -5684,6 +5946,39 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
 
 
 /**
+ * @summary Create one draft invoice from an accepted quote job group
+ */
+export const CreateQuoteJobGroupInvoiceDraftParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const createQuoteJobGroupInvoiceDraftBodyLabourBillingModeDefault = `job_price`;
+export const createQuoteJobGroupInvoiceDraftBodyWorkGroupingDefault = `summary`;
+export const createQuoteJobGroupInvoiceDraftBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
+
+
+
+export const CreateQuoteJobGroupInvoiceDraftBody = zod.object({
+  "extraJobIds": zod.array(zod.number()).optional().describe('Explicitly approved completed follow-up jobs to bill in addition to the accepted quote'),
+  "labourBillingMode": zod.enum(['job_price', 'recorded_time', 'none']).default(createQuoteJobGroupInvoiceDraftBodyLabourBillingModeDefault),
+  "workGrouping": zod.enum(['summary', 'worker']).default(createQuoteJobGroupInvoiceDraftBodyWorkGroupingDefault),
+  "billFineJobIds": zod.array(zod.number()).optional().describe('Subset of extraJobIds whose fines are explicitly approved'),
+  "materialMarkupPercent": zod.number().nullish(),
+  "materialMarkupOverrides": zod.array(zod.object({
+  "materialId": zod.number(),
+  "markupPercent": zod.number().min(createQuoteJobGroupInvoiceDraftBodyMaterialMarkupOverridesItemMarkupPercentMin).describe('Effective markup percent for this material line (0 = no markup)'),
+  "sourceType": zod.enum(['material', 'activity_material']).optional().describe('Which material table the id belongs to — a job material (\"material\") or an activity material (\"activity_material\"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).')
+})).optional(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "paymentMethod": zod.string().nullish(),
+  "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
+  "notes": zod.string().nullish()
+})
+
+
+/**
  * @summary List invoices (admin only)
  */
 export const ListInvoicesQueryParams = zod.object({
@@ -5759,7 +6054,7 @@ export const CreateInvoiceBody = zod.object({
   "sourceType": zod.enum(['material', 'activity_material']).optional().describe('Which material table the id belongs to — a job material (\"material\") or an activity material (\"activity_material\"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).')
 })).optional().describe('Per-material markup overrides (highest priority); each entry overrides the category default and the invoice\/settings default for that material line'),
   "lines": zod.array(zod.object({
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']).optional(),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -5828,7 +6123,7 @@ export const GetInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -5881,7 +6176,7 @@ export const UpdateInvoiceBody = zod.object({
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
   "notes": zod.string().nullish(),
   "lines": zod.array(zod.object({
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']).optional(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']).optional(),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -5933,7 +6228,7 @@ export const UpdateInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -6016,7 +6311,7 @@ export const RecalculateInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -6091,7 +6386,7 @@ export const IssueInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -6170,7 +6465,7 @@ export const CancelInvoiceResponse = zod.object({
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "invoiceId": zod.number(),
-  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'transport', 'parking', 'fine', 'manual']),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
   "sourceId": zod.number().nullish(),
   "jobId": zod.number().nullish(),
   "activityId": zod.number().nullish(),
@@ -6483,6 +6778,8 @@ export const ListCostDocumentsResponseItem = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -6558,6 +6855,8 @@ export const UploadCostDocumentResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -6627,6 +6926,7 @@ export const UploadCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -6646,6 +6946,7 @@ export const UploadCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -6665,6 +6966,7 @@ export const UploadCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -6705,6 +7007,7 @@ export const UploadCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -6756,6 +7059,8 @@ export const GetCostDocumentResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -6825,6 +7130,7 @@ export const GetCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -6844,6 +7150,7 @@ export const GetCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -6863,6 +7170,7 @@ export const GetCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -6903,6 +7211,7 @@ export const GetCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -6974,6 +7283,8 @@ export const UpdateCostDocumentResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -7043,6 +7354,7 @@ export const UpdateCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -7062,6 +7374,7 @@ export const UpdateCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -7081,6 +7394,7 @@ export const UpdateCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -7121,6 +7435,7 @@ export const UpdateCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -7180,6 +7495,8 @@ export const ApproveCostDocumentResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -7249,6 +7566,7 @@ export const ApproveCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -7268,6 +7586,7 @@ export const ApproveCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -7287,6 +7606,7 @@ export const ApproveCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -7327,6 +7647,7 @@ export const ApproveCostDocumentResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -7382,6 +7703,8 @@ export const SetCostDocumentStatusResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -7451,6 +7774,7 @@ export const SetCostDocumentStatusResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -7470,6 +7794,7 @@ export const SetCostDocumentStatusResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -7489,6 +7814,7 @@ export const SetCostDocumentStatusResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -7529,6 +7855,7 @@ export const SetCostDocumentStatusResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -7584,6 +7911,8 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -7653,6 +7982,7 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -7672,6 +8002,7 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -7691,6 +8022,7 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -7731,6 +8063,7 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -7782,6 +8115,8 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -7851,6 +8186,7 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -7870,6 +8206,7 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -7889,6 +8226,7 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -7929,6 +8267,7 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -7980,6 +8319,8 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -8049,6 +8390,7 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -8068,6 +8410,7 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -8087,6 +8430,7 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -8127,6 +8471,7 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -8220,6 +8565,8 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -8289,6 +8636,7 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -8308,6 +8656,7 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -8327,6 +8676,7 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -8367,6 +8717,7 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -8428,6 +8779,8 @@ export const SplitCostDocumentLineResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -8497,6 +8850,7 @@ export const SplitCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -8516,6 +8870,7 @@ export const SplitCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -8535,6 +8890,7 @@ export const SplitCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -8575,6 +8931,7 @@ export const SplitCostDocumentLineResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -8633,6 +8990,8 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -8702,6 +9061,7 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -8721,6 +9081,7 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -8740,6 +9101,7 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -8780,6 +9142,7 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -8843,6 +9206,8 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -8912,6 +9277,7 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -8931,6 +9297,7 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -8950,6 +9317,7 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -8990,6 +9358,7 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -9042,6 +9411,8 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -9111,6 +9482,7 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -9130,6 +9502,7 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
@@ -9149,6 +9522,7 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 }),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
@@ -9189,6 +9563,7 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 }))
 })
@@ -9240,6 +9615,8 @@ export const MatchCostDocumentReferencesResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -9309,6 +9686,7 @@ export const MatchCostDocumentReferencesResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
 })),
@@ -9337,6 +9715,7 @@ export const MatchCostDocumentReferencesResponse = zod.object({
   "mimeType": zod.string().nullish(),
   "objectPath": zod.string(),
   "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
 })),
   "candidatesByRef": zod.record(zod.string(), zod.array(zod.object({
@@ -9910,6 +10289,8 @@ export const AnalyzeJobDocumentsResponse = zod.object({
   "bic": zod.string().nullish(),
   "isdocUuid": zod.string().nullish(),
   "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
   "primaryDocumentId": zod.number().nullish(),
   "sourcePriority": zod.string().nullish(),
   "parsedBy": zod.string().nullish(),
@@ -9948,6 +10329,7 @@ export const ListQuotesResponseItem = zod.object({
   "pdfObjectPath": zod.string().nullish(),
   "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
+  "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "itemCount": zod.number(),
   "totalWithVat": zod.number(),
@@ -10003,6 +10385,7 @@ export const GetQuoteResponse = zod.object({
   "pdfObjectPath": zod.string().nullish(),
   "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
+  "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
   "id": zod.number(),
@@ -10060,6 +10443,7 @@ export const UpdateQuoteResponse = zod.object({
   "pdfObjectPath": zod.string().nullish(),
   "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
+  "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
   "id": zod.number(),
@@ -10126,6 +10510,7 @@ export const AcceptQuoteResponse = zod.object({
   "pdfObjectPath": zod.string().nullish(),
   "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
+  "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
   "id": zod.number(),
@@ -10165,6 +10550,7 @@ export const RejectQuoteResponse = zod.object({
   "pdfObjectPath": zod.string().nullish(),
   "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
+  "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
   "id": zod.number(),
@@ -10204,6 +10590,7 @@ export const ExpireQuoteResponse = zod.object({
   "pdfObjectPath": zod.string().nullish(),
   "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
+  "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
   "items": zod.array(zod.object({
   "id": zod.number(),
@@ -10221,14 +10608,19 @@ export const ExpireQuoteResponse = zod.object({
 
 
 /**
- * @summary Convert an accepted quote to a job
+ * @summary Convert an accepted quote to a job group and its first job
  */
 export const ConvertQuoteToJobParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const ConvertQuoteToJobBody = zod.object({
+  "plannedDate": zod.coerce.date().nullish()
+})
+
 export const ConvertQuoteToJobResponse = zod.object({
-  "jobId": zod.number()
+  "jobId": zod.number(),
+  "jobGroupId": zod.number()
 })
 
 

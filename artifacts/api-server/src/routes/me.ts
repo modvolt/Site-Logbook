@@ -101,21 +101,22 @@ router.get("/me/stats", requireAuth, async (req, res): Promise<void> => {
       total: sql<number>`coalesce(sum(${jobsTable.hoursSpent}), 0)`.mapWith(Number),
       done: sql<number>`sum(case when ${jobsTable.status} = 'done' then 1 else 0 end)`.mapWith(Number),
     })
-    .from(jobsTable);
+    .from(jobsTable)
+    .where(isNull(jobsTable.archivedAt));
 
   const [jobsWeek] = await db
     .select({
       total: sql<number>`coalesce(sum(${jobsTable.hoursSpent}), 0)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(and(gte(jobsTable.date, week.from), lte(jobsTable.date, week.to)));
+    .where(and(isNull(jobsTable.archivedAt), gte(jobsTable.date, week.from), lte(jobsTable.date, week.to)));
 
   const [jobsMonth] = await db
     .select({
       total: sql<number>`coalesce(sum(${jobsTable.hoursSpent}), 0)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(and(gte(jobsTable.date, month.from), lte(jobsTable.date, month.to)));
+    .where(and(isNull(jobsTable.archivedAt), gte(jobsTable.date, month.from), lte(jobsTable.date, month.to)));
 
   res.json({
     activityHoursWeek: Number(activitiesWeek?.total ?? 0),
@@ -144,7 +145,7 @@ router.get("/me/jobs", requireAuth, async (req, res): Promise<void> => {
     })
     .from(jobsTable)
     .leftJoin(customersTable, eq(jobsTable.customerId, customersTable.id))
-    .where(eq(jobsTable.status, "done"))
+    .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "done")))
     .orderBy(desc(jobsTable.date))
     .limit(limit);
 
@@ -160,23 +161,16 @@ router.get("/me/jobs", requireAuth, async (req, res): Promise<void> => {
   );
 });
 
-// Planned site visits for the logged-in technician. There is no FK linking a
-// user account to a person row, so the technician is resolved by name match
-// (people.name === users.name) — the only available link in the schema.
+// Planned site visits for the logged-in technician. Authentication carries the
+// authoritative personId; display names are not used as identifiers.
 // Returns both job visits and activity visits unified under a single shape:
 // { kind: "job"|"activity", parentId, parentName, ... }
 // Optional query params: from (YYYY-MM-DD, defaults to today), to (YYYY-MM-DD, no upper bound by default).
 router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
-  const name = req.auth!.name;
-
   const fromParam = typeof req.query.from === "string" ? req.query.from : ymd(new Date());
   const toParam = typeof req.query.to === "string" ? req.query.to : null;
 
-  const matchingPeople = await db
-    .select({ id: peopleTable.id })
-    .from(peopleTable)
-    .where(eq(peopleTable.name, name));
-  const personIds = matchingPeople.map((p) => p.id);
+  const personIds = req.auth!.personId == null ? [] : [req.auth!.personId];
 
   if (personIds.length === 0) {
     res.json([]);
@@ -209,6 +203,7 @@ router.get("/me/visits", requireAuth, async (req, res): Promise<void> => {
       .leftJoin(customersTable, eq(jobsTable.customerId, customersTable.id))
       .where(
         and(
+          isNull(jobsTable.archivedAt),
           inArray(jobVisitsTable.personId, personIds),
           eq(jobVisitsTable.status, "planned"),
           ...jobDateConditions,

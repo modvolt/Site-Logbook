@@ -67,6 +67,7 @@ import type {
   ClientErrorInput,
   ClientErrorList,
   ClientErrorPurgeResult,
+  ConvertQuoteToJobInput,
   ConvertQuoteToJobResult,
   CostDocument,
   CostDocumentDetail,
@@ -145,6 +146,7 @@ import type {
   GetWarehouseActivityMarginTrendParams,
   GetWarehouseJobMarginSummaryParams,
   GetWarehouseJobMarginTrendParams,
+  GetWorkFinancialSummaryParams,
   HealthLogEntry,
   HealthStatus,
   Invoice,
@@ -156,8 +158,10 @@ import type {
   Job,
   JobAssigneesInput,
   JobBulkStatusUpdate,
+  JobCompletionReadiness,
   JobInput,
   JobReorderInput,
+  JobStatusTransitionError,
   JobStatusUpdate,
   JobUpdate,
   JobVisit,
@@ -231,6 +235,7 @@ import type {
   PurgeExpiredSessions200,
   Quote,
   QuoteDetail,
+  QuoteJobGroupInvoiceDraftInput,
   QuotePublicActionResult,
   ReanalyzeJobAttachmentDocumentsResult,
   RecurringGenerationResult,
@@ -303,6 +308,7 @@ import type {
   WebAuthnOptions,
   WebAuthnRegisterCompleteInput,
   WebAuthnVerifyResult,
+  WorkFinancialSummary,
   WorkSession,
   WorkSummary
 } from './api.schemas';
@@ -1168,7 +1174,7 @@ export const getDeleteJobUrl = (id: number,) => {
 }
 
 /**
- * @summary Delete a job
+ * @summary Archive a job without deleting its related data
  */
 export const deleteJob = async (id: number, options?: RequestInit): Promise<void> => {
 
@@ -1216,7 +1222,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteJobMutationError = ErrorType<void>
 
     /**
- * @summary Delete a job
+ * @summary Archive a job without deleting its related data
  */
 export const useDeleteJob = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteJob>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1227,6 +1233,76 @@ export const useDeleteJob = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteJobMutationOptions(options));
+    }
+
+export const getRestoreJobUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/restore`
+}
+
+/**
+ * @summary Restore an archived job to its previous lifecycle status
+ */
+export const restoreJob = async (id: number, options?: RequestInit): Promise<Job> => {
+
+  return customFetch<Job>(getRestoreJobUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRestoreJobMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreJob>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof restoreJob>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['restoreJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restoreJob>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  restoreJob(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestoreJobMutationResult = NonNullable<Awaited<ReturnType<typeof restoreJob>>>
+
+    export type RestoreJobMutationError = ErrorType<void>
+
+    /**
+ * @summary Restore an archived job to its previous lifecycle status
+ */
+export const useRestoreJob = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreJob>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof restoreJob>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRestoreJobMutationOptions(options));
     }
 
 export const getUpdateJobAssigneesUrl = (id: number,) => {
@@ -1328,7 +1404,7 @@ export const updateJobStatus = async (id: number,
 
 
 
-export const getUpdateJobStatusMutationOptions = <TError = ErrorType<unknown>,
+export const getUpdateJobStatusMutationOptions = <TError = ErrorType<JobStatusTransitionError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobStatus>>, TError,{id: number;data: BodyType<JobStatusUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateJobStatus>>, TError,{id: number;data: BodyType<JobStatusUpdate>}, TContext> => {
 
@@ -1357,12 +1433,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateJobStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateJobStatus>>>
     export type UpdateJobStatusMutationBody = BodyType<JobStatusUpdate>
-    export type UpdateJobStatusMutationError = ErrorType<unknown>
+    export type UpdateJobStatusMutationError = ErrorType<JobStatusTransitionError>
 
     /**
  * @summary Quick-update job status
  */
-export const useUpdateJobStatus = <TError = ErrorType<unknown>,
+export const useUpdateJobStatus = <TError = ErrorType<JobStatusTransitionError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobStatus>>, TError,{id: number;data: BodyType<JobStatusUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateJobStatus>>,
@@ -1372,6 +1448,83 @@ export const useUpdateJobStatus = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUpdateJobStatusMutationOptions(options));
     }
+
+export const getGetJobCompletionReadinessUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/completion-readiness`
+}
+
+/**
+ * @summary Validate whether a job can be safely completed
+ */
+export const getJobCompletionReadiness = async (id: number, options?: RequestInit): Promise<JobCompletionReadiness> => {
+
+  return customFetch<JobCompletionReadiness>(getGetJobCompletionReadinessUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetJobCompletionReadinessQueryKey = (id: number,) => {
+    return [
+    `/api/jobs/${id}/completion-readiness`
+    ] as const;
+    }
+
+
+export const getGetJobCompletionReadinessQueryOptions = <TData = Awaited<ReturnType<typeof getJobCompletionReadiness>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobCompletionReadiness>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetJobCompletionReadinessQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJobCompletionReadiness>>> = ({ signal }) => getJobCompletionReadiness(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getJobCompletionReadiness>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetJobCompletionReadinessQueryResult = NonNullable<Awaited<ReturnType<typeof getJobCompletionReadiness>>>
+export type GetJobCompletionReadinessQueryError = ErrorType<void>
+
+
+/**
+ * @summary Validate whether a job can be safely completed
+ */
+
+export function useGetJobCompletionReadiness<TData = Awaited<ReturnType<typeof getJobCompletionReadiness>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobCompletionReadiness>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetJobCompletionReadinessQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getSendJobEmailUrl = (id: number,) => {
 
@@ -16529,7 +16682,7 @@ export const getDeleteJobVisitUrl = (jobId: number,
 }
 
 /**
- * @summary Delete a job visit
+ * @summary Cancel a job visit while preserving its history
  */
 export const deleteJobVisit = async (jobId: number,
     visitId: number, options?: RequestInit): Promise<void> => {
@@ -16578,7 +16731,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DeleteJobVisitMutationError = ErrorType<unknown>
 
     /**
- * @summary Delete a job visit
+ * @summary Cancel a job visit while preserving its history
  */
 export const useDeleteJobVisit = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteJobVisit>>, TError,{jobId: number;visitId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -17706,6 +17859,90 @@ export function useGetBillingSummary<TData = Awaited<ReturnType<typeof getBillin
 
 
 
+export const getGetWorkFinancialSummaryUrl = (params?: GetWorkFinancialSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/work-financial-summary?${stringifiedParams}` : `/api/billing/work-financial-summary`
+}
+
+/**
+ * @summary Financial summary of recorded work with cost fields permission-filtered
+ */
+export const getWorkFinancialSummary = async (params?: GetWorkFinancialSummaryParams, options?: RequestInit): Promise<WorkFinancialSummary> => {
+
+  return customFetch<WorkFinancialSummary>(getGetWorkFinancialSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetWorkFinancialSummaryQueryKey = (params?: GetWorkFinancialSummaryParams,) => {
+    return [
+    `/api/billing/work-financial-summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetWorkFinancialSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getWorkFinancialSummary>>, TError = ErrorType<unknown>>(params?: GetWorkFinancialSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWorkFinancialSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetWorkFinancialSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getWorkFinancialSummary>>> = ({ signal }) => getWorkFinancialSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getWorkFinancialSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetWorkFinancialSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getWorkFinancialSummary>>>
+export type GetWorkFinancialSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Financial summary of recorded work with cost fields permission-filtered
+ */
+
+export function useGetWorkFinancialSummary<TData = Awaited<ReturnType<typeof getWorkFinancialSummary>>, TError = ErrorType<unknown>>(
+ params?: GetWorkFinancialSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getWorkFinancialSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetWorkFinancialSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getParseBankStatementUrl = () => {
 
 
@@ -18367,6 +18604,78 @@ export function useGetUnbilledCustomerDetail<TData = Awaited<ReturnType<typeof g
 
 
 
+
+export const getCreateQuoteJobGroupInvoiceDraftUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/job-groups/${id}/invoice-draft`
+}
+
+/**
+ * @summary Create one draft invoice from an accepted quote job group
+ */
+export const createQuoteJobGroupInvoiceDraft = async (id: number,
+    quoteJobGroupInvoiceDraftInput: QuoteJobGroupInvoiceDraftInput, options?: RequestInit): Promise<InvoiceDetail> => {
+
+  return customFetch<InvoiceDetail>(getCreateQuoteJobGroupInvoiceDraftUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      quoteJobGroupInvoiceDraftInput,)
+  }
+);}
+
+
+
+
+export const getCreateQuoteJobGroupInvoiceDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createQuoteJobGroupInvoiceDraft>>, TError,{id: number;data: BodyType<QuoteJobGroupInvoiceDraftInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createQuoteJobGroupInvoiceDraft>>, TError,{id: number;data: BodyType<QuoteJobGroupInvoiceDraftInput>}, TContext> => {
+
+const mutationKey = ['createQuoteJobGroupInvoiceDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createQuoteJobGroupInvoiceDraft>>, {id: number;data: BodyType<QuoteJobGroupInvoiceDraftInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createQuoteJobGroupInvoiceDraft(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateQuoteJobGroupInvoiceDraftMutationResult = NonNullable<Awaited<ReturnType<typeof createQuoteJobGroupInvoiceDraft>>>
+    export type CreateQuoteJobGroupInvoiceDraftMutationBody = BodyType<QuoteJobGroupInvoiceDraftInput>
+    export type CreateQuoteJobGroupInvoiceDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create one draft invoice from an accepted quote job group
+ */
+export const useCreateQuoteJobGroupInvoiceDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createQuoteJobGroupInvoiceDraft>>, TError,{id: number;data: BodyType<QuoteJobGroupInvoiceDraftInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createQuoteJobGroupInvoiceDraft>>,
+        TError,
+        {id: number;data: BodyType<QuoteJobGroupInvoiceDraftInput>},
+        TContext
+      > => {
+      return useMutation(getCreateQuoteJobGroupInvoiceDraftMutationOptions(options));
+    }
 
 export const getListInvoicesUrl = (params?: ListInvoicesParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -23424,16 +23733,18 @@ export const getConvertQuoteToJobUrl = (id: number,) => {
 }
 
 /**
- * @summary Convert an accepted quote to a job
+ * @summary Convert an accepted quote to a job group and its first job
  */
-export const convertQuoteToJob = async (id: number, options?: RequestInit): Promise<ConvertQuoteToJobResult> => {
+export const convertQuoteToJob = async (id: number,
+    convertQuoteToJobInput?: ConvertQuoteToJobInput, options?: RequestInit): Promise<ConvertQuoteToJobResult> => {
 
   return customFetch<ConvertQuoteToJobResult>(getConvertQuoteToJobUrl(id),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      convertQuoteToJobInput,)
   }
 );}
 
@@ -23441,8 +23752,8 @@ export const convertQuoteToJob = async (id: number, options?: RequestInit): Prom
 
 
 export const getConvertQuoteToJobMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof convertQuoteToJob>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof convertQuoteToJob>>, TError,{id: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof convertQuoteToJob>>, TError,{id: number;data?: BodyType<ConvertQuoteToJobInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof convertQuoteToJob>>, TError,{id: number;data?: BodyType<ConvertQuoteToJobInput>}, TContext> => {
 
 const mutationKey = ['convertQuoteToJob'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -23454,10 +23765,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof convertQuoteToJob>>, {id: number}> = (props) => {
-          const {id} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof convertQuoteToJob>>, {id: number;data?: BodyType<ConvertQuoteToJobInput>}> = (props) => {
+          const {id,data} = props ?? {};
 
-          return  convertQuoteToJob(id,requestOptions)
+          return  convertQuoteToJob(id,data,requestOptions)
         }
 
 
@@ -23468,18 +23779,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ConvertQuoteToJobMutationResult = NonNullable<Awaited<ReturnType<typeof convertQuoteToJob>>>
-
+    export type ConvertQuoteToJobMutationBody = BodyType<ConvertQuoteToJobInput> | undefined
     export type ConvertQuoteToJobMutationError = ErrorType<void>
 
     /**
- * @summary Convert an accepted quote to a job
+ * @summary Convert an accepted quote to a job group and its first job
  */
 export const useConvertQuoteToJob = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof convertQuoteToJob>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof convertQuoteToJob>>, TError,{id: number;data?: BodyType<ConvertQuoteToJobInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof convertQuoteToJob>>,
         TError,
-        {id: number},
+        {id: number;data?: BodyType<ConvertQuoteToJobInput>},
         TContext
       > => {
       return useMutation(getConvertQuoteToJobMutationOptions(options));

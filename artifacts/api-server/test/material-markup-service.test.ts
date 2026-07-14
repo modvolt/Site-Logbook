@@ -71,6 +71,7 @@ async function addMaterial(
       unit: "ks",
       pricePerUnit,
       priceSource: "manual",
+      done: true,
     })
     .returning();
   return m.id;

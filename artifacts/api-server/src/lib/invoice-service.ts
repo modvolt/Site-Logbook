@@ -1,4 +1,16 @@
-import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   db,
   billingSettingsTable,
@@ -17,6 +29,10 @@ import {
   workSessionsTable,
   workSessionBillingLinksTable,
   peopleTable,
+  quotesTable,
+  quoteItemsTable,
+  quoteInvoiceLinksTable,
+  jobGroupsTable,
   type BillingSettings,
   type MaterialMarkupRule,
   type Invoice,
@@ -44,7 +60,10 @@ import {
   generatePaymentQrDataUrl,
 } from "./invoice-qr";
 import { ObjectStorageService } from "./objectStorage";
-import { parseBankStatement, type StatementFormat } from "./bank-statement-parser";
+import {
+  parseBankStatement,
+  type StatementFormat,
+} from "./bank-statement-parser";
 import {
   markLinesInvoiced,
   releaseInvoicedLines,
@@ -83,7 +102,10 @@ function addDaysIso(iso: string, days: number): string {
 }
 
 /** Whole calendar days `iso` is past `today` (positive only when overdue). */
-export function daysOverdue(dueDateIso: string, todayIsoStr = todayIso()): number {
+export function daysOverdue(
+  dueDateIso: string,
+  todayIsoStr = todayIso(),
+): number {
   const due = new Date(`${dueDateIso}T00:00:00Z`).getTime();
   const today = new Date(`${todayIsoStr}T00:00:00Z`).getTime();
   if (Number.isNaN(due) || Number.isNaN(today)) return 0;
@@ -195,7 +217,10 @@ export async function updateBillingSettings(
 ): Promise<BillingSettings> {
   await ensureBillingSettings();
   const set: Record<string, unknown> = { updatedAt: new Date() };
-  const assign = <K extends keyof BillingSettingsInput>(key: K, col: string) => {
+  const assign = <K extends keyof BillingSettingsInput>(
+    key: K,
+    col: string,
+  ) => {
     if (input[key] !== undefined) set[col] = input[key];
   };
   assign("supplierName", "supplierName");
@@ -213,7 +238,10 @@ export async function updateBillingSettings(
   assign("vatModeDefault", "vatModeDefault");
   assign("invoiceFooterNote", "invoiceFooterNote");
   if (input.materialMarkupPercent !== undefined) {
-    if (!Number.isFinite(input.materialMarkupPercent) || input.materialMarkupPercent < 0) {
+    if (
+      !Number.isFinite(input.materialMarkupPercent) ||
+      input.materialMarkupPercent < 0
+    ) {
       throw appError(400, "Přirážka na materiál nesmí být záporná.");
     }
     set.materialMarkupPercent = String(round2(input.materialMarkupPercent));
@@ -222,7 +250,9 @@ export async function updateBillingSettings(
     if (!Number.isFinite(input.marginAlertThresholdPercent)) {
       throw appError(400, "Prahová hodnota marže musí být číslo.");
     }
-    set.marginAlertThresholdPercent = String(round2(input.marginAlertThresholdPercent));
+    set.marginAlertThresholdPercent = String(
+      round2(input.marginAlertThresholdPercent),
+    );
   }
   assign("numberPrefix", "numberPrefix");
   assign("numberFormat", "numberFormat");
@@ -289,7 +319,9 @@ export async function upsertMaterialMarkupRule(input: MaterialMarkupRuleInput) {
     const [existing] = await tx
       .select()
       .from(materialMarkupRulesTable)
-      .where(sql`lower(${materialMarkupRulesTable.category}) = lower(${category})`)
+      .where(
+        sql`lower(${materialMarkupRulesTable.category}) = lower(${category})`,
+      )
       .limit(1);
     if (existing) {
       const [updated] = await tx
@@ -383,7 +415,10 @@ async function getBilledJobIds(): Promise<number[]> {
   const rows = await db
     .select({ jobId: invoiceSourceLinksTable.jobId })
     .from(invoiceSourceLinksTable)
-    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .innerJoin(
+      invoicesTable,
+      eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
+    )
     .where(
       and(
         ne(invoicesTable.status, "cancelled"),
@@ -398,9 +433,14 @@ interface UnbilledJobRow {
   customer: typeof customersTable.$inferSelect | null;
 }
 
-async function getUnbilledDoneJobs(customerId?: number): Promise<UnbilledJobRow[]> {
+async function getUnbilledDoneJobs(
+  customerId?: number,
+): Promise<UnbilledJobRow[]> {
   const billedIds = await getBilledJobIds();
-  const conditions = [eq(jobsTable.status, "done")];
+  const conditions = [
+    eq(jobsTable.status, "done"),
+    isNull(jobsTable.archivedAt),
+  ];
   if (customerId != null) conditions.push(eq(jobsTable.customerId, customerId));
   if (billedIds.length) conditions.push(notInArray(jobsTable.id, billedIds));
   const rows = await db
@@ -427,7 +467,10 @@ async function getBilledActivityIds(): Promise<number[]> {
   const rows = await db
     .select({ activityId: invoiceSourceLinksTable.activityId })
     .from(invoiceSourceLinksTable)
-    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
+    .innerJoin(
+      invoicesTable,
+      eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id),
+    )
     .where(
       and(
         ne(invoicesTable.status, "cancelled"),
@@ -450,8 +493,10 @@ async function getUnbilledDoneActivities(
     isNotNull(activitiesTable.completedAt),
     eq(activitiesTable.isArchived, false),
   ];
-  if (customerId != null) conditions.push(eq(activitiesTable.customerId, customerId));
-  if (billedIds.length) conditions.push(notInArray(activitiesTable.id, billedIds));
+  if (customerId != null)
+    conditions.push(eq(activitiesTable.customerId, customerId));
+  if (billedIds.length)
+    conditions.push(notInArray(activitiesTable.id, billedIds));
   const rows = await db
     .select({ activity: activitiesTable, customer: customersTable })
     .from(activitiesTable)
@@ -471,15 +516,17 @@ async function getActivityBillingAggregates(
   activityIds: number[],
 ): Promise<Map<number, ActivityBillingAggregate>> {
   const out = new Map<number, ActivityBillingAggregate>();
-  for (const id of activityIds) out.set(id, { materialsTotal: 0, extraWorksTotal: 0 });
+  for (const id of activityIds)
+    out.set(id, { materialsTotal: 0, extraWorksTotal: 0 });
   if (!activityIds.length) return out;
 
   const mats = await db
     .select({
       activityId: activityMaterialsTable.activityId,
-      total: sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(
-        Number,
-      ),
+      total:
+        sql<number>`coalesce(sum(${activityMaterialsTable.quantity} * ${activityMaterialsTable.pricePerUnit}), 0)`.mapWith(
+          Number,
+        ),
     })
     .from(activityMaterialsTable)
     .where(inArray(activityMaterialsTable.activityId, activityIds))
@@ -492,9 +539,10 @@ async function getActivityBillingAggregates(
   const works = await db
     .select({
       activityId: activityExtraWorksTable.activityId,
-      total: sql<number>`coalesce(sum(${activityExtraWorksTable.amount}), 0)`.mapWith(
-        Number,
-      ),
+      total:
+        sql<number>`coalesce(sum(${activityExtraWorksTable.amount}), 0)`.mapWith(
+          Number,
+        ),
     })
     .from(activityExtraWorksTable)
     .where(inArray(activityExtraWorksTable.activityId, activityIds))
@@ -587,7 +635,8 @@ export async function getBillingSummary() {
   );
   const paidThisMonthWithVat = round2(
     paidThisMonthInvoices.reduce(
-      (acc, i) => acc + (i.paidAmount != null ? num(i.paidAmount) : num(i.totalWithVat)),
+      (acc, i) =>
+        acc + (i.paidAmount != null ? num(i.paidAmount) : num(i.totalWithVat)),
       0,
     ),
   );
@@ -626,13 +675,17 @@ export async function getBillingSummary() {
   };
 }
 
-export async function getCustomerUnbilledValueSummary(customerId: number): Promise<{
+export async function getCustomerUnbilledValueSummary(
+  customerId: number,
+): Promise<{
   unbilledJobsValue: number;
   unbilledJobCount: number;
 }> {
   const rows = await getUnbilledDoneJobs(customerId);
   return {
-    unbilledJobsValue: round2(rows.reduce((acc, { job }) => acc + num(job.price), 0)),
+    unbilledJobsValue: round2(
+      rows.reduce((acc, { job }) => acc + num(job.price), 0),
+    ),
     unbilledJobCount: rows.length,
   };
 }
@@ -669,7 +722,8 @@ export async function listUnbilledCustomers() {
   for (const { job, customer } of rows) {
     if (job.customerId == null || !customer) continue;
     const entry =
-      byCustomer.get(job.customerId) ?? emptyEntry(job.customerId, customer.companyName);
+      byCustomer.get(job.customerId) ??
+      emptyEntry(job.customerId, customer.companyName);
     entry.jobCount += 1;
     entry.totalPrice += num(job.price);
     entry.totalTransportCost += num(job.transportCost);
@@ -735,9 +789,20 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   const rows = await getUnbilledDoneJobs(customerId);
   const jobIds = rows.map((r) => r.job.id);
   const materials = jobIds.length
-    ? await db.select().from(materialsTable).where(inArray(materialsTable.jobId, jobIds))
+    ? await db
+        .select()
+        .from(materialsTable)
+        .where(
+          and(
+            inArray(materialsTable.jobId, jobIds),
+            eq(materialsTable.done, true),
+          ),
+        )
     : [];
-  const materialsByJob = new Map<number, typeof materialsTable.$inferSelect[]>();
+  const materialsByJob = new Map<
+    number,
+    (typeof materialsTable.$inferSelect)[]
+  >();
   for (const m of materials) {
     const list = materialsByJob.get(m.jobId) ?? [];
     list.push(m);
@@ -749,7 +814,9 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   const billableMaterialNames = materials
     .filter((m) => m.pricePerUnit != null && m.invoicedInvoiceId == null)
     .map((m) => m.name);
-  const categoryMarkupByName = await getCategoryMarkupByName(billableMaterialNames);
+  const categoryMarkupByName = await getCategoryMarkupByName(
+    billableMaterialNames,
+  );
 
   const detailTodayStr = todayIso();
   const jobs = rows.map(({ job }) => ({
@@ -764,7 +831,10 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     transportCost: round2(num(job.transportCost)),
     parking: round2(num(job.parking)),
     fines: round2(num(job.fines)),
-    daysUnbilled: job.date != null ? Math.max(0, daysOverdue(job.date, detailTodayStr)) : null,
+    daysUnbilled:
+      job.date != null
+        ? Math.max(0, daysOverdue(job.date, detailTodayStr))
+        : null,
     materials: (materialsByJob.get(job.id) ?? [])
       .filter((m) => m.pricePerUnit != null && m.invoicedInvoiceId == null)
       .map((m) => ({
@@ -795,7 +865,10 @@ export async function getUnbilledCustomerDetail(customerId: number) {
         .from(activityExtraWorksTable)
         .where(inArray(activityExtraWorksTable.activityId, activityIds))
     : [];
-  const matsByActivity = new Map<number, typeof activityMaterialsTable.$inferSelect[]>();
+  const matsByActivity = new Map<
+    number,
+    (typeof activityMaterialsTable.$inferSelect)[]
+  >();
   for (const m of activityMaterials) {
     const list = matsByActivity.get(m.activityId) ?? [];
     list.push(m);
@@ -803,7 +876,7 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   }
   const worksByActivity = new Map<
     number,
-    typeof activityExtraWorksTable.$inferSelect[]
+    (typeof activityExtraWorksTable.$inferSelect)[]
   >();
   for (const w of activityExtraWorks) {
     const list = worksByActivity.get(w.activityId) ?? [];
@@ -813,12 +886,16 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   const activityMaterialNames = activityMaterials
     .filter((m) => m.pricePerUnit != null)
     .map((m) => m.name);
-  const activityCategoryMarkup = await getCategoryMarkupByName(activityMaterialNames);
+  const activityCategoryMarkup = await getCategoryMarkupByName(
+    activityMaterialNames,
+  );
 
   const activities = activityRows.map(({ activity }) => ({
     id: activity.id,
     name: activity.name,
-    completedAt: activity.completedAt ? activity.completedAt.toISOString() : null,
+    completedAt: activity.completedAt
+      ? activity.completedAt.toISOString()
+      : null,
     materials: (matsByActivity.get(activity.id) ?? [])
       .filter((m) => m.pricePerUnit != null)
       .map((m) => ({
@@ -837,22 +914,45 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   }));
 
   const parentFilters = [];
-  if (jobIds.length) parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
-  if (activityIds.length) parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
-  const workRows = parentFilters.length ? await db
-    .select({ session: workSessionsTable, personName: peopleTable.name })
-    .from(workSessionsTable)
-    .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
-    .where(and(
-      or(...parentFilters),
-      eq(workSessionsTable.status, "completed"),
-      eq(workSessionsTable.billingStatus, "unbilled"),
-    )) : [];
-  type Preview = { sessionCount: number; hours: number; amount: number; missingRateCount: number; needsReviewCount: number; workers: Set<string> };
+  if (jobIds.length)
+    parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
+  if (activityIds.length)
+    parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
+  const workRows = parentFilters.length
+    ? await db
+        .select({ session: workSessionsTable, personName: peopleTable.name })
+        .from(workSessionsTable)
+        .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
+        .where(
+          and(
+            or(...parentFilters),
+            eq(workSessionsTable.status, "completed"),
+            eq(workSessionsTable.billingStatus, "unbilled"),
+          ),
+        )
+    : [];
+  type Preview = {
+    sessionCount: number;
+    hours: number;
+    amount: number;
+    missingRateCount: number;
+    needsReviewCount: number;
+    workers: Set<string>;
+  };
   const previews = new Map<string, Preview>();
   for (const { session, personName } of workRows) {
-    const key = session.jobId != null ? `job:${session.jobId}` : `activity:${session.activityId}`;
-    const preview = previews.get(key) ?? { sessionCount: 0, hours: 0, amount: 0, missingRateCount: 0, needsReviewCount: 0, workers: new Set<string>() };
+    const key =
+      session.jobId != null
+        ? `job:${session.jobId}`
+        : `activity:${session.activityId}`;
+    const preview = previews.get(key) ?? {
+      sessionCount: 0,
+      hours: 0,
+      amount: 0,
+      missingRateCount: 0,
+      needsReviewCount: 0,
+      workers: new Set<string>(),
+    };
     const seconds = session.durationSeconds ?? 0;
     const billableHours = round2(seconds / 3600);
     if (billableHours === 0) continue;
@@ -866,14 +966,23 @@ export async function getUnbilledCustomerDetail(customerId: number) {
   }
   const serializePreview = (key: string) => {
     const preview = previews.get(key);
-    return preview ? {
-      sessionCount: preview.sessionCount,
-      hours: round2(preview.hours),
-      amount: round2(preview.amount),
-      missingRateCount: preview.missingRateCount,
-      needsReviewCount: preview.needsReviewCount,
-      workers: [...preview.workers].sort(),
-    } : { sessionCount: 0, hours: 0, amount: 0, missingRateCount: 0, needsReviewCount: 0, workers: [] };
+    return preview
+      ? {
+          sessionCount: preview.sessionCount,
+          hours: round2(preview.hours),
+          amount: round2(preview.amount),
+          missingRateCount: preview.missingRateCount,
+          needsReviewCount: preview.needsReviewCount,
+          workers: [...preview.workers].sort(),
+        }
+      : {
+          sessionCount: 0,
+          hours: 0,
+          amount: 0,
+          missingRateCount: 0,
+          needsReviewCount: 0,
+          workers: [],
+        };
   };
 
   return {
@@ -883,8 +992,14 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     dic: customer.dic,
     address: customer.address,
     email: customer.email,
-    jobs: jobs.map((job) => ({ ...job, recordedWork: serializePreview(`job:${job.id}`) })),
-    activities: activities.map((activity) => ({ ...activity, recordedWork: serializePreview(`activity:${activity.id}`) })),
+    jobs: jobs.map((job) => ({
+      ...job,
+      recordedWork: serializePreview(`job:${job.id}`),
+    })),
+    activities: activities.map((activity) => ({
+      ...activity,
+      recordedWork: serializePreview(`activity:${activity.id}`),
+    })),
   };
 }
 
@@ -942,7 +1057,8 @@ export function serializeLine(row: InvoiceLine) {
     quantity: num(row.quantity),
     unit: row.unit,
     unitPriceWithoutVat: num(row.unitPriceWithoutVat),
-    discountPercent: row.discountPercent == null ? null : num(row.discountPercent),
+    discountPercent:
+      row.discountPercent == null ? null : num(row.discountPercent),
     vatRate: row.vatRate == null ? null : num(row.vatRate),
     vatMode: row.vatMode,
     totalWithoutVat: num(row.totalWithoutVat),
@@ -953,7 +1069,10 @@ export function serializeLine(row: InvoiceLine) {
 }
 
 export async function getInvoiceDetail(id: number) {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  const [invoice] = await db
+    .select()
+    .from(invoicesTable)
+    .where(eq(invoicesTable.id, id));
   if (!invoice) return null;
   const lines = await db
     .select()
@@ -968,12 +1087,21 @@ export async function getInvoiceDetail(id: number) {
     .from(invoiceSourceLinksTable)
     .where(eq(invoiceSourceLinksTable.invoiceId, id));
 
-  const linkedJobIds = links.map((l) => l.jobId).filter((x): x is number => x != null);
-  const linkedActivityIds = links.map((l) => l.activityId).filter((x): x is number => x != null);
+  const linkedJobIds = links
+    .map((l) => l.jobId)
+    .filter((x): x is number => x != null);
+  const linkedActivityIds = links
+    .map((l) => l.activityId)
+    .filter((x): x is number => x != null);
 
   const sourceJobs = linkedJobIds.length
     ? await db
-        .select({ id: jobsTable.id, jobNumber: jobsTable.jobNumber, title: jobsTable.title, date: jobsTable.date })
+        .select({
+          id: jobsTable.id,
+          jobNumber: jobsTable.jobNumber,
+          title: jobsTable.title,
+          date: jobsTable.date,
+        })
         .from(jobsTable)
         .where(inArray(jobsTable.id, linkedJobIds))
     : [];
@@ -994,7 +1122,10 @@ export async function getInvoiceDetail(id: number) {
   };
 }
 
-export async function listInvoices(filter: { status?: string; customerId?: number }) {
+export async function listInvoices(filter: {
+  status?: string;
+  customerId?: number;
+}) {
   const conditions = [];
   if (filter.status) conditions.push(eq(invoicesTable.status, filter.status));
   if (filter.customerId != null) {
@@ -1021,10 +1152,18 @@ export async function listInvoices(filter: { status?: string; customerId?: numbe
         .where(inArray(invoiceSourceLinksTable.invoiceId, invoiceIds))
     : [];
 
-  const sourceJobsByInvoice = new Map<number, { id: number; jobNumber: number | null; title: string; date: string }[]>();
+  const sourceJobsByInvoice = new Map<
+    number,
+    { id: number; jobNumber: number | null; title: string; date: string }[]
+  >();
   for (const row of sourceJobRows) {
     const list = sourceJobsByInvoice.get(row.invoiceId) ?? [];
-    list.push({ id: row.id, jobNumber: row.jobNumber, title: row.title, date: row.date });
+    list.push({
+      id: row.id,
+      jobNumber: row.jobNumber,
+      title: row.title,
+      date: row.date,
+    });
     sourceJobsByInvoice.set(row.invoiceId, list);
   }
 
@@ -1105,24 +1244,27 @@ async function buildProposedLines(
     );
   if (alreadyBilled.length) {
     const conflict = alreadyBilled[0];
-    const job = conflict.jobId != null ? jobById.get(conflict.jobId) : undefined;
+    const job =
+      conflict.jobId != null ? jobById.get(conflict.jobId) : undefined;
     const jobLabel = job ? `„${job.title}"` : `#${conflict.jobId}`;
     const invoiceLabel = conflict.invoiceNumber
       ? `faktuře ${conflict.invoiceNumber}`
       : conflict.invoiceStatus === "draft"
         ? "rozpracované faktuře"
         : "jiné faktuře";
-    throw appError(
-      400,
-      `Zakázka ${jobLabel} už je na ${invoiceLabel}.`,
-    );
+    throw appError(400, `Zakázka ${jobLabel} už je na ${invoiceLabel}.`);
   }
 
   const materials = await exec
     .select()
     .from(materialsTable)
-    .where(inArray(materialsTable.jobId, jobIds));
-  const materialsByJob = new Map<number, typeof materialsTable.$inferSelect[]>();
+    .where(
+      and(inArray(materialsTable.jobId, jobIds), eq(materialsTable.done, true)),
+    );
+  const materialsByJob = new Map<
+    number,
+    (typeof materialsTable.$inferSelect)[]
+  >();
   for (const m of materials) {
     const list = materialsByJob.get(m.jobId) ?? [];
     list.push(m);
@@ -1150,7 +1292,10 @@ async function buildProposedLines(
       // Transport, parking and fines are still billed separately.
       const contractPriceRaw = (job as any).contractPrice;
       if (contractPriceRaw == null || num(contractPriceRaw) <= 0) {
-        throw appError(400, `Zakázka „${job.title}" má způsob fakturace „Smluvní cena", ale smluvní cena nebyla zadána. Před fakturací ji doplňte v Souhrnu práce.`);
+        throw appError(
+          400,
+          `Zakázka „${job.title}" má způsob fakturace „Smluvní cena", ale smluvní cena nebyla zadána. Před fakturací ji doplňte v Souhrnu práce.`,
+        );
       }
       const contractPrice = round2(num(contractPriceRaw));
       jobLines.push({
@@ -1196,7 +1341,10 @@ async function buildProposedLines(
           description: m.name,
           quantity: round2(num(m.quantity ?? 1)),
           unit: m.unit ?? "ks",
-          unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), effectiveMarkup),
+          unitPriceWithoutVat: applyMaterialMarkup(
+            num(m.pricePerUnit),
+            effectiveMarkup,
+          ),
           vatMode: invoiceVatMode,
         });
       }
@@ -1291,7 +1439,8 @@ async function buildProposedActivityLines(
     );
   if (alreadyBilled.length) {
     const conflictId = alreadyBilled[0].activityId;
-    const name = conflictId != null ? activityById.get(conflictId)?.name : undefined;
+    const name =
+      conflictId != null ? activityById.get(conflictId)?.name : undefined;
     throw appError(
       400,
       `Akce „${name ?? `#${conflictId}`}" už je na jiné faktuře.`,
@@ -1304,7 +1453,7 @@ async function buildProposedActivityLines(
     .where(inArray(activityMaterialsTable.activityId, activityIds));
   const materialsByActivity = new Map<
     number,
-    typeof activityMaterialsTable.$inferSelect[]
+    (typeof activityMaterialsTable.$inferSelect)[]
   >();
   for (const m of materials) {
     const list = materialsByActivity.get(m.activityId) ?? [];
@@ -1318,7 +1467,7 @@ async function buildProposedActivityLines(
     .where(inArray(activityExtraWorksTable.activityId, activityIds));
   const worksByActivity = new Map<
     number,
-    typeof activityExtraWorksTable.$inferSelect[]
+    (typeof activityExtraWorksTable.$inferSelect)[]
   >();
   for (const w of works) {
     const list = worksByActivity.get(w.activityId) ?? [];
@@ -1364,7 +1513,10 @@ async function buildProposedActivityLines(
         description: m.name,
         quantity: round2(num(m.quantity ?? 1)),
         unit: m.unit ?? "ks",
-        unitPriceWithoutVat: applyMaterialMarkup(num(m.pricePerUnit), effectiveMarkup),
+        unitPriceWithoutVat: applyMaterialMarkup(
+          num(m.pricePerUnit),
+          effectiveMarkup,
+        ),
         vatMode: invoiceVatMode,
       });
     }
@@ -1402,7 +1554,8 @@ async function persistLines(
       quantity: String(c.quantity),
       unit: rl.unit ?? null,
       unitPriceWithoutVat: String(c.unitPriceWithoutVat),
-      discountPercent: c.discountPercent == null ? null : String(c.discountPercent),
+      discountPercent:
+        c.discountPercent == null ? null : String(c.discountPercent),
       vatRate: c.vatRate == null ? null : String(c.vatRate),
       vatMode: c.vatMode,
       totalWithoutVat: String(c.totalWithoutVat),
@@ -1453,7 +1606,9 @@ export interface InvoiceLineInput {
 /** Cost-document line ids referenced by a set of invoice line inputs. */
 function billingDocLineIds(lines: RawLine[]): number[] {
   return lines
-    .filter((l) => l.sourceType === "billing_document_line" && l.sourceId != null)
+    .filter(
+      (l) => l.sourceType === "billing_document_line" && l.sourceId != null,
+    )
     .map((l) => l.sourceId as number);
 }
 
@@ -1494,6 +1649,21 @@ export interface InvoiceCreateInput {
   lines?: InvoiceLineInput[];
 }
 
+export interface QuoteJobGroupInvoiceDraftInput {
+  extraJobIds?: number[];
+  labourBillingMode?: "job_price" | "recorded_time" | "none";
+  workGrouping?: "summary" | "worker";
+  billFineJobIds?: number[];
+  materialMarkupPercent?: number;
+  materialMarkupOverrides?: InvoiceCreateInput["materialMarkupOverrides"];
+  vatModeDefault?: VatMode;
+  issueDate?: string | null;
+  taxableSupplyDate?: string | null;
+  dueDate?: string | null;
+  paymentMethod?: string | null;
+  notes?: string | null;
+}
+
 type ReservedWork = {
   sessionId: number;
   durationSeconds: number;
@@ -1507,32 +1677,68 @@ async function buildRecordedWorkLines(
   activityIds: number[],
   vatMode: VatMode,
   grouping: "summary" | "worker",
-): Promise<{ lines: RawLine[]; reservations: ReservedWork[]; jobAmounts: Map<number, number>; activityAmounts: Map<number, number> }> {
-  if (!jobIds.length && !activityIds.length) return { lines: [], reservations: [], jobAmounts: new Map(), activityAmounts: new Map() };
+): Promise<{
+  lines: RawLine[];
+  reservations: ReservedWork[];
+  jobAmounts: Map<number, number>;
+  activityAmounts: Map<number, number>;
+}> {
+  if (!jobIds.length && !activityIds.length)
+    return {
+      lines: [],
+      reservations: [],
+      jobAmounts: new Map(),
+      activityAmounts: new Map(),
+    };
   const parentFilters = [];
-  if (jobIds.length) parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
-  if (activityIds.length) parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
+  if (jobIds.length)
+    parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
+  if (activityIds.length)
+    parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
   const rows = await tx
     .select({ session: workSessionsTable, personName: peopleTable.name })
     .from(workSessionsTable)
     .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
-    .where(and(
-      or(...parentFilters),
-      eq(workSessionsTable.status, "completed"),
-      eq(workSessionsTable.billingStatus, "unbilled"),
-    ))
+    .where(
+      and(
+        or(...parentFilters),
+        eq(workSessionsTable.status, "completed"),
+        eq(workSessionsTable.billingStatus, "unbilled"),
+      ),
+    )
     .for("update");
-  const billable = rows.filter(({ session }) => round2((session.durationSeconds ?? 0) / 3600) !== 0);
-  const missingRate = billable.find(({ session }) => session.saleRateSnapshot == null);
+  const billable = rows.filter(
+    ({ session }) => round2((session.durationSeconds ?? 0) / 3600) !== 0,
+  );
+  const missingRate = billable.find(
+    ({ session }) => session.saleRateSnapshot == null,
+  );
   if (missingRate) {
-    throw appError(409, `Časová session #${missingRate.session.id} nemá historickou prodejní sazbu. Doplňte ji ručně před fakturací.`);
+    throw appError(
+      409,
+      `Časová session #${missingRate.session.id} nemá historickou prodejní sazbu. Doplňte ji ručně před fakturací.`,
+    );
   }
-  const needsReview = billable.find(({ session }) => session.reviewStatus === "needs_review");
+  const needsReview = billable.find(
+    ({ session }) => session.reviewStatus === "needs_review",
+  );
   if (needsReview) {
-    throw appError(409, `Časová session #${needsReview.session.id} čeká na kontrolu a nelze ji zatím fakturovat.`);
+    throw appError(
+      409,
+      `Časová session #${needsReview.session.id} čeká na kontrolu a nelze ji zatím fakturovat.`,
+    );
   }
 
-  const groups = new Map<string, { description: string; jobId: number | null; activityId: number | null; rate: number; hours: number }>();
+  const groups = new Map<
+    string,
+    {
+      description: string;
+      jobId: number | null;
+      activityId: number | null;
+      rate: number;
+      hours: number;
+    }
+  >();
   const reservations: ReservedWork[] = [];
   const jobAmounts = new Map<number, number>();
   const activityAmounts = new Map<number, number>();
@@ -1541,10 +1747,20 @@ async function buildRecordedWorkLines(
     const seconds = session.durationSeconds ?? 0;
     const billableHours = round2(seconds / 3600);
     if (billableHours === 0) continue;
-    const parentKey = session.jobId != null ? `job:${session.jobId}` : `activity:${session.activityId}`;
+    const parentKey =
+      session.jobId != null
+        ? `job:${session.jobId}`
+        : `activity:${session.activityId}`;
     const key = `${parentKey}:rate:${rate}${grouping === "worker" ? `:person:${session.personId}` : ""}`;
-    const description = grouping === "worker" ? `Práce – ${personName}` : "Odpracované práce";
-    const group = groups.get(key) ?? { description, jobId: session.jobId, activityId: session.activityId, rate, hours: 0 };
+    const description =
+      grouping === "worker" ? `Práce – ${personName}` : "Odpracované práce";
+    const group = groups.get(key) ?? {
+      description,
+      jobId: session.jobId,
+      activityId: session.activityId,
+      rate,
+      hours: 0,
+    };
     group.hours = round2(group.hours + billableHours);
     groups.set(key, group);
     reservations.push({
@@ -1554,28 +1770,42 @@ async function buildRecordedWorkLines(
       amountWithoutVat: round2(billableHours * rate),
     });
     const amount = round2(billableHours * rate);
-    if (session.jobId != null) jobAmounts.set(session.jobId, round2((jobAmounts.get(session.jobId) ?? 0) + amount));
-    if (session.activityId != null) activityAmounts.set(session.activityId, round2((activityAmounts.get(session.activityId) ?? 0) + amount));
+    if (session.jobId != null)
+      jobAmounts.set(
+        session.jobId,
+        round2((jobAmounts.get(session.jobId) ?? 0) + amount),
+      );
+    if (session.activityId != null)
+      activityAmounts.set(
+        session.activityId,
+        round2((activityAmounts.get(session.activityId) ?? 0) + amount),
+      );
   }
   return {
-    lines: [...groups.values()].filter((group) => group.hours !== 0).map((group) => ({
-      sourceType: "work_session",
-      sourceId: null,
-      jobId: group.jobId,
-      activityId: group.activityId,
-      description: group.description,
-      quantity: group.hours,
-      unit: "h",
-      unitPriceWithoutVat: group.rate,
-      vatMode,
-    })),
+    lines: [...groups.values()]
+      .filter((group) => group.hours !== 0)
+      .map((group) => ({
+        sourceType: "work_session",
+        sourceId: null,
+        jobId: group.jobId,
+        activityId: group.activityId,
+        description: group.description,
+        quantity: group.hours,
+        unit: "h",
+        unitPriceWithoutVat: group.rate,
+        vatMode,
+      })),
     reservations,
     jobAmounts,
     activityAmounts,
   };
 }
 
-export async function createDraft(input: InvoiceCreateInput, actor: Actor, outerTx?: Tx) {
+export async function createDraft(
+  input: InvoiceCreateInput,
+  actor: Actor,
+  outerTx?: Tx,
+) {
   const exec: DbOrTx = outerTx ?? db;
   const settings = await ensureBillingSettings();
   const [customer] = await exec
@@ -1641,12 +1871,27 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
         input.customerId,
         vatModeDefault,
         materialMarkupPercent,
-        { lineMarkupOverrides: activityLineMarkupOverrides, categoryMarkupForName },
+        {
+          lineMarkupOverrides: activityLineMarkupOverrides,
+          categoryMarkupForName,
+        },
       );
 
-    const recordedWork = labourBillingMode === "recorded_time"
-      ? await buildRecordedWorkLines(tx, jobIds, activityIds, vatModeDefault, workGrouping)
-      : { lines: [] as RawLine[], reservations: [] as ReservedWork[], jobAmounts: new Map<number, number>(), activityAmounts: new Map<number, number>() };
+    const recordedWork =
+      labourBillingMode === "recorded_time"
+        ? await buildRecordedWorkLines(
+            tx,
+            jobIds,
+            activityIds,
+            vatModeDefault,
+            workGrouping,
+          )
+        : {
+            lines: [] as RawLine[],
+            reservations: [] as ReservedWork[],
+            jobAmounts: new Map<number, number>(),
+            activityAmounts: new Map<number, number>(),
+          };
 
     const manual: RawLine[] = (input.lines ?? []).map((l) => ({
       sourceType: l.sourceType ?? "manual",
@@ -1660,12 +1905,20 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
       vatMode: l.vatMode ?? vatModeDefault,
     }));
 
-    const allLines = [...proposed, ...proposedActivity, ...recordedWork.lines, ...manual];
+    const allLines = [
+      ...proposed,
+      ...proposedActivity,
+      ...recordedWork.lines,
+      ...manual,
+    ];
     for (const [jobId, amount] of recordedWork.jobAmounts) {
       jobAmounts.set(jobId, round2((jobAmounts.get(jobId) ?? 0) + amount));
     }
     for (const [activityId, amount] of recordedWork.activityAmounts) {
-      activityAmounts.set(activityId, round2((activityAmounts.get(activityId) ?? 0) + amount));
+      activityAmounts.set(
+        activityId,
+        round2((activityAmounts.get(activityId) ?? 0) + amount),
+      );
     }
 
     const [invoice] = await tx
@@ -1691,7 +1944,12 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
       })
       .returning();
 
-    const computed = await persistLines(tx, invoice.id, allLines, vatModeDefault);
+    const computed = await persistLines(
+      tx,
+      invoice.id,
+      allLines,
+      vatModeDefault,
+    );
     await writeTotals(tx, invoice.id, computed);
 
     // Reserve any re-billed cost-document lines so they aren't offered twice.
@@ -1719,20 +1977,27 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
     }
 
     if (recordedWork.reservations.length) {
-      await tx.insert(workSessionBillingLinksTable).values(recordedWork.reservations.map((item) => ({
-        sessionId: item.sessionId,
-        invoiceId: invoice.id,
-        invoiceIdSnapshot: invoice.id,
-        status: "reserved",
-        durationSecondsSnapshot: item.durationSeconds,
-        saleRateSnapshot: String(item.saleRate),
-        amountWithoutVatSnapshot: String(item.amountWithoutVat),
-        createdByUserId: actor.userId,
-      })));
+      await tx.insert(workSessionBillingLinksTable).values(
+        recordedWork.reservations.map((item) => ({
+          sessionId: item.sessionId,
+          invoiceId: invoice.id,
+          invoiceIdSnapshot: invoice.id,
+          status: "reserved",
+          durationSecondsSnapshot: item.durationSeconds,
+          saleRateSnapshot: String(item.saleRate),
+          amountWithoutVatSnapshot: String(item.amountWithoutVat),
+          createdByUserId: actor.userId,
+        })),
+      );
       await tx
         .update(workSessionsTable)
         .set({ billingStatus: "ready", updatedAt: new Date() })
-        .where(inArray(workSessionsTable.id, recordedWork.reservations.map((item) => item.sessionId)));
+        .where(
+          inArray(
+            workSessionsTable.id,
+            recordedWork.reservations.map((item) => item.sessionId),
+          ),
+        );
     }
 
     return invoice.id;
@@ -1747,6 +2012,216 @@ export async function createDraft(input: InvoiceCreateInput, actor: Actor, outer
   }
   const id = await db.transaction(doCreate);
   return getInvoiceDetail(id);
+}
+
+async function ensureQuoteGroupSourceLinks(
+  tx: Tx,
+  invoiceId: number,
+  jobGroupId: number,
+): Promise<void> {
+  const groupJobs = await tx
+    .select({ id: jobsTable.id })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.groupId, jobGroupId),
+        eq(jobsTable.status, "done"),
+        isNull(jobsTable.archivedAt),
+      ),
+    );
+  if (!groupJobs.length) return;
+
+  const existing = await tx
+    .select({ jobId: invoiceSourceLinksTable.jobId })
+    .from(invoiceSourceLinksTable)
+    .where(eq(invoiceSourceLinksTable.invoiceId, invoiceId));
+  const linked = new Set(
+    existing.map((row) => row.jobId).filter((id): id is number => id != null),
+  );
+  const missing = groupJobs.filter((job) => !linked.has(job.id));
+  if (missing.length) {
+    await tx.insert(invoiceSourceLinksTable).values(
+      missing.map((job) => ({
+        invoiceId,
+        jobId: job.id,
+        activityId: null,
+        amountWithoutVat: "0",
+      })),
+    );
+  }
+}
+
+/**
+ * Creates one invoice draft for the whole quote-origin job group.
+ *
+ * Accepted quote items are copied as immutable invoice-line values. Actual job
+ * costs are added only for explicitly selected follow-up jobs, so internal
+ * consumption can never silently increase an agreed quote.
+ */
+export async function createQuoteJobGroupInvoiceDraft(
+  jobGroupId: number,
+  input: QuoteJobGroupInvoiceDraftInput,
+  actor: Actor,
+) {
+  const invoiceId = await db.transaction(async (tx) => {
+    const [group] = await tx
+      .select()
+      .from(jobGroupsTable)
+      .where(eq(jobGroupsTable.id, jobGroupId))
+      .for("update");
+    if (!group) throw appError(404, "Akce zakázek nebyla nalezena.");
+    if (group.customerId == null) {
+      throw appError(409, "Akce nemá zákazníka a nelze ji fakturovat.");
+    }
+
+    const [quote] = await tx
+      .select()
+      .from(quotesTable)
+      .where(eq(quotesTable.convertedToJobGroupId, jobGroupId))
+      .for("update");
+    if (!quote) {
+      throw appError(409, "Akce nevznikla z cenové nabídky.");
+    }
+    if (quote.status !== "accepted") {
+      throw appError(409, "Fakturovat lze pouze přijatou nabídku.");
+    }
+    if (quote.customerId !== group.customerId) {
+      throw appError(409, "Zákazník nabídky a akce se neshoduje.");
+    }
+    if (quote.convertedToInvoiceId != null) {
+      throw appError(
+        409,
+        `Nabídka už je navázána na fakturu #${quote.convertedToInvoiceId}.`,
+      );
+    }
+
+    const activeLinks = await tx
+      .select({ invoiceIdSnapshot: quoteInvoiceLinksTable.invoiceIdSnapshot })
+      .from(quoteInvoiceLinksTable)
+      .where(
+        and(
+          eq(quoteInvoiceLinksTable.quoteId, quote.id),
+          inArray(quoteInvoiceLinksTable.status, ["reserved", "billed"]),
+        ),
+      )
+      .for("update");
+    if (activeLinks.length) {
+      throw appError(
+        409,
+        `Nabídka už je rezervována na faktuře #${activeLinks[0].invoiceIdSnapshot}.`,
+      );
+    }
+
+    const jobs = await tx
+      .select()
+      .from(jobsTable)
+      .where(
+        and(eq(jobsTable.groupId, jobGroupId), isNull(jobsTable.archivedAt)),
+      )
+      .for("update");
+    if (!jobs.length) {
+      throw appError(409, "Akce neobsahuje žádnou zakázku.");
+    }
+    const unfinished = jobs.find(
+      (job) => !["done", "cancelled"].includes(job.status),
+    );
+    if (unfinished) {
+      throw appError(
+        409,
+        `Zakázka „${unfinished.title}“ ještě není dokončená ani zrušená.`,
+      );
+    }
+
+    const extraJobIds = Array.from(new Set(input.extraJobIds ?? []));
+    const jobById = new Map(jobs.map((job) => [job.id, job]));
+    for (const extraJobId of extraJobIds) {
+      const job = jobById.get(extraJobId);
+      if (!job) {
+        throw appError(400, `Vícepráce #${extraJobId} nepatří do této akce.`);
+      }
+      if (job.id === quote.convertedToJobId) {
+        throw appError(
+          409,
+          "První zakázka představuje přijatou nabídku a nelze ji přidat podruhé jako vícepráci.",
+        );
+      }
+      if (job.status !== "done") {
+        throw appError(409, `Vícepráce „${job.title}“ není dokončená.`);
+      }
+    }
+    const fineSet = new Set(input.billFineJobIds ?? []);
+    if ([...fineSet].some((jobId) => !extraJobIds.includes(jobId))) {
+      throw appError(400, "Pokutu lze zahrnout pouze u vybrané vícepráce.");
+    }
+
+    const quoteItems = await tx
+      .select()
+      .from(quoteItemsTable)
+      .where(eq(quoteItemsTable.quoteId, quote.id))
+      .orderBy(asc(quoteItemsTable.position), asc(quoteItemsTable.id));
+    if (!quoteItems.length) {
+      throw appError(409, "Přijatá nabídka nemá žádné položky.");
+    }
+
+    const created = await createDraft(
+      {
+        customerId: group.customerId,
+        jobIds: extraJobIds,
+        labourBillingMode: input.labourBillingMode ?? "job_price",
+        workGrouping: input.workGrouping ?? "summary",
+        billFineJobIds: input.billFineJobIds,
+        materialMarkupPercent: input.materialMarkupPercent,
+        materialMarkupOverrides: input.materialMarkupOverrides,
+        vatModeDefault: input.vatModeDefault,
+        issueDate: input.issueDate,
+        taxableSupplyDate: input.taxableSupplyDate,
+        dueDate: input.dueDate,
+        paymentMethod: input.paymentMethod,
+        notes: input.notes,
+        lines: quoteItems.map((item) => ({
+          sourceType: "quote_item",
+          sourceId: item.id,
+          description: item.description,
+          quantity: num(item.quantity),
+          unit: item.unit,
+          unitPriceWithoutVat: num(item.unitPrice),
+          vatRate: item.vatRate == null ? null : num(item.vatRate),
+        })),
+      },
+      actor,
+      tx,
+    );
+    if (!created) {
+      throw appError(500, "Vytvořený koncept faktury se nepodařilo načíst.");
+    }
+
+    await ensureQuoteGroupSourceLinks(tx, created.id, group.id);
+    await tx.insert(quoteInvoiceLinksTable).values({
+      quoteId: quote.id,
+      jobGroupId: group.id,
+      invoiceId: created.id,
+      invoiceIdSnapshot: created.id,
+      status: "reserved",
+      createdByUserId: actor.userId,
+    });
+    await tx
+      .update(quotesTable)
+      .set({ convertedToInvoiceId: created.id, updatedAt: new Date() })
+      .where(eq(quotesTable.id, quote.id));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "quote_job_group_invoice_draft_created",
+      entityType: "invoices",
+      entityId: created.id,
+      summary: `Koncept faktury z nabídky ${quote.quoteNumber ?? `#${quote.id}`} a akce #${group.id}; vícepráce: ${extraJobIds.join(", ") || "žádné"}`,
+      method: "POST",
+      path: `/billing/job-groups/${group.id}/invoice-draft`,
+    });
+    return created.id;
+  });
+
+  return getInvoiceDetail(invoiceId);
 }
 
 export interface InvoiceUpdateInput {
@@ -1777,14 +2252,22 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
     const vatModeDefault: VatMode =
       input.vatModeDefault ?? (invoice.vatModeDefault as VatMode);
 
-    const set: Record<string, unknown> = { updatedAt: new Date(), vatModeDefault };
+    const set: Record<string, unknown> = {
+      updatedAt: new Date(),
+      vatModeDefault,
+    };
     if (input.issueDate !== undefined) set.issueDate = input.issueDate;
-    if (input.taxableSupplyDate !== undefined) set.taxableSupplyDate = input.taxableSupplyDate;
+    if (input.taxableSupplyDate !== undefined)
+      set.taxableSupplyDate = input.taxableSupplyDate;
     if (input.dueDate !== undefined) set.dueDate = input.dueDate;
-    if (input.paymentMethod !== undefined) set.paymentMethod = input.paymentMethod;
-    if (input.variableSymbol !== undefined) set.variableSymbol = input.variableSymbol;
-    if (input.constantSymbol !== undefined) set.constantSymbol = input.constantSymbol;
-    if (input.specificSymbol !== undefined) set.specificSymbol = input.specificSymbol;
+    if (input.paymentMethod !== undefined)
+      set.paymentMethod = input.paymentMethod;
+    if (input.variableSymbol !== undefined)
+      set.variableSymbol = input.variableSymbol;
+    if (input.constantSymbol !== undefined)
+      set.constantSymbol = input.constantSymbol;
+    if (input.specificSymbol !== undefined)
+      set.specificSymbol = input.specificSymbol;
     if (input.notes !== undefined) set.notes = input.notes;
     await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
 
@@ -1792,16 +2275,32 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
       const activeWorkLinks = await tx
         .select({ id: workSessionBillingLinksTable.id })
         .from(workSessionBillingLinksTable)
-        .where(and(
-          eq(workSessionBillingLinksTable.invoiceId, id),
-          inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
-        ));
+        .where(
+          and(
+            eq(workSessionBillingLinksTable.invoiceId, id),
+            inArray(workSessionBillingLinksTable.status, [
+              "reserved",
+              "billed",
+            ]),
+          ),
+        );
       if (activeWorkLinks.length) {
         const currentWorkLines = await tx
           .select()
           .from(invoiceLinesTable)
-          .where(and(eq(invoiceLinesTable.invoiceId, id), eq(invoiceLinesTable.sourceType, "work_session")));
-        const signature = (line: { description: string; quantity?: unknown; unitPriceWithoutVat?: unknown; jobId?: number | null; activityId?: number | null }) =>
+          .where(
+            and(
+              eq(invoiceLinesTable.invoiceId, id),
+              eq(invoiceLinesTable.sourceType, "work_session"),
+            ),
+          );
+        const signature = (line: {
+          description: string;
+          quantity?: unknown;
+          unitPriceWithoutVat?: unknown;
+          jobId?: number | null;
+          activityId?: number | null;
+        }) =>
           JSON.stringify([
             line.description,
             round2(num(line.quantity)),
@@ -1810,16 +2309,24 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
             line.activityId ?? null,
           ]);
         const before = currentWorkLines.map(signature).sort();
-        const after = input.lines.filter((line) => line.sourceType === "work_session").map(signature).sort();
+        const after = input.lines
+          .filter((line) => line.sourceType === "work_session")
+          .map(signature)
+          .sort();
         if (JSON.stringify(before) !== JSON.stringify(after)) {
-          throw appError(409, "Položky skutečně odpracovaného času jsou svázané s konkrétními session a nelze je ručně měnit nebo odstranit.");
+          throw appError(
+            409,
+            "Položky skutečně odpracovaného času jsou svázané s konkrétními session a nelze je ručně měnit nebo odstranit.",
+          );
         }
       }
       // Manual edit replaces ALL lines. Lines keep their `jobId` so job billing
       // tracks the lines that actually remain: removing every line of a job drops
       // its source link, returning the job to the unbilled pool (instead of being
       // silently marked "vyfakturováno" with nothing on the invoice for it).
-      await tx.delete(invoiceLinesTable).where(eq(invoiceLinesTable.invoiceId, id));
+      await tx
+        .delete(invoiceLinesTable)
+        .where(eq(invoiceLinesTable.invoiceId, id));
       // Release previously-reserved cost-document lines + job materials; re-reserve
       // below from the new line set, so removing a line frees it for re-billing.
       await releaseInvoicedLines(tx, id);
@@ -1858,6 +2365,19 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
       }
       await markLinesInvoiced(tx, id, billingDocLineIds(lines));
       await markMaterialsInvoiced(tx, id, materialIds(lines));
+      const [quoteLink] = await tx
+        .select({ jobGroupId: quoteInvoiceLinksTable.jobGroupId })
+        .from(quoteInvoiceLinksTable)
+        .where(
+          and(
+            eq(quoteInvoiceLinksTable.invoiceId, id),
+            inArray(quoteInvoiceLinksTable.status, ["reserved", "billed"]),
+          ),
+        )
+        .limit(1);
+      if (quoteLink?.jobGroupId != null) {
+        await ensureQuoteGroupSourceLinks(tx, id, quoteLink.jobGroupId);
+      }
     } else {
       // VAT mode may have changed — recompute existing lines under the new mode.
       await recalcWithin(tx, id, vatModeDefault);
@@ -1878,7 +2398,8 @@ async function recalcWithin(exec: DbOrTx, id: number, vatModeDefault: VatMode) {
       {
         quantity: num(line.quantity),
         unitPriceWithoutVat: num(line.unitPriceWithoutVat),
-        discountPercent: line.discountPercent == null ? null : num(line.discountPercent),
+        discountPercent:
+          line.discountPercent == null ? null : num(line.discountPercent),
         vatRate: line.vatRate == null ? null : num(line.vatRate),
         vatMode: line.vatMode as VatMode,
       },
@@ -1890,7 +2411,8 @@ async function recalcWithin(exec: DbOrTx, id: number, vatModeDefault: VatMode) {
       .set({
         quantity: String(c.quantity),
         unitPriceWithoutVat: String(c.unitPriceWithoutVat),
-        discountPercent: c.discountPercent == null ? null : String(c.discountPercent),
+        discountPercent:
+          c.discountPercent == null ? null : String(c.discountPercent),
         vatRate: c.vatRate == null ? null : String(c.vatRate),
         vatMode: c.vatMode,
         totalWithoutVat: String(c.totalWithoutVat),
@@ -1904,7 +2426,10 @@ async function recalcWithin(exec: DbOrTx, id: number, vatModeDefault: VatMode) {
 }
 
 export async function recalcDraft(id: number) {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  const [invoice] = await db
+    .select()
+    .from(invoicesTable)
+    .where(eq(invoicesTable.id, id));
   if (!invoice) throw appError(404, "Faktura nenalezena.");
   if (invoice.status !== "draft") {
     throw appError(409, "Přepočítat lze pouze koncept faktury.");
@@ -1913,42 +2438,114 @@ export async function recalcDraft(id: number) {
   return getInvoiceDetail(id);
 }
 
-export async function deleteDraft(id: number) {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
-  if (!invoice) throw appError(404, "Faktura nenalezena.");
-  if (invoice.status !== "draft") {
-    throw appError(409, "Smazat lze pouze koncept faktury.");
-  }
+export async function deleteDraft(
+  id: number,
+  actor: Actor = { userId: null, name: "Systém" },
+) {
   await db.transaction(async (tx) => {
+    const [invoice] = await tx
+      .select()
+      .from(invoicesTable)
+      .where(eq(invoicesTable.id, id))
+      .for("update");
+    if (!invoice) throw appError(404, "Faktura nenalezena.");
+    if (invoice.status !== "draft") {
+      throw appError(409, "Smazat lze pouze koncept faktury.");
+    }
     // Free any reserved cost-document lines + job materials before removal.
     await releaseInvoicedLines(tx, id);
     await releaseInvoicedMaterials(tx, id);
     await releaseWorkSessionBilling(tx, id, null, "draft_deleted");
+    await releaseQuoteInvoiceBilling(tx, id, actor.userId, "draft_deleted");
     await tx.delete(invoicesTable).where(eq(invoicesTable.id, id));
   });
 }
 
-async function releaseWorkSessionBilling(tx: Tx, invoiceId: number, actorUserId: number | null, reason: string) {
+async function releaseWorkSessionBilling(
+  tx: Tx,
+  invoiceId: number,
+  actorUserId: number | null,
+  reason: string,
+) {
   const links = await tx
     .select({ sessionId: workSessionBillingLinksTable.sessionId })
     .from(workSessionBillingLinksTable)
-    .where(and(
-      eq(workSessionBillingLinksTable.invoiceId, invoiceId),
-      inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
-    ));
+    .where(
+      and(
+        eq(workSessionBillingLinksTable.invoiceId, invoiceId),
+        inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
+      ),
+    );
   if (!links.length) return;
   const now = new Date();
   await tx
     .update(workSessionBillingLinksTable)
-    .set({ status: "released", releasedAt: now, releasedByUserId: actorUserId, releaseReason: reason })
-    .where(and(
-      eq(workSessionBillingLinksTable.invoiceId, invoiceId),
-      inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
-    ));
+    .set({
+      status: "released",
+      releasedAt: now,
+      releasedByUserId: actorUserId,
+      releaseReason: reason,
+    })
+    .where(
+      and(
+        eq(workSessionBillingLinksTable.invoiceId, invoiceId),
+        inArray(workSessionBillingLinksTable.status, ["reserved", "billed"]),
+      ),
+    );
   await tx
     .update(workSessionsTable)
     .set({ billingStatus: "unbilled", updatedAt: now })
-    .where(inArray(workSessionsTable.id, links.map((link) => link.sessionId)));
+    .where(
+      inArray(
+        workSessionsTable.id,
+        links.map((link) => link.sessionId),
+      ),
+    );
+}
+
+async function releaseQuoteInvoiceBilling(
+  tx: Tx,
+  invoiceId: number,
+  actorUserId: number | null,
+  reason: string,
+) {
+  const links = await tx
+    .select({ quoteId: quoteInvoiceLinksTable.quoteId })
+    .from(quoteInvoiceLinksTable)
+    .where(
+      and(
+        eq(quoteInvoiceLinksTable.invoiceId, invoiceId),
+        inArray(quoteInvoiceLinksTable.status, ["reserved", "billed"]),
+      ),
+    );
+  if (!links.length) return;
+  const now = new Date();
+  await tx
+    .update(quoteInvoiceLinksTable)
+    .set({
+      status: "released",
+      releasedAt: now,
+      releasedByUserId: actorUserId,
+      releaseReason: reason,
+    })
+    .where(
+      and(
+        eq(quoteInvoiceLinksTable.invoiceId, invoiceId),
+        inArray(quoteInvoiceLinksTable.status, ["reserved", "billed"]),
+      ),
+    );
+  await tx
+    .update(quotesTable)
+    .set({ convertedToInvoiceId: null, updatedAt: now })
+    .where(
+      and(
+        inArray(
+          quotesTable.id,
+          links.map((link) => link.quoteId),
+        ),
+        eq(quotesTable.convertedToInvoiceId, invoiceId),
+      ),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1981,7 +2578,8 @@ async function buildPaymentQrDataUrl(
   invoice: Invoice,
   settings: BillingSettings,
 ): Promise<string | null> {
-  if (invoice.paymentMethod === "cash" || invoice.paymentMethod === "card") return null;
+  if (invoice.paymentMethod === "cash" || invoice.paymentMethod === "card")
+    return null;
   const iban = resolveIban(settings.iban, settings.bankAccount);
   if (!iban) return null;
   const amount = num(invoice.totalWithVat);
@@ -2035,7 +2633,8 @@ async function buildPdfData(
       unit: l.unit,
       quantity: num(l.quantity),
       unitPriceWithoutVat: num(l.unitPriceWithoutVat),
-      discountPercent: l.discountPercent == null ? null : num(l.discountPercent),
+      discountPercent:
+        l.discountPercent == null ? null : num(l.discountPercent),
       vatMode: l.vatMode as VatMode,
       vatRate: l.vatRate == null ? null : num(l.vatRate),
       totalWithoutVat: num(l.totalWithoutVat),
@@ -2078,6 +2677,65 @@ export async function issueInvoice(id: number, actor: Actor) {
     // PDF can never capture stale or tampered totals.
     await recalcWithin(tx, id, invoice.vatModeDefault as VatMode);
 
+    const [quoteBilling] = await tx
+      .select({
+        quoteId: quoteInvoiceLinksTable.quoteId,
+        jobGroupId: quoteInvoiceLinksTable.jobGroupId,
+      })
+      .from(quoteInvoiceLinksTable)
+      .where(
+        and(
+          eq(quoteInvoiceLinksTable.invoiceId, id),
+          inArray(quoteInvoiceLinksTable.status, ["reserved", "billed"]),
+        ),
+      )
+      .for("update")
+      .limit(1);
+    if (quoteBilling?.jobGroupId != null) {
+      const [sourceQuote] = await tx
+        .select({
+          status: quotesTable.status,
+          convertedToInvoiceId: quotesTable.convertedToInvoiceId,
+        })
+        .from(quotesTable)
+        .where(eq(quotesTable.id, quoteBilling.quoteId))
+        .for("update");
+      if (
+        !sourceQuote ||
+        sourceQuote.status !== "accepted" ||
+        sourceQuote.convertedToInvoiceId !== id
+      ) {
+        throw appError(
+          409,
+          "Vazba faktury na přijatou nabídku už není platná.",
+        );
+      }
+      const currentGroupJobs = await tx
+        .select({
+          id: jobsTable.id,
+          title: jobsTable.title,
+          status: jobsTable.status,
+        })
+        .from(jobsTable)
+        .where(
+          and(
+            eq(jobsTable.groupId, quoteBilling.jobGroupId),
+            isNull(jobsTable.archivedAt),
+          ),
+        )
+        .for("update");
+      const unfinished = currentGroupJobs.find(
+        (job) => !["done", "cancelled"].includes(job.status),
+      );
+      if (unfinished) {
+        throw appError(
+          409,
+          `Zakázka „${unfinished.title}“ v akci už není dokončená; fakturu nelze vystavit.`,
+        );
+      }
+      await ensureQuoteGroupSourceLinks(tx, id, quoteBilling.jobGroupId);
+    }
+
     // Verify every linked job is still "done" (could have been reopened / billed
     // by a competing draft since this draft was built).
     const links = await tx
@@ -2087,7 +2745,9 @@ export async function issueInvoice(id: number, actor: Actor) {
       })
       .from(invoiceSourceLinksTable)
       .where(eq(invoiceSourceLinksTable.invoiceId, id));
-    const jobIds = links.map((l) => l.jobId).filter((x): x is number => x != null);
+    const jobIds = links
+      .map((l) => l.jobId)
+      .filter((x): x is number => x != null);
     const activityIds = links
       .map((l) => l.activityId)
       .filter((x): x is number => x != null);
@@ -2141,7 +2801,8 @@ export async function issueInvoice(id: number, actor: Actor) {
         );
       if (alreadyBilled.length) {
         const conflictId = alreadyBilled[0].activityId;
-        const name = conflictId != null ? actById.get(conflictId)?.name : undefined;
+        const name =
+          conflictId != null ? actById.get(conflictId)?.name : undefined;
         throw appError(
           409,
           `Akci „${name ?? `#${conflictId}`}" už nelze fakturovat (je na jiné faktuře).`,
@@ -2188,7 +2849,8 @@ export async function issueInvoice(id: number, actor: Actor) {
 
     const issueDate = invoice.issueDate ?? todayIso();
     const taxableSupplyDate = invoice.taxableSupplyDate ?? issueDate;
-    const dueDate = invoice.dueDate ?? addDaysIso(issueDate, settings.defaultDueDays);
+    const dueDate =
+      invoice.dueDate ?? addDaysIso(issueDate, settings.defaultDueDays);
     const variableSymbol = invoiceVariableSymbol(invoiceNumber);
 
     const [updated] = await tx
@@ -2220,7 +2882,11 @@ export async function issueInvoice(id: number, actor: Actor) {
     const pdfData = await buildPdfData(updated, lines, settings);
     const pdfBuffer = generateInvoicePdf(pdfData);
     const objectPath = `/objects/invoices/${invoiceNumber}.pdf`;
-    await objectStorage.putPrivateObject(objectPath, pdfBuffer, "application/pdf");
+    await objectStorage.putPrivateObject(
+      objectPath,
+      pdfBuffer,
+      "application/pdf",
+    );
     await tx
       .update(invoicesTable)
       .set({ pdfObjectPath: objectPath, updatedAt: new Date() })
@@ -2245,23 +2911,42 @@ export async function issueInvoice(id: number, actor: Actor) {
     const workLinks = await tx
       .select({ sessionId: workSessionBillingLinksTable.sessionId })
       .from(workSessionBillingLinksTable)
-      .where(and(
-        eq(workSessionBillingLinksTable.invoiceId, id),
-        eq(workSessionBillingLinksTable.status, "reserved"),
-      ));
+      .where(
+        and(
+          eq(workSessionBillingLinksTable.invoiceId, id),
+          eq(workSessionBillingLinksTable.status, "reserved"),
+        ),
+      );
     if (workLinks.length) {
       await tx
         .update(workSessionBillingLinksTable)
         .set({ status: "billed", billedAt: new Date() })
-        .where(and(
-          eq(workSessionBillingLinksTable.invoiceId, id),
-          eq(workSessionBillingLinksTable.status, "reserved"),
-        ));
+        .where(
+          and(
+            eq(workSessionBillingLinksTable.invoiceId, id),
+            eq(workSessionBillingLinksTable.status, "reserved"),
+          ),
+        );
       await tx
         .update(workSessionsTable)
         .set({ billingStatus: "billed", updatedAt: new Date() })
-        .where(inArray(workSessionsTable.id, workLinks.map((link) => link.sessionId)));
+        .where(
+          inArray(
+            workSessionsTable.id,
+            workLinks.map((link) => link.sessionId),
+          ),
+        );
     }
+
+    await tx
+      .update(quoteInvoiceLinksTable)
+      .set({ status: "billed", billedAt: new Date() })
+      .where(
+        and(
+          eq(quoteInvoiceLinksTable.invoiceId, id),
+          eq(quoteInvoiceLinksTable.status, "reserved"),
+        ),
+      );
 
     await tx.insert(auditLogTable).values({
       actorUserId: actor.userId,
@@ -2305,13 +2990,18 @@ export async function cancelInvoice(
 
     await tx
       .update(invoicesTable)
-      .set({ status: "cancelled", cancelledAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "cancelled",
+        cancelledAt: new Date(),
+        updatedAt: new Date(),
+      })
       .where(eq(invoicesTable.id, id));
 
     // Storno frees any re-billed cost-document lines + job materials for re-billing.
     await releaseInvoicedLines(tx, id);
     await releaseInvoicedMaterials(tx, id);
     await releaseWorkSessionBilling(tx, id, actor.userId, "invoice_cancelled");
+    await releaseQuoteInvoiceBilling(tx, id, actor.userId, "invoice_cancelled");
 
     const links = await tx
       .select({
@@ -2320,7 +3010,9 @@ export async function cancelInvoice(
       })
       .from(invoiceSourceLinksTable)
       .where(eq(invoiceSourceLinksTable.invoiceId, id));
-    const jobIds = links.map((l) => l.jobId).filter((x): x is number => x != null);
+    const jobIds = links
+      .map((l) => l.jobId)
+      .filter((x): x is number => x != null);
     const activityIds = links
       .map((l) => l.activityId)
       .filter((x): x is number => x != null);
@@ -2331,7 +3023,10 @@ export async function cancelInvoice(
         .update(jobsTable)
         .set({ status: "done" })
         .where(
-          and(inArray(jobsTable.id, jobIds), eq(jobsTable.status, "vyfakturovano")),
+          and(
+            inArray(jobsTable.id, jobIds),
+            eq(jobsTable.status, "vyfakturovano"),
+          ),
         );
     }
     // Clear the cosmetic billed flag on the activities this invoice marked. The
@@ -2356,7 +3051,9 @@ export async function cancelInvoice(
       entityType: "invoices",
       entityId: id,
       summary: `Faktura ${invoice.invoiceNumber ?? `#${id}`} stornována${
-        returnJobsToDone && jobIds.length ? ` (zakázky vráceny: ${jobIds.join(", ")})` : ""
+        returnJobsToDone && jobIds.length
+          ? ` (zakázky vráceny: ${jobIds.join(", ")})`
+          : ""
       }${activityIds.length ? ` (akce uvolněny: ${activityIds.join(", ")})` : ""}`,
       method: "POST",
       path: `/billing/invoices/${id}/cancel`,
@@ -2393,9 +3090,15 @@ export function paidTransitionFields(
   };
 }
 
-export async function updateInvoiceStatus(id: number, input: InvoiceStatusInput) {
+export async function updateInvoiceStatus(
+  id: number,
+  input: InvoiceStatusInput,
+) {
   const { status } = input;
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  const [invoice] = await db
+    .select()
+    .from(invoicesTable)
+    .where(eq(invoicesTable.id, id));
   if (!invoice) throw appError(404, "Faktura nenalezena.");
   if (invoice.status === "draft" || invoice.status === "cancelled") {
     throw appError(409, "Stav koncept/storno nelze takto měnit.");
@@ -2425,7 +3128,10 @@ export async function updateInvoiceStatus(id: number, input: InvoiceStatusInput)
 // ---------------------------------------------------------------------------
 
 export async function getInvoiceForPdf(id: number): Promise<Invoice | null> {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, id));
+  const [invoice] = await db
+    .select()
+    .from(invoicesTable)
+    .where(eq(invoicesTable.id, id));
   return invoice ?? null;
 }
 
@@ -2636,7 +3342,10 @@ export async function confirmBankPayments(
         continue;
       }
       if (invoice.status === "paid") {
-        skipped.push({ invoiceId: p.invoiceId, reason: "Faktura je již zaplacená." });
+        skipped.push({
+          invoiceId: p.invoiceId,
+          reason: "Faktura je již zaplacená.",
+        });
         continue;
       }
       if (invoice.status !== "issued" && invoice.status !== "sent") {

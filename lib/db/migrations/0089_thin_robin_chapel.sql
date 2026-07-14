@@ -1,0 +1,3 @@
+ALTER TABLE "quotes" ADD COLUMN "converted_to_job_group_id" integer;--> statement-breakpoint
+ALTER TABLE "quotes" ADD CONSTRAINT "quotes_converted_to_job_group_id_job_groups_id_fk" FOREIGN KEY ("converted_to_job_group_id") REFERENCES "public"."job_groups"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "quotes_converted_job_group_uidx" ON "quotes" USING btree ("converted_to_job_group_id");

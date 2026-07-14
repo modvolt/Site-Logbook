@@ -9,6 +9,7 @@ import { logger } from "./lib/logger";
 import { attachAuth, requireAuth } from "./middlewares/auth";
 import { enforceApiPermission } from "./middlewares/permissions";
 import { auditMutations } from "./middlewares/audit";
+import { rejectArchivedJobMutations } from "./middlewares/archived-job";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
 import { record5xxError } from "./lib/server-errors";
@@ -162,6 +163,10 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 
 // Record successful data mutations to the audit log (after auth so the actor is known)
 app.use("/api", auditMutations);
+
+// Archived jobs remain readable for recovery/audit, but their related records
+// are immutable until an administrator explicitly restores the job.
+app.use("/api", rejectArchivedJobMutations);
 
 // Broadcast successful mutations to other devices' open screens (SSE push)
 app.use("/api", broadcastMutations);

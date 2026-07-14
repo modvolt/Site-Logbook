@@ -14,7 +14,9 @@
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
     "stamp": "tsx ./src/stamp-cli.ts",
     "migrate": "tsx ./src/migrate-cli.ts",
-    "test:migrate": "tsx ./src/test-migrate.ts"
+    "test:migrate": "tsx ./src/test-migrate.ts",
+    "test:workflow-rollback": "tsx ./src/test-workflow-rollback.ts",
+    "test:workflow-db": "tsx ./src/test-workflow-db-suite.ts"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

@@ -6,6 +6,7 @@ import {
   customersTable,
   quotesTable,
   quoteItemsTable,
+  jobGroupsTable,
   jobsTable,
 } from "@workspace/db";
 import { convertQuoteToJob } from "../src/lib/quote-service";
@@ -33,6 +34,7 @@ const TAG = `test-quote-convert-${Date.now()}`;
 let customerId: number;
 let quoteId: number;
 const jobIdsToClean: number[] = [];
+const groupIdsToClean: number[] = [];
 
 async function makeAcceptedQuote(): Promise<number> {
   const [quote] = await db
@@ -67,6 +69,9 @@ afterAll(async () => {
     await db.delete(quoteItemsTable).where(eq(quoteItemsTable.quoteId, quoteId)).catch(() => {});
     await db.delete(quotesTable).where(eq(quotesTable.id, quoteId)).catch(() => {});
   }
+  for (const groupId of groupIdsToClean) {
+    await db.delete(jobGroupsTable).where(eq(jobGroupsTable.id, groupId)).catch(() => {});
+  }
   if (customerId) {
     await db.delete(customersTable).where(eq(customersTable.id, customerId)).catch(() => {});
   }
@@ -74,18 +79,30 @@ afterAll(async () => {
 
 describe("convertQuoteToJob — atomic transaction guard", () => {
   it("sequential conversion: succeeds once, rejects 409 on the second call", async () => {
-    const first = await convertQuoteToJob(quoteId);
+    const first = await convertQuoteToJob(quoteId, { plannedDate: "2026-08-03" });
     jobIdsToClean.push(first.jobId);
+    groupIdsToClean.push(first.jobGroupId);
 
     const err = await convertQuoteToJob(quoteId).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
     expect((err as { statusCode?: number }).statusCode).toBe(409);
 
     const [quote] = await db
-      .select({ convertedToJobId: quotesTable.convertedToJobId })
+      .select({
+        convertedToJobId: quotesTable.convertedToJobId,
+        convertedToJobGroupId: quotesTable.convertedToJobGroupId,
+      })
       .from(quotesTable)
       .where(eq(quotesTable.id, quoteId));
     expect(quote.convertedToJobId).toBe(first.jobId);
+    expect(quote.convertedToJobGroupId).toBe(first.jobGroupId);
+
+    const [job] = await db
+      .select({ groupId: jobsTable.groupId, date: jobsTable.date })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, first.jobId));
+    expect(job.groupId).toBe(first.jobGroupId);
+    expect(job.date).toBe("2026-08-03");
   });
 
   it("two parallel requests: exactly one succeeds, exactly one 409s, exactly one job created", async () => {
@@ -102,12 +119,12 @@ describe("convertQuoteToJob — atomic transaction guard", () => {
     const freshQuoteId = freshQuote.id;
 
     const results = await Promise.allSettled([
-      convertQuoteToJob(freshQuoteId),
-      convertQuoteToJob(freshQuoteId),
+      convertQuoteToJob(freshQuoteId, { plannedDate: "2026-08-04" }),
+      convertQuoteToJob(freshQuoteId, { plannedDate: "2026-08-04" }),
     ]);
 
     const successes = results.filter(
-      (r): r is PromiseFulfilledResult<{ jobId: number }> => r.status === "fulfilled",
+      (r): r is PromiseFulfilledResult<{ jobId: number; jobGroupId: number }> => r.status === "fulfilled",
     );
     const failures = results.filter(
       (r) => r.status === "rejected" && (r.reason as { statusCode?: number })?.statusCode === 409,
@@ -117,14 +134,20 @@ describe("convertQuoteToJob — atomic transaction guard", () => {
     expect(failures).toHaveLength(1);
 
     const winningJobId = successes[0].value.jobId;
+    const winningGroupId = successes[0].value.jobGroupId;
     jobIdsToClean.push(winningJobId);
+    groupIdsToClean.push(winningGroupId);
 
     const [quote] = await db
-      .select({ convertedToJobId: quotesTable.convertedToJobId })
+      .select({
+        convertedToJobId: quotesTable.convertedToJobId,
+        convertedToJobGroupId: quotesTable.convertedToJobGroupId,
+      })
       .from(quotesTable)
       .where(eq(quotesTable.id, freshQuoteId));
 
     expect(quote.convertedToJobId).toBe(winningJobId);
+    expect(quote.convertedToJobGroupId).toBe(winningGroupId);
 
     const allJobsForTitle = await db
       .select({ id: jobsTable.id })
@@ -133,6 +156,12 @@ describe("convertQuoteToJob — atomic transaction guard", () => {
 
     expect(allJobsForTitle).toHaveLength(1);
     expect(allJobsForTitle[0].id).toBe(winningJobId);
+
+    const allGroupsForTitle = await db
+      .select({ id: jobGroupsTable.id })
+      .from(jobGroupsTable)
+      .where(eq(jobGroupsTable.name, parallelTitle));
+    expect(allGroupsForTitle).toEqual([{ id: winningGroupId }]);
 
     await db.delete(quoteItemsTable).where(eq(quoteItemsTable.quoteId, freshQuoteId)).catch(() => {});
     await db.delete(quotesTable).where(eq(quotesTable.id, freshQuoteId)).catch(() => {});
@@ -153,5 +182,10 @@ describe("convertQuoteToJob — atomic transaction guard", () => {
   it("non-existent quote: rejects 404", async () => {
     const err = await convertQuoteToJob(999_999_999).catch((e: unknown) => e);
     expect((err as { statusCode?: number }).statusCode).toBe(404);
+  });
+
+  it("invalid planned date is rejected before any records are created", async () => {
+    const err = await convertQuoteToJob(quoteId, { plannedDate: "2026-02-31" }).catch((e: unknown) => e);
+    expect((err as { statusCode?: number }).statusCode).toBe(400);
   });
 });

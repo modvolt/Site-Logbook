@@ -97,6 +97,13 @@ function permissionForRequest(req: Request): Permission | null {
     return READ_METHODS.has(req.method) ? "diagnostics.view" : "diagnostics.manage";
   }
 
+  if (/^\/jobs\/\d+\/tasks$/.test(path) && req.method === "POST") return "jobs.work";
+  if (/^\/jobs\/\d+\/tasks\/\d+$/.test(path) && req.method === "PATCH") return "jobs.work";
+  if (/^\/jobs\/\d+\/attachments$/.test(path) && req.method === "POST") return "jobs.work";
+  if (/^\/jobs\/\d+\/materials$/.test(path) && req.method === "POST") return "jobs.work";
+  if (/^\/jobs\/\d+\/materials\/\d+$/.test(path) && req.method === "PATCH") return "jobs.work";
+  if (/^\/jobs\/\d+\/time-entries\/\d+\/(?:start|stop)$/.test(path) && req.method === "POST") return "jobs.work";
+
   if (/\/(?:jobs|activities)\/\d+\/time-entries(?:\/|$)/.test(path)) {
     if (READ_METHODS.has(req.method)) return path.includes("/activities/") ? "activities.view" : "jobs.view";
     return "time.manage";

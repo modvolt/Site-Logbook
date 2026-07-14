@@ -603,6 +603,41 @@
       "when": 1783950000000,
       "tag": "0085_link_users_to_people",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1783979822106,
+      "tag": "0086_quick_imperial_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1783981467968,
+      "tag": "0087_chief_marvel_apes",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1783984064694,
+      "tag": "0088_abandoned_wendell_vaughn",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1783986815471,
+      "tag": "0089_thin_robin_chapel",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1783988026596,
+      "tag": "0090_secret_killmonger",
+      "breakpoints": true
     }
   ]
 }

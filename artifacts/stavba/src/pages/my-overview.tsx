@@ -308,7 +308,7 @@ export default function MyOverview() {
             <Users className="h-5 w-5 text-teal-500" /> <span className="text-sm">Zaměstnanci</span>
             <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />
           </Link>
-          {can("write") && (
+          {can("jobs.manage") && (
             <Link href="/admin" className="flex items-center gap-3 px-3 py-3 rounded hover:bg-muted">
               <ShieldAlert className="h-5 w-5 text-rose-500" /> <span className="text-sm">Správa zakázek</span>
               <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground" />

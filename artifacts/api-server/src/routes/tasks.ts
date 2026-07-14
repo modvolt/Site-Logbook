@@ -9,6 +9,7 @@ import {
   UpdateTaskBody,
   DeleteTaskParams,
 } from "@workspace/api-zod";
+import { requireAssignedJobView, requireAssignedJobWork } from "../middlewares/job-work-access";
 
 const router: IRouter = Router();
 
@@ -19,7 +20,7 @@ function serializeTask(task: typeof tasksTable.$inferSelect) {
   };
 }
 
-router.get("/jobs/:jobId/tasks", async (req, res): Promise<void> => {
+router.get("/jobs/:jobId/tasks", requireAssignedJobView, async (req, res): Promise<void> => {
   const params = ListTasksParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -35,7 +36,7 @@ router.get("/jobs/:jobId/tasks", async (req, res): Promise<void> => {
   res.json(tasks.map(serializeTask));
 });
 
-router.post("/jobs/:jobId/tasks", async (req, res): Promise<void> => {
+router.post("/jobs/:jobId/tasks", requireAssignedJobWork, async (req, res): Promise<void> => {
   const params = CreateTaskParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -63,7 +64,7 @@ router.post("/jobs/:jobId/tasks", async (req, res): Promise<void> => {
   res.status(201).json(serializeTask(task));
 });
 
-router.patch("/jobs/:jobId/tasks/:taskId", async (req, res): Promise<void> => {
+router.patch("/jobs/:jobId/tasks/:taskId", requireAssignedJobWork, async (req, res): Promise<void> => {
   const params = UpdateTaskParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -73,6 +74,10 @@ router.patch("/jobs/:jobId/tasks/:taskId", async (req, res): Promise<void> => {
   const parsed = UpdateTaskBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  if (!req.auth!.permissions.includes("jobs.manage") && Object.keys(parsed.data).some((field) => field !== "done")) {
+    res.status(403).json({ error: "Pracovník může u úkolu měnit pouze stav hotovo.", code: "field_task_update_restricted" });
     return;
   }
 

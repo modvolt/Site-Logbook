@@ -3,7 +3,7 @@ import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialog } from "@/hooks/use-confirm-dialog";
 import { useParams, useLocation, useSearch, Link } from "wouter";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, addDays, parseISO } from "date-fns";
 import { cs } from "date-fns/locale";
 import { 
   useGetJob, getGetJobQueryKey,
@@ -27,6 +27,7 @@ import {
   useListLinkableDocumentLines, getListLinkableDocumentLinesQueryKey,
   useLinkMaterialToDocument,
   useRequestJobSignature,
+  useGetJobCompletionReadiness, getGetJobCompletionReadinessQueryKey,
 } from "@workspace/api-client-react";
 import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
@@ -37,9 +38,9 @@ import { UploadProgressBar } from "@/components/upload-progress-bar";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
-  ChevronUp, Camera, Plus, Trash2, Edit3, Save, X, CreditCard,
+  ChevronUp, Camera, Plus, Trash2, Archive, Edit3, Save, X, CreditCard,
   AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw,
-  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle, PenLine, Send
+  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle, PenLine, Send, Ban, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -60,13 +61,15 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { COST_DOC_TYPE_LABELS } from "@/lib/cost-document-format";
 import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
-import { JOB_STATUSES, JOB_TYPES, TypeBadge } from "@/components/badges";
+import { JOB_STATUSES, JOB_TYPES, StatusBadge, TypeBadge } from "@/components/badges";
 import { AttachmentViewer } from "@/components/attachment-viewer";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { prepareImageFile } from "@/lib/prepare-image";
@@ -135,11 +138,13 @@ export default function JobDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
+  const canManage = can("jobs.manage");
+  const fieldMode = can("jobs.work") && !canManage;
 
   const initialSection = new URLSearchParams(search).get("section");
   const VALID_SECTIONS = ["info", "doklady", "attachments", "tasks", "materials", "jobsheets", "summary", "costs"];
   const [expandedSection, setExpandedSection] = useState<string | null>(
-    initialSection && VALID_SECTIONS.includes(initialSection) ? initialSection : "info"
+    initialSection && VALID_SECTIONS.includes(initialSection) ? initialSection : fieldMode ? "tasks" : "info"
   );
   const [matHasUnsaved, setMatHasUnsaved] = useState(false);
   
@@ -153,10 +158,18 @@ export default function JobDetail() {
   const [statusSaveState, setStatusSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [sigEmail, setSigEmail] = useState("");
   const [sigDialogOpen, setSigDialogOpen] = useState(false);
+  const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
   const requestSignature = useRequestJobSignature();
+  const completionReadiness = useGetJobCompletionReadiness(id, {
+    query: {
+      enabled: canManage && completionDialogOpen && id > 0,
+      queryKey: getGetJobCompletionReadinessQueryKey(id),
+    },
+  });
 
   const elapsed = useJobTimer(job?.timerStartedAt);
   const isTimerRunning = !!job?.timerStartedAt;
+  const canStartTimer = job?.status === "planned" || job?.status === "in_progress";
 
   useEffect(() => {
     if (job?.timerStartedAt) void showTimerNotification(job?.title ?? "");
@@ -210,29 +223,41 @@ export default function JobDetail() {
     );
   }
 
-  const handleStatusChange = (newStatus: string) => {
-    if (newStatus === "done" && !job.customerId) {
-      toast({
-        title: "Přiřaďte zákazníka",
-        description: "Hotová zakázka musí mít zákazníka, aby mohla být vyfakturována. Zákazníka přidejte v sekci Informace.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const applyStatusChange = (newStatus: string, acknowledgeWarnings = false) => {
     setStatusSaveState("saving");
-    updateStatus.mutate({ id, data: { status: newStatus as JobStatusUpdateStatus } }, {
+    updateStatus.mutate({ id, data: { status: newStatus as JobStatusUpdateStatus, acknowledgeWarnings } }, {
       onSuccess: (data) => {
         queryClient.setQueryData(getGetJobQueryKey(id), data);
+        queryClient.invalidateQueries({ queryKey: getGetJobCompletionReadinessQueryKey(id) });
         invalidateJobLists(queryClient);
+        setCompletionDialogOpen(false);
         setStatusSaveState("saved");
         setTimeout(() => setStatusSaveState("idle"), 2000);
       },
-      onError: () => {
+      onError: (error: any) => {
         setStatusSaveState("error");
         setTimeout(() => setStatusSaveState("idle"), 3000);
-        toast({ title: "Nepodařilo se uložit stav", variant: "destructive" });
+        toast({
+          title: "Nepodařilo se uložit stav",
+          description: error?.data?.error ?? error?.message,
+          variant: "destructive",
+        });
       },
     });
+  };
+
+  const handleStatusChange = (newStatus: string) => {
+    if (newStatus === job.status) return;
+    if (newStatus === "done") {
+      if (matHasUnsaved) {
+        toast({ title: "Nejprve uložte rozepsaný materiál", variant: "destructive" });
+        setExpandedSection("materials");
+        return;
+      }
+      setCompletionDialogOpen(true);
+      return;
+    }
+    applyStatusChange(newStatus);
   };
 
   const handleTimerStart = async () => {
@@ -246,7 +271,7 @@ export default function JobDetail() {
       },
       onError: (error: any) => toast({
         title: "Měření času se nepodařilo spustit",
-        description: error?.message,
+        description: error?.data?.error ?? error?.message,
         variant: "destructive",
       }),
     });
@@ -268,50 +293,33 @@ export default function JobDetail() {
     });
   };
 
-  const visitSuffix = (n: number) => (n === 1 ? "" : n < 5 ? "y" : "ů");
-
-  const doDeleteJob = (force: boolean) => {
-    const url = `/api/jobs/${id}${force ? "?force=true" : ""}`;
+  const doArchiveJob = () => {
+    const url = `/api/jobs/${id}`;
     fetch(url, { method: "DELETE", credentials: "include" })
       .then(async (res) => {
         if (res.ok) {
           queryClient.invalidateQueries({ queryKey: getGetJobQueryKey(id) });
           invalidateJobLists(queryClient);
-          toast({ title: "Zakázka smazána" });
+          toast({ title: "Zakázka archivována" });
           setLocation("/jobs");
-        } else if (res.status === 409 && !force) {
-          const body: { visitCount?: number } = await res.json().catch(() => ({}));
-          const count = body.visitCount ?? 1;
-          openConfirmJob(
-            {
-              title: "Smazat včetně výjezdů?",
-              description: `Zakázka má ${count} výjezd${visitSuffix(count)}, které budou trvale smazány. Chcete pokračovat?`,
-              confirmLabel: "Smazat vše",
-              destructive: true,
-            },
-            () => doDeleteJob(true),
-          );
         } else {
           const body: { error?: string } = await res.json().catch(() => ({}));
-          toast({ title: body.error ?? "Nepodařilo se smazat zakázku", variant: "destructive" });
+          toast({ title: body.error ?? "Nepodařilo se archivovat zakázku", variant: "destructive" });
         }
       })
       .catch(() => {
-        toast({ title: "Nepodařilo se smazat zakázku", variant: "destructive" });
+        toast({ title: "Nepodařilo se archivovat zakázku", variant: "destructive" });
       });
   };
 
   const handleDeleteJob = () => {
-    const cachedVisits = queryClient.getQueryData<unknown[]>(getListJobVisitsQueryKey(id));
-    const cachedCount = cachedVisits?.length ?? 0;
-    const visitNote = cachedCount > 0 ? ` a ${cachedCount} výjezd${visitSuffix(cachedCount)}` : "";
     openConfirmJob(
       {
-        title: `Opravdu smazat zakázku „${job?.title}"?`,
-        description: `Tato akce je nevratná${visitNote ? ` (smažou se i${visitNote})` : ""}.`,
+        title: `Archivovat zakázku „${job?.title}"?`,
+        description: "Zakázka, výjezdy, doklady i vykázaný čas zůstanou uložené a zakázku lze obnovit v administraci.",
         destructive: true,
       },
-      () => doDeleteJob(cachedCount > 0),
+      doArchiveJob,
     );
   };
 
@@ -354,7 +362,7 @@ export default function JobDetail() {
     <div className="flex flex-col min-h-[100dvh] bg-muted/20 pb-20 md:pb-8">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-card border-b shadow-sm">
-        {isTimerRunning && (
+        {canManage && isTimerRunning && (
           <div className="bg-green-500 text-white px-4 py-1.5 flex items-center justify-between text-sm font-medium">
             <span className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-white animate-pulse" /> Měření času probíhá
@@ -382,7 +390,7 @@ export default function JobDetail() {
               <h1 className="text-xl font-bold truncate leading-tight">{job.title}</h1>
             </div>
             <div className="shrink-0 flex flex-col items-end gap-1">
-              <StatusDropdown currentStatus={job.status} onChange={handleStatusChange} />
+              {canManage ? <StatusDropdown currentStatus={job.status} onChange={handleStatusChange} /> : <StatusBadge status={job.status} />}
               {statusSaveState === "saved" && (
                 <span className="text-xs font-medium text-green-600 dark:text-green-400 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" /> Stav uložen
@@ -397,16 +405,16 @@ export default function JobDetail() {
                 <span className="text-xs text-muted-foreground">Ukládám…</span>
               )}
             </div>
-            <Button
+            {canManage && <Button
               variant="ghost"
               size="icon"
               onClick={handleDeleteJob}
               disabled={deleteJob.isPending}
               className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-              title="Smazat zakázku"
+              title="Archivovat zakázku"
             >
-              <Trash2 className="h-5 w-5" />
-            </Button>
+              <Archive className="h-5 w-5" />
+            </Button>}
           </div>
           
           <div className="flex gap-2 px-12 overflow-x-auto no-scrollbar">
@@ -424,12 +432,12 @@ export default function JobDetail() {
           </div>
 
           {/* Timer + Visit controls */}
-          <div className="flex gap-2 px-1 flex-wrap">
+          {canManage && <div className="flex gap-2 px-1 flex-wrap">
             {isTimerRunning ? (
               <Button onClick={handleTimerStop} disabled={updateJob.isPending} variant="destructive" className="flex-1 h-10 text-sm min-w-[140px]">
                 <Square className="w-4 h-4 mr-2 fill-current" /> Zastavit čas ({formatElapsed(elapsed)})
               </Button>
-            ) : (
+            ) : canStartTimer ? (
               <>
                 <Button onClick={handleTimerStart} disabled={updateJob.isPending} className="flex-1 h-10 text-sm bg-green-600 hover:bg-green-700 text-white min-w-[120px]">
                   <Play className="w-4 h-4 mr-2 fill-current" /> Spustit čas
@@ -460,12 +468,12 @@ export default function JobDetail() {
                   );
                 })()}
               </>
-            )}
+            ) : null}
             <Button onClick={handleAddVisit} variant="outline" className="h-10 px-3 text-sm border-violet-300 text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/20">
               <CalendarPlus className="w-4 h-4 mr-1.5" /> Výjezd
             </Button>
-          </div>
-          {!isTimerRunning && job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
+          </div>}
+          {canManage && !isTimerRunning && job.hoursSpent != null && Number(job.hoursSpent) > 0 && (
             <div className="px-1 text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
               <Clock className="w-3.5 h-3.5" />
               Strávený čas: <span className="font-bold text-foreground">{Number(job.hoursSpent).toFixed(2)} h</span>
@@ -481,14 +489,23 @@ export default function JobDetail() {
       </div>
 
       <div className="p-4 max-w-3xl mx-auto w-full space-y-4">
+        {fieldMode ? (
+          <>
+            <FieldJobOverview job={job} />
+            <JobTimeEntries jobId={id} />
+            <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
+            <MaterialsSection jobId={id} job={job} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} onUnsavedChange={setMatHasUnsaved} />
+            <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
+          </>
+        ) : <>
         <SwitchboardsSection jobId={id} />
-        <Button
+        {canManage && <Button
           variant="outline"
           onClick={() => setLocation(`/jobs/${id}/list`)}
           className="w-full h-11 border-primary/40 text-primary hover:bg-primary/5"
         >
           <FileText className="w-4 h-4 mr-2" /> Zakázkový list (PDF / e-mail)
-        </Button>
+        </Button>}
 
         {/* Signature status / request button */}
         {job.signedAt ? (
@@ -513,7 +530,7 @@ export default function JobDetail() {
               </a>
             )}
           </div>
-        ) : (
+        ) : canManage ? (
           <Button
             variant="outline"
             onClick={() => { setSigEmail(job.customerEmail ?? ""); setSigDialogOpen(true); }}
@@ -524,10 +541,10 @@ export default function JobDetail() {
               <span className="ml-2 text-xs text-muted-foreground">(již odesláno)</span>
             )}
           </Button>
-        )}
+        ) : null}
 
         {/* Signature request dialog */}
-        <Dialog open={sigDialogOpen} onOpenChange={setSigDialogOpen}>
+        {canManage && <Dialog open={sigDialogOpen} onOpenChange={setSigDialogOpen}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -577,9 +594,105 @@ export default function JobDetail() {
               </div>
             </div>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
+
+        {canManage && <Dialog open={completionDialogOpen} onOpenChange={setCompletionDialogOpen}>
+          <DialogContent className="max-w-lg max-h-[85dvh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-green-600" /> Dokončit zakázku
+              </DialogTitle>
+              <DialogDescription>
+                Kontrola času, úkolů a materiálu před předáním do fakturace.
+              </DialogDescription>
+            </DialogHeader>
+
+            {completionReadiness.isLoading ? (
+              <div className="space-y-2 py-2">
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+              </div>
+            ) : completionReadiness.isError || !completionReadiness.data ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                Kontrolu dokončení se nepodařilo načíst.
+                <Button variant="ghost" size="sm" className="ml-2 h-7" onClick={() => completionReadiness.refetch()}>
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" /> Zkusit znovu
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="border-r px-1">
+                    <div className="font-semibold text-lg">{completionReadiness.data.hoursSpent.toFixed(2)} h</div>
+                    <div className="text-xs text-muted-foreground">Odpracováno</div>
+                  </div>
+                  <div className="border-r px-1">
+                    <div className="font-semibold text-lg">{completionReadiness.data.unfinishedTaskCount}</div>
+                    <div className="text-xs text-muted-foreground">Nehotové úkoly</div>
+                  </div>
+                  <div className="px-1">
+                    <div className="font-semibold text-lg">{completionReadiness.data.plannedMaterialCount}</div>
+                    <div className="text-xs text-muted-foreground">Plánovaný materiál</div>
+                  </div>
+                </div>
+
+                {completionReadiness.data.blockers.length > 0 && (
+                  <div className="space-y-2">
+                    {completionReadiness.data.blockers.map((issue) => (
+                      <div key={issue.code} className="rounded-md border border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 p-3 text-sm text-red-800 dark:text-red-300">
+                        <div className="flex gap-2 font-medium">
+                          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                          <span>{issue.message}{issue.count != null ? ` (${issue.count})` : ""}</span>
+                        </div>
+                        {issue.code === "active_work_sessions" && completionReadiness.data.activeSessions.length > 0 && (
+                          <div className="mt-2 pl-6 space-y-1 text-xs">
+                            {completionReadiness.data.activeSessions.map((session) => (
+                              <div key={session.id}>
+                                {session.personName} · od {new Date(session.startedAt).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {completionReadiness.data.warnings.length > 0 && (
+                  <div className="space-y-2">
+                    {completionReadiness.data.warnings.map((issue) => (
+                      <div key={issue.code} className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-300 flex gap-2">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <span>{issue.message}{issue.count != null ? ` (${issue.count})` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {completionReadiness.data.blockers.length === 0 && completionReadiness.data.warnings.length === 0 && (
+                  <div className="rounded-md border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3 text-sm text-green-800 dark:text-green-300 flex gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                    Zakázka je připravená k dokončení.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setCompletionDialogOpen(false)}>Zpět</Button>
+              <Button
+                onClick={() => applyStatusChange("done", (completionReadiness.data?.warnings.length ?? 0) > 0)}
+                disabled={!completionReadiness.data?.canComplete || updateStatus.isPending}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                {(completionReadiness.data?.warnings.length ?? 0) > 0 ? "Dokončit i s upozorněními" : "Dokončit"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>}
         {can("rates.cost.view") && <JobMarginAlert jobId={id} />}
-        <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />
+        {canManage && <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />}
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
         <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
@@ -590,6 +703,7 @@ export default function JobDetail() {
         <JobSheetsSection jobId={id} isExpanded={expandedSection === "jobsheets"} onToggle={() => toggleSection("jobsheets")} />
         <WorkSummarySection job={job} isExpanded={expandedSection === "summary"} onToggle={() => toggleSection("summary")} matHasUnsaved={matHasUnsaved} />
         <CostsSection job={job} isExpanded={expandedSection === "costs"} onToggle={() => toggleSection("costs")} matHasUnsaved={matHasUnsaved} />
+        </>}
       </div>
       <ConfirmDialog {...dialogPropsJob} />
     </div>
@@ -783,13 +897,58 @@ function SectionCard({ title, icon: Icon, isExpanded, onToggle, children, summar
   );
 }
 
+function FieldJobOverview({ job }: { job: any }) {
+  return (
+    <Card>
+      <div className="space-y-3 p-4">
+        {job.address && (
+          <a
+            href={`https://waze.com/ul?q=${encodeURIComponent(job.address)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex min-h-11 items-center gap-3 text-blue-600 hover:underline"
+          >
+            <Navigation className="h-5 w-5 shrink-0" />
+            <span className="flex-1 text-sm font-medium">{job.address}</span>
+            <ChevronRight className="h-4 w-4 shrink-0" />
+          </a>
+        )}
+        {(job.assignedPersonName || job.assigneeNames?.length > 0) && (
+          <div className="flex items-start gap-3 text-sm">
+            <User className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+            <span>{[job.assignedPersonName, ...(job.assigneeNames ?? [])].filter(Boolean).join(", ")}</span>
+          </div>
+        )}
+        {job.customerPhone && (
+          <a href={`tel:${job.customerPhone}`} className="flex min-h-11 items-center gap-3 text-sm font-medium text-primary hover:underline">
+            <Phone className="h-5 w-5 shrink-0" /> {job.customerPhone}
+          </a>
+        )}
+        {job.notes && (
+          <div className="border-t pt-3 text-sm whitespace-pre-wrap">
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">Pokyny k práci</p>
+            {job.notes}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function InfoSection({ job, isExpanded, onToggle }: any) {
+  const { can } = useAuth();
+  const canManage = can("jobs.manage");
   const updateJob = useUpdateJob();
   const updateAssignees = useUpdateJobAssignees();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
-  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+  const { data: people } = useListPeople({
+    query: {
+      enabled: canManage && can("people.view"),
+      queryKey: getListPeopleQueryKey(),
+    },
+  });
 
   const [editingAssignees, setEditingAssignees] = useState(false);
   const [assigneeDraft, setAssigneeDraft] = useState<number[]>(job.assigneeIds || []);
@@ -892,7 +1051,10 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
   useUnsavedChanges(anyEditing);
 
   const { data: customers } = useListCustomers({
-    query: { queryKey: getListCustomersQueryKey() }
+    query: {
+      enabled: canManage && can("customers.view"),
+      queryKey: getListCustomersQueryKey(),
+    }
   });
 
   useEffect(() => {
@@ -945,7 +1107,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
         <div className="col-span-2">
           <div className="flex items-center justify-between mb-1">
             <p className="text-muted-foreground text-sm flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Krátký název / číslo</p>
-            {!editingShortName ? (
+            {canManage && (!editingShortName ? (
               <Button variant="ghost" size="sm" onClick={() => { setEditingShortName(true); setShortNameDraft(job.shortName || ""); }} className="h-7 text-xs">
                 <Edit3 className="w-3 h-3 mr-1" /> Upravit
               </Button>
@@ -954,9 +1116,9 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                 <Button variant="ghost" size="sm" onClick={() => setEditingShortName(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
                 <Button size="sm" onClick={saveShortName} disabled={updateJob.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
               </div>
-            )}
+            ))}
           </div>
-          {editingShortName ? (
+          {canManage && editingShortName ? (
             <Input
               value={shortNameDraft}
               onChange={e => setShortNameDraft(e.target.value)}
@@ -973,7 +1135,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
           <div className="col-span-2">
             <div className="flex items-center justify-between mb-1">
               <p className="text-muted-foreground flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> Datum a čas</p>
-              {!editingDate ? (
+              {canManage && (!editingDate ? (
                 <Button variant="ghost" size="sm" onClick={() => { setEditingDate(true); setDateDraft(job.date || ""); setStartTimeDraft(job.startTime || ""); setEndTimeDraft(job.endTime || ""); }} className="h-7 text-xs">
                   <Edit3 className="w-3 h-3 mr-1" /> Upravit
                 </Button>
@@ -982,9 +1144,9 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                   <Button variant="ghost" size="sm" onClick={() => setEditingDate(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
                   <Button size="sm" onClick={saveDate} disabled={updateJob.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
                 </div>
-              )}
+              ))}
             </div>
-            {editingDate ? (
+            {canManage && editingDate ? (
               <div className="grid grid-cols-3 gap-2">
                 <Input type="date" value={dateDraft} onChange={e => setDateDraft(e.target.value)} className="h-10 text-sm" />
                 <TimePicker value={startTimeDraft} onChange={setStartTimeDraft} className="h-10 text-sm w-full" placeholder="Začátek" />
@@ -1007,7 +1169,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
           <div className="col-span-2">
             <div className="flex items-center justify-between mb-1">
               <p className="text-muted-foreground flex items-center gap-1"><User className="w-3.5 h-3.5" /> Další pracovníci</p>
-              {!editingAssignees ? (
+              {canManage && (!editingAssignees ? (
                 <Button variant="ghost" size="sm" onClick={() => { setEditingAssignees(true); setAssigneeDraft(job.assigneeIds || []); }} className="h-7 text-xs">
                   <Edit3 className="w-3 h-3 mr-1" /> Upravit
                 </Button>
@@ -1016,9 +1178,9 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                   <Button variant="ghost" size="sm" onClick={() => setEditingAssignees(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
                   <Button size="sm" onClick={saveAssignees} disabled={updateAssignees.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
                 </div>
-              )}
+              ))}
             </div>
-            {editingAssignees ? (
+            {canManage && editingAssignees ? (
               <div className="flex flex-wrap gap-2">
                 {(people || [])
                   .filter(p => p.id !== job.assignedPersonId)
@@ -1052,7 +1214,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
           <div className="col-span-2">
             <div className="flex items-center justify-between mb-1">
               <p className="text-muted-foreground flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> Zákazník / Stavba</p>
-              {!editingCustomer ? (
+              {canManage && (!editingCustomer ? (
                 <Button variant="ghost" size="sm" onClick={() => { setEditingCustomer(true); setCustomerSearch(job.clientSite || ""); setSelectedCustomerId(job.customerId || null); }} className="h-7 text-xs">
                   <Edit3 className="w-3 h-3 mr-1" /> Upravit
                 </Button>
@@ -1061,10 +1223,10 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                   <Button variant="ghost" size="sm" onClick={() => setEditingCustomer(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
                   <Button size="sm" onClick={saveCustomer} disabled={updateJob.isPending} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
                 </div>
-              )}
+              ))}
             </div>
             
-            {editingCustomer ? (
+            {canManage && editingCustomer ? (
               <div ref={customerDropRef} className="relative">
                 <Input
                   value={customerSearch}
@@ -1137,7 +1299,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
               <p className="text-muted-foreground flex items-center gap-1 text-sm">
                 <RefreshCw className="w-3.5 h-3.5 text-red-500" /> Opakovat servis
               </p>
-              {!editingRecurrence ? (
+              {canManage && (!editingRecurrence ? (
                 <Button variant="ghost" size="sm" onClick={() => { setEditingRecurrence(true); setRecurrenceDraft(job.recurrenceIntervalDays != null ? String(job.recurrenceIntervalDays) : ""); }} className="h-7 text-xs">
                   <Edit3 className="w-3 h-3 mr-1" /> Upravit
                 </Button>
@@ -1146,9 +1308,9 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                   <Button variant="ghost" size="sm" onClick={() => setEditingRecurrence(false)} className="h-7 w-7 p-0"><X className="w-3.5 h-3.5" /></Button>
                   <Button size="sm" onClick={saveRecurrence} disabled={updateJob.isPending || !!recurrenceErr} className="h-7 px-2 text-xs"><Save className="w-3 h-3 mr-1" /> Uložit</Button>
                 </div>
-              )}
+              ))}
             </div>
-            {editingRecurrence ? (
+            {canManage && editingRecurrence ? (
               <div className="flex items-start gap-2">
                 <span className="text-sm text-muted-foreground mt-2.5">každých</span>
                 <DecimalInput
@@ -1175,13 +1337,13 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
         <div className="col-span-2 pt-2">
           <div className="flex items-center justify-between mb-1">
             <p className="text-muted-foreground flex items-center gap-1 text-sm"><Navigation className="w-3.5 h-3.5 text-blue-500" /> Adresa (navigace)</p>
-            {!editingAddress && (
+            {canManage && !editingAddress && (
               <Button variant="ghost" size="sm" onClick={() => setEditingAddress(true)} className="h-7 text-xs">
                 <Edit3 className="w-3 h-3 mr-1" /> Upravit
               </Button>
             )}
           </div>
-          {editingAddress ? (
+          {canManage && editingAddress ? (
             <div className="space-y-2">
               <Input
                 value={addressDraft}
@@ -1219,7 +1381,7 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
         <div className="pt-4 border-t col-span-2">
           <div className="flex justify-between items-center mb-2">
             <p className="font-bold">Poznámky</p>
-            {!editingNotes ? (
+            {canManage && (!editingNotes ? (
               <Button variant="ghost" size="sm" onClick={() => setEditingNotes(true)} className="h-8">
                 <Edit3 className="w-4 h-4 mr-2" /> Upravit
               </Button>
@@ -1232,10 +1394,10 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
                   <Save className="w-4 h-4 mr-2" /> Uložit
                 </Button>
               </div>
-            )}
+            ))}
           </div>
           
-          {editingNotes ? (
+          {canManage && editingNotes ? (
             <Textarea 
               value={notes} 
               onChange={e => setNotes(e.target.value)} 
@@ -1255,6 +1417,13 @@ function InfoSection({ job, isExpanded, onToggle }: any) {
 }
 
 function VisitStatusBadge({ status }: { status: string }) {
+  if (status === "cancelled") {
+    return (
+      <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+        Zruseny
+      </span>
+    );
+  }
   if (status === "done") {
     return (
       <span className="text-xs font-medium text-green-700 bg-green-50 dark:bg-green-950/30 px-2 py-0.5 rounded-full">
@@ -1278,9 +1447,9 @@ function VisitForm({
   submitLabel,
 }: {
   people: { id: number; name: string }[];
-  initial: { date: string; personId: number | null; note: string; status: string };
+  initial: { date: string; personId: number | null; note: string; status: string; startTime: string; endTime: string };
   pending: boolean;
-  onSubmit: (data: { date: string; personId: number | null; note: string | null; status: string }) => void;
+  onSubmit: (data: { date: string; personId: number | null; note: string | null; status: string; startTime: string | null; endTime: string | null }) => void;
   onCancel?: () => void;
   submitLabel: string;
 }) {
@@ -1288,6 +1457,8 @@ function VisitForm({
   const [personId, setPersonId] = useState<string>(initial.personId != null ? String(initial.personId) : "none");
   const [note, setNote] = useState(initial.note);
   const [status, setStatus] = useState(initial.status);
+  const [startTime, setStartTime] = useState(initial.startTime);
+  const [endTime, setEndTime] = useState(initial.endTime);
 
   const personIdNum = personId !== "none" ? parseInt(personId) : null;
   const allVisitLeavesParams = { from: date, to: date };
@@ -1313,6 +1484,8 @@ function VisitForm({
       personId: personId === "none" ? null : Number(personId),
       note: note.trim() ? note.trim() : null,
       status,
+      startTime: startTime || null,
+      endTime: endTime || null,
     });
   };
 
@@ -1358,6 +1531,16 @@ function VisitForm({
           )}
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">Od</Label>
+          <TimePicker value={startTime} onChange={setStartTime} className="h-11 bg-background" />
+        </div>
+        <div>
+          <Label className="text-xs">Do</Label>
+          <TimePicker value={endTime} onChange={setEndTime} className="h-11 bg-background" />
+        </div>
+      </div>
       <div>
         <Label className="text-xs">Stav</Label>
         <Select value={status} onValueChange={setStatus}>
@@ -1367,6 +1550,7 @@ function VisitForm({
           <SelectContent>
             <SelectItem value="planned">Plánovaný</SelectItem>
             <SelectItem value="done">Hotový</SelectItem>
+            <SelectItem value="cancelled">Zrušený</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -1390,7 +1574,7 @@ function VisitForm({
 
 function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
   const { can } = useAuth();
-  const canWrite = can("write");
+  const canWrite = can("jobs.manage");
   const queryClient = useQueryClient();
   const { openConfirm, dialogProps } = useConfirmDialog();
   const { toast } = useToast();
@@ -1398,7 +1582,12 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
   const { data: visits, isLoading, isError } = useListJobVisits(jobId, {
     query: { enabled: isExpanded, queryKey: getListJobVisitsQueryKey(jobId) },
   });
-  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+  const { data: people } = useListPeople({
+    query: {
+      enabled: canWrite && can("people.view"),
+      queryKey: getListPeopleQueryKey(),
+    },
+  });
 
   const createVisit = useCreateJobVisit();
   const updateVisit = useUpdateJobVisit();
@@ -1409,14 +1598,14 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
 
   const refresh = () => invalidateData(queryClient, "jobs");
 
-  const handleCreate = (data: { date: string; personId: number | null; note: string | null; status: string }) => {
+  const handleCreate = (data: { date: string; personId: number | null; note: string | null; status: string; startTime: string | null; endTime: string | null }) => {
     createVisit.mutate({ jobId, data: data as any }, {
       onSuccess: () => { setShowAdd(false); refresh(); toast({ title: "Výjezd přidán" }); },
       onError: (err: any) => toast({ title: "Nepodařilo se přidat výjezd", description: err?.data?.error ?? err?.message, variant: "destructive" }),
     });
   };
 
-  const handleUpdate = (visitId: number, data: { date: string; personId: number | null; note: string | null; status: string }) => {
+  const handleUpdate = (visitId: number, data: { date: string; personId: number | null; note: string | null; status: string; startTime: string | null; endTime: string | null }) => {
     updateVisit.mutate({ jobId, visitId, data: data as any }, {
       onSuccess: () => { setEditId(null); refresh(); toast({ title: "Výjezd upraven" }); },
       onError: (err: any) => toast({ title: "Úprava selhala", description: err?.data?.error ?? err?.message, variant: "destructive" }),
@@ -1424,9 +1613,9 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
   };
 
   const handleDelete = (visitId: number) => {
-    openConfirm("Smazat tento výjezd?", () => {
+    openConfirm("Zrušit tento výjezd? Historie zůstane zachována.", () => {
       deleteVisit.mutate({ jobId, visitId }, {
-        onSuccess: () => { refresh(); toast({ title: "Výjezd smazán" }); },
+        onSuccess: () => { refresh(); toast({ title: "Výjezd zrušen" }); },
         onError: (err: any) => toast({ title: "Smazání selhalo", description: err?.data?.error ?? err?.message, variant: "destructive" }),
       });
     });
@@ -1437,6 +1626,13 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
   const summary = count > 0 ? `${count} výjezdů (${plannedCount} plánovaných)` : "Žádné výjezdy";
 
   const peopleList = (people ?? []).map((p) => ({ id: p.id, name: p.name }));
+  const nextVisitDate = useMemo(() => {
+    const dates = [job?.date, ...(visits ?? []).filter((visit) => visit.status !== "cancelled").map((visit) => visit.date)]
+      .filter((date): date is string => Boolean(date))
+      .sort();
+    const lastDate = dates.at(-1) ?? format(new Date(), "yyyy-MM-dd");
+    return format(addDays(parseISO(lastDate), 1), "yyyy-MM-dd");
+  }, [job?.date, visits]);
 
   return (
     <SectionCard
@@ -1461,7 +1657,7 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
         {canWrite && showAdd && (
           <VisitForm
             people={peopleList}
-            initial={{ date: format(new Date(), "yyyy-MM-dd"), personId: job?.assignedPersonId ?? null, note: "", status: "planned" }}
+            initial={{ date: nextVisitDate, personId: job?.assignedPersonId ?? null, note: "", status: "planned", startTime: job?.startTime ?? "", endTime: job?.endTime ?? "" }}
             pending={createVisit.isPending}
             onSubmit={handleCreate}
             onCancel={() => setShowAdd(false)}
@@ -1487,7 +1683,7 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
                 <VisitForm
                   key={v.id}
                   people={peopleList}
-                  initial={{ date: v.date, personId: v.personId ?? null, note: v.note ?? "", status: v.status }}
+                  initial={{ date: v.date, personId: v.personId ?? null, note: v.note ?? "", status: v.status, startTime: v.startTime ?? "", endTime: v.endTime ?? "" }}
                   pending={updateVisit.isPending}
                   onSubmit={(data) => handleUpdate(v.id, data)}
                   onCancel={() => setEditId(null)}
@@ -1507,6 +1703,12 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
                         <User className="w-3.5 h-3.5" />
                         {v.personName ?? "Bez technika"}
                       </div>
+                      {(v.startTime || v.endTime) && (
+                        <div className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5" />
+                          {v.startTime ?? "--:--"} - {v.endTime ?? "--:--"}
+                        </div>
+                      )}
                       {v.note && <div className="text-sm mt-1 whitespace-pre-wrap">{v.note}</div>}
                     </div>
                     {canWrite && (
@@ -1515,7 +1717,7 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
                           <Edit3 className="w-4 h-4" />
                         </Button>
                         <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleDelete(v.id)}>
-                          <Trash2 className="w-4 h-4" />
+                          <Ban className="w-4 h-4" />
                         </Button>
                       </div>
                     )}
@@ -1532,6 +1734,9 @@ function VisitsSection({ jobId, job, isExpanded, onToggle }: any) {
 }
 
 function TasksSection({ jobId, isExpanded, onToggle }: any) {
+  const { can } = useAuth();
+  const canManage = can("jobs.manage");
+  const canWork = can("jobs.work");
   const { openConfirm, dialogProps } = useConfirmDialog();
   const { data: tasks, isLoading: tasksLoading, isError: tasksError } = useListTasks(jobId, {
     query: { enabled: isExpanded, queryKey: getListTasksQueryKey(jobId) }
@@ -1614,7 +1819,7 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
       summary={summary}
     >
       <div className="p-4 space-y-6">
-        <form onSubmit={handleAddTask} className="space-y-3">
+        {canWork && <form onSubmit={handleAddTask} className="space-y-3">
           <div className="flex gap-2">
             <Input 
               value={newTaskTitle} 
@@ -1632,14 +1837,14 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
               Označit jako vícepráce <AlertCircle className="w-3.5 h-3.5 ml-1.5 text-indigo-500" />
             </label>
           </div>
-        </form>
+        </form>}
 
         {regularTasks.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Úkoly</h4>
             <div className="space-y-1">
               {regularTasks.map(task => (
-                <TaskRow key={task.id} task={task} jobId={jobId} onToggle={handleToggleTask} onDelete={handleDeleteTask} onUpdate={handleUpdateTask} onTaskPhoto={handleTaskPhoto} />
+                <TaskRow key={task.id} task={task} jobId={jobId} onToggle={handleToggleTask} onDelete={handleDeleteTask} onUpdate={handleUpdateTask} onTaskPhoto={handleTaskPhoto} canWork={canWork} canManage={canManage} />
               ))}
             </div>
           </div>
@@ -1652,7 +1857,7 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
             </h4>
             <div className="space-y-1 bg-indigo-50/50 dark:bg-indigo-950/20 p-2 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
               {changeRequests.map(task => (
-                <TaskRow key={task.id} task={task} jobId={jobId} onToggle={handleToggleTask} onDelete={handleDeleteTask} onUpdate={handleUpdateTask} onTaskPhoto={handleTaskPhoto} isChangeRequest />
+                <TaskRow key={task.id} task={task} jobId={jobId} onToggle={handleToggleTask} onDelete={handleDeleteTask} onUpdate={handleUpdateTask} onTaskPhoto={handleTaskPhoto} canWork={canWork} canManage={canManage} isChangeRequest />
               ))}
             </div>
           </div>
@@ -1679,7 +1884,8 @@ function TasksSection({ jobId, isExpanded, onToggle }: any) {
 }
 
 function JobTimeEntries({ jobId }: { jobId: number }) {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const fieldMode = can("jobs.work") && !can("jobs.manage");
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const listKey = getListJobTimeEntriesQueryKey(jobId);
@@ -1689,7 +1895,12 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   const { data: workSummary } = useGetJobWorkSummary(jobId, {
     query: { queryKey: getGetJobWorkSummaryQueryKey(jobId), enabled: Number.isFinite(jobId) },
   });
-  const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
+  const { data: people } = useListPeople({
+    query: {
+      queryKey: getListPeopleQueryKey(),
+      enabled: can("time.manage") && can("people.view"),
+    },
+  });
 
   const addPerson = useCreateJobTimeEntry();
   const startTimer = useStartJobTimeEntry();
@@ -1833,6 +2044,22 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
   };
 
   const busy = addPerson.isPending || startTimer.isPending || stopTimer.isPending || setHours.isPending || removeEntry.isPending;
+  const visibleEntries = fieldMode && user?.personId != null
+    ? (() => {
+        const own = entriesWithPending.filter((entry) => entry.personId === user.personId);
+        return own.length > 0 ? own : [{
+          id: -user.personId,
+          personId: user.personId,
+          personName: user.name,
+          hours: 0,
+          timerStartedAt: null,
+          createdAt: new Date(0).toISOString(),
+        }];
+      })()
+    : entriesWithPending;
+  const visiblePeople = fieldMode
+    ? (user?.personId != null ? [{ id: user.personId, name: user.name }] : [])
+    : (people ?? []);
 
   return (
     <>
@@ -1843,10 +2070,12 @@ function JobTimeEntries({ jobId }: { jobId: number }) {
         </div>
       )}
       <TimeEntriesSection
-        entries={entriesWithPending}
-        summary={workSummary}
-        people={people ?? []}
+        entries={visibleEntries}
+        summary={fieldMode ? undefined : workSummary}
+        people={visiblePeople}
         canWrite={can("time.manage")}
+        canControlTimer={fieldMode && user?.personId != null ? true : can("time.manage")}
+        title={fieldMode ? "Můj čas" : "Čas zaměstnanců"}
         busy={busy}
         onAddPerson={(personId) => addPerson.mutate({ jobId, data: { personId } }, { onSuccess: invalidate })}
         onStart={handleStart}
@@ -2116,6 +2345,9 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const { openConfirm, dialogProps: dialogPropsMat } = useConfirmDialog();
   const { can } = useAuth();
   const isAdmin = can("manageUsers");
+  const canManage = can("jobs.manage");
+  const canWork = can("jobs.work");
+  const fieldMode = canWork && !canManage;
   const canViewCostRates = can("rates.cost.view");
   const { data: materials, isLoading: materialsLoading, isError: materialsError } = useListMaterials(jobId, {
     query: { enabled: isExpanded, queryKey: getListMaterialsQueryKey(jobId) }
@@ -2126,7 +2358,7 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: warehouseItems } = useListWarehouseItems(undefined, {
-    query: { enabled: isExpanded, queryKey: getListWarehouseItemsQueryKey() }
+    query: { enabled: isExpanded && canManage, queryKey: getListWarehouseItemsQueryKey() }
   });
   const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>("week");
   const { data: warehouseMargin } = useGetWarehouseJobMarginSummary(
@@ -2205,9 +2437,14 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     (op) => op.jobId === jobId && op.type === "add_material",
   );
 
-  const totalCost = materials?.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0) || 0;
+  const consumedMaterials = materials?.filter((m: any) => m.done) ?? [];
+  const plannedMaterials = materials?.filter((m: any) => !m.done) ?? [];
+  const totalCost = consumedMaterials.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0);
+  const plannedCost = plannedMaterials.reduce((sum: number, m: any) => sum + (m.pricePerUnit && m.quantity ? m.pricePerUnit * m.quantity : 0), 0);
   const totalCount = (materials?.length ?? 0);
-  const summaryBase = totalCount > 0 ? `${totalCount} položek${totalCost > 0 ? ` • ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}` : "Žádný materiál";
+  const summaryBase = totalCount > 0
+    ? `${consumedMaterials.length} spotřebováno${plannedMaterials.length > 0 ? ` · ${plannedMaterials.length} plánováno` : ""}${totalCost > 0 ? ` · ${totalCost.toLocaleString("cs-CZ")} Kč` : ""}`
+    : "Žádný materiál";
   const summary = pendingMaterials.length > 0 ? `${summaryBase} + ${pendingMaterials.length} čeká` : summaryBase;
   const isManagedMaterial = (m: any) =>
     (m.sourceType === "billing_document_line" && m.sourceId != null) || m.invoicedInvoiceId != null;
@@ -2220,13 +2457,13 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     if (!newName.trim()) return;
     const warehouseItemId = newWarehouseItemId;
     if (!isOnline) {
-      const data = { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice), warehouseItemId };
+      const data = { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: fieldMode ? null : parseDecimal(newPrice), warehouseItemId: fieldMode ? null : warehouseItemId, done: false };
       void enqueue({ id: crypto.randomUUID(), type: "add_material", jobId, payload: data });
       resetAddForm();
       toast({ title: "Materiál uložen — odešle se po obnovení připojení" });
       return;
     }
-    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: parseDecimal(newPrice), warehouseItemId } }, {
+    createMaterial.mutate({ jobId, data: { name: newName.trim(), quantity: parseDecimal(newQty), unit: newUnit || null, pricePerUnit: fieldMode ? null : parseDecimal(newPrice), warehouseItemId: fieldMode ? null : warehouseItemId, done: false } }, {
       onSuccess: () => {
         resetAddForm();
         invalidateData(queryClient, "jobs", "warehouse");
@@ -2260,7 +2497,10 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   const cancelEdit = () => { setEditingId(null); setEditDraft({}); };
   const saveEdit = () => {
     if (!editDraft.name?.trim()) return;
-    updateMaterial.mutate({ jobId, materialId: editingId!, data: { name: editDraft.name.trim(), quantity: parseDecimal(editDraft.quantity), unit: editDraft.unit || null, pricePerUnit: parseDecimal(editDraft.pricePerUnit), warehouseItemId: editDraft.warehouseItemId ?? null } }, {
+    const data = fieldMode
+      ? { quantity: parseDecimal(editDraft.quantity), unit: editDraft.unit || null }
+      : { name: editDraft.name.trim(), quantity: parseDecimal(editDraft.quantity), unit: editDraft.unit || null, pricePerUnit: parseDecimal(editDraft.pricePerUnit), warehouseItemId: editDraft.warehouseItemId ?? null };
+    updateMaterial.mutate({ jobId, materialId: editingId!, data }, {
       onSuccess: () => { invalidateData(queryClient, "jobs", "warehouse"); cancelEdit(); }
     });
   };
@@ -2271,17 +2511,44 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
     );
   };
 
+  const setMaterialConsumed = (m: any, done: boolean) => {
+    if (isManagedMaterial(m)) {
+      toast({ title: "Materiál je řízený dokladem", description: managedMaterialMessage });
+      return;
+    }
+    const perform = () => {
+      if (!isOnline) {
+        void enqueue({
+          id: crypto.randomUUID(),
+          type: "set_material_consumed",
+          jobId,
+          payload: { materialId: m.id, done },
+        });
+        toast({ title: done ? "Spotřeba uložena offline" : "Vrácení do plánu uloženo offline" });
+        return;
+      }
+      updateMaterial.mutate({ jobId, materialId: m.id, data: { done } }, {
+        onSuccess: () => {
+          invalidateData(queryClient, "jobs", "warehouse");
+          toast({ title: done ? "Materiál označen jako spotřebovaný" : "Materiál vrácen do plánu" });
+        },
+      });
+    };
+    if (done) perform();
+    else openConfirm("Vrátit materiál do plánu? Skladový výdej bude stornován opravným pohybem.", perform);
+  };
+
   return (
     <SectionCard id="section-materials" title="Materiál" icon={ShoppingCart} isExpanded={isExpanded} onToggle={onToggle} summary={summary}>
       <div className="p-4 space-y-4">
-        {isFixedPrice && (
+        {!fieldMode && isFixedPrice && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
             Zakázka je ve smluvní ceně — materiál slouží pouze jako interní kalkulace a nebude fakturován po položkách.
           </div>
         )}
         {/* Add form */}
-        <form onSubmit={handleAdd} className="space-y-2">
+        {canWork && <form onSubmit={handleAdd} className="space-y-2">
           <div className="flex gap-2">
             <div className="flex-1">
               <Autocomplete value={newName} onValueChange={handleNewNameChange} suggestions={materialSuggestions} placeholder="Název materiálu..." className="h-12 text-base bg-background" />
@@ -2291,7 +2558,7 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
             </Button>
           </div>
           {/* Explicit warehouse-item picker — keyed by ID so duplicates are unambiguous */}
-          <select
+          {!fieldMode && <select
             value={newWarehouseItemId ?? ""}
             onChange={e => setNewWarehouseItemId(e.target.value ? Number(e.target.value) : null)}
             className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -2300,17 +2567,17 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
             {(warehouseItems ?? []).map((w: any) => (
               <option key={w.id} value={w.id}>{whLabel(w)}</option>
             ))}
-          </select>
+          </select>}
           <div className="flex gap-2 items-start">
             <div className="w-24 shrink-0">
               <DecimalInput value={newQty} onChange={setNewQty} placeholder="Množství" className="h-10 text-sm w-full bg-background" error={newQtyErr} />
             </div>
             <Input value={newUnit} onChange={e => setNewUnit(e.target.value)} placeholder="Jednotka" className="h-10 text-sm w-20 bg-background" />
-            <div className="flex-1 min-w-0">
+            {!fieldMode && <div className="flex-1 min-w-0">
               <DecimalInput value={newPrice} onChange={setNewPrice} placeholder="Cena/ks (Kč)" className="h-10 text-sm w-full bg-background" error={newPriceErr} />
-            </div>
+            </div>}
           </div>
-        </form>
+        </form>}
 
         {/* Materials list */}
         {materialsLoading ? (
@@ -2327,9 +2594,11 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
             {materials.map((m: any) => (
               editingId === m.id ? (
                 <div key={m.id} className="p-3 border rounded-lg space-y-2 bg-card">
-                  <Autocomplete value={editDraft.name} onValueChange={v => setEditDraft((d: any) => ({ ...d, name: v }))} suggestions={materialSuggestions} className="h-9 text-sm" autoFocus />
+                  {fieldMode
+                    ? <p className="text-sm font-semibold">{editDraft.name}</p>
+                    : <Autocomplete value={editDraft.name} onValueChange={v => setEditDraft((d: any) => ({ ...d, name: v }))} suggestions={materialSuggestions} className="h-9 text-sm" autoFocus />}
                   {/* Explicit warehouse-item picker for the edit form */}
-                  <select
+                  {!fieldMode && <select
                     value={editDraft.warehouseItemId ?? ""}
                     onChange={e => setEditDraft((d: any) => ({ ...d, warehouseItemId: e.target.value ? Number(e.target.value) : null }))}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -2338,15 +2607,15 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                     {(warehouseItems ?? []).map((w: any) => (
                       <option key={w.id} value={w.id}>{whLabel(w)}</option>
                     ))}
-                  </select>
+                  </select>}
                   <div className="flex gap-2 items-start">
                     <div className="w-24 shrink-0">
                       <DecimalInput value={editDraft.quantity} onChange={v => setEditDraft((d: any) => ({ ...d, quantity: v }))} placeholder="Množ." className="h-9 text-sm w-full" error={editQtyErr} />
                     </div>
                     <Input value={editDraft.unit} onChange={e => setEditDraft((d: any) => ({ ...d, unit: e.target.value }))} placeholder="Jedn." className="h-9 text-sm w-20" />
-                    <div className="flex-1 min-w-0">
+                    {!fieldMode && <div className="flex-1 min-w-0">
                       <DecimalInput value={editDraft.pricePerUnit} onChange={v => setEditDraft((d: any) => ({ ...d, pricePerUnit: v }))} placeholder="Cena/ks" className="h-9 text-sm w-full" error={editPriceErr} />
-                    </div>
+                    </div>}
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={saveEdit} disabled={updateMaterial.isPending || !!editQtyErr || !!editPriceErr} className="h-8 text-xs px-3"><Save className="w-3.5 h-3.5 mr-1" /> Uložit</Button>
@@ -2367,10 +2636,13 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                     {m.invoicedInvoiceId != null && (
                       <span className="ml-2 inline-flex items-center rounded-full bg-violet-100 text-violet-700 text-[10px] font-medium px-1.5 py-0.5 align-middle">Vyfakturováno</span>
                     )}
-                    {m.warehouseItemId != null && (
+                    <span className={`ml-2 inline-flex items-center rounded-full text-[10px] font-medium px-1.5 py-0.5 align-middle ${m.done ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
+                      {m.done ? "Spotřebováno" : "Plánováno"}
+                    </span>
+                    {!fieldMode && m.warehouseItemId != null && (
                       <Link href="/sklad">
                         <span className="ml-2 inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5 align-middle hover:bg-cyan-200 cursor-pointer" title="Zobrazit skladovou kartu">
-                          Sklad − {warehouseItemsById.get(m.warehouseItemId)?.name ?? `#${m.warehouseItemId}`}
+                          Sklad: {warehouseItemsById.get(m.warehouseItemId)?.name ?? `#${m.warehouseItemId}`}
                         </span>
                       </Link>
                     )}
@@ -2414,7 +2686,24 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                       <Banknote className="w-3.5 h-3.5" />
                     </Button>
                   )}
-                  <Button
+                  {canWork && !isManagedMaterial(m) && (!fieldMode || !m.done) && (
+                    <Button
+                      variant={m.done ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => setMaterialConsumed(m, fieldMode ? true : !m.done)}
+                      disabled={updateMaterial.isPending || (!m.done && !(Number(m.quantity) > 0))}
+                      className="h-8 px-2 shrink-0"
+                      title={m.done
+                        ? "Vrátit do plánu a stornovat skladový výdej"
+                        : Number(m.quantity) > 0
+                          ? "Označit jako spotřebované a vydat ze skladu"
+                          : "Nejdříve doplňte kladné množství"}
+                    >
+                      {m.done ? <RotateCcw className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                      <span className="hidden sm:inline ml-1">{m.done ? "Do plánu" : "Spotřebovat"}</span>
+                    </Button>
+                  )}
+                  {!m.done && canWork && <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => startEdit(m)}
@@ -2423,8 +2712,8 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                     title={isManagedMaterial(m) ? managedMaterialMessage : "Upravit materiál"}
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
+                  </Button>}
+                  {canManage && <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(m)}
@@ -2433,7 +2722,7 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
                     title={isManagedMaterial(m) ? managedMaterialMessage : "Smazat materiál"}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  </Button>}
                 </div>
               )
             ))}
@@ -2441,6 +2730,12 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
               <div className="flex justify-between items-center pt-2 px-1 text-sm font-bold border-t mt-2">
                 <span>Celkem materiál</span>
                 <span className="text-emerald-600">{totalCost.toLocaleString("cs-CZ")} Kč</span>
+              </div>
+            )}
+            {plannedCost > 0 && (
+              <div className="flex justify-between items-center px-1 text-xs text-muted-foreground">
+                <span>Plánováno (bez vlivu na sklad a fakturaci)</span>
+                <span>{plannedCost.toLocaleString("cs-CZ")} Kč</span>
               </div>
             )}
           </div>
@@ -2528,13 +2823,15 @@ function MaterialsSection({ jobId, job, isExpanded, onToggle, onUnsavedChange }:
   );
 }
 
-function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequest = false }: {
+function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, canWork, canManage, isChangeRequest = false }: {
   task: any;
   jobId: number;
   onToggle: (id: number, done: boolean) => void;
   onDelete: (id: number) => void;
   onUpdate: (id: number, data: { title?: string; description?: string }) => void;
   onTaskPhoto: (id: number, file: File) => void;
+  canWork: boolean;
+  canManage: boolean;
   isChangeRequest?: boolean;
 }) {
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -2553,7 +2850,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
     return (
       <div className="p-3 bg-card border rounded-lg space-y-2">
         <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} className="h-10 text-sm font-medium" autoFocus />
-        {isChangeRequest && (
+        {isChangeRequest && canManage && (
           <Textarea 
             value={editDesc} 
             onChange={e => setEditDesc(e.target.value)} 
@@ -2574,6 +2871,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
       <Checkbox 
         checked={task.done} 
         onCheckedChange={(c) => onToggle(task.id, !!c)} 
+        disabled={!canWork}
         className="mt-0.5 w-6 h-6 rounded-full border-2 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500 shrink-0"
       />
       <div className="flex-1 min-w-0">
@@ -2585,7 +2883,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        {isChangeRequest && (
+        {isChangeRequest && canManage && (
           <Button 
             variant="ghost" size="icon"
             onClick={() => setEditing(true)}
@@ -2594,26 +2892,26 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, isChangeRequ
             <Edit3 className="w-4 h-4" />
           </Button>
         )}
-        <input 
+        {canWork && <input
           type="file" accept="image/*" capture="environment" ref={cameraRef}
           className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) onTaskPhoto(task.id, f); }}
-        />
-        <Button 
+        />}
+        {canWork && <Button
           variant="ghost" size="icon"
           onClick={() => cameraRef.current?.click()}
           className="h-9 w-9 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"
         >
           <Camera className="w-4 h-4" />
-        </Button>
-        <div className="w-1" />
-        <Button 
+        </Button>}
+        {canManage && <><div className="w-1" />
+        <Button
           variant="ghost" size="icon"
           onClick={() => onDelete(task.id)} 
           className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
         >
           <Trash2 className="w-4 h-4" />
-        </Button>
+        </Button></>}
       </div>
     </div>
   );
@@ -2887,6 +3185,9 @@ function JobSheetsSection({ jobId, isExpanded, onToggle }: any) {
 }
 
 function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
+  const { can } = useAuth();
+  const canUpload = can("jobs.work");
+  const canManage = can("jobs.manage");
   const { openConfirm, dialogProps: dialogPropsPhoto } = useConfirmDialog();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -2995,7 +3296,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
       summary={photoSummary}
     >
       <div className="p-4 space-y-6">
-        <div className="flex gap-3">
+        {canUpload && <div className="flex gap-3">
           <input
             type="file" accept="image/*" capture="environment"
             ref={cameraInputRef} onChange={handlePhotoCapture} className="hidden"
@@ -3019,13 +3320,13 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
           >
             <FileImage className="w-5 h-5 mr-2" /> Z galerie
           </Button>
-        </div>
-        <FileDropZone
+        </div>}
+        {canUpload && <FileDropZone
           onFiles={uploadPhotoFiles}
           accept="image/*"
           disabled={createAttachment.isPending || isUploadingPhoto}
           label="Sem přetáhněte fotky"
-        />
+        />}
         <UploadProgressBar isUploading={isUploadingPhoto} progress={photoProgress} />
 
         {(photos.length > 0 || pendingPhotos.length > 0) && (
@@ -3043,12 +3344,12 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
                       <Camera className="w-8 h-8 opacity-20" />
                     </div>
                   )}
-                  <button 
+                  {canManage && <button
                     onClick={() => handleDelete(photo.id)}
                     className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full text-destructive shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <Trash2 className="w-4 h-4" />
-                  </button>
+                  </button>}
                 </div>
               );
             })}

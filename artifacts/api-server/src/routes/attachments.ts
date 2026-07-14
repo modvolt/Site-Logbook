@@ -7,6 +7,7 @@ import {
   CreateAttachmentBody,
   DeleteAttachmentParams,
 } from "@workspace/api-zod";
+import { isRestrictedFieldWorker, requireAssignedJobView, requireAssignedJobWork } from "../middlewares/job-work-access";
 
 const router: IRouter = Router();
 
@@ -18,7 +19,7 @@ function serializeAttachment(att: typeof attachmentsTable.$inferSelect) {
   };
 }
 
-router.get("/jobs/:jobId/attachments", async (req, res): Promise<void> => {
+router.get("/jobs/:jobId/attachments", requireAssignedJobView, async (req, res): Promise<void> => {
   const params = ListAttachmentsParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -31,10 +32,13 @@ router.get("/jobs/:jobId/attachments", async (req, res): Promise<void> => {
     .where(eq(attachmentsTable.jobId, params.data.jobId))
     .orderBy(attachmentsTable.createdAt);
 
-  res.json(attachments.map(serializeAttachment));
+  const visibleAttachments = isRestrictedFieldWorker(req.auth!.permissions)
+    ? attachments.filter((attachment) => attachment.type === "photo")
+    : attachments;
+  res.json(visibleAttachments.map(serializeAttachment));
 });
 
-router.post("/jobs/:jobId/attachments", async (req, res): Promise<void> => {
+router.post("/jobs/:jobId/attachments", requireAssignedJobWork, async (req, res): Promise<void> => {
   const params = CreateAttachmentParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

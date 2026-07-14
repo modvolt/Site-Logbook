@@ -18,6 +18,7 @@ import QuoteShare from "@/pages/quote-share";
 import SwitchboardPublic from "@/pages/switchboard-public";
 
 import Dashboard from "@/pages/dashboard";
+import FieldHome from "@/pages/field-home";
 import Calendar from "@/pages/calendar";
 import Jobs from "@/pages/jobs";
 import JobDetail from "@/pages/job-detail";
@@ -161,9 +162,10 @@ const queryClient = new QueryClient({
   },
 });
 
-function PermissionOnly({ component: Component, permission }: { component: React.ComponentType; permission: Permission }) {
+function PermissionOnly({ component: Component, permission }: { component: React.ComponentType; permission: Permission | readonly Permission[] }) {
   const { can } = useAuth();
-  if (!can(permission)) {
+  const required = Array.isArray(permission) ? permission : [permission];
+  if (!required.every((item) => can(item))) {
     return (
       <div className="p-8 text-center">
         <p className="text-lg font-semibold mb-2">Přístup odepřen</p>
@@ -172,6 +174,14 @@ function PermissionOnly({ component: Component, permission }: { component: React
     );
   }
   return <Component />;
+}
+
+function HomePage() {
+  const { can } = useAuth();
+  if (!can("jobs.view")) {
+    return <PermissionOnly component={Dashboard} permission="jobs.view" />;
+  }
+  return can("jobs.work") && !can("jobs.manage") ? <FieldHome /> : <Dashboard />;
 }
 
 function AuthenticatedApp() {
@@ -186,15 +196,15 @@ function AuthenticatedApp() {
         <OfflineBanner />
         <PageErrorBoundary key={path}>
         <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/calendar" component={Calendar} />
-        <Route path="/jobs" component={Jobs} />
-        <Route path="/jobs/new" component={JobForm} />
-        <Route path="/jobs/:id/list" component={JobExport} />
-        <Route path="/jobs/:id" component={JobDetail} />
-        <Route path="/job-groups" component={JobGroups} />
-        <Route path="/job-groups/:id/list" component={JobGroupExport} />
-        <Route path="/job-groups/:id" component={JobGroupDetail} />
+        <Route path="/" component={HomePage} />
+        <Route path="/calendar">{() => <PermissionOnly component={Calendar} permission="jobs.view" />}</Route>
+        <Route path="/jobs">{() => <PermissionOnly component={Jobs} permission="jobs.view" />}</Route>
+        <Route path="/jobs/new">{() => <PermissionOnly component={JobForm} permission={["jobs.view", "jobs.manage"]} />}</Route>
+        <Route path="/jobs/:id/list">{() => <PermissionOnly component={JobExport} permission={["jobs.view", "jobs.manage"]} />}</Route>
+        <Route path="/jobs/:id">{() => <PermissionOnly component={JobDetail} permission="jobs.view" />}</Route>
+        <Route path="/job-groups">{() => <PermissionOnly component={JobGroups} permission="jobs.view" />}</Route>
+        <Route path="/job-groups/:id/list">{() => <PermissionOnly component={JobGroupExport} permission="jobs.view" />}</Route>
+        <Route path="/job-groups/:id">{() => <PermissionOnly component={JobGroupDetail} permission="jobs.view" />}</Route>
         <Route path="/switchboards/:id">{() => <PermissionOnly component={SwitchboardDetail} permission="switchboards.view" />}</Route>
         <Route path="/switchboards">{() => <PermissionOnly component={Switchboards} permission="switchboards.view" />}</Route>
         <Route path="/admin/switchboard-parser">{() => <PermissionOnly component={SwitchboardParserSettings} permission="switchboards.parser.manage" />}</Route>
@@ -218,7 +228,7 @@ function AuthenticatedApp() {
         <Route path="/activities/:id" component={ActivityDetail} />
         <Route path="/me" component={MyOverview} />
         <Route path="/settings" component={Settings} />
-        <Route path="/admin" component={Admin} />
+        <Route path="/admin">{() => <PermissionOnly component={Admin} permission={["jobs.view", "jobs.manage"]} />}</Route>
         <Route path="/statistika">{() => <PermissionOnly component={Statistika} permission="statistics.view" />}</Route>
         <Route path="/billing/bank-import">{() => <PermissionOnly component={BillingBankImport} permission="billing.manage" />}</Route>
         <Route path="/billing/settings">{() => <PermissionOnly component={BillingSettings} permission="billing.settings" />}</Route>

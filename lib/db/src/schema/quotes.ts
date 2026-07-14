@@ -6,9 +6,11 @@ import {
   numeric,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { customersTable } from "./customers";
 import { jobsTable } from "./jobs";
+import { jobGroupsTable } from "./job-groups";
 
 /**
  * Customer quotes (cenové nabídky) — offered before a job starts.
@@ -38,11 +40,18 @@ export const quotesTable = pgTable(
       () => jobsTable.id,
       { onDelete: "set null" },
     ),
+    convertedToJobGroupId: integer("converted_to_job_group_id").references(
+      () => jobGroupsTable.id,
+      { onDelete: "set null" },
+    ),
     convertedToInvoiceId: integer("converted_to_invoice_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("quotes_customer_idx").on(t.customerId)],
+  (t) => [
+    index("quotes_customer_idx").on(t.customerId),
+    uniqueIndex("quotes_converted_job_group_uidx").on(t.convertedToJobGroupId),
+  ],
 );
 
 export type Quote = typeof quotesTable.$inferSelect;

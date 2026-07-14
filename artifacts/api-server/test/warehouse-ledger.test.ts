@@ -267,7 +267,7 @@ describe("job material issue lifecycle", () => {
       const warehouseItemId = await resolveWarehouseItemIdByName(tx, name);
       return tx
         .insert(materialsTable)
-        .values({ jobId, name, quantity, pricePerUnit: "10", warehouseItemId })
+        .values({ jobId, name, quantity, pricePerUnit: "10", warehouseItemId, done: true })
         .returning();
     });
     return m.id;

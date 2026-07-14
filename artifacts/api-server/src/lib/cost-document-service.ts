@@ -2280,7 +2280,8 @@ export async function matchDocumentReferences(documentId: number) {
       clientSite: jobsTable.clientSite,
       customerId: jobsTable.customerId,
     })
-    .from(jobsTable);
+    .from(jobsTable)
+    .where(isNull(jobsTable.archivedAt));
 
   const candidatesByRef: Record<
     number,
@@ -3343,6 +3344,9 @@ export async function syncJobMaterialsForDocument(
         priceSourceDate: doc.issueDate ? new Date(doc.issueDate) : null,
         priceConfidence: isInvoiceDoc ? "1.00" : null,
         warehouseItemId,
+        done: true,
+        consumedAt: new Date(),
+        consumedByUserId: actor.userId,
       };
       // Atomic upsert keyed on the partial unique index
       // (source_type, source_id) WHERE source_type IS NOT NULL, so concurrent

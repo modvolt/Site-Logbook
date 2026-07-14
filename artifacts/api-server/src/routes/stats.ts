@@ -116,6 +116,7 @@ export async function queryTrend(
       })
       .from(jobsTable)
       .where(and(
+        isNull(jobsTable.archivedAt),
         gte(jobsTable.date, months[0] + "-01"),
         lte(jobsTable.date, to),
         trendJobExtra,
@@ -131,6 +132,7 @@ export async function queryTrend(
       })
       .from(jobsTable)
       .where(and(
+        isNull(jobsTable.archivedAt),
         gte(jobsTable.date, months[0] + "-01"),
         lte(jobsTable.date, to),
         eq(jobsTable.status, "done"),
@@ -195,12 +197,12 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       transport: sql<number>`coalesce(sum(${jobsTable.transportCost}), 0)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(inPeriod);
+    .where(and(isNull(jobsTable.archivedAt), inPeriod));
 
   const byTypeRows = await db
     .select({ type: jobsTable.type, c: count() })
     .from(jobsTable)
-    .where(inPeriod)
+    .where(and(isNull(jobsTable.archivedAt), inPeriod))
     .groupBy(jobsTable.type)
     .orderBy(sql`count(*) desc`);
 
@@ -214,13 +216,13 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       done: sql<number>`sum(case when ${jobsTable.status} = 'done' then 1 else 0 end)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(inPrevPeriod);
+    .where(and(isNull(jobsTable.archivedAt), inPrevPeriod));
 
   // ─── Employees ────────────────────────────────────────────────────────────
   const assignedRows = await db
     .select({ personId: jobsTable.assignedPersonId, c: count() })
     .from(jobsTable)
-    .where(and(inPeriod, isNotNull(jobsTable.assignedPersonId)))
+    .where(and(isNull(jobsTable.archivedAt), inPeriod, isNotNull(jobsTable.assignedPersonId)))
     .groupBy(jobsTable.assignedPersonId);
 
   const hoursRows = await db
@@ -236,7 +238,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     })
     .from(workSessionsTable)
     .innerJoin(jobsTable, eq(workSessionsTable.jobId, jobsTable.id))
-    .where(inPeriod)
+    .where(and(isNull(jobsTable.archivedAt), inPeriod))
     .groupBy(workSessionsTable.personId);
 
   const people = await db
@@ -267,7 +269,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     })
     .from(materialsTable)
     .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
-    .where(inPrevPeriod);
+    .where(and(isNull(jobsTable.archivedAt), eq(materialsTable.done, true), inPrevPeriod));
 
   // ─── Materials ────────────────────────────────────────────────────────────
   const [materialAgg] = await db
@@ -276,7 +278,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     })
     .from(materialsTable)
     .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
-    .where(inPeriod);
+    .where(and(isNull(jobsTable.archivedAt), eq(materialsTable.done, true), inPeriod));
 
   const topMaterials = await db
     .select({
@@ -286,7 +288,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     })
     .from(materialsTable)
     .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
-    .where(inPeriod)
+    .where(and(isNull(jobsTable.archivedAt), eq(materialsTable.done, true), inPeriod))
     .groupBy(materialsTable.name)
     .orderBy(sql`sum(${materialsTable.quantity} * ${materialsTable.pricePerUnit}) desc nulls last`)
     .limit(10);
@@ -510,7 +512,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       ), 0)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(eq(jobsTable.status, "done"));
+    .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "done")));
 
   // ─── PPE snapshot ─────────────────────────────────────────────────────────
   const [ppeAgg] = await db

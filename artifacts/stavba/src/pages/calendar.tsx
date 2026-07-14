@@ -27,6 +27,7 @@ import {
   useListPublicHolidays,
   getListPublicHolidaysQueryKey,
   useUpdateJob,
+  useUpdateJobVisit,
   useGetActivityVisitsCalendar,
   getGetActivityVisitsCalendarQueryKey,
   useUpdateActivityVisit,
@@ -146,7 +147,8 @@ function JobChip({ job, onNavigate, compact, isDragging }: JobChipProps) {
       className={`w-full rounded px-1 py-0.5 text-[10px] font-medium leading-tight truncate cursor-grab select-none ${statusChip(job.status)} ${isDragging ? "opacity-40" : ""}`}
       title={`${job.title}${job.startTime ? ` · ${job.startTime}` : ""}`}
     >
-      {compact ? truncate(job.title, 14) : (
+      {job.occurrenceType === "visit" && <CalendarDays className="inline-block w-2.5 h-2.5 mr-0.5 align-text-bottom" />}
+      {compact ? truncate(job.title, job.occurrenceType === "visit" ? 11 : 14) : (
         <span>
           {job.startTime && <span className="opacity-70 mr-0.5">{job.startTime}</span>}
           {truncate(job.title, 20)}
@@ -163,7 +165,7 @@ interface DraggableJobChipProps {
 
 function DraggableJobChip({ job, onNavigate }: DraggableJobChipProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `job-${job.id}`,
+    id: job.occurrenceKey,
     data: { job },
   });
 
@@ -358,18 +360,19 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
   const DAY_NAMES = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
   const updateJob = useUpdateJob();
+  const updateJobVisit = useUpdateJobVisit();
   const updateActivityVisit = useUpdateActivityVisit();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const [optimisticOverrides, setOptimisticOverrides] = useState<
-    Map<number, { date: string; assignedPersonId: number | null }>
+    Map<string, { date: string; assignedPersonId: number | null }>
   >(new Map());
   const [optimisticVisitOverrides, setOptimisticVisitOverrides] = useState<
     Map<number, { date: string }>
   >(new Map());
 
-  const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
+  const [draggingJobKey, setDraggingJobKey] = useState<string | null>(null);
   const [draggingVisitId, setDraggingVisitId] = useState<number | null>(null);
 
   const sensors = useSensors(
@@ -380,7 +383,7 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
   const effectiveJobs = useMemo(() => {
     if (optimisticOverrides.size === 0) return jobs;
     return jobs.map((j) => {
-      const override = optimisticOverrides.get(j.id);
+      const override = optimisticOverrides.get(j.occurrenceKey);
       if (!override) return j;
       return { ...j, ...override };
     });
@@ -397,13 +400,13 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const job = event.active.data.current?.job as CalendarJob | undefined;
-    if (job) { setDraggingJobId(job.id); return; }
+    if (job) { setDraggingJobKey(job.occurrenceKey); return; }
     const visit = event.active.data.current?.activityVisit as CalendarActivityVisit | undefined;
     if (visit) setDraggingVisitId(visit.id);
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setDraggingJobId(null);
+    setDraggingJobKey(null);
     setDraggingVisitId(null);
     const { active, over } = event;
     if (!over) return;
@@ -443,25 +446,18 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
 
     setOptimisticOverrides((prev) => {
       const next = new Map(prev);
-      next.set(job.id, { date: target.dateStr, assignedPersonId: target.personId });
+      next.set(job.occurrenceKey, { date: target.dateStr, assignedPersonId: target.personId });
       return next;
     });
 
-    updateJob.mutate(
-      {
-        id: job.id,
-        data: {
-          date: target.dateStr,
-          assignedPersonId: target.personId,
-        },
-      },
-      {
+    const clearOptimisticJob = () => setOptimisticOverrides((prev) => {
+      const next = new Map(prev);
+      next.delete(job.occurrenceKey);
+      return next;
+    });
+    const mutationOptions = {
         onSuccess: () => {
-          setOptimisticOverrides((prev) => {
-            const next = new Map(prev);
-            next.delete(job.id);
-            return next;
-          });
+          clearOptimisticJob();
           invalidateData(queryClient, "jobs");
           toast({
             title: "Zakázka přeřazena",
@@ -469,10 +465,18 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
               <ToastAction
                 altText="Vrátit přesun"
                 onClick={() => {
-                  updateJob.mutate(
-                    { id: job.id, data: { date: originalDate, assignedPersonId: originalPersonId } },
-                    { onSuccess: () => { invalidateData(queryClient, "jobs"); } },
-                  );
+                  const onSuccess = () => invalidateData(queryClient, "jobs");
+                  if (job.visitId != null) {
+                    updateJobVisit.mutate(
+                      { jobId: job.id, visitId: job.visitId, data: { date: originalDate, personId: originalPersonId } },
+                      { onSuccess },
+                    );
+                  } else {
+                    updateJob.mutate(
+                      { id: job.id, data: { date: originalDate, assignedPersonId: originalPersonId } },
+                      { onSuccess },
+                    );
+                  }
                 }}
               >
                 Vrátit
@@ -481,11 +485,7 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
           });
         },
         onError: (err: unknown) => {
-          setOptimisticOverrides((prev) => {
-            const next = new Map(prev);
-            next.delete(job.id);
-            return next;
-          });
+          clearOptimisticJob();
           const status = (err as { response?: { status?: number } })?.response?.status;
           if (status === 409) {
             toast({
@@ -501,12 +501,22 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
             });
           }
         },
-      },
-    );
-  }, [updateJob, updateActivityVisit, queryClient, toast]);
+      };
+    if (job.visitId != null) {
+      updateJobVisit.mutate(
+        { jobId: job.id, visitId: job.visitId, data: { date: target.dateStr, personId: target.personId } },
+        mutationOptions,
+      );
+    } else {
+      updateJob.mutate(
+        { id: job.id, data: { date: target.dateStr, assignedPersonId: target.personId } },
+        mutationOptions,
+      );
+    }
+  }, [updateJob, updateJobVisit, updateActivityVisit, queryClient, toast]);
 
-  const draggingJob = draggingJobId != null
-    ? (jobs.find((j) => j.id === draggingJobId) ?? null)
+  const draggingJob = draggingJobKey != null
+    ? (jobs.find((j) => j.occurrenceKey === draggingJobKey) ?? null)
     : null;
   const draggingVisit = draggingVisitId != null
     ? (activityVisits.find((v) => v.id === draggingVisitId) ?? null)
@@ -605,7 +615,7 @@ function WeekView({ jobs, activityVisits, people, leaves, holidays, weekStart, o
                     ))}
                     {slotJobs.map((job) => (
                       <DraggableJobChip
-                        key={job.id}
+                        key={job.occurrenceKey}
                         job={job}
                         onNavigate={onNavigate}
                       />
@@ -750,7 +760,7 @@ function MonthView({ jobs, activityVisits, holidays, monthDate, onNavigate, onRe
               <div className="space-y-0.5">
                 {visibleItems.map((item) =>
                   item.type === "job" ? (
-                    <JobChip key={`j-${item.job.id}`} job={item.job} onNavigate={onNavigate} compact />
+                    <JobChip key={item.job.occurrenceKey} job={item.job} onNavigate={onNavigate} compact />
                   ) : (
                     <div
                       key={`v-${item.visit.id}`}
@@ -839,7 +849,7 @@ interface DraggableDayJobCardProps {
 
 function DraggableDayJobCard({ job, onNavigate, top, height }: DraggableDayJobCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `dayjob-${job.id}`,
+    id: `day-${job.occurrenceKey}`,
     data: { job },
   });
 
@@ -911,6 +921,7 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
   const isToday = ds === todayStr;
 
   const updateJob = useUpdateJob();
+  const updateJobVisit = useUpdateJobVisit();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -918,9 +929,9 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [optimisticOverrides, setOptimisticOverrides] = useState<
-    Map<number, { startTime: string; endTime: string | null }>
+    Map<string, { startTime: string; endTime: string | null }>
   >(new Map());
-  const [draggingJobId, setDraggingJobId] = useState<number | null>(null);
+  const [draggingJobKey, setDraggingJobKey] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -944,7 +955,7 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
   const effectiveJobs = useMemo(() => {
     if (optimisticOverrides.size === 0) return jobs;
     return jobs.map((j) => {
-      const override = optimisticOverrides.get(j.id);
+      const override = optimisticOverrides.get(j.occurrenceKey);
       if (!override) return j;
       return { ...j, ...override };
     });
@@ -952,11 +963,11 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const job = event.active.data.current?.job as CalendarJob | undefined;
-    if (job) setDraggingJobId(job.id);
+    if (job) setDraggingJobKey(job.occurrenceKey);
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setDraggingJobId(null);
+    setDraggingJobKey(null);
     const { active, delta } = event;
 
     const job = active.data.current?.job as CalendarJob | undefined;
@@ -982,25 +993,18 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
 
     setOptimisticOverrides((prev) => {
       const next = new Map(prev);
-      next.set(job.id, { startTime: newStartTime, endTime: newEndTime });
+      next.set(job.occurrenceKey, { startTime: newStartTime, endTime: newEndTime });
       return next;
     });
 
-    updateJob.mutate(
-      {
-        id: job.id,
-        data: {
-          startTime: newStartTime,
-          ...(newEndTime !== null ? { endTime: newEndTime } : {}),
-        },
-      },
-      {
+    const clearOptimisticJob = () => setOptimisticOverrides((prev) => {
+      const next = new Map(prev);
+      next.delete(job.occurrenceKey);
+      return next;
+    });
+    const mutationOptions = {
         onSuccess: () => {
-          setOptimisticOverrides((prev) => {
-            const next = new Map(prev);
-            next.delete(job.id);
-            return next;
-          });
+          clearOptimisticJob();
           invalidateData(queryClient, "jobs");
           toast({
             title: "Čas zakázky upraven",
@@ -1008,16 +1012,16 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
               <ToastAction
                 altText="Vrátit přesun"
                 onClick={() => {
-                  updateJob.mutate(
-                    {
-                      id: job.id,
-                      data: {
-                        startTime: originalStartTime,
-                        ...(originalEndTime !== null ? { endTime: originalEndTime } : {}),
-                      },
-                    },
-                    { onSuccess: () => { invalidateData(queryClient, "jobs"); } },
-                  );
+                  const data = {
+                    startTime: originalStartTime,
+                    ...(originalEndTime !== null ? { endTime: originalEndTime } : {}),
+                  };
+                  const onSuccess = () => invalidateData(queryClient, "jobs");
+                  if (job.visitId != null) {
+                    updateJobVisit.mutate({ jobId: job.id, visitId: job.visitId, data }, { onSuccess });
+                  } else {
+                    updateJob.mutate({ id: job.id, data }, { onSuccess });
+                  }
                 }}
               >
                 Vrátit
@@ -1026,20 +1030,24 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
           });
         },
         onError: () => {
-          setOptimisticOverrides((prev) => {
-            const next = new Map(prev);
-            next.delete(job.id);
-            return next;
-          });
+          clearOptimisticJob();
           toast({
             title: "Přesun selhal",
             description: "Zkuste to prosím znovu.",
             variant: "destructive",
           });
         },
-      },
-    );
-  }, [updateJob, queryClient, toast]);
+      };
+    const data = {
+      startTime: newStartTime,
+      ...(newEndTime !== null ? { endTime: newEndTime } : {}),
+    };
+    if (job.visitId != null) {
+      updateJobVisit.mutate({ jobId: job.id, visitId: job.visitId, data }, mutationOptions);
+    } else {
+      updateJob.mutate({ id: job.id, data }, mutationOptions);
+    }
+  }, [updateJob, updateJobVisit, queryClient, toast]);
 
   const dayJobs = jobsForDay(effectiveJobs, ds);
   const timedJobs = dayJobs.filter((j) => j.startTime);
@@ -1048,8 +1056,8 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
   const dayVisits = activityVisits.filter((v) => v.date === ds);
   const holiday = holidays.get(ds);
 
-  const draggingJob = draggingJobId != null
-    ? (jobs.find((j) => j.id === draggingJobId) ?? null)
+  const draggingJob = draggingJobKey != null
+    ? (jobs.find((j) => j.occurrenceKey === draggingJobKey) ?? null)
     : null;
 
   const nowPx = isToday ? nowOffsetPx() : null;
@@ -1099,7 +1107,7 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
             <p className="text-xs font-semibold text-muted-foreground">Bez naplánovaného času</p>
             {untimedJobs.map((job) => (
               <div
-                key={job.id}
+                key={job.occurrenceKey}
                 role="button"
                 tabIndex={0}
                 onClick={() => onNavigate(`/jobs/${job.id}`)}
@@ -1188,7 +1196,7 @@ function DayView({ jobs, activityVisits, leaves, holidays, date, onNavigate, onR
                   const height = duration * HOUR_HEIGHT - 2;
                   return (
                     <DraggableDayJobCard
-                      key={job.id}
+                      key={job.occurrenceKey}
                       job={job}
                       onNavigate={onNavigate}
                       top={top}

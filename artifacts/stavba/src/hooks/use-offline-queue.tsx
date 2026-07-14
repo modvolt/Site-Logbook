@@ -95,6 +95,19 @@ async function executeOp(op: OfflineOp): Promise<void> {
       }
       break;
     }
+    case "set_material_consumed": {
+      const { materialId, done } = payload as { materialId: number; done: boolean };
+      const res = await fetch(`/api/jobs/${jobId}/materials/${materialId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ done }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+      }
+      break;
+    }
     case "add_work_session": {
       const res = await fetch(`/api/jobs/${jobId}/work-sessions`, {
         method: "POST",
@@ -211,6 +224,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
 // Human-readable Czech labels for each op type
 export function opTypeLabel(type: OfflineOpType): string {
   switch (type) {
+    case "set_material_consumed": return "Změna spotřeby materiálu";
     case "add_work_session": return "Uložení offline práce";
     case "add_material": return "Přidání materiálu";
     case "start_timer": return "Spuštění časovače";
@@ -287,7 +301,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
           succeeded++;
           jobsAffected.add(op.jobId);
           domainsToInvalidate.add("jobs");
-          if (op.type === "add_material" || op.type === "add_photo") {
+          if (op.type === "add_material" || op.type === "set_material_consumed" || op.type === "add_photo") {
             domainsToInvalidate.add("warehouse");
           }
           if (op.type === "set_switchboard_checklist_response" || op.type === "add_switchboard_photo") {

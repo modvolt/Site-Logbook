@@ -528,6 +528,11 @@ function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; ma
         <div className="flex flex-wrap gap-2 mb-3 items-center">
           <TypeBadge type={job.type} />
           <StatusBadge status={job.status} />
+          {job.scheduledByVisit && (
+            <span className="inline-flex items-center gap-1 rounded bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-800 dark:bg-cyan-950/40 dark:text-cyan-300">
+              <Calendar className="h-3 w-3" /> Další výjezd
+            </span>
+          )}
           <LowMarginBadge jobId={job.id} marginPercent={marginPercent} threshold={marginThreshold} />
         </div>
 
@@ -552,10 +557,10 @@ function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; ma
               </a>
             </div>
           )}
-          {job.assignedPersonName && (
+          {(job.schedulePersonNames?.length > 0 || job.assignedPersonName) && (
             <div className="flex items-center gap-2">
               <User className="w-4 h-4 shrink-0" />
-              <span className="truncate">{job.assignedPersonName}</span>
+              <span className="truncate">{job.schedulePersonNames?.join(", ") || job.assignedPersonName}</span>
             </div>
           )}
         </div>
@@ -571,7 +576,7 @@ function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; ma
           >
             <Square className="w-4 h-4 fill-current" /> Zastavit čas
           </button>
-        ) : (
+        ) : !finished ? (
           <button
             onClick={handleStart}
             disabled={updateJob.isPending}
@@ -579,6 +584,10 @@ function DashboardJobRow({ job, marginPercent, marginThreshold }: { job: any; ma
           >
             <Play className="w-4 h-4 fill-current" /> Spustit čas
           </button>
+        ) : (
+          <div className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium text-muted-foreground">
+            <CheckCircle2 className="w-4 h-4" /> Uzavřeno
+          </div>
         )}
         <Link href={`/jobs/${job.id}`} className="flex items-center justify-center px-4 border-l hover:bg-muted transition-colors">
           <ChevronRight className="w-5 h-5 text-muted-foreground" />
@@ -794,7 +803,7 @@ export default function Dashboard() {
 
       {role === "admin" && <ManagementKpiPanel />}
 
-      {can("write") && <RiskPanel />}
+      {can("jobs.manage") && <RiskPanel />}
 
       {loadingSummary ? (
         <Skeleton className="h-24 w-full mb-6" />

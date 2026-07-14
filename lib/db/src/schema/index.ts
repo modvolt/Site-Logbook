@@ -48,6 +48,7 @@ export * from "./ppe";
 export * from "./leave-settings";
 export * from "./user-sessions";
 export * from "./quotes";
+export * from "./quote-invoice-links";
 export * from "./health-log";
 export * from "./recurring-invoice-templates";
 export * from "./webauthn-credentials";

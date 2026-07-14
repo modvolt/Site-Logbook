@@ -15,6 +15,14 @@ describe("role permissions with individual overrides", () => {
     expect(resolvePermissions("admin", [])).toContain("rates.sale.view");
   });
 
+  it("enables field work only through an explicit guest override", () => {
+    expect(resolvePermissions("guest", [])).not.toContain("jobs.work");
+    expect(resolvePermissions("guest", [
+      { permission: "jobs.work", effect: "allow" },
+    ])).toContain("jobs.work");
+    expect(resolvePermissions("master", [])).toContain("jobs.work");
+  });
+
   it("extends a role with an explicit allow", () => {
     expect(
       resolvePermissions("master", [{ permission: "statistics.view", effect: "allow" }]),

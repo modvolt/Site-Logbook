@@ -103,6 +103,7 @@ describe("createDraft material markup override id-collision", () => {
         unit: "ks",
         pricePerUnit: "100",
         priceSource: "manual",
+        done: true,
       })
       .returning();
     const sharedId = jobMaterial.id;

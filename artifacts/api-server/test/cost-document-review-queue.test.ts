@@ -235,6 +235,7 @@ describe("listDocuments job linkage resilience", () => {
         sourceId: line.id,
         priceSourceDocumentId: docId,
         priceSourceLineId: line.id,
+        done: true,
       })
       .returning();
     materialIds.push(material.id);

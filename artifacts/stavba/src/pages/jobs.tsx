@@ -176,8 +176,18 @@ export default function Jobs() {
 
   function handleBulkApply() {
     if (selectedIds.size === 0 || !bulkStatus) return;
+    runBulkStatusUpdate(false);
+  }
+
+  function runBulkStatusUpdate(acknowledgeWarnings: boolean) {
     bulkUpdateStatus(
-      { data: { ids: Array.from(selectedIds), status: bulkStatus as JobBulkStatusUpdateStatus } },
+      {
+        data: {
+          ids: Array.from(selectedIds),
+          status: bulkStatus as JobBulkStatusUpdateStatus,
+          acknowledgeWarnings,
+        },
+      },
       {
         onSuccess: (result) => {
           toast.success(`Stav zakázek aktualizován (${result.updated} zakázek).`);
@@ -186,8 +196,19 @@ export default function Jobs() {
           setBulkStatus("");
           invalidateData(queryClient, "jobs");
         },
-        onError: () => {
-          toast.error("Nepodařilo se aktualizovat stav zakázek.");
+        onError: (error: any) => {
+          if (bulkStatus === "done" && !acknowledgeWarnings && error?.data?.code === "completion_warnings") {
+            openConfirm(
+              {
+                title: "Dokončit vybrané zakázky i s upozorněními?",
+                description: "Alespoň jedna zakázka má nehotové úkoly, plánovaný materiál nebo chybějící čas. Tvrdé blokace, například běžící časovač, se nepřeskočí.",
+                confirmLabel: "Dokončit",
+              },
+              () => runBulkStatusUpdate(true),
+            );
+            return;
+          }
+          toast.error(error?.data?.error ?? "Nepodařilo se aktualizovat stav zakázek.");
         },
       }
     );
@@ -438,7 +459,7 @@ export default function Jobs() {
   }
 
   const activeSegmentConfig = segment ? SEGMENTS.find(s => s.key === segment) : null;
-  const canWrite = can("write");
+  const canWrite = can("jobs.manage");
   const allVisibleSelected = (sortedFiltered?.length ?? 0) > 0 &&
     sortedFiltered?.every(j => selectedIds.has(j.id));
 

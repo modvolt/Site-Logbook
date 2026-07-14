@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "test": "playwright test",
+    "test:permissions-mock": "playwright test --config=playwright.permissions.config.ts",
     "test:ui": "playwright test --ui",
     "test:report": "playwright show-report"
   },

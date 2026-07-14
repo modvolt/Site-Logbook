@@ -118,6 +118,12 @@ function extractError(err: unknown): string {
   return typeof msg === "string" ? msg : "Neočekávaná chyba.";
 }
 
+function todayLocalIso(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
 export default function QuoteDetail() {
   const [loc, setLocation] = useLocation();
   const [matchDetail, paramsDetail] = useRoute<{ id: string }>("/quotes/:id");
@@ -141,6 +147,8 @@ export default function QuoteDetail() {
   const [sendTo, setSendTo] = useState("");
   const [sendSubject, setSendSubject] = useState("");
   const [sendMessage, setSendMessage] = useState("");
+  const [convertDialogOpen, setConvertDialogOpen] = useState(false);
+  const [plannedDate, setPlannedDate] = useState(todayLocalIso);
 
   const { data: quote, isLoading: loadingQuote } = useGetQuote(id!, {
     query: { queryKey: getGetQuoteQueryKey(id!), enabled: id != null && id > 0 },
@@ -296,13 +304,18 @@ export default function QuoteDetail() {
 
   const handleConvertToJob = () =>
     convertToJob.mutate(
-      { id: id! },
+      { id: id!, data: { plannedDate } },
       {
         onSuccess: (result) => {
+          setConvertDialogOpen(false);
           invalidate();
           invalidateData(queryClient, "jobs");
-          toast({ title: "Zakázka vytvořena.", description: `Zakázka #${result.jobId}` });
-          setLocation(`/jobs/${result.jobId}`);
+          queryClient.invalidateQueries({ queryKey: ["job-groups"] });
+          toast({
+            title: "Akce zakázek vytvořena.",
+            description: `První zakázka #${result.jobId} je naplánována na ${fmtDate(plannedDate)}.`,
+          });
+          setLocation(`/job-groups/${result.jobGroupId}`);
         },
         onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
       },
@@ -334,7 +347,7 @@ export default function QuoteDetail() {
   const canAccept = quote && ["sent", "draft"].includes(quote.status);
   const canReject = quote && ["sent", "draft"].includes(quote.status);
   const canExpire = quote && ["sent", "draft"].includes(quote.status);
-  const canConvert = quote && quote.status === "accepted" && !quote.convertedToJobId;
+  const canConvert = quote && quote.status === "accepted" && !quote.convertedToJobId && !quote.convertedToJobGroupId;
   const canDelete = quote && ["draft", "rejected", "expired"].includes(quote.status);
   const canEdit = !quote || quote.status === "draft";
 
@@ -425,10 +438,13 @@ export default function QuoteDetail() {
           {!isNew && canConvert && (
             <Button
               size="sm"
-              onClick={handleConvertToJob}
+              onClick={() => {
+                setPlannedDate(todayLocalIso());
+                setConvertDialogOpen(true);
+              }}
               disabled={convertToJob.isPending}
             >
-              <Briefcase className="h-4 w-4 mr-1" /> Převést na zakázku
+              <Briefcase className="h-4 w-4 mr-1" /> Zahájit realizaci
             </Button>
           )}
           {!isNew && canDelete && (
@@ -447,9 +463,18 @@ export default function QuoteDetail() {
       {/* Converted notice */}
       {quote?.convertedToJobId && (
         <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
-          <CardContent className="py-3 px-4 text-sm text-green-800 dark:text-green-300 flex items-center gap-2">
+          <CardContent className="py-3 px-4 text-sm text-green-800 dark:text-green-300 flex items-center gap-2 flex-wrap">
             <Briefcase className="h-4 w-4" />
-            Nabídka byla převedena na{" "}
+            Nabídka je realizována jako{" "}
+            {quote.convertedToJobGroupId && (
+              <button
+                className="underline font-medium"
+                onClick={() => setLocation(`/job-groups/${quote.convertedToJobGroupId}`)}
+              >
+                akce #{quote.convertedToJobGroupId}
+              </button>
+            )}
+            {quote.convertedToJobGroupId && " a "}
             <button
               className="underline font-medium"
               onClick={() => setLocation(`/jobs/${quote.convertedToJobId}`)}
@@ -756,6 +781,39 @@ export default function QuoteDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Conversion dialog */}
+      <Dialog open={convertDialogOpen} onOpenChange={setConvertDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Zahájit realizaci nabídky</DialogTitle>
+            <DialogDescription>
+              Vznikne akce zakázek a její první pracovní termín. Když se práce protáhne, přidáte další výjezd nebo zakázku do stejné akce.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="quote-planned-date">První plánovaný termín</Label>
+            <Input
+              id="quote-planned-date"
+              type="date"
+              value={plannedDate}
+              onChange={(event) => setPlannedDate(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConvertDialogOpen(false)}>
+              Zrušit
+            </Button>
+            <Button
+              onClick={handleConvertToJob}
+              disabled={convertToJob.isPending || !plannedDate}
+            >
+              <Briefcase className="h-4 w-4 mr-1" />
+              {convertToJob.isPending ? "Vytvářím…" : "Vytvořit akci"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Send email dialog */}
       <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>

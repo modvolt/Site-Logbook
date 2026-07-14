@@ -546,13 +546,17 @@ export async function removeTimeTracking(
   });
 }
 
-export async function getWorkSummary(kind: WorkKind, parentId: number) {
+export async function getWorkSummary(kind: WorkKind, parentId: number, personId?: number) {
   const now = new Date();
   const rows = await db
     .select({ session: workSessionsTable, personName: peopleTable.name })
     .from(workSessionsTable)
     .innerJoin(peopleTable, eq(workSessionsTable.personId, peopleTable.id))
-    .where(and(parentCondition(kind, parentId), ne(workSessionsTable.status, "voided")))
+    .where(and(
+      parentCondition(kind, parentId),
+      ne(workSessionsTable.status, "voided"),
+      personId != null ? eq(workSessionsTable.personId, personId) : undefined,
+    ))
     .orderBy(peopleTable.name, workSessionsTable.startedAt);
   const sessionIds = rows.map(({ session }) => session.id);
   const breaks = sessionIds.length

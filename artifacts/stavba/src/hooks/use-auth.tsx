@@ -5,7 +5,7 @@ import { debugLog } from "@/lib/pwa";
 
 export type Role = "guest" | "master" | "admin";
 export type Permission =
-  | "jobs.view" | "jobs.manage"
+  | "jobs.view" | "jobs.work" | "jobs.manage"
   | "activities.view" | "activities.manage"
   | "customers.view" | "customers.manage"
   | "people.view" | "people.manage"
@@ -36,6 +36,7 @@ export interface AuthUser {
   id: number;
   username: string;
   name: string;
+  personId: number | null;
   email: string | null;
   role: Role;
   isActive: boolean;

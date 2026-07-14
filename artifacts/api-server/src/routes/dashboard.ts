@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { gte, lte, lt, and, eq, sql, isNull, or, ne, notInArray } from "drizzle-orm";
+import { gte, lte, lt, and, eq, sql, isNull, or, ne, notInArray, inArray } from "drizzle-orm";
 import {
   db,
   jobsTable,
+  jobAssigneesTable,
   tasksTable,
   attachmentsTable,
   peopleTable,
@@ -11,6 +12,8 @@ import {
 } from "@workspace/db";
 import { count } from "drizzle-orm";
 import { enrichJobs } from "./jobs";
+import { listJobScheduleOccurrences, listScheduledJobIds } from "../lib/job-schedule-service";
+import { isRestrictedFieldWorker } from "../middlewares/job-work-access";
 
 const router: IRouter = Router();
 
@@ -56,35 +59,30 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const { from: monthFrom, to: monthTo } = getMonthRange();
   const staleThreshold = subtractDaysIso(t, DEFAULT_STALE_DAYS);
 
-  const [todayCount] = await db
-    .select({ c: count() })
-    .from(jobsTable)
-    .where(eq(jobsTable.date, t));
-
-  const [weekCount] = await db
-    .select({ c: count() })
-    .from(jobsTable)
-    .where(and(gte(jobsTable.date, from), lte(jobsTable.date, to)));
+  const [todayJobIds, weekJobIds] = await Promise.all([
+    listScheduledJobIds(t, t),
+    listScheduledJobIds(from, to),
+  ]);
 
   const [plannedCount] = await db
     .select({ c: count() })
     .from(jobsTable)
-    .where(eq(jobsTable.status, "planned"));
+    .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "planned")));
 
   const [inProgressCount] = await db
     .select({ c: count() })
     .from(jobsTable)
-    .where(eq(jobsTable.status, "in_progress"));
+    .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "in_progress")));
 
   const [doneCount] = await db
     .select({ c: count() })
     .from(jobsTable)
-    .where(eq(jobsTable.status, "done"));
+    .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "done")));
 
   const weekJobs = await db
     .select({ hoursSpent: jobsTable.hoursSpent, price: jobsTable.price })
     .from(jobsTable)
-    .where(and(gte(jobsTable.date, from), lte(jobsTable.date, to)));
+    .where(and(isNull(jobsTable.archivedAt), gte(jobsTable.date, from), lte(jobsTable.date, to)));
 
   const totalHoursThisWeek = weekJobs.reduce(
     (sum, j) => sum + (j.hoursSpent != null ? Number(j.hoursSpent) : 0),
@@ -101,7 +99,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       total: sql<number>`coalesce(sum(${jobsTable.hoursSpent}), 0)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(and(gte(jobsTable.date, monthFrom), lte(jobsTable.date, monthTo)));
+    .where(and(isNull(jobsTable.archivedAt), gte(jobsTable.date, monthFrom), lte(jobsTable.date, monthTo)));
 
   // --- Unbilled value: done jobs not linked to any non-cancelled invoice ---
   const billedRows = await db
@@ -128,12 +126,12 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
         total: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
       })
       .from(jobsTable)
-      .where(unbilledWhere),
+      .where(and(isNull(jobsTable.archivedAt), unbilledWhere)),
 
     db
       .select({ oldest: sql<string | null>`MIN(${jobsTable.date})` })
       .from(jobsTable)
-      .where(unbilledWhere),
+      .where(and(isNull(jobsTable.archivedAt), unbilledWhere)),
 
     db
       .select({
@@ -141,7 +139,9 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       })
       .from(jobsTable)
       .where(
-        billedIds.length > 0
+        and(
+          isNull(jobsTable.archivedAt),
+          billedIds.length > 0
           ? and(
               eq(jobsTable.status, "done"),
               sql`${jobsTable.customerId} IS NOT NULL`,
@@ -153,6 +153,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
               sql`${jobsTable.customerId} IS NOT NULL`,
               lt(jobsTable.date, overdueThreshold),
             ),
+        ),
       ),
   ]);
 
@@ -162,6 +163,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     .from(jobsTable)
     .where(
       and(
+        isNull(jobsTable.archivedAt),
         or(eq(jobsTable.status, "planned"), eq(jobsTable.status, "in_progress")),
         or(
           isNull(jobsTable.customerId),
@@ -182,8 +184,8 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
 
   const canViewBilling = req.auth!.permissions.includes("billing.view");
   res.json({
-    todayCount: todayCount?.c ?? 0,
-    weekCount: weekCount?.c ?? 0,
+    todayCount: todayJobIds.length,
+    weekCount: weekJobIds.length,
     plannedCount: plannedCount?.c ?? 0,
     inProgressCount: inProgressCount?.c ?? 0,
     doneCount: doneCount?.c ?? 0,
@@ -199,14 +201,72 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
 
 router.get("/dashboard/today", async (req, res): Promise<void> => {
   const t = today();
+  let occurrences = await listJobScheduleOccurrences(t, t);
+  if (isRestrictedFieldWorker(req.auth!.permissions)) {
+    if (req.auth!.personId == null) {
+      res.json([]);
+      return;
+    }
+    const additionalAssignments = await db
+      .select({ jobId: jobAssigneesTable.jobId })
+      .from(jobAssigneesTable)
+      .where(eq(jobAssigneesTable.personId, req.auth!.personId));
+    const additionalJobIds = new Set(additionalAssignments.map((assignment) => assignment.jobId));
+    occurrences = occurrences.filter((occurrence) =>
+      occurrence.personId === req.auth!.personId || additionalJobIds.has(occurrence.jobId),
+    );
+  }
+  const jobIds = Array.from(new Set(occurrences.map((occurrence) => occurrence.jobId)));
+  if (jobIds.length === 0) {
+    res.json([]);
+    return;
+  }
   const jobs = await db
     .select()
     .from(jobsTable)
-    .where(eq(jobsTable.date, t))
+    .where(and(isNull(jobsTable.archivedAt), inArray(jobsTable.id, jobIds)))
     .orderBy(jobsTable.sortOrder, jobsTable.startTime);
 
   const enriched = await enrichJobs(jobs, req.auth!.permissions.includes("billing.view"), req.auth!.personId);
-  res.json(enriched);
+  const personIds = Array.from(new Set(
+    occurrences
+      .map((occurrence) => occurrence.personId)
+      .filter((personId): personId is number => personId != null),
+  ));
+  const people = personIds.length > 0
+    ? await db.select({ id: peopleTable.id, name: peopleTable.name }).from(peopleTable).where(inArray(peopleTable.id, personIds))
+    : [];
+  const peopleById = new Map(people.map((person) => [person.id, person.name]));
+  const occurrencesByJob = new Map<number, typeof occurrences>();
+  for (const occurrence of occurrences) {
+    const list = occurrencesByJob.get(occurrence.jobId) ?? [];
+    list.push(occurrence);
+    occurrencesByJob.set(occurrence.jobId, list);
+  }
+  const jobsById = new Map(enriched.map((job) => [job.id, job]));
+  const orderedIds = Array.from(new Set(occurrences.map((occurrence) => occurrence.jobId)));
+
+  res.json(orderedIds.flatMap((jobId) => {
+    const job = jobsById.get(jobId);
+    if (!job) return [];
+    const scheduleOccurrences = occurrencesByJob.get(jobId) ?? [];
+    const primaryOccurrence = scheduleOccurrences[0];
+    const schedulePersonNames = Array.from(new Set(scheduleOccurrences.flatMap((occurrence) =>
+      occurrence.personId == null ? [] : [peopleById.get(occurrence.personId) ?? `#${occurrence.personId}`],
+    )));
+    return [{
+      ...job,
+      date: t,
+      startTime: primaryOccurrence?.startTime ?? null,
+      endTime: primaryOccurrence?.endTime ?? null,
+      assignedPersonId: primaryOccurrence?.personId ?? null,
+      assignedPersonName: schedulePersonNames.join(", ") || null,
+      scheduledByVisit: scheduleOccurrences.some((occurrence) => occurrence.occurrenceType === "visit"),
+      scheduleOccurrenceKeys: scheduleOccurrences.map((occurrence) => occurrence.occurrenceKey),
+      schedulePersonNames,
+      scheduleVisitIds: scheduleOccurrences.flatMap((occurrence) => occurrence.visitId == null ? [] : [occurrence.visitId]),
+    }];
+  }));
 });
 
 export default router;

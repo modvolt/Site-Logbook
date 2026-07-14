@@ -4,7 +4,7 @@ import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { format, addDays, parseISO } from "date-fns";
 import { cs } from "date-fns/locale";
 import { 
-  useCreateJob, useListPeople, useCreateTask, useCreateMaterial, useUpdateJobAssignees,
+  useCreateJob, useListPeople,
   useListCustomers, useListJobs, useListWarehouseItems, useListCustomerSites, useListLeaves,
   getListPeopleQueryKey, getListJobsQueryKey, getListCustomersQueryKey, getListWarehouseItemsQueryKey, getListCustomerSitesQueryKey, getListLeavesQueryKey
 } from "@workspace/api-client-react";
@@ -30,19 +30,17 @@ export default function JobForm() {
   const initialDate = queryParams.get("date") || format(new Date(), "yyyy-MM-dd");
   const initialClientSite = queryParams.get("clientSite") || "";
   const initialCustomerId = queryParams.get("customerId") ? parseInt(queryParams.get("customerId")!) : null;
+  const initialGroupId = queryParams.get("groupId") ? parseInt(queryParams.get("groupId")!) : null;
   const initialPersonId = queryParams.get("personId") || "none";
   
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const createJob = useCreateJob();
-  const updateAssignees = useUpdateJobAssignees();
 
   const [isDirty, setIsDirty] = useState(false);
   const markDirty = useCallback(() => setIsDirty(true), []);
   const { confirmNavigation } = useUnsavedChanges(isDirty);
-  const createTask = useCreateTask();
-  const createMaterial = useCreateMaterial();
-  
+
   const { data: people } = useListPeople({ query: { queryKey: getListPeopleQueryKey() } });
   const { data: customers } = useListCustomers({ query: { queryKey: getListCustomersQueryKey() } });
   const { data: existingJobs } = useListJobs(undefined, { query: { queryKey: getListJobsQueryKey() } });
@@ -253,7 +251,17 @@ export default function JobForm() {
       endTime: formData.endTime || null,
       status: formData.status as JobInputStatus,
       assignedPersonId: formData.assignedPersonId !== "none" ? parseInt(formData.assignedPersonId) : null,
+      assigneeIds,
+      tasks: tasks.map((title) => ({ title })),
+      materials: materials.map((material) => ({
+        name: material.name,
+        quantity: parseDecimal(material.quantity),
+        unit: material.unit || null,
+        pricePerUnit: parseDecimal(material.pricePerUnit),
+        done: false,
+      })),
       customerId: formData.customerId,
+      groupId: initialGroupId,
       notes: formData.notes || null,
       recurrenceIntervalDays:
         formData.type === "service_call" && formData.recurrenceIntervalDays
@@ -262,33 +270,18 @@ export default function JobForm() {
     };
 
     createJob.mutate({ data: jobData }, {
-      onSuccess: async (newJob) => {
+      onSuccess: (newJob) => {
         setIsDirty(false);
         invalidateData(queryClient, "jobs", "warehouse");
-        if (assigneeIds.length > 0) {
-          await updateAssignees.mutateAsync({ id: newJob.id, data: { personIds: assigneeIds } }).catch(() => {
-            toast({ title: "Nepodařilo se přiřadit další pracovníky", variant: "destructive" });
-          });
-        }
-        for (const title of tasks) {
-          await createTask.mutateAsync({ jobId: newJob.id, data: { title } }).catch(() => {});
-        }
-        for (const m of materials) {
-          await createMaterial.mutateAsync({
-            jobId: newJob.id,
-            data: {
-              name: m.name,
-              quantity: parseDecimal(m.quantity),
-              unit: m.unit || null,
-              pricePerUnit: parseDecimal(m.pricePerUnit),
-            },
-          }).catch(() => {});
-        }
         toast({ title: "Zakázka vytvořena" });
         setLocation(`/jobs/${newJob.id}`);
       },
-      onError: () => {
-        toast({ title: "Nepodařilo se vytvořit zakázku", variant: "destructive" });
+      onError: (error: any) => {
+        toast({
+          title: "Nepodařilo se vytvořit zakázku",
+          description: error?.message ?? "Nebyla uložena žádná část zakázky.",
+          variant: "destructive",
+        });
       }
     });
   };

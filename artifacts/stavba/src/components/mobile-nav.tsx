@@ -68,7 +68,11 @@ export function MobileNav({ location, isActive, can }: Props) {
   const [editing, setEditing] = useState(false);
   const [quick, setQuick] = useState<string[]>(loadQuick);
 
-  const available = mobileMenuItems.filter((i) => !i.requires || can(i.requires));
+  const fieldMode = can("jobs.work") && !can("jobs.manage");
+  const fieldNavHrefs = new Set(["/", "/calendar", "/jobs", "/me"]);
+  const available = mobileMenuItems.filter((i) =>
+    (!fieldMode || fieldNavHrefs.has(i.href)) && (!i.requires || can(i.requires)),
+  );
   const availableHrefs = new Set(available.map((i) => i.href));
   const availableKey = available.map((i) => i.href).join(",");
 

@@ -12,6 +12,7 @@ import {
   UpsertMaterialMarkupRuleBody,
   CreateRecurringTemplateBody,
   UpdateRecurringTemplateBody,
+  CreateQuoteJobGroupInvoiceDraftBody,
 } from "@workspace/api-zod";
 import {
   ObjectNotFoundError,
@@ -36,6 +37,7 @@ import {
   listInvoices,
   getInvoiceDetail,
   createDraft,
+  createQuoteJobGroupInvoiceDraft,
   updateDraft,
   recalcDraft,
   deleteDraft,
@@ -76,12 +78,18 @@ function isAppError(err: unknown): err is AppError {
   );
 }
 
-function handleError(err: unknown, fallback: string, res: import("express").Response): void {
+function handleError(
+  err: unknown,
+  fallback: string,
+  res: import("express").Response,
+): void {
   if (isAppError(err)) {
     res.status(err.statusCode).json({ error: err.message });
     return;
   }
-  res.status(500).json({ error: err instanceof Error ? err.message : fallback });
+  res
+    .status(500)
+    .json({ error: err instanceof Error ? err.message : fallback });
 }
 
 function actorOf(req: import("express").Request): Actor {
@@ -108,35 +116,52 @@ const WorkFinancialQuery = z.object({
   personId: z.coerce.number().int().positive().optional(),
   jobId: z.coerce.number().int().positive().optional(),
   activityId: z.coerce.number().int().positive().optional(),
-  billingStatus: z.enum(["unbilled", "ready", "billed", "non_billable"]).optional(),
+  billingStatus: z
+    .enum(["unbilled", "ready", "billed", "non_billable"])
+    .optional(),
 });
 
-router.get("/billing/work-financial-summary", async (req, res): Promise<void> => {
-  const parsed = WorkFinancialQuery.safeParse(req.query);
-  if (!parsed.success) { res.status(400).json({ error: "Neplatný filtr finančního přehledu" }); return; }
-  const summary = await getWorkFinancialSummary(parsed.data);
-  const canViewCost = req.auth!.permissions.includes("rates.cost.view");
-  const filter = <T extends { cost: number; sale: number; margin: number; marginPercent: number | null }>(row: T) => ({
-    ...row,
-    cost: canViewCost ? row.cost : null,
-    margin: canViewCost ? row.margin : null,
-    marginPercent: canViewCost ? row.marginPercent : null,
-  });
-  await db.insert(auditLogTable).values({
-    actorUserId: req.auth!.userId,
-    actorName: req.auth!.name,
-    action: "view",
-    entityType: "work_financial_summary",
-    summary: `Zobrazení finančního přehledu práce (${canViewCost ? "včetně nákladů" : "bez nákladů"})`,
-    method: "GET",
-    path: "/billing/work-financial-summary",
-  });
-  res.json({
-    ...filter(summary),
-    byBillingStatus: summary.byBillingStatus.map(filter),
-    byPerson: summary.byPerson.map(filter),
-  });
-});
+router.get(
+  "/billing/work-financial-summary",
+  async (req, res): Promise<void> => {
+    const parsed = WorkFinancialQuery.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Neplatný filtr finančního přehledu" });
+      return;
+    }
+    const summary = await getWorkFinancialSummary(parsed.data);
+    const canViewCost = req.auth!.permissions.includes("rates.cost.view");
+    const filter = <
+      T extends {
+        cost: number;
+        sale: number;
+        margin: number;
+        marginPercent: number | null;
+      },
+    >(
+      row: T,
+    ) => ({
+      ...row,
+      cost: canViewCost ? row.cost : null,
+      margin: canViewCost ? row.margin : null,
+      marginPercent: canViewCost ? row.marginPercent : null,
+    });
+    await db.insert(auditLogTable).values({
+      actorUserId: req.auth!.userId,
+      actorName: req.auth!.name,
+      action: "view",
+      entityType: "work_financial_summary",
+      summary: `Zobrazení finančního přehledu práce (${canViewCost ? "včetně nákladů" : "bez nákladů"})`,
+      method: "GET",
+      path: "/billing/work-financial-summary",
+    });
+    res.json({
+      ...filter(summary),
+      byBillingStatus: summary.byBillingStatus.map(filter),
+      byPerson: summary.byPerson.map(filter),
+    });
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Settings (singleton)
@@ -198,44 +223,53 @@ router.put("/billing/settings", async (req, res): Promise<void> => {
 // Per-category material markup rules
 // ---------------------------------------------------------------------------
 
-router.get("/billing/material-markup-rules", async (_req, res): Promise<void> => {
-  res.json({ rules: await listMaterialMarkupRules() });
-});
+router.get(
+  "/billing/material-markup-rules",
+  async (_req, res): Promise<void> => {
+    res.json({ rules: await listMaterialMarkupRules() });
+  },
+);
 
-router.put("/billing/material-markup-rules", async (req, res): Promise<void> => {
-  const parsed = UpsertMaterialMarkupRuleBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    const rule = await upsertMaterialMarkupRule({
-      category: parsed.data.category,
-      markupPercent: parsed.data.markupPercent,
-    });
-    res.json(rule);
-  } catch (err) {
-    handleError(err, "Uložení přirážky kategorie selhalo.", res);
-  }
-});
-
-router.delete("/billing/material-markup-rules/:id", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID pravidla." });
-    return;
-  }
-  try {
-    const ok = await deleteMaterialMarkupRule(id);
-    if (!ok) {
-      res.status(404).json({ error: "Pravidlo nenalezeno." });
+router.put(
+  "/billing/material-markup-rules",
+  async (req, res): Promise<void> => {
+    const parsed = UpsertMaterialMarkupRuleBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
       return;
     }
-    res.status(204).end();
-  } catch (err) {
-    handleError(err, "Smazání přirážky kategorie selhalo.", res);
-  }
-});
+    try {
+      const rule = await upsertMaterialMarkupRule({
+        category: parsed.data.category,
+        markupPercent: parsed.data.markupPercent,
+      });
+      res.json(rule);
+    } catch (err) {
+      handleError(err, "Uložení přirážky kategorie selhalo.", res);
+    }
+  },
+);
+
+router.delete(
+  "/billing/material-markup-rules/:id",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID pravidla." });
+      return;
+    }
+    try {
+      const ok = await deleteMaterialMarkupRule(id);
+      if (!ok) {
+        res.status(404).json({ error: "Pravidlo nenalezeno." });
+        return;
+      }
+      res.status(204).end();
+    } catch (err) {
+      handleError(err, "Smazání přirážky kategorie selhalo.", res);
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Unbilled (done jobs grouped by customer)
@@ -281,7 +315,9 @@ router.get("/billing/invoices", async (req, res): Promise<void> => {
     await listInvoices({
       status,
       customerId:
-        customerId != null && Number.isFinite(customerId) ? customerId : undefined,
+        customerId != null && Number.isFinite(customerId)
+          ? customerId
+          : undefined,
     }),
   );
 });
@@ -320,6 +356,46 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
     handleError(err, "Vytvoření konceptu faktury selhalo.", res);
   }
 });
+
+router.post(
+  "/billing/job-groups/:id/invoice-draft",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID akce zakázek." });
+      return;
+    }
+    const parsed = CreateQuoteJobGroupInvoiceDraftBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const created = await createQuoteJobGroupInvoiceDraft(
+        id,
+        {
+          extraJobIds: parsed.data.extraJobIds ?? undefined,
+          labourBillingMode: parsed.data.labourBillingMode ?? undefined,
+          workGrouping: parsed.data.workGrouping ?? undefined,
+          billFineJobIds: parsed.data.billFineJobIds ?? undefined,
+          materialMarkupPercent: parsed.data.materialMarkupPercent ?? undefined,
+          materialMarkupOverrides:
+            parsed.data.materialMarkupOverrides ?? undefined,
+          issueDate: parsed.data.issueDate ?? undefined,
+          taxableSupplyDate: parsed.data.taxableSupplyDate ?? undefined,
+          dueDate: parsed.data.dueDate ?? undefined,
+          paymentMethod: parsed.data.paymentMethod ?? undefined,
+          vatModeDefault: parsed.data.vatModeDefault ?? undefined,
+          notes: parsed.data.notes ?? undefined,
+        },
+        actorOf(req),
+      );
+      res.status(201).json(created);
+    } catch (err) {
+      handleError(err, "Vytvoření konceptu faktury z akce selhalo.", res);
+    }
+  },
+);
 
 router.get("/billing/invoices/:id", async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
@@ -374,25 +450,28 @@ router.delete("/billing/invoices/:id", async (req, res): Promise<void> => {
     return;
   }
   try {
-    await deleteDraft(id);
+    await deleteDraft(id, actorOf(req));
     res.status(204).end();
   } catch (err) {
     handleError(err, "Smazání konceptu faktury selhalo.", res);
   }
 });
 
-router.post("/billing/invoices/:id/recalculate", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID faktury." });
-    return;
-  }
-  try {
-    res.json(await recalcDraft(id));
-  } catch (err) {
-    handleError(err, "Přepočet faktury selhal.", res);
-  }
-});
+router.post(
+  "/billing/invoices/:id/recalculate",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID faktury." });
+      return;
+    }
+    try {
+      res.json(await recalcDraft(id));
+    } catch (err) {
+      handleError(err, "Přepočet faktury selhal.", res);
+    }
+  },
+);
 
 router.post("/billing/invoices/:id/issue", async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
@@ -420,36 +499,43 @@ router.post("/billing/invoices/:id/cancel", async (req, res): Promise<void> => {
   }
   try {
     res.json(
-      await cancelInvoice(id, parsed.data.returnJobsToDone ?? false, actorOf(req)),
+      await cancelInvoice(
+        id,
+        parsed.data.returnJobsToDone ?? false,
+        actorOf(req),
+      ),
     );
   } catch (err) {
     handleError(err, "Storno faktury selhalo.", res);
   }
 });
 
-router.patch("/billing/invoices/:id/status", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID faktury." });
-    return;
-  }
-  const parsed = UpdateInvoiceStatusBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    res.json(
-      await updateInvoiceStatus(id, {
-        status: parsed.data.status,
-        paidDate: parsed.data.paidDate ?? null,
-        paidAmount: parsed.data.paidAmount ?? null,
-      }),
-    );
-  } catch (err) {
-    handleError(err, "Změna stavu faktury selhala.", res);
-  }
-});
+router.patch(
+  "/billing/invoices/:id/status",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID faktury." });
+      return;
+    }
+    const parsed = UpdateInvoiceStatusBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      res.json(
+        await updateInvoiceStatus(id, {
+          status: parsed.data.status,
+          paidDate: parsed.data.paidDate ?? null,
+          paidAmount: parsed.data.paidAmount ?? null,
+        }),
+      );
+    } catch (err) {
+      handleError(err, "Změna stavu faktury selhala.", res);
+    }
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Bank statement payment matching (Komerční banka GPC / CAMT.053)
@@ -487,121 +573,137 @@ router.post(
       return;
     }
     try {
-      res.json(
-        await confirmBankPayments(parsed.data.payments, actorOf(req)),
-      );
+      res.json(await confirmBankPayments(parsed.data.payments, actorOf(req)));
     } catch (err) {
       handleError(err, "Označení faktur jako zaplacené selhalo.", res);
     }
   },
 );
 
-router.post("/billing/invoices/:id/send-email", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID faktury." });
-    return;
-  }
-  const parsed = SendInvoiceEmailBody.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const invoice = await getInvoiceForPdf(id);
-  if (!invoice) {
-    res.status(404).json({ error: "Faktura nenalezena." });
-    return;
-  }
-  if (invoice.status === "draft" || !invoice.pdfObjectPath) {
-    res.status(409).json({ error: "Fakturu je nutné nejprve vystavit." });
-    return;
-  }
-  const to = (parsed.data.to ?? invoice.customerEmail ?? "").trim();
-  const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
-  if (!emailPattern.test(to)) {
-    res.status(400).json({ error: "Chybí platná e-mailová adresa příjemce." });
-    return;
-  }
-  const number = invoice.invoiceNumber ?? `#${id}`;
-  const subject = (parsed.data.subject ?? "").trim() || `Faktura ${number}`;
-  const message =
-    (parsed.data.message ?? "").trim() ||
-    `Dobrý den,\n\nv příloze zasíláme fakturu ${number}.\n\nS pozdravem`;
-  try {
-    const buffer = await objectStorage.getPrivateObjectBuffer(invoice.pdfObjectPath);
-    await sendEmailWithPdf({
-      to,
-      subject,
-      text: message,
-      pdfBase64: buffer.toString("base64"),
-      filename: `faktura-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
-    });
-    res.json({ sent: true, to });
-  } catch (err) {
-    if (err instanceof ObjectNotFoundError) {
-      res.status(404).json({ error: "PDF faktury nebylo nalezeno v úložišti." });
+router.post(
+  "/billing/invoices/:id/send-email",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID faktury." });
       return;
     }
-    req.log.error({ err, invoiceId: id }, "Invoice email failed");
-    res.status(502).json({
-      error: err instanceof Error ? err.message : "Odeslání faktury e-mailem selhalo.",
+    const parsed = SendInvoiceEmailBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const invoice = await getInvoiceForPdf(id);
+    if (!invoice) {
+      res.status(404).json({ error: "Faktura nenalezena." });
+      return;
+    }
+    if (invoice.status === "draft" || !invoice.pdfObjectPath) {
+      res.status(409).json({ error: "Fakturu je nutné nejprve vystavit." });
+      return;
+    }
+    const to = (parsed.data.to ?? invoice.customerEmail ?? "").trim();
+    const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+    if (!emailPattern.test(to)) {
+      res
+        .status(400)
+        .json({ error: "Chybí platná e-mailová adresa příjemce." });
+      return;
+    }
+    const number = invoice.invoiceNumber ?? `#${id}`;
+    const subject = (parsed.data.subject ?? "").trim() || `Faktura ${number}`;
+    const message =
+      (parsed.data.message ?? "").trim() ||
+      `Dobrý den,\n\nv příloze zasíláme fakturu ${number}.\n\nS pozdravem`;
+    try {
+      const buffer = await objectStorage.getPrivateObjectBuffer(
+        invoice.pdfObjectPath,
+      );
+      await sendEmailWithPdf({
+        to,
+        subject,
+        text: message,
+        pdfBase64: buffer.toString("base64"),
+        filename: `faktura-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
+      });
+      res.json({ sent: true, to });
+    } catch (err) {
+      if (err instanceof ObjectNotFoundError) {
+        res
+          .status(404)
+          .json({ error: "PDF faktury nebylo nalezeno v úložišti." });
+        return;
+      }
+      req.log.error({ err, invoiceId: id }, "Invoice email failed");
+      res.status(502).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : "Odeslání faktury e-mailem selhalo.",
+      });
+    }
+  },
+);
+
+router.post(
+  "/billing/invoices/:id/reminder",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID faktury." });
+      return;
+    }
+    const parsed = SendInvoiceReminderBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    try {
+      const result = await sendInvoiceReminder(
+        id,
+        {
+          to: parsed.data.to ?? null,
+          subject: parsed.data.subject ?? null,
+          message: parsed.data.message ?? null,
+          auto: false,
+        },
+        actorOf(req),
+      );
+      res.json(result);
+    } catch (err) {
+      req.log.error({ err, invoiceId: id }, "Invoice reminder failed");
+      handleError(err, "Odeslání upomínky selhalo.", res);
+    }
+  },
+);
+
+router.get(
+  "/billing/invoices/:id/reminder-preview",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID faktury." });
+      return;
+    }
+    const invoice = await getInvoiceForPdf(id);
+    if (!invoice) {
+      res.status(404).json({ error: "Faktura nenalezena." });
+      return;
+    }
+    if (!isOverdue(invoice)) {
+      res.status(409).json({ error: "Faktura není po splatnosti." });
+      return;
+    }
+    const days = daysOverdue(invoice.dueDate!);
+    const { subject, message } = composeReminder(invoice, days);
+    res.json({
+      subject,
+      message,
+      to: invoice.customerEmail ?? null,
+      daysOverdue: days,
     });
-  }
-});
-
-router.post("/billing/invoices/:id/reminder", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID faktury." });
-    return;
-  }
-  const parsed = SendInvoiceReminderBody.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    const result = await sendInvoiceReminder(
-      id,
-      {
-        to: parsed.data.to ?? null,
-        subject: parsed.data.subject ?? null,
-        message: parsed.data.message ?? null,
-        auto: false,
-      },
-      actorOf(req),
-    );
-    res.json(result);
-  } catch (err) {
-    req.log.error({ err, invoiceId: id }, "Invoice reminder failed");
-    handleError(err, "Odeslání upomínky selhalo.", res);
-  }
-});
-
-router.get("/billing/invoices/:id/reminder-preview", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID faktury." });
-    return;
-  }
-  const invoice = await getInvoiceForPdf(id);
-  if (!invoice) {
-    res.status(404).json({ error: "Faktura nenalezena." });
-    return;
-  }
-  if (!isOverdue(invoice)) {
-    res.status(409).json({ error: "Faktura není po splatnosti." });
-    return;
-  }
-  const days = daysOverdue(invoice.dueDate!);
-  const { subject, message } = composeReminder(invoice, days);
-  res.json({
-    subject,
-    message,
-    to: invoice.customerEmail ?? null,
-    daysOverdue: days,
-  });
-});
+  },
+);
 
 router.get("/billing/invoices/:id/pdf", async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
@@ -615,12 +717,17 @@ router.get("/billing/invoices/:id/pdf", async (req, res): Promise<void> => {
     return;
   }
   const number = (invoice.invoiceNumber ?? `${id}`).replace(/[^\w.-]+/g, "-");
-  res.setHeader("Content-Disposition", `attachment; filename="faktura-${number}.pdf"`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="faktura-${number}.pdf"`,
+  );
   try {
     await objectStorage.servePrivateObject(invoice.pdfObjectPath, res);
   } catch (err) {
     if (err instanceof ObjectNotFoundError) {
-      res.status(404).json({ error: "PDF faktury nebylo nalezeno v úložišti." });
+      res
+        .status(404)
+        .json({ error: "PDF faktury nebylo nalezeno v úložišti." });
       return;
     }
     req.log.error({ err, invoiceId: id }, "Invoice PDF download failed");
@@ -649,7 +756,12 @@ router.post("/billing/recurring-templates", async (req, res): Promise<void> => {
     const template = await createRecurringTemplate({
       customerId: d.customerId,
       name: d.name,
-      items: d.items.map((item) => ({ ...item, unit: item.unit ?? null, vatRate: item.vatRate ?? null, discountPercent: item.discountPercent ?? null })),
+      items: d.items.map((item) => ({
+        ...item,
+        unit: item.unit ?? null,
+        vatRate: item.vatRate ?? null,
+        discountPercent: item.discountPercent ?? null,
+      })),
       interval: d.interval,
       dayOfMonth: d.dayOfMonth,
       nextGenerationDate: d.nextGenerationDate,
@@ -663,90 +775,112 @@ router.post("/billing/recurring-templates", async (req, res): Promise<void> => {
   }
 });
 
-router.get("/billing/recurring-templates/:id", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID šablony." });
-    return;
-  }
-  const template = await getRecurringTemplateDetail(id);
-  if (!template) {
-    res.status(404).json({ error: "Šablona nenalezena." });
-    return;
-  }
-  res.json(template);
-});
-
-router.put("/billing/recurring-templates/:id", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID šablony." });
-    return;
-  }
-  const parsed = UpdateRecurringTemplateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const d = parsed.data;
-  try {
-    const template = await updateRecurringTemplate(id, {
-      name: d.name ?? undefined,
-      items: d.items ? d.items.map((item) => ({ ...item, unit: item.unit ?? null, vatRate: item.vatRate ?? null, discountPercent: item.discountPercent ?? null })) : undefined,
-      interval: d.interval ?? undefined,
-      dayOfMonth: d.dayOfMonth ?? undefined,
-      nextGenerationDate: d.nextGenerationDate ?? undefined,
-      isActive: d.isActive ?? undefined,
-      notes: d.notes,
-      vatModeDefault: d.vatModeDefault ?? undefined,
-    });
-    res.json(template);
-  } catch (err) {
-    handleError(err, "Aktualizace šablony selhala.", res);
-  }
-});
-
-router.delete("/billing/recurring-templates/:id", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID šablony." });
-    return;
-  }
-  try {
-    const ok = await deleteRecurringTemplate(id);
-    if (!ok) {
+router.get(
+  "/billing/recurring-templates/:id",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID šablony." });
+      return;
+    }
+    const template = await getRecurringTemplateDetail(id);
+    if (!template) {
       res.status(404).json({ error: "Šablona nenalezena." });
       return;
     }
-    res.status(204).end();
-  } catch (err) {
-    handleError(err, "Smazání šablony selhalo.", res);
-  }
-});
+    res.json(template);
+  },
+);
 
-router.post("/billing/recurring-templates/generate", async (req, res): Promise<void> => {
-  const today = new Date().toISOString().split("T")[0]!;
-  try {
-    const result = await runRecurringGeneration(today);
-    res.json(result);
-  } catch (err) {
-    handleError(err, "Ruční generování paušálních faktur selhalo.", res);
-  }
-});
+router.put(
+  "/billing/recurring-templates/:id",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID šablony." });
+      return;
+    }
+    const parsed = UpdateRecurringTemplateBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const d = parsed.data;
+    try {
+      const template = await updateRecurringTemplate(id, {
+        name: d.name ?? undefined,
+        items: d.items
+          ? d.items.map((item) => ({
+              ...item,
+              unit: item.unit ?? null,
+              vatRate: item.vatRate ?? null,
+              discountPercent: item.discountPercent ?? null,
+            }))
+          : undefined,
+        interval: d.interval ?? undefined,
+        dayOfMonth: d.dayOfMonth ?? undefined,
+        nextGenerationDate: d.nextGenerationDate ?? undefined,
+        isActive: d.isActive ?? undefined,
+        notes: d.notes,
+        vatModeDefault: d.vatModeDefault ?? undefined,
+      });
+      res.json(template);
+    } catch (err) {
+      handleError(err, "Aktualizace šablony selhala.", res);
+    }
+  },
+);
 
-router.post("/billing/recurring-templates/:id/generate", async (req, res): Promise<void> => {
-  const id = parseId(req.params.id);
-  if (id === null) {
-    res.status(400).json({ error: "Neplatné ID šablony." });
-    return;
-  }
-  try {
-    const result = await generateTemplateNow(id);
-    res.json(result);
-  } catch (err) {
-    handleError(err, "Generování konceptu faktury selhalo.", res);
-  }
-});
+router.delete(
+  "/billing/recurring-templates/:id",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID šablony." });
+      return;
+    }
+    try {
+      const ok = await deleteRecurringTemplate(id);
+      if (!ok) {
+        res.status(404).json({ error: "Šablona nenalezena." });
+        return;
+      }
+      res.status(204).end();
+    } catch (err) {
+      handleError(err, "Smazání šablony selhalo.", res);
+    }
+  },
+);
+
+router.post(
+  "/billing/recurring-templates/generate",
+  async (req, res): Promise<void> => {
+    const today = new Date().toISOString().split("T")[0]!;
+    try {
+      const result = await runRecurringGeneration(today);
+      res.json(result);
+    } catch (err) {
+      handleError(err, "Ruční generování paušálních faktur selhalo.", res);
+    }
+  },
+);
+
+router.post(
+  "/billing/recurring-templates/:id/generate",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: "Neplatné ID šablony." });
+      return;
+    }
+    try {
+      const result = await generateTemplateNow(id);
+      res.json(result);
+    } catch (err) {
+      handleError(err, "Generování konceptu faktury selhalo.", res);
+    }
+  },
+);
 
 function mapLineInput(line: {
   description: string;

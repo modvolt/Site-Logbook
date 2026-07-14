@@ -1,11 +1,13 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import {
   db,
   billingSettingsTable,
   quotesTable,
   quoteItemsTable,
   customersTable,
+  jobGroupsTable,
   jobsTable,
+  auditLogTable,
   type Quote,
   type QuoteItem,
 } from "@workspace/db";
@@ -56,6 +58,10 @@ export interface QuoteUpdateInput {
   validUntil?: string | null;
   notes?: string | null;
   items?: QuoteItemInput[];
+}
+
+export interface QuoteConversionInput {
+  plannedDate?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -589,8 +595,18 @@ export async function expireQuote(id: number) {
   return getQuoteDetail(id);
 }
 
-export async function convertQuoteToJob(id: number) {
-  const jobId = await db.transaction(async (tx) => {
+export async function convertQuoteToJob(
+  id: number,
+  input: QuoteConversionInput = {},
+  actor?: Actor,
+) {
+  const plannedDate = input.plannedDate?.trim() || todayIso();
+  const parsedDate = new Date(`${plannedDate}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(plannedDate) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== plannedDate) {
+    throw appError(400, "Plánovaný termín musí být platné datum.");
+  }
+
+  return db.transaction(async (tx) => {
     const [quote] = await tx
       .select()
       .from(quotesTable)
@@ -601,32 +617,63 @@ export async function convertQuoteToJob(id: number) {
     if (!quote) throw appError(404, "Nabídka nenalezena.");
     if (quote.status !== "accepted")
       throw appError(409, "Převést na zakázku lze pouze přijatou nabídku.");
-    if (quote.convertedToJobId != null)
-      throw appError(409, "Nabídka již byla převedena na zakázku – zakázka existuje.");
+    if (quote.convertedToJobId != null || quote.convertedToJobGroupId != null)
+      throw appError(409, "Nabídka již byla převedena na akci zakázek.");
 
-    const today = todayIso();
     const noteLines = [`Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}: ${quote.title}`];
     if (quote.notes) noteLines.push(quote.notes);
+
+    const [group] = await tx
+      .insert(jobGroupsTable)
+      .values({
+        name: quote.title,
+        customerId: quote.customerId ?? null,
+        notes: `Vytvořeno z nabídky ${quote.quoteNumber ?? `#${id}`}.`,
+        status: "open",
+        dateFrom: plannedDate,
+        dateTo: plannedDate,
+      })
+      .returning();
+
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`jobs-sort:${plannedDate}`}))`);
+    const [order] = await tx
+      .select({ maxSort: max(jobsTable.sortOrder) })
+      .from(jobsTable)
+      .where(eq(jobsTable.date, plannedDate));
 
     const [job] = await tx
       .insert(jobsTable)
       .values({
-        date: today,
+        date: plannedDate,
         title: quote.title,
         customerId: quote.customerId ?? null,
+        groupId: group.id,
         notes: noteLines.join("\n"),
         status: "planned",
-        sortOrder: 0,
+        sortOrder: (order?.maxSort ?? -1) + 1,
       })
       .returning();
 
     await tx
       .update(quotesTable)
-      .set({ convertedToJobId: job.id, updatedAt: new Date() })
+      .set({
+        convertedToJobId: job.id,
+        convertedToJobGroupId: group.id,
+        updatedAt: new Date(),
+      })
       .where(eq(quotesTable.id, id));
 
-    return job.id;
-  });
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor?.userId ?? null,
+      actorName: actor?.name ?? "Systém",
+      action: "quote_converted_to_job_group",
+      entityType: "quote",
+      entityId: quote.id,
+      summary: `Nabídka ${quote.quoteNumber ?? `#${quote.id}`} převedena na akci #${group.id} a zakázku #${job.id} s termínem ${plannedDate}.`,
+      method: "POST",
+      path: `/quotes/${quote.id}/convert-to-job`,
+    });
 
-  return { jobId };
+    return { jobId: job.id, jobGroupId: group.id };
+  });
 }

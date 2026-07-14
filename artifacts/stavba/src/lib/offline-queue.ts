@@ -4,6 +4,7 @@
 
 export type OfflineOpType =
   | "add_material"
+  | "set_material_consumed"
   | "start_timer"
   | "stop_timer"
   | "add_work_session"

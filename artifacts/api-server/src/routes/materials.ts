@@ -25,6 +25,7 @@ import {
   type Actor,
 } from "../lib/warehouse-service";
 import { requireRole } from "../middlewares/auth";
+import { requireAssignedJobView, requireAssignedJobWork } from "../middlewares/job-work-access";
 
 const router: IRouter = Router();
 
@@ -35,15 +36,20 @@ function actorOf(req: { auth?: { userId: number; name: string } }): Actor {
   return { userId: req.auth?.userId ?? null, name: req.auth?.name ?? "Systém" };
 }
 
-function serializeMaterial(m: typeof materialsTable.$inferSelect) {
+function serializeMaterial(m: typeof materialsTable.$inferSelect, permissions: readonly string[]) {
+  const canViewSale = permissions.includes("billing.view") || permissions.includes("rates.sale.view");
+  const canViewCost = permissions.includes("rates.cost.view");
   return {
     ...m,
     quantity: m.quantity != null ? Number(m.quantity) : null,
-    pricePerUnit: m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
-    purchasePricePerUnit: m.purchasePricePerUnit != null ? Number(m.purchasePricePerUnit) : null,
-    priceConfidence: m.priceConfidence != null ? Number(m.priceConfidence) : null,
-    priceSourceDate: m.priceSourceDate != null ? m.priceSourceDate.toISOString() : null,
+    pricePerUnit: canViewSale && m.pricePerUnit != null ? Number(m.pricePerUnit) : null,
+    purchasePricePerUnit: canViewCost && m.purchasePricePerUnit != null ? Number(m.purchasePricePerUnit) : null,
+    priceConfidence: canViewCost && m.priceConfidence != null ? Number(m.priceConfidence) : null,
+    priceSourceSupplierName: canViewCost ? m.priceSourceSupplierName : null,
+    priceSourceDate: canViewCost && m.priceSourceDate != null ? m.priceSourceDate.toISOString() : null,
+    adminNote: canViewCost ? m.adminNote : null,
     invoicedAt: m.invoicedAt != null ? m.invoicedAt.toISOString() : null,
+    consumedAt: m.consumedAt != null ? m.consumedAt.toISOString() : null,
     createdAt: m.createdAt.toISOString(),
   };
 }
@@ -62,7 +68,7 @@ function rejectManagedMaterial(res: Response, action: "upravit" | "smazat") {
   });
 }
 
-router.get("/jobs/:jobId/materials", async (req, res): Promise<void> => {
+router.get("/jobs/:jobId/materials", requireAssignedJobView, async (req, res): Promise<void> => {
   const params = ListMaterialsParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
@@ -72,10 +78,10 @@ router.get("/jobs/:jobId/materials", async (req, res): Promise<void> => {
     .where(eq(materialsTable.jobId, params.data.jobId))
     .orderBy(materialsTable.sortOrder, materialsTable.createdAt);
 
-  res.json(materials.map(serializeMaterial));
+  res.json(materials.map((material) => serializeMaterial(material, req.auth!.permissions)));
 });
 
-router.post("/jobs/:jobId/materials", async (req, res): Promise<void> => {
+router.post("/jobs/:jobId/materials", requireAssignedJobWork, async (req, res): Promise<void> => {
   const params = CreateMaterialParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
@@ -84,8 +90,20 @@ router.post("/jobs/:jobId/materials", async (req, res): Promise<void> => {
 
   const parsed = CreateMaterialBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  if (!req.auth!.permissions.includes("jobs.manage") && parsed.data.pricePerUnit != null) {
+    res.status(403).json({ error: "Pracovník nemůže zadávat prodejní cenu materiálu.", code: "field_material_price_restricted" });
+    return;
+  }
+  if (!req.auth!.permissions.includes("jobs.manage") && parsed.data.warehouseItemId != null) {
+    res.status(403).json({ error: "Skladové propojení materiálu může nastavit pouze správce.", code: "field_material_warehouse_restricted" });
+    return;
+  }
 
-  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, ...rest } = parsed.data;
+  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, done = false, ...rest } = parsed.data;
+  if (done && !(quantity != null && quantity > 0)) {
+    res.status(400).json({ error: "Před označením materiálu jako spotřebovaného doplňte kladné množství." });
+    return;
+  }
   const actor = actorOf(req);
   // Insert the material and draw down any matching warehouse item (výdej) in one
   // transaction so stock and the job material can never drift apart.
@@ -103,23 +121,32 @@ router.post("/jobs/:jobId/materials", async (req, res): Promise<void> => {
         quantity: toStr(quantity),
         pricePerUnit: toStr(pricePerUnit),
         warehouseItemId,
+        done,
+        consumedAt: done ? new Date() : null,
+        consumedByUserId: done ? actor.userId : null,
       })
       .returning();
     await reconcileMaterialStockMovement(tx, m, actor);
     return m;
   });
 
-  res.status(201).json(serializeMaterial(material));
+  res.status(201).json(serializeMaterial(material, req.auth!.permissions));
 });
 
-router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<void> => {
+router.patch("/jobs/:jobId/materials/:materialId", requireAssignedJobWork, async (req, res): Promise<void> => {
   const params = UpdateMaterialParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
 
   const parsed = UpdateMaterialBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const fieldWorker = !req.auth!.permissions.includes("jobs.manage");
+  const fieldAllowed = new Set(["quantity", "unit", "done"]);
+  if (fieldWorker && Object.keys(parsed.data).some((field) => !fieldAllowed.has(field))) {
+    res.status(403).json({ error: "Pracovník může doplnit množství a potvrdit spotřebu, nikoli měnit cenu nebo popis.", code: "field_material_update_restricted" });
+    return;
+  }
 
-  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, ...rest } = parsed.data;
+  const { quantity, pricePerUnit, warehouseItemId: bodyWarehouseItemId, done, ...rest } = parsed.data;
   const updateData: Record<string, unknown> = { ...rest };
   if (quantity !== undefined) updateData.quantity = toStr(quantity);
   if (pricePerUnit !== undefined) updateData.pricePerUnit = toStr(pricePerUnit);
@@ -129,13 +156,31 @@ router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<voi
     .from(materialsTable)
     .where(and(eq(materialsTable.id, params.data.materialId), eq(materialsTable.jobId, params.data.jobId)));
   if (!existing) { res.status(404).json({ error: "Material not found" }); return; }
+  if (fieldWorker && existing.done) {
+    res.status(409).json({ error: "Již spotřebovaný materiál může opravit pouze správce.", code: "consumed_material_locked" });
+    return;
+  }
   if (isDocumentOwnedMaterial(existing) || isCustomerInvoicedMaterial(existing)) {
     rejectManagedMaterial(res, "upravit");
+    return;
+  }
+  const effectiveQuantity = quantity !== undefined ? quantity : Number(existing.quantity ?? 0);
+  if ((done === true || (existing.done && quantity !== undefined)) && !(effectiveQuantity != null && effectiveQuantity > 0)) {
+    res.status(400).json({ error: "Spotřebovaný materiál musí mít kladné množství." });
     return;
   }
 
   const actor = actorOf(req);
   const material = await db.transaction(async (tx) => {
+    if (done !== undefined) {
+      updateData.done = done;
+      updateData.consumedAt = done
+        ? existing.done ? existing.consumedAt ?? new Date() : new Date()
+        : null;
+      updateData.consumedByUserId = done
+        ? existing.done ? existing.consumedByUserId ?? actor.userId : actor.userId
+        : null;
+    }
     if (bodyWarehouseItemId !== undefined) {
       // Explicit override from the UI takes priority over auto-resolution.
       updateData.warehouseItemId = bodyWarehouseItemId;
@@ -152,12 +197,26 @@ router.patch("/jobs/:jobId/materials/:materialId", async (req, res): Promise<voi
     if (!m) return null;
     // Re-reconcile: a name/quantity change moves the issued amount accordingly.
     await reconcileMaterialStockMovement(tx, m, actor);
+    if (done !== undefined && done !== existing.done) {
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: done ? "material_consumed" : "material_returned_to_plan",
+        entityType: "material",
+        entityId: m.id,
+        summary: done
+          ? `Materiál označen jako spotřebovaný na zakázce #${params.data.jobId}`
+          : `Materiál vrácen do plánu na zakázce #${params.data.jobId}`,
+        method: req.method,
+        path: req.originalUrl,
+      });
+    }
     return m;
   });
 
   if (!material) { res.status(404).json({ error: "Material not found" }); return; }
 
-  res.json(serializeMaterial(material));
+  res.json(serializeMaterial(material, req.auth!.permissions));
 });
 
 router.delete("/jobs/:jobId/materials/:materialId", async (req, res): Promise<void> => {
@@ -326,7 +385,7 @@ router.patch("/materials/:materialId/link-document", requireRole("admin", "maste
     entityId: materialId,
   });
 
-  res.json(serializeMaterial(updated));
+  res.json(serializeMaterial(updated, req.auth!.permissions));
 });
 
 export default router;

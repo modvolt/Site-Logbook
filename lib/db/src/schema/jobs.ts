@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 import { peopleTable } from "./people";
 import { customersTable } from "./customers";
 import { jobGroupsTable } from "./job-groups";
+import { usersTable } from "./users";
 
 export const jobsTable = pgTable("jobs", {
   id: serial("id").primaryKey(),
@@ -41,6 +42,9 @@ export const jobsTable = pgTable("jobs", {
   contractPrice: numeric("contract_price", { precision: 10, scale: 2 }),
   jobNumber: integer("job_number").unique(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  archivedAt: timestamp("archived_at"),
+  archivedByUserId: integer("archived_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
+  statusBeforeArchive: text("status_before_archive"),
   // Customer digital-signature handover protocol
   signatureToken: text("signature_token"),
   signatureTokenExpiresAt: timestamp("signature_token_expires_at"),
@@ -58,6 +62,7 @@ export const jobsTable = pgTable("jobs", {
     sql`${table.status} IN ('planned', 'in_progress', 'done', 'cancelled', 'vyfakturovano')`,
   ),
   index("jobs_group_id_idx").on(table.groupId),
+  index("jobs_archived_at_idx").on(table.archivedAt),
 ]);
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, createdAt: true });

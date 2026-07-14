@@ -41,6 +41,7 @@ import {
   voidWorkSession,
   type WorkKind,
 } from "../lib/work-session-service";
+import { isRestrictedFieldWorker, requireAssignedJobView, requireOwnJobTimer } from "../middlewares/job-work-access";
 
 const router: IRouter = Router();
 
@@ -259,10 +260,13 @@ router.delete("/activities/:activityId/time-entries/:personId", async (req, res)
 });
 
 // ---- Job routes ----
-router.get("/jobs/:jobId/time-entries", async (req, res): Promise<void> => {
+router.get("/jobs/:jobId/time-entries", requireAssignedJobView, async (req, res): Promise<void> => {
   const params = ListJobTimeEntriesParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-  res.json(await list("job", params.data.jobId));
+  const entries = await list("job", params.data.jobId);
+  res.json(isRestrictedFieldWorker(req.auth!.permissions)
+    ? entries.filter((entry) => entry.personId === req.auth!.personId)
+    : entries);
 });
 
 router.post("/jobs/:jobId/time-entries", async (req, res): Promise<void> => {
@@ -274,7 +278,7 @@ router.post("/jobs/:jobId/time-entries", async (req, res): Promise<void> => {
   res.status(201).json(await create("job", params.data.jobId, body.data.personId, body.data.hours, req.auth!.userId));
 });
 
-router.post("/jobs/:jobId/time-entries/:personId/start", async (req, res): Promise<void> => {
+router.post("/jobs/:jobId/time-entries/:personId/start", requireOwnJobTimer, async (req, res): Promise<void> => {
   const params = StartJobTimeEntryParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   if (!(await parentExists("job", params.data.jobId))) { res.status(404).json({ error: "Job not found" }); return; }
@@ -287,7 +291,7 @@ router.post("/jobs/:jobId/time-entries/:personId/start", async (req, res): Promi
   }
 });
 
-router.post("/jobs/:jobId/time-entries/:personId/stop", async (req, res): Promise<void> => {
+router.post("/jobs/:jobId/time-entries/:personId/stop", requireOwnJobTimer, async (req, res): Promise<void> => {
   const params = StopJobTimeEntryParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   try {
@@ -319,7 +323,10 @@ router.delete("/jobs/:jobId/time-entries/:personId", async (req, res): Promise<v
 });
 
 async function listSessionsRoute(kind: Kind, parentId: number, req: import("express").Request, res: import("express").Response) {
-  const rawPersonId = typeof req.query.personId === "string" ? Number(req.query.personId) : undefined;
+  const fieldPersonId = kind === "job" && isRestrictedFieldWorker(req.auth!.permissions)
+    ? req.auth!.personId ?? undefined
+    : undefined;
+  const rawPersonId = fieldPersonId ?? (typeof req.query.personId === "string" ? Number(req.query.personId) : undefined);
   if (rawPersonId !== undefined && (!Number.isInteger(rawPersonId) || rawPersonId <= 0)) {
     res.status(400).json({ error: "Neplatné personId" });
     return;
@@ -390,17 +397,18 @@ router.delete("/activities/:activityId/work-sessions/:sessionId", async (req, re
   res.sendStatus(204);
 });
 
-router.get("/jobs/:jobId/work-sessions", async (req, res): Promise<void> => {
+router.get("/jobs/:jobId/work-sessions", requireAssignedJobView, async (req, res): Promise<void> => {
   const parentId = Number(req.params.jobId);
   if (!Number.isInteger(parentId) || parentId <= 0) { res.status(400).json({ error: "Neplatné ID zakázky" }); return; }
   await listSessionsRoute("job", parentId, req, res);
 });
 
-router.get("/jobs/:jobId/work-summary", async (req, res): Promise<void> => {
+router.get("/jobs/:jobId/work-summary", requireAssignedJobView, async (req, res): Promise<void> => {
   const parentId = Number(req.params.jobId);
   if (!Number.isInteger(parentId) || parentId <= 0) { res.status(400).json({ error: "Neplatné ID zakázky" }); return; }
   if (!(await parentExists("job", parentId))) { res.status(404).json({ error: "Job not found" }); return; }
-  res.json(await getWorkSummary("job", parentId));
+  const personId = isRestrictedFieldWorker(req.auth!.permissions) ? req.auth!.personId ?? undefined : undefined;
+  res.json(await getWorkSummary("job", parentId, personId));
 });
 
 router.post("/jobs/:jobId/work-sessions", async (req, res): Promise<void> => {

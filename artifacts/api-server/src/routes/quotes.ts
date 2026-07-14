@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import {
   CreateQuoteBody,
+  ConvertQuoteToJobBody,
   UpdateQuoteBody,
   SendQuoteEmailBody,
 } from "@workspace/api-zod";
@@ -319,8 +320,21 @@ router.post("/quotes/:id/convert-to-job", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Neplatné ID nabídky." });
     return;
   }
+  const body = ConvertQuoteToJobBody.safeParse(req.body ?? {});
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
   try {
-    res.json(await convertQuoteToJob(id));
+    res.json(await convertQuoteToJob(
+      id,
+      {
+        plannedDate: body.data.plannedDate
+          ? body.data.plannedDate.toISOString().slice(0, 10)
+          : null,
+      },
+      { userId: req.auth!.userId, name: req.auth!.name },
+    ));
   } catch (err) {
     handleError(err, "Převod nabídky na zakázku selhal.", res);
   }

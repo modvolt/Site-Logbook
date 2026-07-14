@@ -6,6 +6,7 @@ import { jobsTable } from "./jobs";
 import { billingDocumentsTable, billingDocumentLinesTable } from "./billing-documents";
 import { invoicesTable } from "./invoices";
 import { warehouseItemsTable } from "./warehouse-items";
+import { usersTable } from "./users";
 
 export const materialsTable = pgTable("materials", {
   id: serial("id").primaryKey(),
@@ -14,7 +15,15 @@ export const materialsTable = pgTable("materials", {
   quantity: numeric("quantity", { precision: 10, scale: 2 }),
   unit: text("unit"),
   pricePerUnit: numeric("price_per_unit", { precision: 10, scale: 2 }),
+  // `done` is the operational boundary between a planned item and material
+  // that was actually consumed on site. Only consumed job materials affect
+  // warehouse stock, statistics and time-and-material billing.
   done: boolean("done").notNull().default(false),
+  consumedAt: timestamp("consumed_at"),
+  consumedByUserId: integer("consumed_by_user_id").references(
+    () => usersTable.id,
+    { onDelete: "set null" },
+  ),
   sortOrder: integer("sort_order").notNull().default(0),
   // Provenance: when a material row was propagated from an approved cost
   // document line, these point back at it so the sync is idempotent (re-approve
@@ -73,6 +82,7 @@ export const materialsTable = pgTable("materials", {
   index("materials_invoiced_invoice_id_idx").on(t.invoicedInvoiceId),
   index("materials_job_id_idx").on(t.jobId),
   index("materials_source_id_idx").on(t.sourceId),
+  index("materials_consumed_at_idx").on(t.consumedAt),
 ]);
 
 export const insertMaterialSchema = createInsertSchema(materialsTable).omit({ id: true, createdAt: true });

@@ -16,7 +16,11 @@ import type { Permission } from "@/hooks/use-auth";
 type Choice = "inherit" | "allow" | "deny";
 
 const GROUPS: Array<{ label: string; entries: Array<{ permission: Permission; label: string }> }> = [
-  { label: "Zakázky", entries: [{ permission: "jobs.view", label: "Zobrazit" }, { permission: "jobs.manage", label: "Vytvářet a upravovat" }] },
+  { label: "Zakázky", entries: [
+    { permission: "jobs.view", label: "Zobrazit" },
+    { permission: "jobs.work", label: "Pracovat na přiřazených zakázkách" },
+    { permission: "jobs.manage", label: "Vytvářet a spravovat všechny zakázky" },
+  ] },
   { label: "Dlouhodobé akce", entries: [{ permission: "activities.view", label: "Zobrazit" }, { permission: "activities.manage", label: "Vytvářet a upravovat" }] },
   { label: "Zákazníci", entries: [{ permission: "customers.view", label: "Zobrazit" }, { permission: "customers.manage", label: "Vytvářet a upravovat" }] },
   { label: "Zaměstnanci", entries: [{ permission: "people.view", label: "Zobrazit" }, { permission: "people.manage", label: "Vytvářet a upravovat" }] },

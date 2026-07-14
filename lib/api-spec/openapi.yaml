@@ -194,6 +194,12 @@ paths:
           description: "For segment=problematic (and the risk summary): number of days in_progress before a job is considered stale (default 14)."
           schema:
             type: integer
+        - name: includeArchived
+          in: query
+          required: false
+          description: Include archived jobs. Requires jobs.manage permission.
+          schema:
+            type: boolean
       responses:
         "200":
           description: List of jobs
@@ -335,7 +341,7 @@ paths:
     delete:
       operationId: deleteJob
       tags: [jobs]
-      summary: Delete a job
+      summary: Archive a job without deleting its related data
       parameters:
         - name: id
           in: path
@@ -344,9 +350,32 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Archived
         "404":
           description: Not found
+
+  /jobs/{id}/restore:
+    post:
+      operationId: restoreJob
+      tags: [jobs]
+      summary: Restore an archived job to its previous lifecycle status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Restored job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+        "409":
+          description: Job is not archived
 
   /jobs/{id}/assignees:
     put:
@@ -403,6 +432,33 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Job"
+        "409":
+          description: Status transition is blocked or requires warning acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusTransitionError"
+
+  /jobs/{id}/completion-readiness:
+    get:
+      operationId: getJobCompletionReadiness
+      tags: [jobs]
+      summary: Validate whether a job can be safely completed
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Authoritative completion blockers and warnings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobCompletionReadiness"
+        "404":
+          description: Job not found
 
   /jobs/{id}/send-email:
     post:
@@ -5264,7 +5320,7 @@ paths:
     delete:
       operationId: deleteJobVisit
       tags: [visits]
-      summary: Delete a job visit
+      summary: Cancel a job visit while preserving its history
       parameters:
         - name: jobId
           in: path
@@ -5278,7 +5334,7 @@ paths:
             type: integer
       responses:
         "204":
-          description: Deleted
+          description: Cancelled
 
   /activities/visits/calendar:
     get:
@@ -5885,6 +5941,55 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/job-groups/{id}/invoice-draft:
+    post:
+      operationId: createQuoteJobGroupInvoiceDraft
+      tags: [billing]
+      summary: Create one draft invoice from an accepted quote job group
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuoteJobGroupInvoiceDraftInput"
+      responses:
+        "201":
+          description: Draft created and the quote reserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceDetail"
+        "400":
+          description: Invalid extra-work selection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Job group not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Group unfinished or quote already reserved/billed
           content:
             application/json:
               schema:
@@ -8279,13 +8384,19 @@ paths:
     post:
       operationId: convertQuoteToJob
       tags: [quotes]
-      summary: Convert an accepted quote to a job
+      summary: Convert an accepted quote to a job group and its first job
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConvertQuoteToJobInput"
       responses:
         "200":
           description: Job created
@@ -8389,7 +8500,7 @@ components:
   schemas:
     CalendarJob:
       type: object
-      required: [id, jobNumber, title, type, status, date]
+      required: [id, jobNumber, title, type, status, date, occurrenceKey, occurrenceType]
       properties:
         id:
           type: integer
@@ -8416,6 +8527,18 @@ components:
         assignedPersonId:
           type: ["integer", "null"]
         assignedPersonName:
+          type: ["string", "null"]
+        occurrenceKey:
+          type: string
+          description: Stable identifier of this calendar occurrence
+        occurrenceType:
+          type: string
+          enum: [job, visit]
+        visitId:
+          type: ["integer", "null"]
+        visitStatus:
+          type: ["string", "null"]
+        visitNote:
           type: ["string", "null"]
 
     ClientErrorInput:
@@ -8457,7 +8580,6 @@ components:
           type: ["string", "null"]
         createdAt:
           type: string
-
     ClientErrorList:
       type: object
       required: [items, total]
@@ -9619,6 +9741,9 @@ components:
           description: Names corresponding to assigneeIds, same order
         customerId:
           type: ["integer", "null"]
+        groupId:
+          type: ["integer", "null"]
+          description: Action/job-group containing this job
         customerCompanyName:
           type: ["string", "null"]
         customerPhone:
@@ -9666,9 +9791,13 @@ components:
           type: integer
         materialCount:
           type: integer
+        consumedMaterialCount:
+          type: integer
+        plannedMaterialCount:
+          type: integer
         materialTotalCost:
           type: ["number", "null"]
-          description: Sum of (quantity * pricePerUnit) for all materials on the job; null if no priced materials
+          description: Sum of (quantity * pricePerUnit) for consumed materials on the job; null if no consumed priced materials
         billingLinked:
           type: boolean
           description: True when the job is linked to at least one non-cancelled invoice
@@ -9681,6 +9810,29 @@ components:
           description: Agreed-upon fixed price (only used when pricingMode = 'fixed_price')
         createdAt:
           type: string
+        archivedAt:
+          type: ["string", "null"]
+          description: ISO timestamp when the job was archived
+        scheduledByVisit:
+          type: boolean
+          description: True when today's occurrence comes from a job visit
+        scheduleOccurrenceKeys:
+          type: array
+          items:
+            type: string
+        schedulePersonNames:
+          type: array
+          items:
+            type: string
+        scheduleVisitIds:
+          type: array
+          items:
+            type: integer
+        archivedByUserId:
+          type: ["integer", "null"]
+        statusBeforeArchive:
+          type: ["string", "null"]
+          description: Lifecycle status restored when the job is unarchived
         signatureRequestedAt:
           type: ["string", "null"]
           description: ISO timestamp when a signature request email was last sent
@@ -9721,6 +9873,10 @@ components:
             New status for all selected jobs. "vyfakturovano" (invoiced) is
             intentionally NOT accepted — the invoiced state is set server-side
             only when an invoice is issued, never by a direct client write.
+        acknowledgeWarnings:
+          type: boolean
+          default: false
+          description: Explicitly accept completion warnings for every selected job; hard blockers still reject the entire batch.
 
     BulkUpdateResult:
       type: object
@@ -9761,8 +9917,29 @@ components:
             reverted to "done" on storno), never by a direct client status write.
         assignedPersonId:
           type: ["integer", "null"]
+        assigneeIds:
+          type: array
+          maxItems: 100
+          items:
+            type: integer
+          description: Additional workers created atomically with the job
+        tasks:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/TaskInput"
+          description: Initial tasks created atomically with the job
+        materials:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/MaterialInput"
+          description: Initial planned materials created atomically with the job; stock changes only after explicit consumption
         customerId:
           type: ["integer", "null"]
+        groupId:
+          type: ["integer", "null"]
+          description: Optional action/job-group assigned atomically on creation
         notes:
           type: ["string", "null"]
         hoursSpent:
@@ -9875,6 +10052,11 @@ components:
           type: ["number", "null"]
         done:
           type: boolean
+          description: True when the material was actually consumed; only consumed job materials affect stock and billing.
+        consumedAt:
+          type: ["string", "null"]
+        consumedByUserId:
+          type: ["integer", "null"]
         sortOrder:
           type: integer
         warehouseItemId:
@@ -9921,6 +10103,10 @@ components:
           type: ["number", "null"]
         warehouseItemId:
           type: ["integer", "null"]
+        done:
+          type: boolean
+          default: false
+          description: Create as consumed. Defaults to planned (false).
 
     MaterialUpdate:
       type: object
@@ -9985,6 +10171,78 @@ components:
             intentionally NOT accepted here — the authoritative invoiced state is
             set server-side by invoice-service when an invoice is issued (and
             reverted to "done" on storno), never by a direct client status write.
+        acknowledgeWarnings:
+          type: boolean
+          default: false
+          description: Explicit confirmation of non-blocking completion warnings.
+
+    JobReadinessIssue:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        count:
+          type: integer
+
+    JobActiveSession:
+      type: object
+      required: [id, personId, personName, startedAt]
+      properties:
+        id:
+          type: integer
+        personId:
+          type: integer
+        personName:
+          type: string
+        startedAt:
+          type: string
+
+    JobCompletionReadiness:
+      type: object
+      required: [jobId, status, canComplete, blockers, warnings, activeSessions, unfinishedTaskCount, plannedMaterialCount, consumedMaterialCount, hoursSpent]
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+        canComplete:
+          type: boolean
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobReadinessIssue"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobReadinessIssue"
+        activeSessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobActiveSession"
+        unfinishedTaskCount:
+          type: integer
+        plannedMaterialCount:
+          type: integer
+        consumedMaterialCount:
+          type: integer
+        hoursSpent:
+          type: number
+
+    JobStatusTransitionError:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        jobId:
+          type: integer
+        readiness:
+          $ref: "#/components/schemas/JobCompletionReadiness"
 
     JobAssigneesInput:
       type: object
@@ -11266,7 +11524,7 @@ components:
 
     JobVisit:
       type: object
-      required: [id, jobId, date, status, createdAt]
+      required: [id, jobId, date, status, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -11280,10 +11538,18 @@ components:
           type: string
         note:
           type: ["string", "null"]
+        startTime:
+          type: ["string", "null"]
+          description: Optional HH:MM override; otherwise the job time is used
+        endTime:
+          type: ["string", "null"]
+          description: Optional HH:MM override; otherwise the job time is used
         status:
           type: string
-          description: "planned | done"
+          enum: [planned, done, cancelled]
         createdAt:
+          type: string
+        updatedAt:
           type: string
 
     JobVisitInput:
@@ -11297,9 +11563,13 @@ components:
           type: ["integer", "null"]
         note:
           type: ["string", "null"]
+        startTime:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
         status:
           type: string
-          enum: [planned, done]
+          enum: [planned, done, cancelled]
 
     JobVisitUpdate:
       type: object
@@ -11311,9 +11581,13 @@ components:
           type: ["integer", "null"]
         note:
           type: ["string", "null"]
+        startTime:
+          type: ["string", "null"]
+        endTime:
+          type: ["string", "null"]
         status:
           type: string
-          enum: [planned, done]
+          enum: [planned, done, cancelled]
 
     CalendarActivityVisit:
       type: object
@@ -12482,7 +12756,7 @@ components:
           type: integer
         sourceType:
           type: string
-          enum: [job, activity, activity_material, activity_work, material, billing_document_line, transport, parking, fine, manual]
+          enum: [job, activity, activity_material, activity_work, material, billing_document_line, work_session, quote_item, transport, parking, fine, manual]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -12626,7 +12900,7 @@ components:
       properties:
         sourceType:
           type: string
-          enum: [job, activity, activity_material, activity_work, material, billing_document_line, transport, parking, fine, manual]
+          enum: [job, activity, activity_material, activity_work, material, billing_document_line, work_session, quote_item, transport, parking, fine, manual]
         sourceId:
           type: ["integer", "null"]
         jobId:
@@ -12709,6 +12983,47 @@ components:
         constantSymbol:
           type: ["string", "null"]
         specificSymbol:
+          type: ["string", "null"]
+        vatModeDefault:
+          type: string
+          enum: [standard, reverse_charge, zero, non_vat]
+        notes:
+          type: ["string", "null"]
+
+    QuoteJobGroupInvoiceDraftInput:
+      type: object
+      properties:
+        extraJobIds:
+          type: array
+          items:
+            type: integer
+          description: Explicitly approved completed follow-up jobs to bill in addition to the accepted quote
+        labourBillingMode:
+          type: string
+          enum: [job_price, recorded_time, none]
+          default: job_price
+        workGrouping:
+          type: string
+          enum: [summary, worker]
+          default: summary
+        billFineJobIds:
+          type: array
+          items:
+            type: integer
+          description: Subset of extraJobIds whose fines are explicitly approved
+        materialMarkupPercent:
+          type: ["number", "null"]
+        materialMarkupOverrides:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterialMarkupOverride"
+        issueDate:
+          type: ["string", "null"]
+        taxableSupplyDate:
+          type: ["string", "null"]
+        dueDate:
+          type: ["string", "null"]
+        paymentMethod:
           type: ["string", "null"]
         vatModeDefault:
           type: string
@@ -15181,6 +15496,8 @@ components:
           type: ["string", "null"]
         convertedToJobId:
           type: ["integer", "null"]
+        convertedToJobGroupId:
+          type: ["integer", "null"]
         convertedToInvoiceId:
           type: ["integer", "null"]
         itemCount:
@@ -15226,6 +15543,8 @@ components:
         shareToken:
           type: ["string", "null"]
         convertedToJobId:
+          type: ["integer", "null"]
+        convertedToJobGroupId:
           type: ["integer", "null"]
         convertedToInvoiceId:
           type: ["integer", "null"]
@@ -15355,9 +15674,18 @@ components:
         message:
           type: ["string", "null"]
 
+    ConvertQuoteToJobInput:
+      type: object
+      properties:
+        plannedDate:
+          type: ["string", "null"]
+          format: date
+
     ConvertQuoteToJobResult:
       type: object
-      required: [jobId]
+      required: [jobId, jobGroupId]
       properties:
         jobId:
+          type: integer
+        jobGroupId:
           type: integer

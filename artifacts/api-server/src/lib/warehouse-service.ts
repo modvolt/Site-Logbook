@@ -25,6 +25,7 @@ import {
   type WarehouseMovement,
 } from "@workspace/db";
 import { num, round2 } from "./invoice-calc";
+import { materialShouldIssueStock } from "./material-consumption-policy";
 
 export type AppError = Error & { statusCode: number };
 function appError(statusCode: number, message: string): AppError {
@@ -188,8 +189,12 @@ export async function reconcileSourceMovements(
   actor: Actor,
 ): Promise<void> {
   // Items this source has already moved (so we can reverse stale targets).
-  const existing = await tx
-    .selectDistinct({ warehouseItemId: warehouseMovementsTable.warehouseItemId })
+  const existingRows = await tx
+    .select({
+      warehouseItemId: warehouseMovementsTable.warehouseItemId,
+      billingDocumentId: warehouseMovementsTable.billingDocumentId,
+      jobId: warehouseMovementsTable.jobId,
+    })
     .from(warehouseMovementsTable)
     .where(
       and(
@@ -198,7 +203,23 @@ export async function reconcileSourceMovements(
       ),
     );
 
-  for (const { warehouseItemId } of existing) {
+  // Keep the original business-document links on reversal rows. Without this,
+  // the stock total is correct but the storno disappears from job/document
+  // history views that filter movements by these foreign keys.
+  const existing = new Map<
+    number,
+    { warehouseItemId: number; billingDocumentId: number | null; jobId: number | null }
+  >();
+  for (const row of existingRows) {
+    const current = existing.get(row.warehouseItemId);
+    existing.set(row.warehouseItemId, {
+      warehouseItemId: row.warehouseItemId,
+      billingDocumentId: current?.billingDocumentId ?? row.billingDocumentId,
+      jobId: current?.jobId ?? row.jobId,
+    });
+  }
+
+  for (const { warehouseItemId, billingDocumentId, jobId } of existing.values()) {
     if (desired && desired.warehouseItemId === warehouseItemId) continue;
     const applied = await appliedSignedFor(tx, sourceType, sourceId, warehouseItemId);
     await appendDelta(tx, {
@@ -207,8 +228,8 @@ export async function reconcileSourceMovements(
       sourceType,
       sourceId,
       unitPrice: null,
-      billingDocumentId: null,
-      jobId: null,
+      billingDocumentId,
+      jobId,
       note: "Storno pohybu",
       actor,
     });
@@ -388,6 +409,9 @@ interface MaterialLike {
   quantity: string | null;
   pricePerUnit: string | null;
   jobId: number | null;
+  /** Job materials affect stock only after explicit consumption. Activity
+   * materials keep their existing immediate-issue behaviour. */
+  done?: boolean;
   /** Stable FK to a warehouse card, set on the DB row. When non-null the lookup
    *  is ID-based so renames and name duplicates never mis-route the issue. */
   warehouseItemId?: number | null;
@@ -450,8 +474,9 @@ async function reconcileMaterialLike(
   if (!material) return;
   const item = await resolveItemForMaterial(tx, material);
   const qty = material.quantity == null ? 0 : round2(num(material.quantity));
+  const shouldIssue = materialShouldIssueStock(sourceType, material);
   const desired: DesiredContribution | null =
-    item && qty > 0
+    shouldIssue && item && qty > 0
       ? {
           warehouseItemId: item.id,
           signedQty: -qty, // issue → −

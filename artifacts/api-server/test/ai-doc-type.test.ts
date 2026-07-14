@@ -230,6 +230,7 @@ describe("applyAiSuggestion docType", () => {
         sourceType: "billing_document_line",
         sourceId: line.id,
         invoicedInvoiceId: invoice.id,
+        done: true,
       })
       .returning({ id: materialsTable.id });
     expect(material).toBeTruthy();

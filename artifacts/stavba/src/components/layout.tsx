@@ -57,6 +57,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const logout = useLogout();
 
   const canSeeErrors = can("diagnostics.view");
+  const fieldMode = can("jobs.work") && !can("jobs.manage");
+  const fieldNavHrefs = new Set(["/", "/calendar", "/jobs", "/me"]);
+  const visibleMainNavItems = mainNavItems.filter((item) =>
+    (!fieldMode || fieldNavHrefs.has(item.href)) && (!item.requires || can(item.requires)),
+  );
   const { count: crashCount, markSeen } = useCrashBadgeCount(canSeeErrors);
 
   const { data: watchdog } = useGetWatchdogStatus({
@@ -112,8 +117,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             section, so on short screens every item stays reachable via scroll
             and nothing is ever permanently hidden under the viewport edge. */}
         <nav className="flex-1 min-h-0 p-4 space-y-1 overflow-y-auto">
-          {mainNavItems
-            .filter((item) => !item.requires || can(item.requires))
+          {visibleMainNavItems
             .map((item) => {
             const active = isActive(item);
             return (
@@ -187,7 +191,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content. Bottom padding clears the fixed mobile nav (h-16) plus the
           iOS home-indicator safe area so content is never hidden behind it. */}
       <main className="flex-1 min-w-0 flex flex-col pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0 relative min-h-[100dvh]">
-        {role === "guest" && (
+        {role === "guest" && !fieldMode && (
           <div className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 px-4 py-2 text-xs text-amber-800 dark:text-amber-200 flex items-center gap-2">
             <Eye className="w-3.5 h-3.5" />
             Režim pouze pro čtení — nemůžete vytvářet ani upravovat zakázky.
@@ -198,7 +202,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Global FAB — visible only on dashboard, calendar and jobs list.
             Hidden on /jobs/new (user is already on the form), and on warehouse,
             actions and machines pages where a page-local add button is used. */}
-        {can("write") && ["/", "/calendar", "/jobs"].includes(location) && (
+        {can("jobs.view") && can("jobs.manage") && ["/", "/calendar", "/jobs"].includes(location) && (
           <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 md:bottom-8 md:right-8 z-50">
             <Link href={quickAddDate ? `/jobs/new?date=${quickAddDate}` : "/jobs/new"}>
               <Button
