@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Upload } from "lucide-react";
+import { openFilePicker } from "@/lib/file-picker";
 
 export function FileDropZone({
   onFiles,
@@ -30,12 +31,12 @@ export function FileDropZone({
       role="button"
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
-      onClick={() => !disabled && inputRef.current?.click()}
+      onClick={() => !disabled && openFilePicker(inputRef.current)}
       onKeyDown={(e) => {
         if (disabled) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          inputRef.current?.click();
+          openFilePicker(inputRef.current);
         }
       }}
       onDragOver={(e) => {

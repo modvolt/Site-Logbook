@@ -75,6 +75,7 @@ import {
   type CompanySettings,
 } from "@/lib/company-settings";
 import { hardRefreshApp } from "@/lib/pwa";
+import { openFilePicker } from "@/lib/file-picker";
 
 const MAX_LOGO_BYTES = 500 * 1024;
 const MAX_SIGNATURE_BYTES = 500 * 1024;
@@ -1974,7 +1975,7 @@ export default function Settings() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => fileRef.current?.click()}
+                  onClick={() => openFilePicker(fileRef.current)}
                   className="gap-2"
                 >
                   <Upload className="h-4 w-4" />
@@ -2036,7 +2037,7 @@ export default function Settings() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => sigRef.current?.click()}
+                  onClick={() => openFilePicker(sigRef.current)}
                   className="gap-2"
                 >
                   <Upload className="h-4 w-4" />

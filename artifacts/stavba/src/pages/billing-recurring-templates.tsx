@@ -268,7 +268,7 @@ function CreateTemplateDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nová šablona paušální faktury</DialogTitle>
         </DialogHeader>

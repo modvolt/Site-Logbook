@@ -73,6 +73,7 @@ import { JOB_STATUSES, JOB_TYPES, StatusBadge, TypeBadge } from "@/components/ba
 import { AttachmentViewer } from "@/components/attachment-viewer";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { prepareImageFile } from "@/lib/prepare-image";
+import { openFilePicker } from "@/lib/file-picker";
 import { hoursFromPresetTimes } from "@/pages/dashboard";
 import {
   ensureNotificationPermission,
@@ -2899,7 +2900,7 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, canWork, can
         />}
         {canWork && <Button
           variant="ghost" size="icon"
-          onClick={() => cameraRef.current?.click()}
+          onClick={() => openFilePicker(cameraRef.current)}
           className="h-9 w-9 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30"
         >
           <Camera className="w-4 h-4" />
@@ -3038,7 +3039,7 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
         </div>
         <div className="flex gap-2">
           <Button 
-            onClick={() => fileInputRef.current?.click()} 
+            onClick={() => openFilePicker(fileInputRef.current)}
             disabled={createAttachment.isPending || isUploadingDoklad}
             variant="secondary"
             className="flex-1 h-12 text-base"
@@ -3306,7 +3307,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
             ref={fileInputRef} onChange={handlePhotoCapture} className="hidden" 
           />
           <Button 
-            onClick={() => cameraInputRef.current?.click()} 
+            onClick={() => openFilePicker(cameraInputRef.current)}
             disabled={createAttachment.isPending || isUploadingPhoto}
             className="flex-1 h-14 bg-primary text-primary-foreground text-base"
           >
@@ -3314,7 +3315,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
           </Button>
           <Button
             variant="outline"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => openFilePicker(fileInputRef.current)}
             disabled={createAttachment.isPending || isUploadingPhoto}
             className="flex-1 h-14 text-base"
           >

@@ -49,6 +49,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { debugLog } from "@/lib/pwa";
 import { prepareImageFile } from "@/lib/prepare-image";
+import { openFilePicker } from "@/lib/file-picker";
 import { invalidateData } from "@/lib/query-invalidation";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 
@@ -1673,14 +1674,14 @@ function ActivityDokladySection({ activityId, canWrite }: { activityId: number; 
             />
             <div className="flex gap-2">
               <Button
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => openFilePicker(cameraInputRef.current)}
                 disabled={createAttachment.isPending || isUploading}
                 className="flex-1 h-11"
               >
                 <Camera className="h-4 w-4 mr-2" /> {isUploading ? statusLabel : "Vyfotit"}
               </Button>
               <Button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker(fileInputRef.current)}
                 disabled={createAttachment.isPending || isUploading}
                 variant="outline"
                 className="flex-1 h-11"
@@ -1837,7 +1838,7 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
             <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleCapture} className="hidden" />
             <div className="flex gap-2">
               <Button
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => openFilePicker(cameraInputRef.current)}
                 disabled={createAttachment.isPending || isUploading}
                 className="flex-1"
               >
@@ -1845,7 +1846,7 @@ function PhotosSection({ activityId, canWrite }: { activityId: number; canWrite:
               </Button>
               <Button
                 variant="outline"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker(fileInputRef.current)}
                 disabled={createAttachment.isPending || isUploading}
                 className="flex-1"
               >

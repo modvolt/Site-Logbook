@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
+import { openFilePicker } from "@/lib/file-picker";
 import {
   ArrowLeft,
   Banknote,
@@ -235,7 +236,7 @@ export default function BillingBankImport() {
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => openFilePicker(fileInputRef.current)}
               disabled={parseMut.isPending}
             >
               {parseMut.isPending ? (

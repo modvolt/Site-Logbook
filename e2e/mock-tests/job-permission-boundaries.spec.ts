@@ -212,6 +212,32 @@ test.describe("job permission boundaries with isolated API mocks", () => {
     expect(observed.pageErrors).toEqual([]);
   });
 
+  test("job document picker keeps the current scroll position", async ({ page }) => {
+    const observed = await openJob(page, "manager");
+
+    await page.getByRole("heading", { name: "Doklady", exact: true }).click();
+    const uploadButton = page.getByRole("button", {
+      name: "Vyfotit / nahrát doklad",
+      exact: true,
+    });
+    await expect(uploadButton).toBeVisible();
+    await uploadButton.scrollIntoViewIfNeeded();
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      uploadButton.click(),
+    ]);
+    await fileChooser.setFiles([]);
+    await page.waitForTimeout(350);
+
+    const scrollAfter = await page.evaluate(() => window.scrollY);
+    expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThanOrEqual(2);
+    expect(observed.mutations).toEqual([]);
+    expect(observed.unknownRequests).toEqual([]);
+    expect(observed.pageErrors).toEqual([]);
+  });
+
   test("manager sees management controls and loads readiness only on demand", async ({ page }) => {
     const observed = await openJob(page, "manager");
 

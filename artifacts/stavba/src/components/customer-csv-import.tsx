@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Upload, Download, FileSpreadsheet } from "lucide-react";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { useToast } from "@/hooks/use-toast";
+import { openFilePicker } from "@/lib/file-picker";
 
 type FieldKey =
   | "companyName"
@@ -209,7 +210,7 @@ export default function CustomerCsvImport({ open, onOpenChange, onImported }: Pr
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Import zákazníků (CSV)</DialogTitle>
           <DialogDescription>
@@ -231,7 +232,7 @@ export default function CustomerCsvImport({ open, onOpenChange, onImported }: Pr
                 if (f) handleFile(f);
               }}
             />
-            <Button variant="outline" onClick={() => fileInput.current?.click()}>
+            <Button variant="outline" onClick={() => openFilePicker(fileInput.current)}>
               <Upload className="h-4 w-4 mr-2" />
               {fileName ? "Vybrat jiný soubor" : "Vybrat CSV"}
             </Button>

@@ -50,6 +50,7 @@ import {
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
 import { ArrowLeft, CheckCircle2, FileText, Inbox, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
+import { openFilePicker } from "@/lib/file-picker";
 
 const UPLOAD_ACCEPT =
   "application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp,image/gif,.gif,image/heic,.heic,image/heif,.heif,application/xml,text/xml,.xml,.isdoc,application/zip,.isdocx,.zip";
@@ -344,21 +345,22 @@ export default function BillingDocuments() {
       </Button>
 
       <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2.5 rounded-full text-emerald-600 dark:text-emerald-300">
+        <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto">
+          <div className="shrink-0 bg-emerald-100 dark:bg-emerald-900/30 p-2.5 rounded-full text-emerald-600 dark:text-emerald-300">
             <Inbox className="h-6 w-6" />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">Přijaté doklady</h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground break-words">
               Účtenky, dodací listy, přijaté faktury a dobropisy
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
           <Button
             variant="outline"
             size="sm"
+            className="w-full whitespace-normal sm:w-auto"
             disabled={isRequeueingAll || isUploading || isLoading || isError}
             onClick={() => setConfirmRequeueAllOpen(true)}
           >
@@ -372,6 +374,7 @@ export default function BillingDocuments() {
           <Button
             variant="outline"
             size="sm"
+            className="w-full whitespace-normal sm:w-auto"
             onClick={() => setLocation("/billing/documents/review")}
           >
             <Sparkles className="h-4 w-4 mr-1" /> Kontrola AI dokladů
@@ -394,7 +397,7 @@ export default function BillingDocuments() {
       />
       <div className="space-y-3 mb-5">
         <Button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => openFilePicker(fileInputRef.current)}
           disabled={isUploading || isLoading || isError}
           className="w-full h-12 text-base"
         >

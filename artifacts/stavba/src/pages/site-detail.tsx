@@ -19,6 +19,7 @@ import {
   ArrowLeft, Store, MapPin, User, Phone, FileText, Upload, Trash2, FolderOpen,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { openFilePicker } from "@/lib/file-picker";
 
 const DOC_CATEGORIES = [
   { value: "projektova_dokumentace", label: "Projektová dokumentace" },
@@ -219,7 +220,7 @@ export default function SiteDetail() {
               className="hidden"
             />
             <Button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => openFilePicker(fileInputRef.current)}
               disabled={createAttachment.isPending || isUploading}
               variant="secondary"
               className="w-full h-12 text-base"
