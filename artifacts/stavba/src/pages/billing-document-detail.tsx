@@ -101,6 +101,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import { confirmCostDocumentType, revertCostDocumentMerge } from "@/lib/cost-document-upload";
 import {
   Collapsible,
   CollapsibleContent,
@@ -112,6 +113,20 @@ const LINE_TYPE_OPTIONS = ["material", "work", "transport", "other"];
 const ALLOCATION_OPTIONS = ["rebill", "internal", "stock", "not_rebilled"];
 const NONE = "__none__";
 const MATCH_CONFIDENCE_ALARM = 0.8;
+
+type ExtendedCostDocument = CostDocument & {
+  declaredDocType?: string | null;
+  detectedDocType?: string | null;
+  detectedDocTypeConfidence?: number | null;
+  docTypeSource?: string;
+  docTypeConfirmedAt?: string | null;
+};
+
+type DocumentPageMerge = {
+  id: number;
+  status: string;
+  members: Array<{ documentId: number; pageOrder: number; fileName: string | null }>;
+};
 
 function attachmentUrl(objectPath: string | null | undefined): string | undefined {
   if (!objectPath) return undefined;
@@ -173,6 +188,8 @@ export default function BillingDocumentDetail() {
   );
   const [splitLine, setSplitLine] = useState<CostDocumentLine | null>(null);
   const [linkedDuplicatesOpen, setLinkedDuplicatesOpen] = useState(true);
+  const [isConfirmingType, setIsConfirmingType] = useState(false);
+  const [isRevertingMerge, setIsRevertingMerge] = useState(false);
 
   const lineCardsRef = useRef<Map<number, LineCardRef>>(new Map());
 
@@ -189,6 +206,8 @@ export default function BillingDocumentDetail() {
   };
 
   const doc = data?.document;
+  const extendedDoc = doc as ExtendedCostDocument | undefined;
+  const pageMerge = (data as (CostDocumentDetail & { pageMerge?: DocumentPageMerge | null }) | undefined)?.pageMerge ?? null;
 
   if (isLoading) {
     return (
@@ -313,6 +332,37 @@ export default function BillingDocumentDetail() {
     );
   };
 
+  const handleConfirmType = async (docType: string) => {
+    setIsConfirmingType(true);
+    try {
+      await confirmCostDocumentType(id, docType);
+      invalidate();
+      await refetch();
+      toast({ title: "Typ dokladu byl potvrzen" });
+    } catch (error) {
+      toast({ title: "Typ se nepodařilo potvrdit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setIsConfirmingType(false);
+    }
+  };
+
+  const handleRevertMerge = () => {
+    if (!pageMerge) return;
+    openConfirm("Rozdělit tento doklad zpět na původní samostatné strany? Originální soubory zůstanou zachované.", async () => {
+      setIsRevertingMerge(true);
+      try {
+        await revertCostDocumentMerge(pageMerge.id);
+        invalidate();
+        toast({ title: "Sloučení bylo rozděleno zpět" });
+        setLocation("/billing/documents");
+      } catch (error) {
+        toast({ title: "Sloučení nelze rozdělit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      } finally {
+        setIsRevertingMerge(false);
+      }
+    });
+  };
+
   const handleDelete = () => {
     openConfirm("Opravdu smazat tento doklad? Tuto akci nelze vrátit.", () => {
       deleteDoc.mutate(
@@ -416,7 +466,7 @@ export default function BillingDocumentDetail() {
                   onClick={() => setViewerFile({ url, name: f.originalFileName })}
                 >
                   <FileText className="h-4 w-4 mr-1" />
-                  {f.originalFileName || `Strana ${idx + 1}`}
+                  Strana {idx + 1}/{attachedFiles.length}
                 </Button>
               );
             })
@@ -437,13 +487,23 @@ export default function BillingDocumentDetail() {
           >
             <RefreshCw className="h-4 w-4 mr-1" /> Zpracovat
           </Button>
+          {pageMerge && doc.status === "needs_review" && (
+            <Button variant="outline" size="sm" onClick={handleRevertMerge} disabled={isRevertingMerge}>
+              <Scissors className="h-4 w-4 mr-1" /> Rozdělit zpět
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Status actions */}
       <div className="flex flex-wrap gap-2 mb-4">
         {doc.status !== "approved" && (
-          <Button size="sm" onClick={handleApprove} disabled={approveDoc.isPending}>
+          <Button
+            size="sm"
+            onClick={handleApprove}
+            disabled={approveDoc.isPending || String(doc.docType) === "unknown" || extendedDoc?.docTypeSource === "conflict"}
+            title={extendedDoc?.docTypeSource === "conflict" ? "Nejprve rozhodněte správný typ dokladu" : undefined}
+          >
             <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit doklad
           </Button>
         )}
@@ -477,6 +537,34 @@ export default function BillingDocumentDetail() {
           <Trash2 className="h-4 w-4 mr-1" /> Smazat
         </Button>
       </div>
+
+      {extendedDoc?.docTypeSource === "conflict" && (
+        <Card className="mb-4 border-amber-400 bg-amber-50 dark:bg-amber-950/20">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-semibold">Typ dokladu vyžaduje rozhodnutí</p>
+                <p className="text-sm text-muted-foreground">Uživatel a AI určili jiný typ. Doklad nelze schválit, dokud administrátor nepotvrdí správnou možnost.</p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {extendedDoc.declaredDocType && (
+                <Button variant="outline" disabled={isConfirmingType} onClick={() => handleConfirmType(extendedDoc.declaredDocType!)}>
+                  Potvrdit: {COST_DOC_TYPE_LABELS[extendedDoc.declaredDocType] ?? extendedDoc.declaredDocType}
+                  <span className="ml-1 text-xs text-muted-foreground">(uživatel)</span>
+                </Button>
+              )}
+              {extendedDoc.detectedDocType && (
+                <Button variant="outline" disabled={isConfirmingType} onClick={() => handleConfirmType(extendedDoc.detectedDocType!)}>
+                  Potvrdit: {COST_DOC_TYPE_LABELS[extendedDoc.detectedDocType] ?? extendedDoc.detectedDocType}
+                  <span className="ml-1 text-xs text-muted-foreground">(AI{extendedDoc.detectedDocTypeConfidence != null ? ` ${Math.round(extendedDoc.detectedDocTypeConfidence * 100)} %` : ""})</span>
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {doc.aiConfidence != null && (
         <Card

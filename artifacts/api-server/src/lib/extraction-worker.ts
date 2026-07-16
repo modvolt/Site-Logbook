@@ -34,6 +34,7 @@ import {
   applyAiSuggestion,
   getDocumentAllFileBuffers,
   reconcileAllDocumentRelationships,
+  reconcileIncompleteMultipagePagesSafely,
   setDocumentStatus,
 } from "./cost-document-service";
 import { publishLiveEvent } from "./live-events-service";
@@ -50,7 +51,7 @@ const BATCH = 5;
 const STALE_RUNNING_MS = 30 * 60 * 1_000;
 
 /** Statuses we never override when finishing extraction (human already acted). */
-const TERMINAL_DOC_STATUSES = new Set(["approved", "ignored", "reviewed", "duplicate"]);
+const TERMINAL_DOC_STATUSES = new Set(["approved", "ignored", "reviewed", "duplicate", "merged"]);
 
 /** Finalise a job as `skipped` (a non-error terminal state) with a note. */
 async function markSkipped(jobId: number, note: string): Promise<void> {
@@ -180,6 +181,7 @@ async function processOne(jobId: number): Promise<void> {
       doc.id,
       {
         docType: result.docType,
+        docTypeConfidence: result.docTypeConfidence,
         supplierName: result.supplierName,
         supplierIc: result.supplierIc,
         supplierDic: result.supplierDic,
@@ -215,6 +217,7 @@ async function processOne(jobId: number): Promise<void> {
         updatedAt: new Date(),
       })
       .where(eq(extractionJobsTable.id, job.id));
+    await reconcileIncompleteMultipagePagesSafely(doc.id);
     logger.info(
       { extractionJobId: job.id, documentId: doc.id, confidence: result.confidence },
       "AI extraction completed",

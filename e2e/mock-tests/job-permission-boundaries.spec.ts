@@ -148,9 +148,22 @@ async function installMockApi(page: Page, profile: Profile) {
       });
     }
     if (url.pathname === "/api/me/active-work-session") return json(route, null);
+    if (url.pathname === "/api/jobs/40/documents/upload" && request.method() === "POST") {
+      const pageIndex = Number(url.searchParams.get("pageIndex") ?? 0);
+      return json(route, {
+        documentId: 900,
+        status: "needs_review",
+        docType: "unknown",
+        pageIndex,
+        pageCount: Number(url.searchParams.get("pageCount") ?? 1),
+        groupComplete: url.searchParams.get("groupComplete") === "true",
+        attachment: { id: 9000 + pageIndex, fileName: url.searchParams.get("name"), url: `/objects/e2e-${pageIndex}` },
+      }, 201);
+    }
 
     const listPaths = [
       "/api/jobs/40/attachments",
+      "/api/jobs/40/documents",
       "/api/jobs/40/materials",
       "/api/jobs/40/time-entries",
       "/api/jobs/40/visits",
@@ -217,16 +230,19 @@ test.describe("job permission boundaries with isolated API mocks", () => {
 
     await page.getByRole("heading", { name: "Doklady", exact: true }).click();
     const uploadButton = page.getByRole("button", {
-      name: "Vyfotit / nahrát doklad",
+      name: "Přidat doklad",
       exact: true,
     });
     await expect(uploadButton).toBeVisible();
     await uploadButton.scrollIntoViewIfNeeded();
     const scrollBefore = await page.evaluate(() => window.scrollY);
+    await uploadButton.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const captureButton = page.getByRole("button", { name: "Vyfotit stránku", exact: true });
 
     const [fileChooser] = await Promise.all([
       page.waitForEvent("filechooser"),
-      uploadButton.click(),
+      captureButton.click(),
     ]);
     await fileChooser.setFiles([]);
     await page.waitForTimeout(350);
@@ -234,6 +250,40 @@ test.describe("job permission boundaries with isolated API mocks", () => {
     const scrollAfter = await page.evaluate(() => window.scrollY);
     expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThanOrEqual(2);
     expect(observed.mutations).toEqual([]);
+    expect(observed.unknownRequests).toEqual([]);
+    expect(observed.pageErrors).toEqual([]);
+  });
+
+  test("field worker uploads and reorders three pages as one document", async ({ page }) => {
+    const observed = await openJob(page, "field");
+    await page.getByRole("heading", { name: "Doklady", exact: true }).click();
+    await page.getByRole("button", { name: "Přidat doklad", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      dialog.getByRole("button", { name: "Přidat soubor", exact: true }).click(),
+    ]);
+    await fileChooser.setFiles([
+      { name: "strana-1.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 page 1") },
+      { name: "strana-2.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 page 2") },
+      { name: "strana-3.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 page 3") },
+    ]);
+    await expect(dialog.getByText("strana-3.pdf", { exact: true })).toBeVisible();
+
+    const thirdHandle = dialog.getByRole("button", { name: "Přesunout stránku 3", exact: true });
+    await thirdHandle.focus();
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Space");
+    const fileNames = await dialog.getByText(/^strana-\d\.pdf$/).allTextContents();
+    expect(fileNames).not.toEqual(["strana-1.pdf", "strana-2.pdf", "strana-3.pdf"]);
+    expect(new Set(fileNames)).toEqual(new Set(["strana-1.pdf", "strana-2.pdf", "strana-3.pdf"]));
+
+    await dialog.getByRole("button", { name: "Dokončit (3)", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => observed.mutations.filter((entry) => entry === "POST /api/jobs/40/documents/upload").length).toBe(3);
+    expect(observed.requests.some((entry) => entry.includes("/api/billing"))).toBe(false);
     expect(observed.unknownRequests).toEqual([]);
     expect(observed.pageErrors).toEqual([]);
   });

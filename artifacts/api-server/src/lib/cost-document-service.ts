@@ -16,6 +16,8 @@ import {
   billingDocumentLinesTable,
   billingDocumentReferencesTable,
   billingDocumentFilesTable,
+  billingDocumentMergesTable,
+  billingDocumentMergeMembersTable,
   supplierParserProfilesTable,
   extractionJobsTable,
   attachmentsTable,
@@ -26,6 +28,7 @@ import {
   materialsTable,
   warehouseItemsTable,
   warehousePriceHistoryTable,
+  warehouseMovementsTable,
   auditLogTable,
   type BillingDocument,
   type BillingDocumentLine,
@@ -93,6 +96,8 @@ const VALID_ALLOC = new Set(["rebill", "internal", "stock", "not_rebilled"]);
 const INCOMPLETE_MULTIPAGE_WARNING_CODE = "NEUPLNY_VICESTRANKOVY_DOKLAD";
 const VALID_LINE_TYPE = new Set(["material", "work", "transport", "other"]);
 const VALID_DOC_TYPE = new Set(["receipt", "delivery_note", "invoice", "credit_note"]);
+const MERGEABLE_DOCUMENT_STATUSES = new Set(["uploaded", "needs_review"]);
+const DOCUMENT_PAGE_MERGE_LOCK_CLASS = 894_612_306;
 
 function looksLikeIncompleteMultipageDocument(doc: Pick<BillingDocument, "warnings" | "totalWithVat">): boolean {
   const warnings = doc.warnings ?? "";
@@ -138,135 +143,50 @@ async function assertCompleteBeforeTerminalAction(
   );
 }
 
-async function mergeIncompleteMultipagePageTx(
-  tx: DbOrTx,
-  primary: BillingDocument,
-  secondary: BillingDocument,
-  actor: Actor,
-): Promise<void> {
-  const groupId = primary.mergeGroupId ?? secondary.mergeGroupId ?? randomUUID();
-  const primaryLines = await tx
-    .select({ sortOrder: billingDocumentLinesTable.sortOrder })
-    .from(billingDocumentLinesTable)
-    .where(eq(billingDocumentLinesTable.documentId, primary.id));
-  const nextSort =
-    primaryLines.reduce((max, l) => Math.max(max, l.sortOrder ?? 0), -1) + 1;
-  const secondaryLines = await tx
-    .select({ id: billingDocumentLinesTable.id })
-    .from(billingDocumentLinesTable)
-    .where(eq(billingDocumentLinesTable.documentId, secondary.id))
-    .orderBy(billingDocumentLinesTable.sortOrder, billingDocumentLinesTable.id);
-
-  for (const [idx, line] of secondaryLines.entries()) {
-    await tx
-      .update(billingDocumentLinesTable)
-      .set({
-        documentId: primary.id,
-        sortOrder: nextSort + idx,
-        updatedAt: new Date(),
-      })
-      .where(eq(billingDocumentLinesTable.id, line.id));
-  }
-
-  await tx
-    .update(billingDocumentReferencesTable)
-    .set({ documentId: primary.id, updatedAt: new Date() })
-    .where(eq(billingDocumentReferencesTable.documentId, secondary.id));
-  const primaryFiles = await tx
-    .select({ pageIndex: billingDocumentFilesTable.pageIndex })
-    .from(billingDocumentFilesTable)
-    .where(eq(billingDocumentFilesTable.documentId, primary.id));
-  const secondaryFiles = await tx
-    .select({ id: billingDocumentFilesTable.id })
-    .from(billingDocumentFilesTable)
-    .where(eq(billingDocumentFilesTable.documentId, secondary.id))
-    .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
-  const firstMovedPage = primaryFiles.reduce(
-    (max, file) => Math.max(max, file.pageIndex ?? -1),
-    -1,
-  ) + 1;
-  for (const [offset, file] of secondaryFiles.entries()) {
-    await tx
-      .update(billingDocumentFilesTable)
-      .set({ documentId: primary.id, pageIndex: firstMovedPage + offset })
-      .where(eq(billingDocumentFilesTable.id, file.id));
-  }
-  await tx
-    .update(billingDocumentsTable)
-    .set({ mergeGroupId: groupId, updatedAt: new Date() })
-    .where(eq(billingDocumentsTable.id, primary.id));
-  await tx
-    .update(billingDocumentsTable)
-    .set({
-      mergeGroupId: groupId,
-      primaryDocumentId: primary.id,
-      status: "duplicate",
-      warnings: [
-        secondary.warnings,
-        `Sloučeno do vícestránkového dokladu #${primary.id}; řádky z této stránky byly přesunuty do hlavního dokladu.`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      updatedAt: new Date(),
-    })
-    .where(eq(billingDocumentsTable.id, secondary.id));
-
-  await tx.insert(auditLogTable).values({
-    actorUserId: actor.userId,
-    actorName: actor.name,
-    action: "update",
-    entityType: "billing_documents",
-    entityId: primary.id,
-    summary: `Sloučena nekompletní strana dokladu #${secondary.id} do vícestránkového dokladu #${primary.id}`,
-    method: "POST",
-    path: `/billing/documents/${primary.id}`,
-  });
-}
-
 async function reconcileIncompleteMultipagePages(documentId: number, actor: Actor): Promise<void> {
-  await db.transaction(async (tx) => {
-    const [doc] = await tx
-      .select()
-      .from(billingDocumentsTable)
-      .where(eq(billingDocumentsTable.id, documentId));
-    if (!doc || !doc.documentNumber || doc.primaryDocumentId != null) return;
+  const [doc] = await db
+    .select()
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!doc || !doc.documentNumber || doc.primaryDocumentId != null) return;
 
-    const conds = [
-      ne(billingDocumentsTable.id, doc.id),
-      isNull(billingDocumentsTable.primaryDocumentId),
-      eq(billingDocumentsTable.documentNumber, doc.documentNumber),
-    ];
-    if (doc.jobId != null) conds.push(eq(billingDocumentsTable.jobId, doc.jobId));
-    if (doc.supplierIc) {
-      conds.push(eq(billingDocumentsTable.supplierIc, doc.supplierIc));
-    } else if (doc.supplierName) {
-      conds.push(eq(billingDocumentsTable.supplierName, doc.supplierName));
+  const conds = [
+    ne(billingDocumentsTable.id, doc.id),
+    isNull(billingDocumentsTable.primaryDocumentId),
+    eq(billingDocumentsTable.documentNumber, doc.documentNumber),
+  ];
+  if (doc.jobId != null) conds.push(eq(billingDocumentsTable.jobId, doc.jobId));
+  if (doc.supplierIc) conds.push(eq(billingDocumentsTable.supplierIc, doc.supplierIc));
+  else if (doc.supplierName) conds.push(eq(billingDocumentsTable.supplierName, doc.supplierName));
+
+  const siblings = await db.select().from(billingDocumentsTable).where(and(...conds));
+  const candidates = [doc, ...siblings].filter((candidate) =>
+    MERGEABLE_DOCUMENT_STATUSES.has(candidate.status),
+  );
+  const primary = candidates.find(
+    (candidate) => !looksLikeIncompleteMultipageDocument(candidate) && candidate.totalWithVat != null,
+  );
+  if (!primary) return;
+  const incompletePages: BillingDocument[] = [];
+  for (const candidate of candidates) {
+    if (
+      candidate.id !== primary.id &&
+      looksLikeIncompleteMultipageDocument(candidate) &&
+      await hasExtractedMaterialLines(db, candidate.id)
+    ) {
+      incompletePages.push(candidate);
     }
-
-    const siblings = await tx
-      .select()
-      .from(billingDocumentsTable)
-      .where(and(...conds));
-    const candidates = [doc, ...siblings].filter(
-      (d) => d.status !== "approved" && d.status !== "duplicate",
-    );
-    const primary = candidates.find(
-      (d) => !looksLikeIncompleteMultipageDocument(d) && d.totalWithVat != null,
-    );
-    if (!primary) return;
-
-    for (const secondary of candidates) {
-      if (secondary.id === primary.id) continue;
-      if (!looksLikeIncompleteMultipageDocument(secondary)) continue;
-      if (!(await hasExtractedMaterialLines(tx, secondary.id))) continue;
-      await mergeIncompleteMultipagePageTx(tx, primary, secondary, actor);
-    }
-  });
+  }
+  if (!incompletePages.length) return;
+  await mergeDocumentPages(
+    { orderedDocumentIds: [primary.id, ...incompletePages.map((candidate) => candidate.id)] },
+    actor,
+  );
 }
 
-async function reconcileIncompleteMultipagePagesSafely(
+export async function reconcileIncompleteMultipagePagesSafely(
   documentId: number,
-  actor: Actor,
+  actor: Actor = SYSTEM_ACTOR,
 ): Promise<void> {
   try {
     await reconcileIncompleteMultipagePages(documentId, actor);
@@ -500,6 +420,12 @@ function serializeDocument(
     status: row.status,
     materialState,
     docType: row.docType,
+    declaredDocType: row.declaredDocType,
+    detectedDocType: row.detectedDocType,
+    detectedDocTypeConfidence:
+      row.detectedDocTypeConfidence == null ? null : num(row.detectedDocTypeConfidence),
+    docTypeSource: row.docTypeSource,
+    docTypeConfirmedAt: row.docTypeConfirmedAt?.toISOString() ?? null,
     source: row.source,
     sourceRef: row.sourceRef,
     objectPath: row.objectPath,
@@ -1148,6 +1074,508 @@ export async function unmarkDocumentDuplicate(id: number, actor: Actor) {
 }
 
 // ---------------------------------------------------------------------------
+// Reversible manual grouping of separately uploaded document pages
+// ---------------------------------------------------------------------------
+
+type MergePageDocument = typeof billingDocumentsTable.$inferSelect;
+
+async function assertDocumentsMergeable(
+  tx: DbOrTx,
+  documents: MergePageDocument[],
+  options: {
+    allowActiveMergeId?: number;
+    allowMergedStatus?: boolean;
+    allowPrimaryDocumentId?: number;
+  } = {},
+): Promise<void> {
+  for (const doc of documents) {
+    if (
+      !MERGEABLE_DOCUMENT_STATUSES.has(doc.status) &&
+      !(options.allowMergedStatus && doc.status === "merged")
+    ) {
+      throw appError(409, `Doklad #${doc.id} je ve stavu ${doc.status} a nelze jej sloučit.`);
+    }
+    if (
+      doc.primaryDocumentId != null &&
+      doc.primaryDocumentId !== options.allowPrimaryDocumentId
+    ) {
+      throw appError(409, `Doklad #${doc.id} už patří pod jiný doklad.`);
+    }
+  }
+
+  const jobIds = new Set(documents.map((doc) => doc.jobId).filter((id): id is number => id != null));
+  if (jobIds.size > 1) {
+    throw appError(409, "Stránky z různých zakázek nelze sloučit do jednoho dokladu.");
+  }
+
+  const documentIds = documents.map((doc) => doc.id);
+  const activeMerge = await tx
+    .select({ id: billingDocumentMergesTable.id })
+    .from(billingDocumentMergeMembersTable)
+    .innerJoin(
+      billingDocumentMergesTable,
+      eq(billingDocumentMergesTable.id, billingDocumentMergeMembersTable.mergeId),
+    )
+    .where(and(
+      inArray(billingDocumentMergeMembersTable.documentId, documentIds),
+      eq(billingDocumentMergesTable.status, "active"),
+    ))
+    .limit(1);
+  if (activeMerge.some((row) => row.id !== options.allowActiveMergeId)) {
+    throw appError(409, "Některý doklad už je součástí aktivního sloučení.");
+  }
+
+  const lines = await tx
+    .select({
+      id: billingDocumentLinesTable.id,
+      approved: billingDocumentLinesTable.approved,
+      matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+      invoicedInvoiceId: billingDocumentLinesTable.invoicedInvoiceId,
+    })
+    .from(billingDocumentLinesTable)
+    .where(inArray(billingDocumentLinesTable.documentId, documentIds));
+  if (lines.some((line) => line.approved === 1 || line.matchConfirmed === 1 || line.invoicedInvoiceId != null)) {
+    throw appError(409, "Doklad obsahuje schválené, potvrzené nebo již fakturované položky.");
+  }
+
+  const confirmedReference = await tx
+    .select({ id: billingDocumentReferencesTable.id })
+    .from(billingDocumentReferencesTable)
+    .where(and(
+      inArray(billingDocumentReferencesTable.documentId, documentIds),
+      eq(billingDocumentReferencesTable.matchConfirmed, 1),
+    ))
+    .limit(1);
+  if (confirmedReference.length) {
+    throw appError(409, "Doklad má ručně potvrzené párování a nelze jej sloučit ani rozdělit.");
+  }
+
+  const lineIds = lines.map((line) => line.id);
+  if (lineIds.length) {
+    const [material, activityMaterial] = await Promise.all([
+      tx
+        .select({ id: materialsTable.id })
+        .from(materialsTable)
+        .where(and(
+          eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+          inArray(materialsTable.sourceId, lineIds),
+        ))
+        .limit(1),
+      tx
+        .select({ id: activityMaterialsTable.id })
+        .from(activityMaterialsTable)
+        .where(and(
+          eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+          inArray(activityMaterialsTable.sourceId, lineIds),
+        ))
+        .limit(1),
+    ]);
+    if (material.length || activityMaterial.length) {
+      throw appError(409, "Doklad už vytvořil materiál v zakázce nebo dlouhodobé akci.");
+    }
+  }
+
+  const movement = await tx
+    .select({ id: warehouseMovementsTable.id })
+    .from(warehouseMovementsTable)
+    .where(inArray(warehouseMovementsTable.billingDocumentId, documentIds))
+    .limit(1);
+  if (movement.length) {
+    throw appError(409, "Doklad už ovlivnil sklad a nelze jej sloučit.");
+  }
+}
+
+async function stopQueuedExtractionOrRejectRunning(
+  tx: DbOrTx,
+  documentIds: number[],
+): Promise<void> {
+  await tx
+    .update(extractionJobsTable)
+    .set({
+      status: "skipped",
+      lastError: "AI uloha byla nahrazena zmenou seskupeni stran.",
+      finishedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      inArray(extractionJobsTable.documentId, documentIds),
+      eq(extractionJobsTable.status, "queued"),
+    ));
+  const running = await tx
+    .select({ id: extractionJobsTable.id })
+    .from(extractionJobsTable)
+    .where(and(
+      inArray(extractionJobsTable.documentId, documentIds),
+      eq(extractionJobsTable.status, "running"),
+    ))
+    .limit(1);
+  if (running.length) {
+    throw appError(409, "Na nektere strance prave bezi AI analyza. Pockejte na jeji dokonceni a akci opakujte.");
+  }
+}
+
+async function invalidateExtractionForPageGrouping(
+  tx: DbOrTx,
+  documents: MergePageDocument[],
+): Promise<void> {
+  const documentIds = documents.map((document) => document.id);
+  await tx
+    .delete(billingDocumentReferencesTable)
+    .where(and(
+      inArray(billingDocumentReferencesTable.documentId, documentIds),
+      eq(billingDocumentReferencesTable.source, "ai"),
+    ));
+  await tx
+    .delete(billingDocumentLinesTable)
+    .where(inArray(billingDocumentLinesTable.documentId, documentIds));
+  for (const document of documents) {
+    const typeWasConfirmed = document.docTypeConfirmedAt != null;
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        detectedDocType: null,
+        detectedDocTypeConfidence: null,
+        aiRawJson: null,
+        aiConfidence: null,
+        aiModel: null,
+        aiExtractedAt: null,
+        ...(!typeWasConfirmed
+          ? {
+              docType: document.declaredDocType ?? "unknown",
+              docTypeSource: document.declaredDocType ? "user" : "unknown",
+            }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, document.id));
+  }
+}
+
+export interface MergeDocumentPagesInput {
+  orderedDocumentIds: number[];
+  orderedAttachmentIds?: Array<number | null>;
+}
+
+export async function mergeDocumentPages(input: MergeDocumentPagesInput, actor: Actor) {
+  const orderedDocumentIds = input.orderedDocumentIds;
+  if (orderedDocumentIds.length < 2 || orderedDocumentIds.length > 50) {
+    throw appError(400, "Ke sloučení vyberte 2 až 50 stran.");
+  }
+  if (new Set(orderedDocumentIds).size !== orderedDocumentIds.length) {
+    throw appError(400, "Stejný doklad nelze ve sloučení použít vícekrát.");
+  }
+  if (
+    input.orderedAttachmentIds &&
+    input.orderedAttachmentIds.length !== orderedDocumentIds.length
+  ) {
+    throw appError(400, "Počet příloh neodpovídá počtu dokladů.");
+  }
+
+  const result = await db.transaction(async (tx) => {
+    for (const id of [...orderedDocumentIds].sort((a, b) => a - b)) {
+      await tx.execute(sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${id})`);
+    }
+    const rows = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, orderedDocumentIds));
+    if (rows.length !== orderedDocumentIds.length) {
+      throw appError(404, "Některý vybraný doklad nebyl nalezen.");
+    }
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const documents = orderedDocumentIds.map((id) => byId.get(id)!);
+
+    // A client may retry after the first response was lost. The advisory locks
+    // above make this check deterministic even when two identical requests
+    // arrive concurrently. Return the existing logical document without
+    // invalidating extraction or enqueueing a second AI job.
+    const [existingActiveMerge] = await tx
+      .select({
+        mergeId: billingDocumentMergesTable.id,
+        primaryDocumentId: billingDocumentMergesTable.primaryDocumentId,
+      })
+      .from(billingDocumentMergeMembersTable)
+      .innerJoin(
+        billingDocumentMergesTable,
+        eq(billingDocumentMergesTable.id, billingDocumentMergeMembersTable.mergeId),
+      )
+      .where(and(
+        inArray(billingDocumentMergeMembersTable.documentId, orderedDocumentIds),
+        eq(billingDocumentMergesTable.status, "active"),
+      ))
+      .limit(1);
+    if (existingActiveMerge) {
+      const existingMembers = await tx
+        .select()
+        .from(billingDocumentMergeMembersTable)
+        .where(eq(billingDocumentMergeMembersTable.mergeId, existingActiveMerge.mergeId))
+        .orderBy(billingDocumentMergeMembersTable.pageOrder);
+      const sameDocuments =
+        existingMembers.length === orderedDocumentIds.length &&
+        existingMembers.every(
+          (member, pageOrder) => member.documentId === orderedDocumentIds[pageOrder],
+        );
+      const sameAttachments =
+        !input.orderedAttachmentIds ||
+        existingMembers.every(
+          (member, pageOrder) =>
+            member.attachmentId === input.orderedAttachmentIds?.[pageOrder],
+        );
+      if (sameDocuments && sameAttachments) {
+        return {
+          mergeId: existingActiveMerge.mergeId,
+          primaryDocumentId: existingActiveMerge.primaryDocumentId,
+          created: false,
+        };
+      }
+    }
+
+    await assertDocumentsMergeable(tx, documents);
+    await stopQueuedExtractionOrRejectRunning(tx, orderedDocumentIds);
+    await invalidateExtractionForPageGrouping(tx, documents);
+
+    const primary = documents[0];
+    const groupId = primary.mergeGroupId ?? randomUUID();
+    const [merge] = await tx
+      .insert(billingDocumentMergesTable)
+      .values({
+        primaryDocumentId: primary.id,
+        status: "active",
+        createdByUserId: actor.userId,
+      })
+      .returning();
+
+    await tx.insert(billingDocumentMergeMembersTable).values(
+      documents.map((doc, pageOrder) => ({
+        mergeId: merge.id,
+        documentId: doc.id,
+        attachmentId: input.orderedAttachmentIds?.[pageOrder] ?? null,
+        pageOrder,
+        previousStatus: doc.status,
+        previousPrimaryDocumentId: doc.primaryDocumentId,
+      })),
+    );
+
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "needs_review",
+        mergeGroupId: groupId,
+        primaryDocumentId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, primary.id));
+    const secondaryIds = orderedDocumentIds.slice(1);
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        status: "merged",
+        mergeGroupId: groupId,
+        primaryDocumentId: primary.id,
+        updatedAt: new Date(),
+      })
+      .where(inArray(billingDocumentsTable.id, secondaryIds));
+    await tx
+      .update(extractionJobsTable)
+      .set({
+        status: "skipped",
+        lastError: `Stránka sloučena do dokladu #${primary.id}.`,
+        finishedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        inArray(extractionJobsTable.documentId, secondaryIds),
+        inArray(extractionJobsTable.status, ["queued", "running"]),
+      ));
+
+    if (input.orderedAttachmentIds) {
+      for (const [pageIndex, attachmentId] of input.orderedAttachmentIds.entries()) {
+        if (attachmentId == null) continue;
+        await tx
+          .update(attachmentsTable)
+          .set({ billingDocumentId: primary.id, pageIndex })
+          .where(eq(attachmentsTable.id, attachmentId));
+      }
+    }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_pages_merged",
+      entityType: "billing_document_merges",
+      entityId: merge.id,
+      summary: `Sloučeno ${documents.length} stran do dokladu #${primary.id}: ${orderedDocumentIds.join(", ")}`,
+      method: "POST",
+      path: "/billing/documents/merge-pages",
+    });
+    return { mergeId: merge.id, primaryDocumentId: primary.id, created: true };
+  });
+
+  if (result.created) {
+    await requeueExtraction(result.primaryDocumentId, { force: true });
+  }
+  return {
+    mergeId: result.mergeId,
+    primaryDocumentId: result.primaryDocumentId,
+    detail: await getDocument(result.primaryDocumentId),
+  };
+}
+
+export async function reorderDocumentMerge(
+  mergeId: number,
+  orderedDocumentIds: number[],
+  actor: Actor,
+) {
+  const primaryDocumentId = await db.transaction(async (tx) => {
+    const [merge] = await tx
+      .select()
+      .from(billingDocumentMergesTable)
+      .where(eq(billingDocumentMergesTable.id, mergeId));
+    if (!merge || merge.status !== "active") throw appError(404, "Aktivní sloučení nebylo nalezeno.");
+    await tx.execute(sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${merge.primaryDocumentId})`);
+    const members = await tx
+      .select()
+      .from(billingDocumentMergeMembersTable)
+      .where(eq(billingDocumentMergeMembersTable.mergeId, mergeId));
+    const current = new Set(members.map((member) => member.documentId));
+    if (
+      orderedDocumentIds.length !== members.length ||
+      new Set(orderedDocumentIds).size !== members.length ||
+      orderedDocumentIds.some((id) => !current.has(id))
+    ) {
+      throw appError(400, "Nové pořadí neobsahuje přesně všechny strany sloučení.");
+    }
+    await stopQueuedExtractionOrRejectRunning(tx, orderedDocumentIds);
+    await tx
+      .update(billingDocumentMergeMembersTable)
+      .set({ pageOrder: sql`${billingDocumentMergeMembersTable.pageOrder} + 1000` })
+      .where(eq(billingDocumentMergeMembersTable.mergeId, mergeId));
+    for (const [pageOrder, documentId] of orderedDocumentIds.entries()) {
+      await tx
+        .update(billingDocumentMergeMembersTable)
+        .set({ pageOrder })
+        .where(and(
+          eq(billingDocumentMergeMembersTable.mergeId, mergeId),
+          eq(billingDocumentMergeMembersTable.documentId, documentId),
+        ));
+    }
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_pages_reordered",
+      entityType: "billing_document_merges",
+      entityId: mergeId,
+      summary: `Změněno pořadí stran: ${orderedDocumentIds.join(", ")}`,
+      method: "POST",
+      path: `/billing/document-merges/${mergeId}/order`,
+    });
+    return merge.primaryDocumentId;
+  });
+  await requeueExtraction(primaryDocumentId, { force: true });
+  return getDocument(primaryDocumentId);
+}
+
+export async function revertDocumentMerge(mergeId: number, actor: Actor) {
+  const documentIds = await db.transaction(async (tx) => {
+    const [merge] = await tx
+      .select()
+      .from(billingDocumentMergesTable)
+      .where(eq(billingDocumentMergesTable.id, mergeId));
+    if (!merge || merge.status !== "active") throw appError(404, "Aktivní sloučení nebylo nalezeno.");
+    await tx.execute(sql`select pg_advisory_xact_lock(${DOCUMENT_PAGE_MERGE_LOCK_CLASS}, ${merge.primaryDocumentId})`);
+    const members = await tx
+      .select()
+      .from(billingDocumentMergeMembersTable)
+      .where(eq(billingDocumentMergeMembersTable.mergeId, mergeId))
+      .orderBy(billingDocumentMergeMembersTable.pageOrder);
+    const docs = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, members.map((member) => member.documentId)));
+    const primary = docs.find((doc) => doc.id === merge.primaryDocumentId);
+    if (!primary || primary.status !== "needs_review") {
+      throw appError(409, "Sloučení lze rozdělit pouze před kontrolou a schválením dokladu.");
+    }
+    await assertDocumentsMergeable(tx, docs, {
+      allowActiveMergeId: mergeId,
+      allowMergedStatus: true,
+      allowPrimaryDocumentId: merge.primaryDocumentId,
+    });
+    await stopQueuedExtractionOrRejectRunning(tx, members.map((member) => member.documentId));
+    await invalidateExtractionForPageGrouping(tx, docs);
+    for (const member of members) {
+      await tx
+        .update(billingDocumentsTable)
+        .set({
+          status: member.previousStatus,
+          primaryDocumentId: member.previousPrimaryDocumentId,
+          mergeGroupId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(billingDocumentsTable.id, member.documentId));
+      if (member.attachmentId != null) {
+        await tx
+          .update(attachmentsTable)
+          .set({ billingDocumentId: member.documentId, pageIndex: 0 })
+          .where(eq(attachmentsTable.id, member.attachmentId));
+      }
+    }
+    await tx
+      .update(billingDocumentMergesTable)
+      .set({ status: "reverted", revertedByUserId: actor.userId, revertedAt: new Date() })
+      .where(eq(billingDocumentMergesTable.id, mergeId));
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "document_pages_merge_reverted",
+      entityType: "billing_document_merges",
+      entityId: mergeId,
+      summary: `Sloučení dokladu #${merge.primaryDocumentId} rozděleno zpět.`,
+      method: "POST",
+      path: `/billing/document-merges/${mergeId}/revert`,
+    });
+    return members.map((member) => member.documentId);
+  });
+  for (const id of documentIds) await requeueExtraction(id, { force: true });
+  return { mergeId, reverted: true, documentIds };
+}
+
+export async function confirmDocumentType(id: number, docType: string, actor: Actor) {
+  const [current] = await db
+    .select({ status: billingDocumentsTable.status })
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, id));
+  if (!current) throw appError(404, "Doklad nenalezen.");
+  if (["approved", "duplicate", "merged", "ignored"].includes(current.status)) {
+    throw appError(409, "Typ dokladu lze potvrdit pouze pred jeho finalnim zpracovanim.");
+  }
+  if (!VALID_DOC_TYPE.has(docType)) throw appError(400, "Neplatný typ dokladu.");
+  const [updated] = await db
+    .update(billingDocumentsTable)
+    .set({
+      docType,
+      docTypeSource: "admin",
+      docTypeConfirmedByUserId: actor.userId,
+      docTypeConfirmedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(billingDocumentsTable.id, id))
+    .returning();
+  if (!updated) throw appError(404, "Doklad nenalezen.");
+  await db.insert(auditLogTable).values({
+    actorUserId: actor.userId,
+    actorName: actor.name,
+    action: "document_type_confirmed",
+    entityType: "billing_documents",
+    entityId: id,
+    summary: `Typ dokladu potvrzen jako ${docType}.`,
+    method: "POST",
+    path: `/billing/documents/${id}/confirm-type`,
+  });
+  return getDocument(id);
+}
+
+// ---------------------------------------------------------------------------
 // Create from upload
 // ---------------------------------------------------------------------------
 
@@ -1202,8 +1630,9 @@ export async function createDocument(
     }
   }
 
-  const docType =
-    input.docType && VALID_DOC_TYPE.has(input.docType) ? input.docType : "invoice";
+  const declaredDocType =
+    input.docType && VALID_DOC_TYPE.has(input.docType) ? input.docType : null;
+  const docType = declaredDocType ?? "unknown";
 
   // Provenance: ISDOC wins over a visual PDF wins over AI wins over manual.
   const parsedBy = parsed ? "isdoc" : null;
@@ -1246,6 +1675,8 @@ export async function createDocument(
       .values({
         status: "needs_review",
         docType,
+        declaredDocType,
+        docTypeSource: declaredDocType ? "user" : "unknown",
         source: input.source,
         sourceRef: input.sourceRef ?? null,
         objectPath: input.objectPath,
@@ -1503,10 +1934,10 @@ export async function ingestGroupFile(
   actor: Actor,
   force = false,
 ): Promise<IngestFileResult> {
-  if (!Number.isInteger(input.pageIndex) || input.pageIndex < 0 || input.pageIndex > 1_000) {
+  if (!Number.isInteger(input.pageIndex) || input.pageIndex < 0 || input.pageIndex >= 50) {
     throw appError(400, "Neplatné pořadí stránky dokladu.");
   }
-  if (!Number.isInteger(input.pageCount) || input.pageCount < 1 || input.pageCount > 1_001) {
+  if (!Number.isInteger(input.pageCount) || input.pageCount < 1 || input.pageCount > 50) {
     throw appError(400, "Neplatný počet stránek dokladu.");
   }
   if (input.pageIndex >= input.pageCount) {
@@ -1905,7 +2336,10 @@ export async function getDocument(id: number) {
   const linkedDuplicateRows = await db
     .select()
     .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.primaryDocumentId, doc.id))
+    .where(and(
+      eq(billingDocumentsTable.primaryDocumentId, doc.id),
+      ne(billingDocumentsTable.status, "merged"),
+    ))
     .orderBy(billingDocumentsTable.id);
 
   // Files for each linked duplicate, so they can be previewed inline on the
@@ -1985,11 +2419,51 @@ export async function getDocument(id: number) {
     .where(eq(billingDocumentReferencesTable.documentId, id))
     .orderBy(billingDocumentReferencesTable.id);
 
-  const files = await db
+  let files = await db
     .select()
     .from(billingDocumentFilesTable)
     .where(eq(billingDocumentFilesTable.documentId, id))
     .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+
+  const [activeMerge] = await db
+    .select()
+    .from(billingDocumentMergesTable)
+    .where(and(
+      eq(billingDocumentMergesTable.primaryDocumentId, id),
+      eq(billingDocumentMergesTable.status, "active"),
+    ))
+    .limit(1);
+  let mergeInfo: {
+    id: number;
+    status: string;
+    members: Array<{ documentId: number; pageOrder: number; fileName: string | null }>;
+  } | null = null;
+  if (activeMerge) {
+    const members = await db
+      .select({
+        documentId: billingDocumentMergeMembersTable.documentId,
+        pageOrder: billingDocumentMergeMembersTable.pageOrder,
+        fileName: billingDocumentsTable.fileName,
+      })
+      .from(billingDocumentMergeMembersTable)
+      .innerJoin(
+        billingDocumentsTable,
+        eq(billingDocumentsTable.id, billingDocumentMergeMembersTable.documentId),
+      )
+      .where(eq(billingDocumentMergeMembersTable.mergeId, activeMerge.id))
+      .orderBy(billingDocumentMergeMembersTable.pageOrder);
+    const groupedFiles: (typeof billingDocumentFilesTable.$inferSelect)[] = [];
+    for (const member of members) {
+      const memberFiles = await db
+        .select()
+        .from(billingDocumentFilesTable)
+        .where(eq(billingDocumentFilesTable.documentId, member.documentId))
+        .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+      groupedFiles.push(...memberFiles);
+    }
+    files = groupedFiles;
+    mergeInfo = { id: activeMerge.id, status: activeMerge.status, members };
+  }
 
   // Job materials whose price was propagated from this document (auto-links).
   const linkedMaterials = await db
@@ -2028,7 +2502,8 @@ export async function getDocument(id: number) {
       priceSourceLineId: m.priceSourceLineId,
       invoicedInvoiceId: m.invoicedInvoiceId,
     })),
-    files: files.map(serializeFile),
+    files: files.map((file, pageIndex) => ({ ...serializeFile(file), pageIndex })),
+    pageMerge: mergeInfo,
   };
 }
 
@@ -2741,7 +3216,7 @@ export interface UpdateDocumentInput {
   notes?: string | null;
 }
 
-export async function updateDocument(id: number, input: UpdateDocumentInput) {
+export async function updateDocument(id: number, input: UpdateDocumentInput, actor: Actor = SYSTEM_ACTOR) {
   const [doc] = await db
     .select()
     .from(billingDocumentsTable)
@@ -2777,8 +3252,14 @@ export async function updateDocument(id: number, input: UpdateDocumentInput) {
   const patch: Partial<typeof billingDocumentsTable.$inferInsert> = {
     updatedAt: new Date(),
   };
-  if (input.docType !== undefined && input.docType && VALID_DOC_TYPE.has(input.docType))
+  if (input.docType !== undefined && input.docType && VALID_DOC_TYPE.has(input.docType)) {
     patch.docType = input.docType;
+    if (input.docType !== doc.docType || doc.docTypeSource === "conflict") {
+      patch.docTypeSource = "admin";
+      patch.docTypeConfirmedByUserId = actor.userId;
+      patch.docTypeConfirmedAt = new Date();
+    }
+  }
   if (input.supplierName !== undefined) patch.supplierName = input.supplierName;
   if (input.supplierIc !== undefined) patch.supplierIc = input.supplierIc;
   if (input.supplierDic !== undefined) patch.supplierDic = input.supplierDic;
@@ -3757,12 +4238,24 @@ export async function approveDocument(id: number, actor: Actor) {
     // were approved here it would run the SAME price-propagation/material
     // sync/warehouse-movement pipeline as the primary that absorbed it,
     // double-writing stock and prices for what is logically one document.
+    if (doc.status === "merged") {
+      throw appError(
+        409,
+        `Doklad je sloučen jako další strana dokladu #${doc.primaryDocumentId ?? "?"}. Schvalte hlavní doklad.`,
+      );
+    }
     if (doc.status === "duplicate") {
       throw appError(
         409,
         doc.primaryDocumentId
           ? `Doklad je sloučen jako duplicita dokladu #${doc.primaryDocumentId} – schvalte tento hlavní doklad, ne duplicitu.`
           : "Doklad je označen jako duplicita a nelze jej samostatně schválit.",
+      );
+    }
+    if (doc.docType === "unknown" || doc.docTypeSource === "conflict") {
+      throw appError(
+        409,
+        "Typ dokladu není potvrzený. Vyřešte rozpor mezi ruční volbou a AI před schválením.",
       );
     }
     const attachmentJobId =
@@ -4209,6 +4702,7 @@ const EXTRACTION_REQUEUE_TERMINAL_STATUSES = new Set([
   "ignored",
   "reviewed",
   "duplicate",
+  "merged",
 ]);
 
 export interface RequeueExtractionOptions {
@@ -4601,7 +5095,7 @@ export async function deleteDocument(id: number, actor: Actor) {
 // Analyze a job's attachments → cost documents
 // ---------------------------------------------------------------------------
 
-const DOKLAD_TYPES = new Set(["invoice", "receipt", "delivery_note", "credit_note"]);
+const DOKLAD_TYPES = new Set(["document", "invoice", "receipt", "delivery_note", "credit_note"]);
 
 // Namespace for the Postgres advisory lock keyed by (class, jobId) that
 // serializes concurrent "Analyzovat doklady" runs for the same job (e.g. a
@@ -4717,6 +5211,10 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
         .where(eq(billingDocumentsTable.sha256, hash))
         .limit(1);
       if (existing) {
+        await tx
+          .update(attachmentsTable)
+          .set({ billingDocumentId: existing.id, pageIndex: att.pageIndex ?? 0 })
+          .where(eq(attachmentsTable.id, att.id));
         await linkExistingDocumentToJobAttachmentTx(
           tx,
           existing.id,
@@ -4751,13 +5249,63 @@ export async function analyzeJobDocuments(jobId: number, actor: Actor) {
         actor,
       );
       if (result.status === "duplicate") {
+        const duplicateId = result.duplicates[0]?.id;
+        if (duplicateId != null) {
+          await tx
+            .update(attachmentsTable)
+            .set({ billingDocumentId: duplicateId, pageIndex: att.pageIndex ?? 0 })
+            .where(eq(attachmentsTable.id, att.id));
+        }
         skipped++;
         continue;
       }
+      await tx
+        .update(attachmentsTable)
+        .set({ billingDocumentId: result.document.id, pageIndex: att.pageIndex ?? 0 })
+        .where(eq(attachmentsTable.id, att.id));
       created.push(result.document);
     }
     return { created, createdCount: created.length, skipped };
   });
+}
+
+export async function mergeJobDocumentPages(
+  jobId: number,
+  orderedAttachmentIds: number[],
+  actor: Actor,
+) {
+  if (orderedAttachmentIds.length < 2 || orderedAttachmentIds.length > 50) {
+    throw appError(400, "Ke sloučení vyberte 2 až 50 stran.");
+  }
+  if (new Set(orderedAttachmentIds).size !== orderedAttachmentIds.length) {
+    throw appError(400, "Stejnou přílohu nelze použít vícekrát.");
+  }
+  await analyzeJobDocuments(jobId, actor);
+  const attachments = await db
+    .select()
+    .from(attachmentsTable)
+    .where(and(
+      eq(attachmentsTable.jobId, jobId),
+      inArray(attachmentsTable.id, orderedAttachmentIds),
+    ));
+  if (attachments.length !== orderedAttachmentIds.length) {
+    throw appError(404, "Některá vybraná stránka nebyla v zakázce nalezena.");
+  }
+  const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+  const ordered = orderedAttachmentIds.map((id) => byId.get(id)!);
+  if (ordered.some((attachment) => !DOKLAD_TYPES.has(attachment.type))) {
+    throw appError(400, "Sloučit lze pouze účetní doklady, nikoli fotodokumentaci.");
+  }
+  if (ordered.some((attachment) => attachment.billingDocumentId == null)) {
+    throw appError(409, "Některou stránku se nepodařilo připravit k AI analýze.");
+  }
+  return mergeDocumentPages(
+    {
+      orderedDocumentIds: ordered.map((attachment) => attachment.billingDocumentId!),
+      orderedAttachmentIds,
+    },
+    actor,
+  );
 }
 
 function guessContentType(fileName: string): string {
@@ -4947,6 +5495,7 @@ export interface AiSuggestionReference {
 
 export interface AiSuggestionInput {
   docType?: string | null;
+  docTypeConfidence?: number | null;
   supplierName?: string | null;
   supplierIc?: string | null;
   supplierDic?: string | null;
@@ -5073,25 +5622,55 @@ export async function applyAiSuggestion(
       suggestion.finalTotalPresent === false
         ? `NEUPLNY_VICESTRANKOVY_DOKLAD: Viditelná je pouze strana ${suggestion.pageNumber ?? "?"}/${suggestion.pageCount} a chybí finální součet dokladu. Stránku je nutné sloučit s dalšími stranami před schválením nebo ignorováním.`
         : null;
+    const detectedDocType =
+      suggestion.docType && VALID_DOC_TYPE.has(suggestion.docType)
+        ? suggestion.docType
+        : null;
+    const typeConflict =
+      doc.docTypeConfirmedAt == null &&
+      doc.declaredDocType != null &&
+      detectedDocType != null &&
+      doc.declaredDocType !== detectedDocType;
+    const typeConflictWarning = typeConflict
+      ? `ROZPOR_TYPU_DOKLADU: Uživatel zvolil ${doc.declaredDocType}, AI rozpoznala ${detectedDocType}. Typ musí před schválením potvrdit administrátor.`
+      : null;
     const warnings = Array.from(
       new Set([
         "Hlavička a položky předvyplněny pomocí AI (OpenAI). Před schválením pečlivě zkontrolujte.",
         ...(lowConfidenceWarning ? [lowConfidenceWarning] : []),
         ...(incompleteMultipageWarning ? [incompleteMultipageWarning] : []),
+        ...(typeConflictWarning ? [typeConflictWarning] : []),
         ...suggestion.warnings,
       ]),
     ).join("\n");
 
-    const docType =
-      suggestion.docType && VALID_DOC_TYPE.has(suggestion.docType)
-        ? suggestion.docType
-        : doc.docType;
+    const typeWasConfirmed = doc.docTypeConfirmedAt != null;
+    const docType = typeWasConfirmed
+      ? doc.docType
+      : typeConflict
+        ? "unknown"
+        : detectedDocType ?? doc.declaredDocType ?? doc.docType;
+    const docTypeSource = typeWasConfirmed
+      ? "admin"
+      : typeConflict
+        ? "conflict"
+        : detectedDocType
+          ? "ai"
+          : doc.declaredDocType
+            ? "user"
+            : "unknown";
 
     await tx
       .update(billingDocumentsTable)
       .set({
         // Never override a value a human / ISDOC already set.
         docType,
+        detectedDocType,
+        detectedDocTypeConfidence:
+          suggestion.docTypeConfidence == null
+            ? null
+            : String(round2(suggestion.docTypeConfidence)),
+        docTypeSource,
         primaryDocumentId: replaceExisting ? null : doc.primaryDocumentId,
         mergeGroupId: replaceExisting ? null : doc.mergeGroupId,
         supplierName: fillFromAi(doc.supplierName, suggestion.supplierName, replaceExisting),
@@ -5222,7 +5801,6 @@ export async function applyAiSuggestion(
       }
     }
   });
-  await reconcileIncompleteMultipagePagesSafely(documentId, SYSTEM_ACTOR);
   await reconcileDocumentRelationshipsSafely(documentId, SYSTEM_ACTOR);
 }
 
@@ -5885,11 +6463,37 @@ export async function getDocumentFileBuffer(
 export async function getDocumentAllFileBuffers(
   documentId: number,
 ): Promise<ExtractionFileInput[]> {
-  const rows = await db
-    .select()
-    .from(billingDocumentFilesTable)
-    .where(eq(billingDocumentFilesTable.documentId, documentId))
-    .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+  const [activeMerge] = await db
+    .select({ id: billingDocumentMergesTable.id })
+    .from(billingDocumentMergesTable)
+    .where(and(
+      eq(billingDocumentMergesTable.primaryDocumentId, documentId),
+      eq(billingDocumentMergesTable.status, "active"),
+    ))
+    .limit(1);
+  let rows: (typeof billingDocumentFilesTable.$inferSelect)[];
+  if (activeMerge) {
+    const members = await db
+      .select({ documentId: billingDocumentMergeMembersTable.documentId })
+      .from(billingDocumentMergeMembersTable)
+      .where(eq(billingDocumentMergeMembersTable.mergeId, activeMerge.id))
+      .orderBy(billingDocumentMergeMembersTable.pageOrder);
+    rows = [];
+    for (const member of members) {
+      const memberRows = await db
+        .select()
+        .from(billingDocumentFilesTable)
+        .where(eq(billingDocumentFilesTable.documentId, member.documentId))
+        .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+      rows.push(...memberRows);
+    }
+  } else {
+    rows = await db
+      .select()
+      .from(billingDocumentFilesTable)
+      .where(eq(billingDocumentFilesTable.documentId, documentId))
+      .orderBy(sql`${billingDocumentFilesTable.pageIndex} asc nulls last`, billingDocumentFilesTable.id);
+  }
   const supported = rows.filter(
     (r): r is typeof r & { objectPath: string } =>
       !!r.objectPath && isSupportedForAi(r.mimeType, r.originalFileName),

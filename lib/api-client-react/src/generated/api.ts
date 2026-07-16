@@ -67,6 +67,7 @@ import type {
   ClientErrorInput,
   ClientErrorList,
   ClientErrorPurgeResult,
+  ConfirmDocumentTypeInput,
   ConvertQuoteToJobInput,
   ConvertQuoteToJobResult,
   CostDocument,
@@ -106,6 +107,7 @@ import type {
   DocumentExtractionTestResult,
   DocumentLinkingInput,
   DocumentLinkingStatus,
+  DocumentPageMergeResult,
   EmailImportAccount,
   EmailImportImportResult,
   EmailImportLabelList,
@@ -159,6 +161,7 @@ import type {
   JobAssigneesInput,
   JobBulkStatusUpdate,
   JobCompletionReadiness,
+  JobDocumentSummary,
   JobInput,
   JobReorderInput,
   JobStatusTransitionError,
@@ -206,6 +209,8 @@ import type {
   MaterialMarkupRuleList,
   MaterialUpdate,
   MeResponse,
+  MergeDocumentPagesInput,
+  MergeJobDocumentPagesInput,
   MyJobSummary,
   MyPpeAssignment,
   MyPpeSignInput,
@@ -278,6 +283,7 @@ import type {
   UnbilledCustomerDetail,
   UpdateQuoteInput,
   UpdateRecurringTemplateInput,
+  UploadJobDocumentPageParams,
   UpsertMaterialMarkupRuleInput,
   UserInput,
   UserPermissionUpdate,
@@ -2707,6 +2713,237 @@ export const useDeleteAttachment = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteAttachmentMutationOptions(options));
+    }
+
+export const getListJobDocumentsUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/documents`
+}
+
+/**
+ * Returns page previews and processing state without extracted lines, totals or other billing data.
+ * @summary List sanitized logical documents for an assigned job
+ */
+export const listJobDocuments = async (jobId: number, options?: RequestInit): Promise<JobDocumentSummary[]> => {
+
+  return customFetch<JobDocumentSummary[]>(getListJobDocumentsUrl(jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListJobDocumentsQueryKey = (jobId: number,) => {
+    return [
+    `/api/jobs/${jobId}/documents`
+    ] as const;
+    }
+
+
+export const getListJobDocumentsQueryOptions = <TData = Awaited<ReturnType<typeof listJobDocuments>>, TError = ErrorType<ErrorEnvelope>>(jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListJobDocumentsQueryKey(jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listJobDocuments>>> = ({ signal }) => listJobDocuments(jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(jobId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listJobDocuments>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListJobDocumentsQueryResult = NonNullable<Awaited<ReturnType<typeof listJobDocuments>>>
+export type ListJobDocumentsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List sanitized logical documents for an assigned job
+ */
+
+export function useListJobDocuments<TData = Awaited<ReturnType<typeof listJobDocuments>>, TError = ErrorType<ErrorEnvelope>>(
+ jobId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listJobDocuments>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListJobDocumentsQueryOptions(jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUploadJobDocumentPageUrl = (jobId: number,
+    params: UploadJobDocumentPageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/jobs/${jobId}/documents/upload?${stringifiedParams}` : `/api/jobs/${jobId}/documents/upload`
+}
+
+/**
+ * @summary Upload one page of a logical document to an assigned job
+ */
+export const uploadJobDocumentPage = async (jobId: number,
+    uploadJobDocumentPageBody: Blob,
+    params: UploadJobDocumentPageParams, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getUploadJobDocumentPageUrl(jobId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+    body: JSON.stringify(
+      uploadJobDocumentPageBody,)
+  }
+);}
+
+
+
+
+export const getUploadJobDocumentPageMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadJobDocumentPage>>, TError,{jobId: number;data: BodyType<Blob>;params: UploadJobDocumentPageParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadJobDocumentPage>>, TError,{jobId: number;data: BodyType<Blob>;params: UploadJobDocumentPageParams}, TContext> => {
+
+const mutationKey = ['uploadJobDocumentPage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadJobDocumentPage>>, {jobId: number;data: BodyType<Blob>;params: UploadJobDocumentPageParams}> = (props) => {
+          const {jobId,data,params} = props ?? {};
+
+          return  uploadJobDocumentPage(jobId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadJobDocumentPageMutationResult = NonNullable<Awaited<ReturnType<typeof uploadJobDocumentPage>>>
+    export type UploadJobDocumentPageMutationBody = BodyType<Blob>
+    export type UploadJobDocumentPageMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Upload one page of a logical document to an assigned job
+ */
+export const useUploadJobDocumentPage = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadJobDocumentPage>>, TError,{jobId: number;data: BodyType<Blob>;params: UploadJobDocumentPageParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadJobDocumentPage>>,
+        TError,
+        {jobId: number;data: BodyType<Blob>;params: UploadJobDocumentPageParams},
+        TContext
+      > => {
+      return useMutation(getUploadJobDocumentPageMutationOptions(options));
+    }
+
+export const getMergeJobDocumentPagesUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/jobs/${jobId}/documents/merge-pages`
+}
+
+/**
+ * @summary Merge ordered standalone job attachments into one logical document
+ */
+export const mergeJobDocumentPages = async (jobId: number,
+    mergeJobDocumentPagesInput: MergeJobDocumentPagesInput, options?: RequestInit): Promise<DocumentPageMergeResult> => {
+
+  return customFetch<DocumentPageMergeResult>(getMergeJobDocumentPagesUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      mergeJobDocumentPagesInput,)
+  }
+);}
+
+
+
+
+export const getMergeJobDocumentPagesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeJobDocumentPages>>, TError,{jobId: number;data: BodyType<MergeJobDocumentPagesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof mergeJobDocumentPages>>, TError,{jobId: number;data: BodyType<MergeJobDocumentPagesInput>}, TContext> => {
+
+const mutationKey = ['mergeJobDocumentPages'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mergeJobDocumentPages>>, {jobId: number;data: BodyType<MergeJobDocumentPagesInput>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  mergeJobDocumentPages(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MergeJobDocumentPagesMutationResult = NonNullable<Awaited<ReturnType<typeof mergeJobDocumentPages>>>
+    export type MergeJobDocumentPagesMutationBody = BodyType<MergeJobDocumentPagesInput>
+    export type MergeJobDocumentPagesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Merge ordered standalone job attachments into one logical document
+ */
+export const useMergeJobDocumentPages = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeJobDocumentPages>>, TError,{jobId: number;data: BodyType<MergeJobDocumentPagesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof mergeJobDocumentPages>>,
+        TError,
+        {jobId: number;data: BodyType<MergeJobDocumentPagesInput>},
+        TContext
+      > => {
+      return useMutation(getMergeJobDocumentPagesMutationOptions(options));
     }
 
 export const getListPeopleUrl = () => {
@@ -20008,6 +20245,291 @@ export function useListCostDocuments<TData = Awaited<ReturnType<typeof listCostD
 
 
 
+
+export const getMergeCostDocumentPagesUrl = () => {
+
+
+
+
+  return `/api/billing/documents/merge-pages`
+}
+
+/**
+ * @summary Merge separately uploaded pages into one logical document
+ */
+export const mergeCostDocumentPages = async (mergeDocumentPagesInput: MergeDocumentPagesInput, options?: RequestInit): Promise<DocumentPageMergeResult> => {
+
+  return customFetch<DocumentPageMergeResult>(getMergeCostDocumentPagesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      mergeDocumentPagesInput,)
+  }
+);}
+
+
+
+
+export const getMergeCostDocumentPagesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeCostDocumentPages>>, TError,{data: BodyType<MergeDocumentPagesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof mergeCostDocumentPages>>, TError,{data: BodyType<MergeDocumentPagesInput>}, TContext> => {
+
+const mutationKey = ['mergeCostDocumentPages'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mergeCostDocumentPages>>, {data: BodyType<MergeDocumentPagesInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  mergeCostDocumentPages(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MergeCostDocumentPagesMutationResult = NonNullable<Awaited<ReturnType<typeof mergeCostDocumentPages>>>
+    export type MergeCostDocumentPagesMutationBody = BodyType<MergeDocumentPagesInput>
+    export type MergeCostDocumentPagesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Merge separately uploaded pages into one logical document
+ */
+export const useMergeCostDocumentPages = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeCostDocumentPages>>, TError,{data: BodyType<MergeDocumentPagesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof mergeCostDocumentPages>>,
+        TError,
+        {data: BodyType<MergeDocumentPagesInput>},
+        TContext
+      > => {
+      return useMutation(getMergeCostDocumentPagesMutationOptions(options));
+    }
+
+export const getReorderCostDocumentPagesUrl = (mergeId: number,) => {
+
+
+
+
+  return `/api/billing/document-merges/${mergeId}/order`
+}
+
+/**
+ * @summary Change page order in an active document merge
+ */
+export const reorderCostDocumentPages = async (mergeId: number,
+    mergeDocumentPagesInput: MergeDocumentPagesInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getReorderCostDocumentPagesUrl(mergeId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      mergeDocumentPagesInput,)
+  }
+);}
+
+
+
+
+export const getReorderCostDocumentPagesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderCostDocumentPages>>, TError,{mergeId: number;data: BodyType<MergeDocumentPagesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reorderCostDocumentPages>>, TError,{mergeId: number;data: BodyType<MergeDocumentPagesInput>}, TContext> => {
+
+const mutationKey = ['reorderCostDocumentPages'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderCostDocumentPages>>, {mergeId: number;data: BodyType<MergeDocumentPagesInput>}> = (props) => {
+          const {mergeId,data} = props ?? {};
+
+          return  reorderCostDocumentPages(mergeId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderCostDocumentPagesMutationResult = NonNullable<Awaited<ReturnType<typeof reorderCostDocumentPages>>>
+    export type ReorderCostDocumentPagesMutationBody = BodyType<MergeDocumentPagesInput>
+    export type ReorderCostDocumentPagesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Change page order in an active document merge
+ */
+export const useReorderCostDocumentPages = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderCostDocumentPages>>, TError,{mergeId: number;data: BodyType<MergeDocumentPagesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reorderCostDocumentPages>>,
+        TError,
+        {mergeId: number;data: BodyType<MergeDocumentPagesInput>},
+        TContext
+      > => {
+      return useMutation(getReorderCostDocumentPagesMutationOptions(options));
+    }
+
+export const getRevertCostDocumentMergeUrl = (mergeId: number,) => {
+
+
+
+
+  return `/api/billing/document-merges/${mergeId}/revert`
+}
+
+/**
+ * @summary Restore all original documents from an active merge
+ */
+export const revertCostDocumentMerge = async (mergeId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRevertCostDocumentMergeUrl(mergeId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRevertCostDocumentMergeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertCostDocumentMerge>>, TError,{mergeId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revertCostDocumentMerge>>, TError,{mergeId: number}, TContext> => {
+
+const mutationKey = ['revertCostDocumentMerge'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revertCostDocumentMerge>>, {mergeId: number}> = (props) => {
+          const {mergeId} = props ?? {};
+
+          return  revertCostDocumentMerge(mergeId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevertCostDocumentMergeMutationResult = NonNullable<Awaited<ReturnType<typeof revertCostDocumentMerge>>>
+
+    export type RevertCostDocumentMergeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Restore all original documents from an active merge
+ */
+export const useRevertCostDocumentMerge = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revertCostDocumentMerge>>, TError,{mergeId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revertCostDocumentMerge>>,
+        TError,
+        {mergeId: number},
+        TContext
+      > => {
+      return useMutation(getRevertCostDocumentMergeMutationOptions(options));
+    }
+
+export const getConfirmCostDocumentTypeUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/confirm-type`
+}
+
+/**
+ * @summary Resolve a user versus AI document type conflict
+ */
+export const confirmCostDocumentType = async (id: number,
+    confirmDocumentTypeInput: ConfirmDocumentTypeInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getConfirmCostDocumentTypeUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      confirmDocumentTypeInput,)
+  }
+);}
+
+
+
+
+export const getConfirmCostDocumentTypeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmCostDocumentType>>, TError,{id: number;data: BodyType<ConfirmDocumentTypeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmCostDocumentType>>, TError,{id: number;data: BodyType<ConfirmDocumentTypeInput>}, TContext> => {
+
+const mutationKey = ['confirmCostDocumentType'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmCostDocumentType>>, {id: number;data: BodyType<ConfirmDocumentTypeInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  confirmCostDocumentType(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmCostDocumentTypeMutationResult = NonNullable<Awaited<ReturnType<typeof confirmCostDocumentType>>>
+    export type ConfirmCostDocumentTypeMutationBody = BodyType<ConfirmDocumentTypeInput>
+    export type ConfirmCostDocumentTypeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Resolve a user versus AI document type conflict
+ */
+export const useConfirmCostDocumentType = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmCostDocumentType>>, TError,{id: number;data: BodyType<ConfirmDocumentTypeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmCostDocumentType>>,
+        TError,
+        {id: number;data: BodyType<ConfirmDocumentTypeInput>},
+        TContext
+      > => {
+      return useMutation(getConfirmCostDocumentTypeMutationOptions(options));
+    }
 
 export const getGetCostDocumentUrl = (id: number,) => {
 

@@ -46,7 +46,16 @@ export const billingDocumentsTable = pgTable(
   {
     id: serial("id").primaryKey(),
     status: text("status").notNull().default("uploaded"),
-    docType: text("doc_type").notNull().default("invoice"),
+    docType: text("doc_type").notNull().default("unknown"),
+    declaredDocType: text("declared_doc_type"),
+    detectedDocType: text("detected_doc_type"),
+    detectedDocTypeConfidence: numeric("detected_doc_type_confidence", { precision: 3, scale: 2 }),
+    docTypeSource: text("doc_type_source").notNull().default("unknown"),
+    docTypeConfirmedByUserId: integer("doc_type_confirmed_by_user_id").references(
+      () => usersTable.id,
+      { onDelete: "set null" },
+    ),
+    docTypeConfirmedAt: timestamp("doc_type_confirmed_at"),
     source: text("source").notNull().default("manual"),
     // Provenance detail for the source. For source="email" this is the original
     // sender's address; null for manually uploaded documents.
@@ -366,6 +375,62 @@ export const billingDocumentFilesTable = pgTable(
 );
 
 /**
+ * Reversible grouping of separately uploaded pages into one logical document.
+ * Files keep their original owner; active members only define AI/read order.
+ */
+export const billingDocumentMergesTable = pgTable(
+  "billing_document_merges",
+  {
+    id: serial("id").primaryKey(),
+    primaryDocumentId: integer("primary_document_id")
+      .notNull()
+      .references(() => billingDocumentsTable.id, { onDelete: "restrict" }),
+    status: text("status").notNull().default("active"),
+    createdByUserId: integer("created_by_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    revertedByUserId: integer("reverted_by_user_id").references(() => usersTable.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    revertedAt: timestamp("reverted_at"),
+  },
+  (t) => [
+    index("billing_document_merges_primary_idx").on(t.primaryDocumentId),
+    index("billing_document_merges_status_idx").on(t.status),
+  ],
+);
+
+export const billingDocumentMergeMembersTable = pgTable(
+  "billing_document_merge_members",
+  {
+    id: serial("id").primaryKey(),
+    mergeId: integer("merge_id")
+      .notNull()
+      .references(() => billingDocumentMergesTable.id, { onDelete: "cascade" }),
+    documentId: integer("document_id")
+      .notNull()
+      .references(() => billingDocumentsTable.id, { onDelete: "restrict" }),
+    attachmentId: integer("attachment_id").references(() => attachmentsTable.id, {
+      onDelete: "set null",
+    }),
+    pageOrder: integer("page_order").notNull(),
+    previousStatus: text("previous_status").notNull(),
+    previousPrimaryDocumentId: integer("previous_primary_document_id").references(
+      (): AnyPgColumn => billingDocumentsTable.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("billing_document_merge_members_merge_document_uq").on(t.mergeId, t.documentId),
+    uniqueIndex("billing_document_merge_members_merge_order_uq").on(t.mergeId, t.pageOrder),
+    index("billing_document_merge_members_document_idx").on(t.documentId),
+    index("billing_document_merge_members_attachment_idx").on(t.attachmentId),
+  ],
+);
+
+/**
  * Supplier reference numbers extracted from a cost document, and how each one
  * matched (or didn't) to an existing job / delivery note / document in the
  * system. The golden rule: the delivery note saved in a job tells us WHERE the
@@ -468,6 +533,8 @@ export type InsertBillingDocumentFile = z.infer<
   typeof insertBillingDocumentFileSchema
 >;
 export type BillingDocumentFile = typeof billingDocumentFilesTable.$inferSelect;
+export type BillingDocumentMerge = typeof billingDocumentMergesTable.$inferSelect;
+export type BillingDocumentMergeMember = typeof billingDocumentMergeMembersTable.$inferSelect;
 
 export const insertBillingDocumentReferenceSchema = createInsertSchema(
   billingDocumentReferencesTable,

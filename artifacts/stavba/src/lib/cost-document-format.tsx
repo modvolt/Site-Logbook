@@ -11,6 +11,7 @@ export const COST_DOC_STATUS_LABELS: Record<string, string> = {
   approved: "Schváleno",
   ignored: "Ignorováno",
   duplicate: "Duplicita",
+  merged: "Sloučená stránka",
 };
 
 const COST_DOC_STATUS_CLASSES: Record<string, string> = {
@@ -26,9 +27,12 @@ const COST_DOC_STATUS_CLASSES: Record<string, string> = {
     "bg-muted text-muted-foreground",
   duplicate:
     "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  merged:
+    "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-200",
 };
 
 export const COST_DOC_TYPE_LABELS: Record<string, string> = {
+  unknown: "Typ čeká na potvrzení",
   receipt: "Účtenka",
   delivery_note: "Dodací list",
   invoice: "Přijatá faktura",

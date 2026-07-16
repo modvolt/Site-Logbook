@@ -12,6 +12,7 @@ import { ExtractionResultSchema, normalizeResult } from "../src/lib/openai-extra
 import {
   applyAiSuggestion,
   approveDocument,
+  confirmDocumentType,
   getDocument,
   setDocumentStatus,
   type AiSuggestionInput,
@@ -62,6 +63,18 @@ describe("ExtractionResultSchema docType mapping", () => {
     const result = ExtractionResultSchema.safeParse({ docType: "proforma" });
     expect(result.success).toBe(false);
   });
+
+  it.each([
+    [-0.2, 0],
+    [0.34, 0.34],
+    [1.4, 1],
+  ])("clamps docTypeConfidence %s to %s", (input, expected) => {
+    const parsed = ExtractionResultSchema.parse({
+      docType: "invoice",
+      docTypeConfidence: input,
+    });
+    expect(parsed.docTypeConfidence).toBe(expected);
+  });
 });
 
 describe("ExtractionResultSchema multi-page completeness", () => {
@@ -88,6 +101,7 @@ describe("ExtractionResultSchema multi-page completeness", () => {
 // ---------------------------------------------------------------------------
 
 const TAG = `test-doctype-${Date.now()}`;
+const actor = { userId: null, name: TAG };
 const docIds: number[] = [];
 const invoiceIds: number[] = [];
 const jobIds: number[] = [];
@@ -168,6 +182,20 @@ describe("applyAiSuggestion docType", () => {
     await applyAiSuggestion(id, suggestion("proforma"));
     const doc = await getDocument(id);
     expect(doc?.document.docType).toBe("receipt");
+  });
+
+  it("keeps a low AI type confidence visible without auto-approving the document", async () => {
+    const id = await makeDoc("unknown");
+    await applyAiSuggestion(id, {
+      ...suggestion("receipt"),
+      docTypeConfidence: 0.34,
+    });
+    const doc = await getDocument(id);
+    expect(doc?.document.docType).toBe("receipt");
+    expect(doc?.document.detectedDocType).toBe("receipt");
+    expect(doc?.document.detectedDocTypeConfidence).toBe(0.34);
+    expect(doc?.document.docTypeSource).toBe("ai");
+    expect(doc?.document.status).toBe("needs_review");
   });
 
   it("persists a visible alarm and line confidence below 80 percent", async () => {
@@ -294,38 +322,29 @@ describe("applyAiSuggestion docType", () => {
     ).rejects.toThrow(/vícestránkového dokladu/);
   });
 
-  it("merges an incomplete first page into the matching page with the final total", async () => {
-    const documentNumber = `MP-${TAG}`;
-    const page1 = await makeDoc("invoice");
-    await applyAiSuggestion(page1, {
-      ...suggestion("invoice"),
-      supplierIc: "28463005",
-      documentNumber,
-      pageNumber: 1,
-      pageCount: 2,
-      finalTotalPresent: false,
-      lines: [{ description: `Lista ${TAG}`, lineType: "material", quantity: 2 }],
+  it("blocks approval when the declared type conflicts with AI until an admin confirms it", async () => {
+    const id = await makeDoc("invoice");
+    await db
+      .update(billingDocumentsTable)
+      .set({ declaredDocType: "invoice", docTypeSource: "user" })
+      .where(eq(billingDocumentsTable.id, id));
+    await applyAiSuggestion(id, {
+      ...suggestion("delivery_note"),
+      docTypeConfidence: 0.93,
     });
 
-    const page2 = await makeDoc("invoice");
-    await applyAiSuggestion(page2, {
-      ...suggestion("invoice"),
-      supplierIc: "28463005",
-      documentNumber,
-      pageNumber: 2,
-      pageCount: 2,
-      finalTotalPresent: true,
-      totalWithVat: 121,
-      lines: [{ description: `Jistic ${TAG}`, lineType: "material", quantity: 1 }],
-    });
+    const conflict = await getDocument(id);
+    expect(conflict?.document.docType).toBe("unknown");
+    expect(conflict?.document.declaredDocType).toBe("invoice");
+    expect(conflict?.document.detectedDocType).toBe("delivery_note");
+    expect(conflict?.document.detectedDocTypeConfidence).toBe(0.93);
+    expect(conflict?.document.docTypeSource).toBe("conflict");
+    await expect(approveDocument(id, actor)).rejects.toMatchObject({ statusCode: 409 });
 
-    const primary = await getDocument(page2);
-    const secondary = await getDocument(page1);
-    expect(primary?.lines.map((l) => l.description)).toEqual([
-      `Jistic ${TAG}`,
-      `Lista ${TAG}`,
-    ]);
-    expect(secondary?.document.status).toBe("duplicate");
-    expect(secondary?.document.primaryDocumentId).toBe(page2);
+    await confirmDocumentType(id, "delivery_note", actor);
+    const confirmed = await getDocument(id);
+    expect(confirmed?.document.docType).toBe("delivery_note");
+    expect(confirmed?.document.docTypeSource).toBe("admin");
+    expect(confirmed?.document.docTypeConfirmedAt).not.toBeNull();
   });
 });

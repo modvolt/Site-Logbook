@@ -1055,6 +1055,294 @@ export const DeleteAttachmentParams = zod.object({
 
 
 /**
+ * Returns page previews and processing state without extracted lines, totals or other billing data.
+ * @summary List sanitized logical documents for an assigned job
+ */
+export const ListJobDocumentsParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const ListJobDocumentsResponseItem = zod.object({
+  "documentId": zod.number().nullish(),
+  "status": zod.string(),
+  "docType": zod.string(),
+  "declaredDocType": zod.string().nullish(),
+  "detectedDocType": zod.string().nullish(),
+  "docTypeSource": zod.string(),
+  "detectedDocTypeConfidence": zod.number().nullish(),
+  "pageCount": zod.number(),
+  "createdAt": zod.string(),
+  "pages": zod.array(zod.object({
+  "id": zod.number(),
+  "pageIndex": zod.number(),
+  "fileName": zod.string().nullish(),
+  "url": zod.string().nullish()
+}))
+})
+export const ListJobDocumentsResponse = zod.array(ListJobDocumentsResponseItem)
+
+
+/**
+ * @summary Upload one page of a logical document to an assigned job
+ */
+export const UploadJobDocumentPageParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const uploadJobDocumentPageQueryPageIndexMin = 0;
+
+export const uploadJobDocumentPageQueryPageCountMax = 50;
+
+
+
+export const UploadJobDocumentPageQueryParams = zod.object({
+  "name": zod.coerce.string(),
+  "contentType": zod.coerce.string(),
+  "groupToken": zod.coerce.string(),
+  "groupComplete": zod.coerce.boolean(),
+  "pageIndex": zod.coerce.number().min(uploadJobDocumentPageQueryPageIndexMin),
+  "pageCount": zod.coerce.number().min(1).max(uploadJobDocumentPageQueryPageCountMax),
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']).optional()
+})
+
+
+/**
+ * @summary Merge ordered standalone job attachments into one logical document
+ */
+export const MergeJobDocumentPagesParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const mergeJobDocumentPagesBodyOrderedAttachmentIdsMin = 2;
+export const mergeJobDocumentPagesBodyOrderedAttachmentIdsMax = 50;
+
+
+
+export const MergeJobDocumentPagesBody = zod.object({
+  "orderedAttachmentIds": zod.array(zod.number()).min(mergeJobDocumentPagesBodyOrderedAttachmentIdsMin).max(mergeJobDocumentPagesBodyOrderedAttachmentIdsMax)
+})
+
+export const mergeJobDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMin = 0;
+export const mergeJobDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
+export const MergeJobDocumentPagesResponse = zod.object({
+  "mergeId": zod.number(),
+  "primaryDocumentId": zod.number(),
+  "detail": zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(mergeJobDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMin).max(mergeJobDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
+}))
+}),zod.null()]).optional()
+}).optional()
+})
+
+
+/**
  * @summary List all people
  */
 export const ListPeopleResponseItem = zod.object({
@@ -6740,11 +7028,21 @@ export const ListCostDocumentsQueryParams = zod.object({
   "sort": zod.enum(['confidence_asc']).optional().describe('Sort order. `confidence_asc` puts the lowest AI confidence first\n(the review-queue ordering); default is newest first.\n')
 })
 
+export const listCostDocumentsResponseDetectedDocTypeConfidenceMin = 0;
+export const listCostDocumentsResponseDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const ListCostDocumentsResponseItem = zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(listCostDocumentsResponseDetectedDocTypeConfidenceMin).max(listCostDocumentsResponseDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -6805,6 +7103,10 @@ duplicate is found, unless `force=true`.
  */
 
 
+export const uploadCostDocumentQueryPageIndexMin = 0;
+
+export const uploadCostDocumentQueryPageCountMax = 50;
+
 
 
 export const UploadCostDocumentQueryParams = zod.object({
@@ -6813,15 +7115,29 @@ export const UploadCostDocumentQueryParams = zod.object({
   "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']).optional(),
   "jobId": zod.coerce.number().optional(),
   "customerId": zod.coerce.number().optional(),
-  "force": zod.coerce.boolean().optional()
+  "force": zod.coerce.boolean().optional(),
+  "groupToken": zod.coerce.string().optional(),
+  "groupComplete": zod.coerce.boolean().optional(),
+  "pageIndex": zod.coerce.number().min(uploadCostDocumentQueryPageIndexMin).optional(),
+  "pageCount": zod.coerce.number().min(1).max(uploadCostDocumentQueryPageCountMax).optional()
 })
+
+export const uploadCostDocumentResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const uploadCostDocumentResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
 
 export const UploadCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(uploadCostDocumentResponseDocumentDetectedDocTypeConfidenceMin).max(uploadCostDocumentResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -7009,7 +7325,715 @@ export const UploadCostDocumentResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
+})
+
+
+/**
+ * @summary Merge separately uploaded pages into one logical document
+ */
+export const mergeCostDocumentPagesBodyOrderedDocumentIdsMin = 2;
+export const mergeCostDocumentPagesBodyOrderedDocumentIdsMax = 50;
+
+
+
+export const MergeCostDocumentPagesBody = zod.object({
+  "orderedDocumentIds": zod.array(zod.number()).min(mergeCostDocumentPagesBodyOrderedDocumentIdsMin).max(mergeCostDocumentPagesBodyOrderedDocumentIdsMax)
+})
+
+export const mergeCostDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMin = 0;
+export const mergeCostDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
+export const MergeCostDocumentPagesResponse = zod.object({
+  "mergeId": zod.number(),
+  "primaryDocumentId": zod.number(),
+  "detail": zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(mergeCostDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMin).max(mergeCostDocumentPagesResponseDetailDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
+}))
+}),zod.null()]).optional()
+}).optional()
+})
+
+
+/**
+ * @summary Change page order in an active document merge
+ */
+export const ReorderCostDocumentPagesParams = zod.object({
+  "mergeId": zod.coerce.number()
+})
+
+export const reorderCostDocumentPagesBodyOrderedDocumentIdsMin = 2;
+export const reorderCostDocumentPagesBodyOrderedDocumentIdsMax = 50;
+
+
+
+export const ReorderCostDocumentPagesBody = zod.object({
+  "orderedDocumentIds": zod.array(zod.number()).min(reorderCostDocumentPagesBodyOrderedDocumentIdsMin).max(reorderCostDocumentPagesBodyOrderedDocumentIdsMax)
+})
+
+export const reorderCostDocumentPagesResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const reorderCostDocumentPagesResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
+export const ReorderCostDocumentPagesResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(reorderCostDocumentPagesResponseDocumentDetectedDocTypeConfidenceMin).max(reorderCostDocumentPagesResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
+}))
+}),zod.null()]).optional()
+})
+
+
+/**
+ * @summary Restore all original documents from an active merge
+ */
+export const RevertCostDocumentMergeParams = zod.object({
+  "mergeId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Resolve a user versus AI document type conflict
+ */
+export const ConfirmCostDocumentTypeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ConfirmCostDocumentTypeBody = zod.object({
+  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note'])
+})
+
+export const confirmCostDocumentTypeResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const confirmCostDocumentTypeResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
+export const ConfirmCostDocumentTypeResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(confirmCostDocumentTypeResponseDocumentDetectedDocTypeConfidenceMin).max(confirmCostDocumentTypeResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
+}))
+}),zod.null()]).optional()
 })
 
 
@@ -7020,12 +8044,22 @@ export const GetCostDocumentParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const getCostDocumentResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const getCostDocumentResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const GetCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(getCostDocumentResponseDocumentDetectedDocTypeConfidenceMin).max(getCostDocumentResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -7213,7 +8247,16 @@ export const GetCostDocumentResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -7244,12 +8287,22 @@ export const UpdateCostDocumentBody = zod.object({
   "notes": zod.string().nullish()
 })
 
+export const updateCostDocumentResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const updateCostDocumentResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const UpdateCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(updateCostDocumentResponseDocumentDetectedDocTypeConfidenceMin).max(updateCostDocumentResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -7437,7 +8490,16 @@ export const UpdateCostDocumentResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -7456,12 +8518,22 @@ export const ApproveCostDocumentParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const approveCostDocumentResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const approveCostDocumentResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const ApproveCostDocumentResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(approveCostDocumentResponseDocumentDetectedDocTypeConfidenceMin).max(approveCostDocumentResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -7649,7 +8721,16 @@ export const ApproveCostDocumentResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -7664,12 +8745,22 @@ export const SetCostDocumentStatusBody = zod.object({
   "status": zod.enum(['needs_review', 'reviewed', 'ignored', 'duplicate'])
 })
 
+export const setCostDocumentStatusResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const setCostDocumentStatusResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const SetCostDocumentStatusResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(setCostDocumentStatusResponseDocumentDetectedDocTypeConfidenceMin).max(setCostDocumentStatusResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -7857,7 +8948,16 @@ export const SetCostDocumentStatusResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -7872,12 +8972,22 @@ export const MarkCostDocumentDuplicateBody = zod.object({
   "primaryDocumentId": zod.number().describe('The document this one should be paired as a duplicate of.')
 })
 
+export const markCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const markCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const MarkCostDocumentDuplicateResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(markCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMin).max(markCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -8065,7 +9175,16 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -8076,12 +9195,22 @@ export const UnmarkCostDocumentDuplicateParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const unmarkCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const unmarkCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(unmarkCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMin).max(unmarkCostDocumentDuplicateResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -8269,7 +9398,16 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -8280,12 +9418,22 @@ export const RequeueCostDocumentExtractionParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const requeueCostDocumentExtractionResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const requeueCostDocumentExtractionResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const RequeueCostDocumentExtractionResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(requeueCostDocumentExtractionResponseDocumentDetectedDocTypeConfidenceMin).max(requeueCostDocumentExtractionResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -8473,7 +9621,16 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -8526,12 +9683,22 @@ export const UpdateCostDocumentLineBody = zod.object({
   "approved": zod.boolean().nullish()
 })
 
+export const updateCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const updateCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const UpdateCostDocumentLineResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(updateCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMin).max(updateCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -8719,7 +9886,16 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -8740,12 +9916,22 @@ export const SplitCostDocumentLineBody = zod.object({
 }))
 })
 
+export const splitCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const splitCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const SplitCostDocumentLineResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(splitCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMin).max(splitCostDocumentLineResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -8933,7 +10119,16 @@ export const SplitCostDocumentLineResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -8951,12 +10146,22 @@ export const AddCostDocumentReferenceBody = zod.object({
   "confidence": zod.number().nullish()
 })
 
+export const addCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const addCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const AddCostDocumentReferenceResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(addCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMin).max(addCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -9144,7 +10349,16 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -9167,12 +10381,22 @@ export const UpdateCostDocumentReferenceBody = zod.object({
   "notes": zod.string().nullish()
 })
 
+export const updateCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const updateCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const UpdateCostDocumentReferenceResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(updateCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMin).max(updateCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -9360,7 +10584,16 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -9372,12 +10605,22 @@ export const DeleteCostDocumentReferenceParams = zod.object({
   "referenceId": zod.coerce.number()
 })
 
+export const deleteCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const deleteCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const DeleteCostDocumentReferenceResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(deleteCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMin).max(deleteCostDocumentReferenceResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -9565,7 +10808,16 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "sizeBytes": zod.number().nullish(),
   "pageIndex": zod.number().nullish(),
   "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
 }))
+}),zod.null()]).optional()
 })
 
 
@@ -9576,12 +10828,22 @@ export const MatchCostDocumentReferencesParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const matchCostDocumentReferencesResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const matchCostDocumentReferencesResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const MatchCostDocumentReferencesResponse = zod.object({
   "document": zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(matchCostDocumentReferencesResponseDocumentDetectedDocTypeConfidenceMin).max(matchCostDocumentReferencesResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),
@@ -10250,12 +11512,22 @@ export const AnalyzeJobDocumentsParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const analyzeJobDocumentsResponseCreatedItemDetectedDocTypeConfidenceMin = 0;
+export const analyzeJobDocumentsResponseCreatedItemDetectedDocTypeConfidenceMax = 1;
+
+
+
 export const AnalyzeJobDocumentsResponse = zod.object({
   "created": zod.array(zod.object({
   "id": zod.number(),
-  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate']),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
   "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
-  "docType": zod.enum(['receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(analyzeJobDocumentsResponseCreatedItemDetectedDocTypeConfidenceMin).max(analyzeJobDocumentsResponseCreatedItemDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
   "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
   "objectPath": zod.string().nullish(),
   "fileName": zod.string().nullish(),

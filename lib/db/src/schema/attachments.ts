@@ -11,10 +11,13 @@ export const attachmentsTable = pgTable("attachments", {
   url: text("url"),
   description: text("description"),
   amount: numeric("amount", { precision: 10, scale: 2 }),
+  billingDocumentId: integer("billing_document_id"),
+  pageIndex: integer("page_index"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   index("attachments_job_id_idx").on(t.jobId),
   index("attachments_file_name_idx").on(t.fileName),
+  index("attachments_billing_document_id_idx").on(t.billingDocumentId),
 ]);
 
 export const insertAttachmentSchema = createInsertSchema(attachmentsTable).omit({ id: true, createdAt: true });

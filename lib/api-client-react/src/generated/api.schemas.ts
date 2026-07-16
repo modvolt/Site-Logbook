@@ -884,6 +884,451 @@ export interface AttachmentInput {
   amount?: number | null;
 }
 
+export interface JobDocumentPage {
+  id: number;
+  pageIndex: number;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  url?: string | null;
+}
+
+export interface JobDocumentSummary {
+  /** @nullable */
+  documentId?: number | null;
+  status: string;
+  docType: string;
+  /** @nullable */
+  declaredDocType?: string | null;
+  /** @nullable */
+  detectedDocType?: string | null;
+  docTypeSource: string;
+  /** @nullable */
+  detectedDocTypeConfidence?: number | null;
+  pageCount: number;
+  createdAt: string;
+  pages: JobDocumentPage[];
+}
+
+export interface ErrorEnvelope {
+  error: string;
+}
+
+export interface MergeJobDocumentPagesInput {
+  /**
+     * @minItems 2
+     * @maxItems 50
+     */
+  orderedAttachmentIds: number[];
+}
+
+export type CostDocumentStatus = typeof CostDocumentStatus[keyof typeof CostDocumentStatus];
+
+
+export const CostDocumentStatus = {
+  uploaded: 'uploaded',
+  needs_review: 'needs_review',
+  reviewed: 'reviewed',
+  approved: 'approved',
+  ignored: 'ignored',
+  duplicate: 'duplicate',
+  merged: 'merged',
+} as const;
+
+/**
+ * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
+ * @nullable
+ */
+export type CostDocumentMaterialState = typeof CostDocumentMaterialState[keyof typeof CostDocumentMaterialState] | null;
+
+
+export const CostDocumentMaterialState = {
+  assigned: 'assigned',
+  approved: 'approved',
+} as const;
+
+export type CostDocumentDocType = typeof CostDocumentDocType[keyof typeof CostDocumentDocType];
+
+
+export const CostDocumentDocType = {
+  unknown: 'unknown',
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
+
+/**
+ * @nullable
+ */
+export type CostDocumentDeclaredDocType = typeof CostDocumentDeclaredDocType[keyof typeof CostDocumentDeclaredDocType] | null;
+
+
+export const CostDocumentDeclaredDocType = {
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
+
+/**
+ * @nullable
+ */
+export type CostDocumentDetectedDocType = typeof CostDocumentDetectedDocType[keyof typeof CostDocumentDetectedDocType] | null;
+
+
+export const CostDocumentDetectedDocType = {
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
+
+export type CostDocumentDocTypeSource = typeof CostDocumentDocTypeSource[keyof typeof CostDocumentDocTypeSource];
+
+
+export const CostDocumentDocTypeSource = {
+  unknown: 'unknown',
+  user: 'user',
+  ai: 'ai',
+  conflict: 'conflict',
+  admin: 'admin',
+} as const;
+
+export type CostDocumentSource = typeof CostDocumentSource[keyof typeof CostDocumentSource];
+
+
+export const CostDocumentSource = {
+  manual: 'manual',
+  job_attachment: 'job_attachment',
+  isdoc: 'isdoc',
+  email: 'email',
+} as const;
+
+export interface CostDocument {
+  id: number;
+  status: CostDocumentStatus;
+  /**
+     * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
+     * @nullable
+     */
+  materialState?: CostDocumentMaterialState;
+  docType: CostDocumentDocType;
+  /** @nullable */
+  declaredDocType?: CostDocumentDeclaredDocType;
+  /** @nullable */
+  detectedDocType?: CostDocumentDetectedDocType;
+  /**
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+  detectedDocTypeConfidence?: number | null;
+  docTypeSource?: CostDocumentDocTypeSource;
+  /** @nullable */
+  docTypeConfirmedAt?: string | null;
+  source: CostDocumentSource;
+  /** @nullable */
+  objectPath?: string | null;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  contentType?: string | null;
+  /** @nullable */
+  fileSize?: number | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  supplierIc?: string | null;
+  /** @nullable */
+  supplierDic?: string | null;
+  /** @nullable */
+  supplierAddress?: string | null;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  variableSymbol?: string | null;
+  /** @nullable */
+  issueDate?: string | null;
+  /** @nullable */
+  taxableSupplyDate?: string | null;
+  /** @nullable */
+  dueDate?: string | null;
+  currency: string;
+  /** @nullable */
+  subtotalWithoutVat?: number | null;
+  /** @nullable */
+  totalVat?: number | null;
+  /** @nullable */
+  totalWithVat?: number | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  sourceRef?: string | null;
+  /** @nullable */
+  deliveryNoteNumber?: string | null;
+  /** @nullable */
+  summaryDeliveryNoteNumber?: string | null;
+  /** @nullable */
+  deliveryNumber?: string | null;
+  /** @nullable */
+  orderNumber?: string | null;
+  /** @nullable */
+  supplierOrderNumber?: string | null;
+  /** @nullable */
+  constantSymbol?: string | null;
+  /** @nullable */
+  specificSymbol?: string | null;
+  /** @nullable */
+  bankAccount?: string | null;
+  /** @nullable */
+  iban?: string | null;
+  /** @nullable */
+  bic?: string | null;
+  /** @nullable */
+  isdocUuid?: string | null;
+  /** @nullable */
+  mergeGroupId?: string | null;
+  /** @nullable */
+  uploadGroupToken?: string | null;
+  /** @nullable */
+  uploadCompletedAt?: string | null;
+  /** @nullable */
+  primaryDocumentId?: number | null;
+  /** @nullable */
+  sourcePriority?: string | null;
+  /** @nullable */
+  parsedBy?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  warnings?: string | null;
+  /** @nullable */
+  aiConfidence?: number | null;
+  /** @nullable */
+  aiModel?: string | null;
+  /** @nullable */
+  aiExtractedAt?: string | null;
+  /** @nullable */
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CostDocumentLineLineType = typeof CostDocumentLineLineType[keyof typeof CostDocumentLineLineType];
+
+
+export const CostDocumentLineLineType = {
+  material: 'material',
+  work: 'work',
+  transport: 'transport',
+  other: 'other',
+} as const;
+
+export type CostDocumentLineVatMode = typeof CostDocumentLineVatMode[keyof typeof CostDocumentLineVatMode];
+
+
+export const CostDocumentLineVatMode = {
+  standard: 'standard',
+  reverse_charge: 'reverse_charge',
+  zero: 'zero',
+  non_vat: 'non_vat',
+} as const;
+
+export type CostDocumentLineAllocationType = typeof CostDocumentLineAllocationType[keyof typeof CostDocumentLineAllocationType];
+
+
+export const CostDocumentLineAllocationType = {
+  rebill: 'rebill',
+  internal: 'internal',
+  stock: 'stock',
+  not_rebilled: 'not_rebilled',
+} as const;
+
+export interface CostDocumentLine {
+  id: number;
+  documentId: number;
+  /** @nullable */
+  parentLineId?: number | null;
+  lineType: CostDocumentLineLineType;
+  description: string;
+  quantity: number;
+  /** @nullable */
+  unit?: string | null;
+  unitPriceWithoutVat: number;
+  /** @nullable */
+  vatRate?: number | null;
+  vatMode: CostDocumentLineVatMode;
+  totalWithoutVat: number;
+  totalVat: number;
+  totalWithVat: number;
+  /** @nullable */
+  jobId?: number | null;
+  /** @nullable */
+  activityId?: number | null;
+  allocationType: CostDocumentLineAllocationType;
+  /** @nullable */
+  matchConfidence?: number | null;
+  matchConfirmed: boolean;
+  approved: boolean;
+  /** @nullable */
+  invoicedInvoiceId?: number | null;
+  /** @nullable */
+  originalUnit?: string | null;
+  /** @nullable */
+  supplierSku?: string | null;
+  /** @nullable */
+  ean?: string | null;
+  /** @nullable */
+  manufacturer?: string | null;
+  /** @nullable */
+  sourceLineNumber?: string | null;
+  /** @nullable */
+  listPriceWithoutVat?: number | null;
+  /** @nullable */
+  discountPercent?: number | null;
+  /** @nullable */
+  priceBaseQuantity?: number | null;
+  /** @nullable */
+  priceBaseUnit?: string | null;
+  /** @nullable */
+  feeType?: string | null;
+  isEnvironmentalFee?: boolean;
+  /** @nullable */
+  environmentalFee?: number | null;
+  /** @nullable */
+  recyclingFee?: number | null;
+  /** @nullable */
+  deliveryNoteNumber?: string | null;
+  /** @nullable */
+  orderNumber?: string | null;
+  /** @nullable */
+  supplierOrderNumber?: string | null;
+  /** @nullable */
+  warehouseState?: string | null;
+  /** @nullable */
+  confidence?: number | null;
+  sortOrder: number;
+}
+
+export interface CostDocumentFile {
+  id: number;
+  documentId: number;
+  role: string;
+  /** @nullable */
+  originalFileName?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  objectPath: string;
+  /** @nullable */
+  sizeBytes?: number | null;
+  /** @nullable */
+  pageIndex?: number | null;
+  createdAt: string;
+}
+
+export interface CostDocumentDuplicate {
+  id: number;
+  reason: string;
+  /** @nullable */
+  documentNumber?: string | null;
+  /** @nullable */
+  supplierName?: string | null;
+  /** @nullable */
+  totalWithVat?: string | null;
+  status: string;
+  createdAt: string;
+  /** Populated only for confirmed linked duplicates (linkedDuplicates / duplicateOf), so the paired document's files can be previewed without navigating away. Omitted for heuristic candidates. */
+  files?: CostDocumentFile[];
+}
+
+export interface CostDocumentReference {
+  id: number;
+  documentId: number;
+  referenceType: string;
+  referenceNumber: string;
+  source: string;
+  /** @nullable */
+  confidence?: number | null;
+  /** @nullable */
+  matchedJobId?: number | null;
+  /** @nullable */
+  matchedDocumentId?: number | null;
+  /** @nullable */
+  matchedAttachmentId?: number | null;
+  /** @nullable */
+  matchConfidence?: number | null;
+  matchConfirmed: boolean;
+  rejected: boolean;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CostDocumentLinkedMaterial {
+  id: number;
+  jobId: number;
+  name: string;
+  /** @nullable */
+  quantity?: number | null;
+  /** @nullable */
+  unit?: string | null;
+  /** @nullable */
+  pricePerUnit?: number | null;
+  /** @nullable */
+  priceSource?: string | null;
+  /** @nullable */
+  priceConfidence?: number | null;
+  /** @nullable */
+  priceSourceLineId?: number | null;
+  /** @nullable */
+  invoicedInvoiceId?: number | null;
+}
+
+export type CostDocumentPageMergeStatus = typeof CostDocumentPageMergeStatus[keyof typeof CostDocumentPageMergeStatus];
+
+
+export const CostDocumentPageMergeStatus = {
+  active: 'active',
+  reverted: 'reverted',
+} as const;
+
+export type CostDocumentPageMergeMembersItem = {
+  documentId: number;
+  pageOrder: number;
+  /** @nullable */
+  fileName?: string | null;
+};
+
+export interface CostDocumentPageMerge {
+  id: number;
+  status: CostDocumentPageMergeStatus;
+  members: CostDocumentPageMergeMembersItem[];
+}
+
+export interface CostDocumentDetail {
+  document: CostDocument;
+  lines: CostDocumentLine[];
+  duplicates: CostDocumentDuplicate[];
+  /** Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary. */
+  linkedDuplicates: CostDocumentDuplicate[];
+  /** Set when this document itself was paired as a duplicate of another document — summary of that primary document. */
+  duplicateOf: CostDocumentDuplicate | null;
+  references: CostDocumentReference[];
+  linkedMaterials?: CostDocumentLinkedMaterial[];
+  files: CostDocumentFile[];
+  pageMerge?: CostDocumentPageMerge | null;
+}
+
+export interface DocumentPageMergeResult {
+  mergeId: number;
+  primaryDocumentId: number;
+  detail?: CostDocumentDetail;
+}
+
 export interface Person {
   id: number;
   name: string;
@@ -2582,10 +3027,6 @@ export interface AuthUser {
   /** Effective permissions after applying role defaults and user overrides */
   permissions: string[];
   permissionOverrides: UserPermissionOverride[];
-}
-
-export interface ErrorEnvelope {
-  error: string;
 }
 
 export interface MeResponse {
@@ -4888,331 +5329,26 @@ export interface AssignWarehouseResult {
   warehouseItemName: string;
 }
 
-export type CostDocumentStatus = typeof CostDocumentStatus[keyof typeof CostDocumentStatus];
+export interface MergeDocumentPagesInput {
+  /**
+     * @minItems 2
+     * @maxItems 50
+     */
+  orderedDocumentIds: number[];
+}
+
+export type ConfirmDocumentTypeInputDocType = typeof ConfirmDocumentTypeInputDocType[keyof typeof ConfirmDocumentTypeInputDocType];
 
 
-export const CostDocumentStatus = {
-  uploaded: 'uploaded',
-  needs_review: 'needs_review',
-  reviewed: 'reviewed',
-  approved: 'approved',
-  ignored: 'ignored',
-  duplicate: 'duplicate',
-} as const;
-
-/**
- * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
- * @nullable
- */
-export type CostDocumentMaterialState = typeof CostDocumentMaterialState[keyof typeof CostDocumentMaterialState] | null;
-
-
-export const CostDocumentMaterialState = {
-  assigned: 'assigned',
-  approved: 'approved',
-} as const;
-
-export type CostDocumentDocType = typeof CostDocumentDocType[keyof typeof CostDocumentDocType];
-
-
-export const CostDocumentDocType = {
+export const ConfirmDocumentTypeInputDocType = {
   receipt: 'receipt',
   delivery_note: 'delivery_note',
   invoice: 'invoice',
   credit_note: 'credit_note',
 } as const;
 
-export type CostDocumentSource = typeof CostDocumentSource[keyof typeof CostDocumentSource];
-
-
-export const CostDocumentSource = {
-  manual: 'manual',
-  job_attachment: 'job_attachment',
-  isdoc: 'isdoc',
-  email: 'email',
-} as const;
-
-export interface CostDocument {
-  id: number;
-  status: CostDocumentStatus;
-  /**
-     * Derived, document-level material state aggregated from the document's material lines. "assigned" = every material line has its job assignment confirmed; "approved" = every material line is approved; null = no material lines or a mixed state.
-     * @nullable
-     */
-  materialState?: CostDocumentMaterialState;
-  docType: CostDocumentDocType;
-  source: CostDocumentSource;
-  /** @nullable */
-  objectPath?: string | null;
-  /** @nullable */
-  fileName?: string | null;
-  /** @nullable */
-  contentType?: string | null;
-  /** @nullable */
-  fileSize?: number | null;
-  /** @nullable */
-  supplierName?: string | null;
-  /** @nullable */
-  supplierIc?: string | null;
-  /** @nullable */
-  supplierDic?: string | null;
-  /** @nullable */
-  supplierAddress?: string | null;
-  /** @nullable */
-  documentNumber?: string | null;
-  /** @nullable */
-  variableSymbol?: string | null;
-  /** @nullable */
-  issueDate?: string | null;
-  /** @nullable */
-  taxableSupplyDate?: string | null;
-  /** @nullable */
-  dueDate?: string | null;
-  currency: string;
-  /** @nullable */
-  subtotalWithoutVat?: number | null;
-  /** @nullable */
-  totalVat?: number | null;
-  /** @nullable */
-  totalWithVat?: number | null;
-  /** @nullable */
-  customerId?: number | null;
-  /** @nullable */
-  jobId?: number | null;
-  /** @nullable */
-  sourceRef?: string | null;
-  /** @nullable */
-  deliveryNoteNumber?: string | null;
-  /** @nullable */
-  summaryDeliveryNoteNumber?: string | null;
-  /** @nullable */
-  deliveryNumber?: string | null;
-  /** @nullable */
-  orderNumber?: string | null;
-  /** @nullable */
-  supplierOrderNumber?: string | null;
-  /** @nullable */
-  constantSymbol?: string | null;
-  /** @nullable */
-  specificSymbol?: string | null;
-  /** @nullable */
-  bankAccount?: string | null;
-  /** @nullable */
-  iban?: string | null;
-  /** @nullable */
-  bic?: string | null;
-  /** @nullable */
-  isdocUuid?: string | null;
-  /** @nullable */
-  mergeGroupId?: string | null;
-  /** @nullable */
-  uploadGroupToken?: string | null;
-  /** @nullable */
-  uploadCompletedAt?: string | null;
-  /** @nullable */
-  primaryDocumentId?: number | null;
-  /** @nullable */
-  sourcePriority?: string | null;
-  /** @nullable */
-  parsedBy?: string | null;
-  /** @nullable */
-  notes?: string | null;
-  /** @nullable */
-  warnings?: string | null;
-  /** @nullable */
-  aiConfidence?: number | null;
-  /** @nullable */
-  aiModel?: string | null;
-  /** @nullable */
-  aiExtractedAt?: string | null;
-  /** @nullable */
-  reviewedAt?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type CostDocumentLineLineType = typeof CostDocumentLineLineType[keyof typeof CostDocumentLineLineType];
-
-
-export const CostDocumentLineLineType = {
-  material: 'material',
-  work: 'work',
-  transport: 'transport',
-  other: 'other',
-} as const;
-
-export type CostDocumentLineVatMode = typeof CostDocumentLineVatMode[keyof typeof CostDocumentLineVatMode];
-
-
-export const CostDocumentLineVatMode = {
-  standard: 'standard',
-  reverse_charge: 'reverse_charge',
-  zero: 'zero',
-  non_vat: 'non_vat',
-} as const;
-
-export type CostDocumentLineAllocationType = typeof CostDocumentLineAllocationType[keyof typeof CostDocumentLineAllocationType];
-
-
-export const CostDocumentLineAllocationType = {
-  rebill: 'rebill',
-  internal: 'internal',
-  stock: 'stock',
-  not_rebilled: 'not_rebilled',
-} as const;
-
-export interface CostDocumentLine {
-  id: number;
-  documentId: number;
-  /** @nullable */
-  parentLineId?: number | null;
-  lineType: CostDocumentLineLineType;
-  description: string;
-  quantity: number;
-  /** @nullable */
-  unit?: string | null;
-  unitPriceWithoutVat: number;
-  /** @nullable */
-  vatRate?: number | null;
-  vatMode: CostDocumentLineVatMode;
-  totalWithoutVat: number;
-  totalVat: number;
-  totalWithVat: number;
-  /** @nullable */
-  jobId?: number | null;
-  /** @nullable */
-  activityId?: number | null;
-  allocationType: CostDocumentLineAllocationType;
-  /** @nullable */
-  matchConfidence?: number | null;
-  matchConfirmed: boolean;
-  approved: boolean;
-  /** @nullable */
-  invoicedInvoiceId?: number | null;
-  /** @nullable */
-  originalUnit?: string | null;
-  /** @nullable */
-  supplierSku?: string | null;
-  /** @nullable */
-  ean?: string | null;
-  /** @nullable */
-  manufacturer?: string | null;
-  /** @nullable */
-  sourceLineNumber?: string | null;
-  /** @nullable */
-  listPriceWithoutVat?: number | null;
-  /** @nullable */
-  discountPercent?: number | null;
-  /** @nullable */
-  priceBaseQuantity?: number | null;
-  /** @nullable */
-  priceBaseUnit?: string | null;
-  /** @nullable */
-  feeType?: string | null;
-  isEnvironmentalFee?: boolean;
-  /** @nullable */
-  environmentalFee?: number | null;
-  /** @nullable */
-  recyclingFee?: number | null;
-  /** @nullable */
-  deliveryNoteNumber?: string | null;
-  /** @nullable */
-  orderNumber?: string | null;
-  /** @nullable */
-  supplierOrderNumber?: string | null;
-  /** @nullable */
-  warehouseState?: string | null;
-  /** @nullable */
-  confidence?: number | null;
-  sortOrder: number;
-}
-
-export interface CostDocumentFile {
-  id: number;
-  documentId: number;
-  role: string;
-  /** @nullable */
-  originalFileName?: string | null;
-  /** @nullable */
-  mimeType?: string | null;
-  objectPath: string;
-  /** @nullable */
-  sizeBytes?: number | null;
-  /** @nullable */
-  pageIndex?: number | null;
-  createdAt: string;
-}
-
-export interface CostDocumentDuplicate {
-  id: number;
-  reason: string;
-  /** @nullable */
-  documentNumber?: string | null;
-  /** @nullable */
-  supplierName?: string | null;
-  /** @nullable */
-  totalWithVat?: string | null;
-  status: string;
-  createdAt: string;
-  /** Populated only for confirmed linked duplicates (linkedDuplicates / duplicateOf), so the paired document's files can be previewed without navigating away. Omitted for heuristic candidates. */
-  files?: CostDocumentFile[];
-}
-
-export interface CostDocumentReference {
-  id: number;
-  documentId: number;
-  referenceType: string;
-  referenceNumber: string;
-  source: string;
-  /** @nullable */
-  confidence?: number | null;
-  /** @nullable */
-  matchedJobId?: number | null;
-  /** @nullable */
-  matchedDocumentId?: number | null;
-  /** @nullable */
-  matchedAttachmentId?: number | null;
-  /** @nullable */
-  matchConfidence?: number | null;
-  matchConfirmed: boolean;
-  rejected: boolean;
-  /** @nullable */
-  notes?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CostDocumentLinkedMaterial {
-  id: number;
-  jobId: number;
-  name: string;
-  /** @nullable */
-  quantity?: number | null;
-  /** @nullable */
-  unit?: string | null;
-  /** @nullable */
-  pricePerUnit?: number | null;
-  /** @nullable */
-  priceSource?: string | null;
-  /** @nullable */
-  priceConfidence?: number | null;
-  /** @nullable */
-  priceSourceLineId?: number | null;
-  /** @nullable */
-  invoicedInvoiceId?: number | null;
-}
-
-export interface CostDocumentDetail {
-  document: CostDocument;
-  lines: CostDocumentLine[];
-  duplicates: CostDocumentDuplicate[];
-  /** Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary. */
-  linkedDuplicates: CostDocumentDuplicate[];
-  /** Set when this document itself was paired as a duplicate of another document — summary of that primary document. */
-  duplicateOf: CostDocumentDuplicate | null;
-  references: CostDocumentReference[];
-  linkedMaterials?: CostDocumentLinkedMaterial[];
-  files: CostDocumentFile[];
+export interface ConfirmDocumentTypeInput {
+  docType: ConfirmDocumentTypeInputDocType;
 }
 
 /**
@@ -6147,6 +6283,33 @@ export type ListLinkableDocumentLinesParams = {
  */
 q?: string;
 };
+
+export type UploadJobDocumentPageParams = {
+name: string;
+contentType: string;
+groupToken: string;
+groupComplete: boolean;
+/**
+ * @minimum 0
+ */
+pageIndex: number;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+pageCount: number;
+docType?: UploadJobDocumentPageDocType;
+};
+
+export type UploadJobDocumentPageDocType = typeof UploadJobDocumentPageDocType[keyof typeof UploadJobDocumentPageDocType];
+
+
+export const UploadJobDocumentPageDocType = {
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
 
 export type ListLeavesParams = {
 personId?: number;

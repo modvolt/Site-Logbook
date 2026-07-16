@@ -284,3 +284,101 @@ export async function uploadCostDocument(
 
   return (await res.json()) as CostDocumentDetail;
 }
+
+async function documentApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    credentials: "include",
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? `HTTP ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export type JobDocumentSummary = {
+  documentId: number | null;
+  status: string;
+  docType: string;
+  declaredDocType: string | null;
+  detectedDocType: string | null;
+  docTypeSource: string;
+  detectedDocTypeConfidence: number | null;
+  pageCount: number;
+  createdAt: string;
+  pages: Array<{ id: number; pageIndex: number; fileName: string | null; url: string | null }>;
+};
+
+export async function listJobDocuments(jobId: number): Promise<JobDocumentSummary[]> {
+  return documentApi(`/api/jobs/${jobId}/documents`);
+}
+
+export async function uploadJobDocumentPage(
+  jobId: number,
+  file: File,
+  options: {
+    groupToken: string;
+    groupComplete: boolean;
+    pageIndex: number;
+    pageCount: number;
+    docType?: string;
+  },
+): Promise<{ documentId: number; attachment: { id: number; fileName: string | null; url: string | null } }> {
+  const validationError = validateCostDocumentFile(file);
+  if (validationError) throw new Error(validationError);
+  const contentType = costDocumentContentType(file);
+  const query = new URLSearchParams({
+    name: file.name,
+    contentType,
+    groupToken: options.groupToken,
+    groupComplete: options.groupComplete ? "true" : "false",
+    pageIndex: String(options.pageIndex),
+    pageCount: String(options.pageCount),
+  });
+  if (options.docType) query.set("docType", options.docType);
+  const response = await fetch(`/api/jobs/${jobId}/documents/upload?${query.toString()}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": contentType },
+    body: file,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function mergeJobDocumentPages(jobId: number, orderedAttachmentIds: number[]) {
+  return documentApi(`/api/jobs/${jobId}/documents/merge-pages`, {
+    method: "POST",
+    body: JSON.stringify({ orderedAttachmentIds }),
+  });
+}
+
+export async function mergeCostDocumentPages(orderedDocumentIds: number[]) {
+  return documentApi<{ mergeId: number; primaryDocumentId: number }>(
+    "/api/billing/documents/merge-pages",
+    { method: "POST", body: JSON.stringify({ orderedDocumentIds }) },
+  );
+}
+
+export async function reorderCostDocumentPages(mergeId: number, orderedDocumentIds: number[]) {
+  return documentApi(`/api/billing/document-merges/${mergeId}/order`, {
+    method: "POST",
+    body: JSON.stringify({ orderedDocumentIds }),
+  });
+}
+
+export async function revertCostDocumentMerge(mergeId: number) {
+  return documentApi(`/api/billing/document-merges/${mergeId}/revert`, { method: "POST" });
+}
+
+export async function confirmCostDocumentType(documentId: number, docType: string) {
+  return documentApi(`/api/billing/documents/${documentId}/confirm-type`, {
+    method: "POST",
+    body: JSON.stringify({ docType }),
+  });
+}

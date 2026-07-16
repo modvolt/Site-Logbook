@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, attachmentsTable, jobsTable } from "@workspace/db";
+import { eq, and, inArray } from "drizzle-orm";
+import { db, attachmentsTable, jobsTable, billingDocumentsTable } from "@workspace/db";
 import {
   ListAttachmentsParams,
   CreateAttachmentParams,
@@ -10,6 +10,7 @@ import {
 import { isRestrictedFieldWorker, requireAssignedJobView, requireAssignedJobWork } from "../middlewares/job-work-access";
 
 const router: IRouter = Router();
+const DOCUMENT_TYPES = new Set(["document", "invoice", "receipt", "delivery_note", "credit_note"]);
 
 function serializeAttachment(att: typeof attachmentsTable.$inferSelect) {
   return {
@@ -36,6 +37,68 @@ router.get("/jobs/:jobId/attachments", requireAssignedJobView, async (req, res):
     ? attachments.filter((attachment) => attachment.type === "photo")
     : attachments;
   res.json(visibleAttachments.map(serializeAttachment));
+});
+
+router.get("/jobs/:jobId/documents", requireAssignedJobView, async (req, res): Promise<void> => {
+  const params = ListAttachmentsParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const pages = (await db
+    .select()
+    .from(attachmentsTable)
+    .where(eq(attachmentsTable.jobId, params.data.jobId)))
+    .filter((attachment) => DOCUMENT_TYPES.has(attachment.type));
+  const documentIds = Array.from(new Set(
+    pages.map((page) => page.billingDocumentId).filter((id): id is number => id != null),
+  ));
+  const documents = documentIds.length
+    ? await db
+        .select({
+          id: billingDocumentsTable.id,
+          status: billingDocumentsTable.status,
+          docType: billingDocumentsTable.docType,
+          declaredDocType: billingDocumentsTable.declaredDocType,
+          detectedDocType: billingDocumentsTable.detectedDocType,
+          detectedDocTypeConfidence: billingDocumentsTable.detectedDocTypeConfidence,
+          docTypeSource: billingDocumentsTable.docTypeSource,
+          createdAt: billingDocumentsTable.createdAt,
+        })
+        .from(billingDocumentsTable)
+        .where(inArray(billingDocumentsTable.id, documentIds))
+    : [];
+  const documentById = new Map(documents.map((document) => [document.id, document]));
+  const groups = new Map<string, typeof pages>();
+  for (const page of pages) {
+    const key = page.billingDocumentId != null ? `document:${page.billingDocumentId}` : `attachment:${page.id}`;
+    const group = groups.get(key) ?? [];
+    group.push(page);
+    groups.set(key, group);
+  }
+  res.json(Array.from(groups.values()).map((group) => {
+    const ordered = group.slice().sort((a, b) => (a.pageIndex ?? 0) - (b.pageIndex ?? 0) || a.id - b.id);
+    const billingDocumentId = ordered[0]?.billingDocumentId ?? null;
+    const document = billingDocumentId == null ? null : documentById.get(billingDocumentId) ?? null;
+    return {
+      documentId: billingDocumentId,
+      status: document?.status ?? "not_analyzed",
+      docType: document?.docType ?? ordered[0]?.type ?? "unknown",
+      declaredDocType: document?.declaredDocType ?? null,
+      detectedDocType: document?.detectedDocType ?? null,
+      docTypeSource: document?.docTypeSource ?? "legacy",
+      detectedDocTypeConfidence:
+        document?.detectedDocTypeConfidence == null ? null : Number(document.detectedDocTypeConfidence),
+      pageCount: ordered.length,
+      createdAt: (document?.createdAt ?? ordered[0]!.createdAt).toISOString(),
+      pages: ordered.map((page, index) => ({
+        id: page.id,
+        pageIndex: page.pageIndex ?? index,
+        fileName: page.fileName,
+        url: page.url,
+      })),
+    };
+  }));
 });
 
 router.post("/jobs/:jobId/attachments", requireAssignedJobWork, async (req, res): Promise<void> => {

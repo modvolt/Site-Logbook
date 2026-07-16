@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -45,12 +46,16 @@ import {
   isZipArchive,
   expandZipArchive,
   isImageFile,
+  mergeCostDocumentPages,
   newUploadGroupToken,
 } from "@/lib/cost-document-upload";
 import type { CostDocumentDuplicate } from "@workspace/api-client-react";
-import { ArrowLeft, CheckCircle2, FileText, Inbox, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FileText, Files, GripVertical, Inbox, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 import { openFilePicker } from "@/lib/file-picker";
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const UPLOAD_ACCEPT =
   "application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp,image/gif,.gif,image/heic,.heic,image/heif,.heif,application/xml,text/xml,.xml,.isdoc,application/zip,.isdocx,.zip";
@@ -67,6 +72,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "approved", label: COST_DOC_STATUS_LABELS.approved },
   { value: "uploaded", label: COST_DOC_STATUS_LABELS.uploaded },
   { value: "duplicate", label: COST_DOC_STATUS_LABELS.duplicate },
+  { value: "merged", label: "Sloučená stránka" },
   { value: "ignored", label: COST_DOC_STATUS_LABELS.ignored },
 ];
 
@@ -89,6 +95,14 @@ export default function BillingDocuments() {
     duplicates: CostDocumentDuplicate[];
   } | null>(null);
   const [pendingGroupChoice, setPendingGroupChoice] = useState<File[] | null>(null);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<number>>(new Set());
+  const [mergeOrder, setMergeOrder] = useState<number[]>([]);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const mergeSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const params = statusFilter === "all" ? undefined : { status: statusFilter };
   const { data: docs, isLoading, isError, error, refetch } = useListCostDocuments(params, {
@@ -333,6 +347,46 @@ export default function BillingDocuments() {
     await handleFiles(files);
   };
 
+  const toggleMergeSelection = (id: number) => {
+    setSelectedDocumentIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openMergeDialog = () => {
+    if (selectedDocumentIds.size < 2) return;
+    setMergeOrder(docs?.filter((doc) => selectedDocumentIds.has(doc.id)).map((doc) => doc.id) ?? []);
+    setMergeOpen(true);
+  };
+
+  const handleMergeDrag = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    setMergeOrder((current) => {
+      const from = current.indexOf(Number(active.id));
+      const to = current.indexOf(Number(over.id));
+      return from < 0 || to < 0 ? current : arrayMove(current, from, to);
+    });
+  };
+
+  const handleMerge = async () => {
+    setIsMerging(true);
+    try {
+      const result = await mergeCostDocumentPages(mergeOrder);
+      setMergeOpen(false);
+      setSelectedDocumentIds(new Set());
+      refresh();
+      toast({ title: `Sloučeno ${mergeOrder.length} stran do jednoho dokladu` });
+      setLocation(`/billing/documents/${result.primaryDocumentId}`);
+    } catch (error) {
+      toast({ title: "Doklady nelze sloučit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
       <Button
@@ -438,6 +492,18 @@ export default function BillingDocuments() {
         </Select>
       </div>
 
+      {selectedDocumentIds.size > 0 && (
+        <div className="sticky top-2 z-20 mb-4 flex items-center justify-between gap-3 rounded-md border bg-background p-3 shadow-sm">
+          <span className="text-sm font-medium">Vybráno: {selectedDocumentIds.size}</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedDocumentIds(new Set())}>Zrušit výběr</Button>
+            <Button size="sm" onClick={openMergeDialog} disabled={selectedDocumentIds.size < 2}>
+              <Files className="mr-2 h-4 w-4" /> Sloučit jako jeden doklad
+            </Button>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
@@ -464,6 +530,8 @@ export default function BillingDocuments() {
               onClick={() => setLocation(`/billing/documents/${doc.id}`)}
               onApprove={() => handleApprove(doc)}
               isApproving={approvingId === doc.id}
+              selected={selectedDocumentIds.has(doc.id)}
+              onSelected={() => toggleMergeSelection(doc.id)}
             />
           ))}
         </div>
@@ -612,6 +680,49 @@ export default function BillingDocuments() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={mergeOpen} onOpenChange={(open) => !isMerging && setMergeOpen(open)}>
+        <DialogContent className="max-h-[92dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sloučit jako jeden doklad</DialogTitle>
+            <DialogDescription>První položka bude hlavní doklad. Přetažením nastavte skutečné pořadí stran.</DialogDescription>
+          </DialogHeader>
+          <DndContext sensors={mergeSensors} collisionDetection={closestCenter} onDragEnd={handleMergeDrag}>
+            <SortableContext items={mergeOrder} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
+                {mergeOrder.map((documentId, index) => {
+                  const document = docs?.find((doc) => doc.id === documentId);
+                  if (!document) return null;
+                  return <SortableBillingDocument key={documentId} document={document} index={index} />;
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeOpen(false)} disabled={isMerging}>Zrušit</Button>
+            <Button onClick={handleMerge} disabled={mergeOrder.length < 2 || isMerging}>
+              {isMerging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Files className="mr-2 h-4 w-4" />}
+              Sloučit stránky
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SortableBillingDocument({ document, index }: { document: CostDocument; index: number }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: document.id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`flex items-center gap-3 rounded-md border bg-background p-3 ${isDragging ? "z-10 shadow-lg" : ""}`}>
+      <button type="button" className="flex h-10 w-8 touch-none items-center justify-center text-muted-foreground" aria-label={`Přesunout stránku ${index + 1}`} {...attributes} {...listeners}>
+        <GripVertical className="h-5 w-5" />
+      </button>
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded border bg-muted"><FileText className="h-5 w-5 text-muted-foreground" /></div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold">Stránka {index + 1}</p>
+        <p className="truncate text-xs text-muted-foreground">{document.fileName || document.supplierName || `Doklad #${document.id}`}</p>
+      </div>
     </div>
   );
 }
@@ -619,27 +730,38 @@ export default function BillingDocuments() {
 // Statuses from which a document can still be approved directly. Already
 // approved / duplicate / ignored documents are excluded — those require an
 // explicit status change (or are terminal) on the detail page instead.
-const NOT_APPROVABLE_STATUSES = new Set(["approved", "duplicate", "ignored"]);
+const NOT_APPROVABLE_STATUSES = new Set(["approved", "duplicate", "merged", "ignored"]);
 
 function DocumentCard({
   doc,
   onClick,
   onApprove,
   isApproving,
+  selected,
+  onSelected,
 }: {
   doc: CostDocument;
   onClick: () => void;
   onApprove: () => void;
   isApproving: boolean;
+  selected: boolean;
+  onSelected: () => void;
 }) {
-  const canApprove = !NOT_APPROVABLE_STATUSES.has(doc.status);
+  const canApprove = !NOT_APPROVABLE_STATUSES.has(doc.status) && String(doc.docType) !== "unknown";
+  const canMerge = ["uploaded", "needs_review"].includes(doc.status);
   return (
     <Card className="overflow-hidden">
-      <button
-        type="button"
-        onClick={onClick}
-        className="w-full text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      >
+      <div className="flex items-start">
+        {canMerge && (
+          <div className="pt-5 pl-4">
+            <Checkbox checked={selected} onCheckedChange={onSelected} aria-label={`Vybrat doklad #${doc.id} ke sloučení`} />
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onClick}
+          className="min-w-0 flex-1 text-left hover:bg-muted/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
         <CardContent className="p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -669,7 +791,8 @@ function DocumentCard({
             </div>
           </div>
         </CardContent>
-      </button>
+        </button>
+      </div>
       {canApprove && (
         <div className="px-4 pb-3 -mt-1">
           <Button

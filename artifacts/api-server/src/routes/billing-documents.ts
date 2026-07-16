@@ -5,6 +5,7 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
+import { z } from "zod/v4";
 import {
   UpdateCostDocumentBody,
   SetCostDocumentStatusBody,
@@ -50,6 +51,11 @@ import {
   skipReviewLines,
   returnReviewLines,
   assignWarehouseItemToLine,
+  mergeDocumentPages,
+  mergeJobDocumentPages,
+  reorderDocumentMerge,
+  revertDocumentMerge,
+  confirmDocumentType,
   type AppError,
   type Actor,
 } from "../lib/cost-document-service";
@@ -58,8 +64,17 @@ import {
   testConfiguration as testAiConfiguration,
   DEFAULT_SYSTEM_PROMPT,
 } from "../lib/openai-extraction";
-import { db, openaiSettingsTable, documentLinkingSettingsTable, activitiesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  db,
+  openaiSettingsTable,
+  documentLinkingSettingsTable,
+  activitiesTable,
+  jobsTable,
+  attachmentsTable,
+  billingDocumentFilesTable,
+} from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { requireAssignedJobWork } from "../middlewares/job-work-access";
 import {
   UpdateDocumentExtractionBody,
   UpdateDocumentLinkingBody,
@@ -70,6 +85,19 @@ import {
 } from "../lib/document-linking-config";
 
 const router: IRouter = Router();
+
+const MergeDocumentPagesBody = z.object({
+  orderedDocumentIds: z.array(z.number().int().positive()).min(2).max(50),
+});
+const ReorderDocumentMergeBody = z.object({
+  orderedDocumentIds: z.array(z.number().int().positive()).min(2).max(50),
+});
+const ConfirmDocumentTypeBody = z.object({
+  docType: z.enum(["receipt", "delivery_note", "invoice", "credit_note"]),
+});
+const MergeJobDocumentPagesBody = z.object({
+  orderedAttachmentIds: z.array(z.number().int().positive()).min(2).max(50),
+});
 
 // --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
 
@@ -264,6 +292,12 @@ function optInt(raw: unknown): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+function optNonNegativeInt(raw: unknown): number | undefined {
+  if (typeof raw !== "string" || raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // List
 // ---------------------------------------------------------------------------
@@ -288,6 +322,140 @@ router.get("/billing/documents", async (req, res): Promise<void> => {
 // ---------------------------------------------------------------------------
 // Upload (raw octet-stream → object storage → cost document)
 // ---------------------------------------------------------------------------
+
+router.post(
+  "/jobs/:id/documents/upload",
+  requireAssignedJobWork,
+  (req: Request, res: Response, next: NextFunction) => {
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES })(req, res, (error) => {
+      const bodyError = error as { type?: string; status?: number } | undefined;
+      if (bodyError?.type === "entity.too.large" || bodyError?.status === 413) {
+        res.status(413).json({ error: `Soubor je prilis velky (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).` });
+        return;
+      }
+      if (error) next(error);
+      else next();
+    });
+  },
+  async (req: Request, res: Response): Promise<void> => {
+    const jobId = parseId(req.params.id);
+    const name = typeof req.query.name === "string" ? req.query.name : "doklad";
+    const contentType = typeof req.query.contentType === "string" ? req.query.contentType : "";
+    const declaredDocType =
+      typeof req.query.docType === "string" &&
+      ["receipt", "delivery_note", "invoice", "credit_note"].includes(req.query.docType)
+        ? req.query.docType
+        : undefined;
+    const groupToken =
+      typeof req.query.groupToken === "string" && req.query.groupToken.trim()
+        ? req.query.groupToken.trim()
+        : "";
+    const pageIndex = optNonNegativeInt(req.query.pageIndex);
+    const pageCount = optInt(req.query.pageCount);
+    const groupComplete = req.query.groupComplete === "true";
+    if (
+      jobId == null || !groupToken || groupToken.length > 100 ||
+      pageIndex == null || pageCount == null || pageIndex < 0 || pageIndex >= pageCount || pageCount > 50
+    ) {
+      res.status(400).json({ error: "Chybí platná zakázka, skupina nebo pořadí stránky." });
+      return;
+    }
+    if (!contentType || !ALLOWED_UPLOAD_TYPES.has(contentType)) {
+      res.status(415).json({ error: "Tento typ souboru není povolen." });
+      return;
+    }
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0 || !contentMatchesType(contentType, body)) {
+      res.status(415).json({ error: "Obsah souboru neodpovídá podporovanému typu." });
+      return;
+    }
+    try {
+      const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));
+      if (!job) {
+        res.status(404).json({ error: "Zakázka nebyla nalezena." });
+        return;
+      }
+      const result = await ingestGroupFile(
+        body,
+        {
+          fileName: name,
+          contentType,
+          source: "job_attachment",
+          docType: declaredDocType,
+          jobId,
+          customerId: job.customerId ?? null,
+          groupToken,
+          groupComplete,
+          pageIndex,
+          pageCount,
+        },
+        actorOf(req),
+      );
+      if (result.status === "duplicate") {
+        res.status(409).json({ error: "Tato stránka už byla nahrána.", duplicates: result.duplicates });
+        return;
+      }
+      const [file] = await db
+        .select()
+        .from(billingDocumentFilesTable)
+        .where(and(
+          eq(billingDocumentFilesTable.documentId, result.document.id),
+          eq(billingDocumentFilesTable.pageIndex, pageIndex),
+        ));
+      if (!file?.objectPath) throw new Error("Uložená stránka nemá objektovou cestu.");
+      let [attachment] = await db
+        .select()
+        .from(attachmentsTable)
+        .where(and(
+          eq(attachmentsTable.jobId, jobId),
+          eq(attachmentsTable.billingDocumentId, result.document.id),
+          eq(attachmentsTable.pageIndex, pageIndex),
+        ));
+      if (!attachment) {
+        [attachment] = await db
+          .insert(attachmentsTable)
+          .values({
+            jobId,
+            type: declaredDocType ?? "document",
+            fileName: name,
+            url: file.objectPath,
+            billingDocumentId: result.document.id,
+            pageIndex,
+          })
+          .returning();
+      }
+      res.status(201).json({
+        documentId: result.document.id,
+        status: result.document.status,
+        docType: result.document.docType,
+        pageIndex,
+        pageCount,
+        groupComplete,
+        attachment: { id: attachment.id, fileName: attachment.fileName, url: attachment.url },
+      });
+    } catch (error) {
+      handleError(error, "Stránku dokladu se nepodařilo nahrát.", res);
+    }
+  },
+);
+
+router.post(
+  "/jobs/:id/documents/merge-pages",
+  requireAssignedJobWork,
+  async (req, res): Promise<void> => {
+    const jobId = parseId(req.params.id);
+    const parsed = MergeJobDocumentPagesBody.safeParse(req.body);
+    if (jobId == null || !parsed.success) {
+      res.status(400).json({ error: "Neplatná zakázka nebo výběr stran." });
+      return;
+    }
+    try {
+      res.json(await mergeJobDocumentPages(jobId, parsed.data.orderedAttachmentIds, actorOf(req)));
+    } catch (error) {
+      handleError(error, "Stránky zakázkového dokladu se nepodařilo sloučit.", res);
+    }
+  },
+);
 
 router.post(
   "/billing/documents/upload",
@@ -324,7 +492,7 @@ router.post(
         ? req.query.groupToken.trim()
         : undefined;
     const groupComplete = req.query.groupComplete === "true";
-    const pageIndex = optInt(req.query.pageIndex);
+    const pageIndex = optNonNegativeInt(req.query.pageIndex);
     const pageCount = optInt(req.query.pageCount);
     if (groupToken && groupToken.length > 100) {
       res.status(400).json({ error: "Neplatný identifikátor skupiny stránek." });
@@ -332,8 +500,8 @@ router.post(
     }
     if (
       groupToken &&
-      (pageIndex == null || pageIndex < 0 || pageIndex > 1_000 ||
-        pageCount == null || pageCount < 1 || pageCount > 1_001)
+      (pageIndex == null || pageIndex < 0 || pageIndex >= 50 ||
+        pageCount == null || pageCount < 1 || pageCount > 50)
     ) {
       res.status(400).json({ error: "Chybí platné pořadí nebo počet stránek dokladu." });
       return;
@@ -426,6 +594,60 @@ router.post(
 // Detail / update / delete
 // ---------------------------------------------------------------------------
 
+router.post("/billing/documents/merge-pages", async (req, res): Promise<void> => {
+  const parsed = MergeDocumentPagesBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  try {
+    res.json(await mergeDocumentPages(parsed.data, actorOf(req)));
+  } catch (error) {
+    handleError(error, "Doklady se nepodařilo sloučit.", res);
+  }
+});
+
+router.post("/billing/document-merges/:mergeId/order", async (req, res): Promise<void> => {
+  const mergeId = parseId(req.params.mergeId);
+  const parsed = ReorderDocumentMergeBody.safeParse(req.body);
+  if (mergeId == null || !parsed.success) {
+    res.status(400).json({ error: "Neplatné sloučení nebo pořadí stran." });
+    return;
+  }
+  try {
+    res.json(await reorderDocumentMerge(mergeId, parsed.data.orderedDocumentIds, actorOf(req)));
+  } catch (error) {
+    handleError(error, "Pořadí stran se nepodařilo změnit.", res);
+  }
+});
+
+router.post("/billing/document-merges/:mergeId/revert", async (req, res): Promise<void> => {
+  const mergeId = parseId(req.params.mergeId);
+  if (mergeId == null) {
+    res.status(400).json({ error: "Neplatné sloučení." });
+    return;
+  }
+  try {
+    res.json(await revertDocumentMerge(mergeId, actorOf(req)));
+  } catch (error) {
+    handleError(error, "Sloučení se nepodařilo rozdělit.", res);
+  }
+});
+
+router.post("/billing/documents/:id/confirm-type", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  const parsed = ConfirmDocumentTypeBody.safeParse(req.body);
+  if (id == null || !parsed.success) {
+    res.status(400).json({ error: "Neplatný doklad nebo typ." });
+    return;
+  }
+  try {
+    res.json(await confirmDocumentType(id, parsed.data.docType, actorOf(req)));
+  } catch (error) {
+    handleError(error, "Typ dokladu se nepodařilo potvrdit.", res);
+  }
+});
+
 router.get("/billing/documents/:id", async (req, res): Promise<void> => {
   const id = parseId(req.params.id);
   if (id == null) {
@@ -471,7 +693,7 @@ router.patch("/billing/documents/:id", async (req, res): Promise<void> => {
       customerId: d.customerId,
       jobId: d.jobId,
       notes: d.notes,
-    });
+    }, actorOf(req));
     res.json(detail);
   } catch (error) {
     handleError(error, "Doklad se nepodařilo upravit.", res);

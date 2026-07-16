@@ -836,6 +836,126 @@ paths:
         "204":
           description: Deleted
 
+  /jobs/{jobId}/documents:
+    get:
+      operationId: listJobDocuments
+      tags: [attachments]
+      summary: List sanitized logical documents for an assigned job
+      description: Returns page previews and processing state without extracted lines, totals or other billing data.
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Sanitized job documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobDocumentSummary"
+        "403":
+          description: User is not assigned to the job and cannot manage jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /jobs/{jobId}/documents/upload:
+    post:
+      operationId: uploadJobDocumentPage
+      tags: [attachments]
+      summary: Upload one page of a logical document to an assigned job
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: name
+          in: query
+          required: true
+          schema: { type: string }
+        - name: contentType
+          in: query
+          required: true
+          schema: { type: string }
+        - name: groupToken
+          in: query
+          required: true
+          schema: { type: string }
+        - name: groupComplete
+          in: query
+          required: true
+          schema: { type: boolean }
+        - name: pageIndex
+          in: query
+          required: true
+          schema: { type: integer, minimum: 0 }
+        - name: pageCount
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 50 }
+        - name: docType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [receipt, delivery_note, invoice, credit_note]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Page stored and linked to the job
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /jobs/{jobId}/documents/merge-pages:
+    post:
+      operationId: mergeJobDocumentPages
+      tags: [attachments]
+      summary: Merge ordered standalone job attachments into one logical document
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergeJobDocumentPagesInput"
+      responses:
+        "200":
+          description: Pages merged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPageMergeResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A page is already locked by downstream accounting state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /people:
     get:
       operationId: listPeople
@@ -6784,6 +6904,29 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: groupToken
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: groupComplete
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: pageIndex
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: pageCount
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
       requestBody:
         required: true
         content:
@@ -6824,6 +6967,123 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "415":
           description: File type not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/merge-pages:
+    post:
+      operationId: mergeCostDocumentPages
+      tags: [billing]
+      summary: Merge separately uploaded pages into one logical document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergeDocumentPagesInput"
+      responses:
+        "200":
+          description: Pages merged and extraction queued once for the primary document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentPageMergeResult"
+        "400":
+          description: Invalid page selection or order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A selected document is locked by approval, warehouse, material or invoice use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/document-merges/{mergeId}/order:
+    post:
+      operationId: reorderCostDocumentPages
+      tags: [billing]
+      summary: Change page order in an active document merge
+      parameters:
+        - name: mergeId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergeDocumentPagesInput"
+      responses:
+        "200":
+          description: Reordered document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "409":
+          description: Merge is no longer editable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/document-merges/{mergeId}/revert:
+    post:
+      operationId: revertCostDocumentMerge
+      tags: [billing]
+      summary: Restore all original documents from an active merge
+      parameters:
+        - name: mergeId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Merge reverted without deleting original files
+        "409":
+          description: Merge is no longer safe to revert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/confirm-type:
+    post:
+      operationId: confirmCostDocumentType
+      tags: [billing]
+      summary: Resolve a user versus AI document type conflict
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmDocumentTypeInput"
+      responses:
+        "200":
+          description: Type confirmed by an administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -13491,7 +13751,7 @@ components:
           type: integer
         status:
           type: string
-          enum: [uploaded, needs_review, reviewed, approved, ignored, duplicate]
+          enum: [uploaded, needs_review, reviewed, approved, ignored, duplicate, merged]
         materialState:
           description: >-
             Derived, document-level material state aggregated from the
@@ -13502,7 +13762,22 @@ components:
           enum: [assigned, approved, null]
         docType:
           type: string
-          enum: [receipt, delivery_note, invoice, credit_note]
+          enum: [unknown, receipt, delivery_note, invoice, credit_note]
+        declaredDocType:
+          type: ["string", "null"]
+          enum: [receipt, delivery_note, invoice, credit_note, null]
+        detectedDocType:
+          type: ["string", "null"]
+          enum: [receipt, delivery_note, invoice, credit_note, null]
+        detectedDocTypeConfidence:
+          type: ["number", "null"]
+          minimum: 0
+          maximum: 1
+        docTypeSource:
+          type: string
+          enum: [unknown, user, ai, conflict, admin]
+        docTypeConfirmedAt:
+          type: ["string", "null"]
         source:
           type: string
           enum: [manual, job_attachment, isdoc, email]
@@ -14201,6 +14476,115 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CostDocumentFile"
+        pageMerge:
+          oneOf:
+            - $ref: "#/components/schemas/CostDocumentPageMerge"
+            - type: "null"
+
+    CostDocumentPageMerge:
+      type: object
+      required: [id, status, members]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [active, reverted]
+        members:
+          type: array
+          items:
+            type: object
+            required: [documentId, pageOrder]
+            properties:
+              documentId:
+                type: integer
+              pageOrder:
+                type: integer
+              fileName:
+                type: ["string", "null"]
+
+    MergeDocumentPagesInput:
+      type: object
+      required: [orderedDocumentIds]
+      properties:
+        orderedDocumentIds:
+          type: array
+          minItems: 2
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: integer
+
+    MergeJobDocumentPagesInput:
+      type: object
+      required: [orderedAttachmentIds]
+      properties:
+        orderedAttachmentIds:
+          type: array
+          minItems: 2
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: integer
+
+    ConfirmDocumentTypeInput:
+      type: object
+      required: [docType]
+      properties:
+        docType:
+          type: string
+          enum: [receipt, delivery_note, invoice, credit_note]
+
+    DocumentPageMergeResult:
+      type: object
+      required: [mergeId, primaryDocumentId]
+      properties:
+        mergeId:
+          type: integer
+        primaryDocumentId:
+          type: integer
+        detail:
+          $ref: "#/components/schemas/CostDocumentDetail"
+
+    JobDocumentPage:
+      type: object
+      required: [id, pageIndex]
+      properties:
+        id:
+          type: integer
+        pageIndex:
+          type: integer
+        fileName:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+
+    JobDocumentSummary:
+      type: object
+      required: [status, docType, docTypeSource, pageCount, createdAt, pages]
+      properties:
+        documentId:
+          type: ["integer", "null"]
+        status:
+          type: string
+        docType:
+          type: string
+        declaredDocType:
+          type: ["string", "null"]
+        detectedDocType:
+          type: ["string", "null"]
+        docTypeSource:
+          type: string
+        detectedDocTypeConfidence:
+          type: ["number", "null"]
+        pageCount:
+          type: integer
+        createdAt:
+          type: string
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobDocumentPage"
 
     CostDocumentLinkedMaterial:
       type: object

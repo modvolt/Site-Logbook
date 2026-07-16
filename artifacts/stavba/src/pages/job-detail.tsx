@@ -35,12 +35,30 @@ import { SwitchboardsSection } from "@/components/switchboards-section";
 import { useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@workspace/object-storage-web";
 import { UploadProgressBar } from "@/components/upload-progress-bar";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { 
   ArrowLeft, Clock, MapPin, User, FileText, CheckCircle2, ChevronDown, 
   ChevronUp, Camera, Plus, Trash2, Archive, Edit3, Save, X, CreditCard,
   AlertCircle, Phone, Building2, Receipt, FileImage, Navigation, ShoppingCart, Play, Square, CalendarPlus, RotateCcw,
-  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle, PenLine, Send, Ban, ChevronRight
+  Tag, Package, CircleDollarSign, UserX, Banknote, Image, RefreshCw, AlertTriangle, PenLine, Send, Ban, ChevronRight,
+  GripVertical, Files, ScanLine
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -74,6 +92,13 @@ import { AttachmentViewer } from "@/components/attachment-viewer";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { prepareImageFile } from "@/lib/prepare-image";
 import { openFilePicker } from "@/lib/file-picker";
+import {
+  listJobDocuments,
+  mergeJobDocumentPages,
+  newUploadGroupToken,
+  uploadJobDocumentPage,
+  type JobDocumentSummary,
+} from "@/lib/cost-document-upload";
 import { hoursFromPresetTimes } from "@/pages/dashboard";
 import {
   ensureNotificationPermission,
@@ -496,6 +521,7 @@ export default function JobDetail() {
             <JobTimeEntries jobId={id} />
             <TasksSection jobId={id} isExpanded={expandedSection === "tasks"} onToggle={() => toggleSection("tasks")} />
             <MaterialsSection jobId={id} job={job} isExpanded={expandedSection === "materials"} onToggle={() => toggleSection("materials")} onUnsavedChange={setMatHasUnsaved} />
+            <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
             <AttachmentsSection jobId={id} isExpanded={expandedSection === "attachments"} onToggle={() => toggleSection("attachments")} />
           </>
         ) : <>
@@ -2918,91 +2944,247 @@ function TaskRow({ task, onToggle, onDelete, onUpdate, onTaskPhoto, canWork, can
   );
 }
 
-function DokladySection({ jobId, isExpanded, onToggle }: any) {
-  const { openConfirm, dialogProps: dialogPropsDoc } = useConfirmDialog();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data: attachments, isLoading: dokladyLoading, isError: dokladyError } = useListAttachments(jobId, {
-    query: { queryKey: getListAttachmentsQueryKey(jobId) }
-  });
-  
-  const createAttachment = useCreateAttachment();
-  const deleteAttachment = useDeleteAttachment();
-  const analyzeDocuments = useAnalyzeJobDocuments();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
+type PendingDocumentPage = {
+  id: string;
+  file: File;
+  previewUrl: string | null;
+};
 
-  const doklady = attachments?.filter(a => ["invoice", "receipt", "delivery_note", "credit_note"].includes(a.type)) || [];
+type MergeDocumentPage = {
+  id: number;
+  fileName: string | null;
+  url: string | null;
+};
+
+function SortableDocumentPage({
+  sortableId,
+  index,
+  fileName,
+  previewUrl,
+  onRemove,
+}: {
+  sortableId: string;
+  index: number;
+  fileName: string | null;
+  previewUrl: string | null;
+  onRemove?: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sortableId });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-3 rounded-md border bg-background p-2 ${isDragging ? "z-10 shadow-lg" : ""}`}
+    >
+      <button
+        type="button"
+        aria-label={`Přesunout stránku ${index + 1}`}
+        className="flex h-10 w-8 shrink-0 touch-none items-center justify-center text-muted-foreground"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-5 w-5" />
+      </button>
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+        {previewUrl ? (
+          <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <FileText className="h-6 w-6 text-muted-foreground" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold">Stránka {index + 1}</p>
+        <p className="truncate text-xs text-muted-foreground">{fileName || "Doklad"}</p>
+      </div>
+      {onRemove && (
+        <Button type="button" variant="ghost" size="icon" onClick={onRemove} aria-label={`Odstranit stránku ${index + 1}`}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function DokladySection({ jobId, isExpanded, onToggle }: any) {
+  const { can } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadGroupTokenRef = useRef(newUploadGroupToken());
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [pendingPages, setPendingPages] = useState<PendingDocumentPage[]>([]);
+  const [mergePages, setMergePages] = useState<MergeDocumentPage[]>([]);
+  const [selectedDocuments, setSelectedDocuments] = useState<Set<number>>(new Set());
+  const [declaredType, setDeclaredType] = useState("auto");
+  const [showType, setShowType] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
   const [viewer, setViewer] = useState<{ url: string; fileName?: string | null } | null>(null);
-  // Document type to assign to uploads; "auto" infers from file kind (photo→receipt, PDF→invoice).
-  const [dokladType, setDokladType] = useState<string>("auto");
+  const pendingPagesRef = useRef<PendingDocumentPage[]>([]);
+  const analyzeDocuments = useAnalyzeJobDocuments();
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const documentsQuery = useQuery({
+    queryKey: ["job-documents", jobId],
+    queryFn: () => listJobDocuments(jobId),
+    enabled: isExpanded,
+  });
+  const documents = documentsQuery.data ?? [];
+
+  useEffect(() => {
+    pendingPagesRef.current = pendingPages;
+  }, [pendingPages]);
+
+  useEffect(() => () => {
+    pendingPagesRef.current.forEach((page) => {
+      if (page.previewUrl) URL.revokeObjectURL(page.previewUrl);
+    });
+  }, []);
+
+  const resetCapture = () => {
+    pendingPages.forEach((page) => {
+      if (page.previewUrl) URL.revokeObjectURL(page.previewUrl);
+    });
+    setPendingPages([]);
+    setDeclaredType("auto");
+    setShowType(false);
+    uploadGroupTokenRef.current = newUploadGroupToken();
+  };
+
+  const addFiles = async (files: File[]) => {
+    const remaining = Math.max(0, 50 - pendingPagesRef.current.length);
+    const acceptedFiles = files.slice(0, remaining);
+    if (files.length > acceptedFiles.length) {
+      toast({ title: "Jeden doklad může mít nejvýše 50 stran" });
+    }
+    const next: PendingDocumentPage[] = [];
+    for (const original of acceptedFiles) {
+      const isImage = original.type.startsWith("image/") || /\.(heic|heif|jpe?g|png|webp)$/i.test(original.name);
+      const file = isImage ? await prepareImageFile(original) : original;
+      next.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+      });
+    }
+    setPendingPages((current) => [...current, ...next]);
+  };
+
+  const handleCaptureFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    try {
+      await addFiles(files);
+    } catch (error) {
+      toast({ title: "Stránku se nepodařilo připravit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    }
+  };
+
+  const removePendingPage = (id: string) => {
+    setPendingPages((current) => {
+      const removed = current.find((page) => page.id === id);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return current.filter((page) => page.id !== id);
+    });
+  };
+
+  const handlePendingDrag = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    setPendingPages((current) => {
+      const from = current.findIndex((page) => `pending-${page.id}` === active.id);
+      const to = current.findIndex((page) => `pending-${page.id}` === over.id);
+      return from < 0 || to < 0 ? current : arrayMove(current, from, to);
+    });
+  };
+
+  const finishUpload = async () => {
+    if (pendingPages.length === 0) return;
+    setIsUploading(true);
+    const groupToken = uploadGroupTokenRef.current;
+    try {
+      for (let index = 0; index < pendingPages.length; index += 1) {
+        await uploadJobDocumentPage(jobId, pendingPages[index].file, {
+          groupToken,
+          groupComplete: index === pendingPages.length - 1,
+          pageIndex: index,
+          pageCount: pendingPages.length,
+          docType: declaredType === "auto" ? undefined : declaredType,
+        });
+      }
+      toast({ title: pendingPages.length === 1 ? "Doklad byl nahrán" : `Doklad byl nahrán (${pendingPages.length} stran)` });
+      setCaptureOpen(false);
+      resetCapture();
+      await documentsQuery.refetch();
+    } catch (error) {
+      toast({ title: "Nahrání dokladu selhalo", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const toggleDocument = (document: JobDocumentSummary) => {
+    if (document.documentId == null || document.pageCount !== 1 || !["uploaded", "needs_review"].includes(document.status)) return;
+    setSelectedDocuments((current) => {
+      const next = new Set(current);
+      if (next.has(document.documentId!)) next.delete(document.documentId!);
+      else next.add(document.documentId!);
+      return next;
+    });
+  };
+
+  const openMergeDialog = () => {
+    const pages = documents
+      .filter((document) => document.documentId != null && selectedDocuments.has(document.documentId))
+      .flatMap((document) => document.pages)
+      .sort((a, b) => a.pageIndex - b.pageIndex);
+    if (pages.length < 2) return;
+    setMergePages(pages);
+    setMergeOpen(true);
+  };
+
+  const handleMergeDrag = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    setMergePages((current) => {
+      const from = current.findIndex((page) => `merge-${page.id}` === active.id);
+      const to = current.findIndex((page) => `merge-${page.id}` === over.id);
+      return from < 0 || to < 0 ? current : arrayMove(current, from, to);
+    });
+  };
+
+  const finishMerge = async () => {
+    setIsMerging(true);
+    try {
+      await mergeJobDocumentPages(jobId, mergePages.map((page) => page.id));
+      toast({ title: `Sloučeno ${mergePages.length} stran do jednoho dokladu` });
+      setMergeOpen(false);
+      setSelectedDocuments(new Set());
+      await documentsQuery.refetch();
+    } catch (error) {
+      toast({ title: "Doklady nelze sloučit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    } finally {
+      setIsMerging(false);
+    }
+  };
 
   const handleAnalyze = () => {
     analyzeDocuments.mutate({ id: jobId }, {
-      onSuccess: (res) => {
-        const created = res?.createdCount ?? 0;
-        const skipped = res?.skipped ?? 0;
-        toast({
-          title: created > 0
-            ? `Zařazeno ke zpracování: ${created}`
-            : "Žádné nové doklady k analýze",
-          description: skipped > 0
-            ? `Přeskočeno ${skipped} již zpracovaných. Doklady najdete ve Fakturace → Přijaté doklady.`
-            : "Doklady najdete ve Fakturace → Přijaté doklady.",
-        });
+      onSuccess: () => {
+        toast({ title: "Doklady byly zařazeny k analýze" });
+        void documentsQuery.refetch();
       },
-      onError: (err) => toast({
-        title: "Analýza se nezdařila",
-        description: err instanceof Error ? err.message : undefined,
-        variant: "destructive",
-      }),
+      onError: (error) => toast({ title: "Analýza se nezdařila", description: error instanceof Error ? error.message : undefined, variant: "destructive" }),
     });
   };
 
-  const {
-    uploadFile: uploadDoklad,
-    uploadFiles: uploadDoklady,
-    isBusy: isUploadingDoklad,
-    displayProgress: dokladProgress,
-    statusLabel: dokladStatus,
-  } = useUpload();
-
-  const uploadDokladyFiles = async (files: File[]) => {
-    if (files.length === 0) return;
-
-    const { succeeded, failed, errors } = await uploadDoklady(files, async (file) => {
-      const isPhoto = file.type.startsWith("image/") ||
-        file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
-      const type = dokladType === "auto" ? (isPhoto ? "receipt" : "invoice") : dokladType;
-      const toUpload = isPhoto ? await prepareImageFile(file) : file;
-      const result = await uploadDoklad(toUpload);
-      await createAttachment.mutateAsync({ jobId, data: { type, fileName: toUpload.name, url: result.objectPath } });
-    });
-
-    queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) });
-    if (succeeded > 0) {
-      toast({ title: succeeded === 1 ? "Doklad uložen" : `Nahráno ${succeeded} dokladů` });
-    }
-    if (failed > 0) {
-      debugLog("upload", "doklad upload failed", errors);
-      const description = files.length === 1
-        ? (errors[0]?.message ?? "Neznámá chyba")
-        : `${failed} z ${files.length} se nepodařilo nahrát`;
-      toast({ title: "Nahrání selhalo", description, variant: "destructive" });
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    await uploadDokladyFiles(files);
-  };
-
-  const handleDelete = (id: number) => {
-    openConfirm("Smazat tento doklad?", () => {
-      deleteAttachment.mutate({ jobId, attachmentId: id }, {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListAttachmentsQueryKey(jobId) })
-      });
-    });
+  const typeLabel = (document: JobDocumentSummary) => {
+    if (document.docTypeSource === "conflict") return "Typ vyžaduje kontrolu";
+    return COST_DOC_TYPE_LABELS[document.docType as keyof typeof COST_DOC_TYPE_LABELS] ?? "Čeká na rozpoznání";
   };
 
   return (
@@ -3011,109 +3193,143 @@ function DokladySection({ jobId, isExpanded, onToggle }: any) {
       icon={Receipt}
       isExpanded={isExpanded}
       onToggle={onToggle}
-      summary={doklady.length > 0 ? `${doklady.length} dokladů` : "Žádné doklady"}
+      summary={documents.length ? `${documents.length} dokladů` : "Žádné doklady"}
     >
-      <div className="p-4 space-y-4">
-        <input 
-          type="file" 
-          accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
-          multiple
-          ref={fileInputRef} 
-          onChange={handleFileUpload} 
-          className="hidden" 
-        />
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Typ dokladu</Label>
-          <Select value={dokladType} onValueChange={setDokladType}>
-            <SelectTrigger className="h-10">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">Automaticky (foto → účtenka, PDF → faktura)</SelectItem>
-              <SelectItem value="invoice">{COST_DOC_TYPE_LABELS.invoice}</SelectItem>
-              <SelectItem value="receipt">{COST_DOC_TYPE_LABELS.receipt}</SelectItem>
-              <SelectItem value="delivery_note">{COST_DOC_TYPE_LABELS.delivery_note}</SelectItem>
-              <SelectItem value="credit_note">{COST_DOC_TYPE_LABELS.credit_note}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            onClick={() => openFilePicker(fileInputRef.current)}
-            disabled={createAttachment.isPending || isUploadingDoklad}
-            variant="secondary"
-            className="flex-1 h-12 text-base"
-          >
-            <Camera className="w-5 h-5 mr-2" /> {isUploadingDoklad ? dokladStatus : "Vyfotit / nahrát doklad"}
-          </Button>
-        </div>
-        <FileDropZone
-          onFiles={uploadDokladyFiles}
-          accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png"
-          disabled={createAttachment.isPending || isUploadingDoklad}
-          label="Sem přetáhněte doklady (PDF nebo foto)"
-        />
-        <UploadProgressBar isUploading={isUploadingDoklad} progress={dokladProgress} />
+      <div className="space-y-3 p-4">
+        <Button className="h-12 w-full text-base" onClick={() => setCaptureOpen(true)}>
+          <Camera className="mr-2 h-5 w-5" /> Přidat doklad
+        </Button>
 
-        {doklady.length > 0 && (
-          <Button
-            onClick={handleAnalyze}
-            disabled={analyzeDocuments.isPending}
-            variant="outline"
-            className="w-full"
-          >
-            <FileText className="w-4 h-4 mr-2" />
-            {analyzeDocuments.isPending ? "Analyzuji…" : "Analyzovat doklady"}
-          </Button>
+        {documents.length > 1 && (
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={openMergeDialog} disabled={selectedDocuments.size < 2}>
+              <Files className="mr-2 h-4 w-4" /> Sloučit stránky{selectedDocuments.size ? ` (${selectedDocuments.size})` : ""}
+            </Button>
+            {can("jobs.manage") && (
+              <Button variant="outline" size="icon" onClick={handleAnalyze} disabled={analyzeDocuments.isPending} title="Znovu analyzovat doklady">
+                <ScanLine className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         )}
 
-        {doklady.length > 0 && (
+        {documentsQuery.isLoading ? (
+          <div className="space-y-2"><Skeleton className="h-20 w-full" /><Skeleton className="h-20 w-full" /></div>
+        ) : documentsQuery.isError ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> Doklady se nepodařilo načíst.</div>
+        ) : documents.length === 0 ? (
+          <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
+            <Receipt className="mx-auto mb-2 h-9 w-9 opacity-30" />
+            Vyfoťte celý doklad včetně všech stran.
+          </div>
+        ) : (
           <div className="space-y-2">
-            {doklady.map(doc => {
-              const displayUrl = getAttachmentUrl(doc.url);
+            {documents.map((document) => {
+              const firstPage = document.pages[0];
+              const selectable = document.documentId != null && document.pageCount === 1 && ["uploaded", "needs_review"].includes(document.status);
               return (
-                <div key={doc.id} className="flex items-center gap-3 p-3 bg-muted/40 border rounded-lg group">
-                  <div className="p-1.5 bg-amber-100 dark:bg-amber-900/30 rounded text-amber-600 dark:text-amber-400 shrink-0">
-                    <FileImage className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{doc.fileName || "Doklad"}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{doc.type === "invoice" ? "Faktura" : doc.type === "receipt" ? "Účtenka" : "Dodací list"}</p>
-                  </div>
-                  {displayUrl && (
-                    <button onClick={() => setViewer({ url: displayUrl, fileName: doc.fileName })} className="text-xs text-primary hover:underline shrink-0">Zobrazit</button>
+                <div key={document.documentId ?? `attachment-${firstPage?.id}`} className="flex items-center gap-3 rounded-md border p-3">
+                  {selectable && (
+                    <Checkbox checked={selectedDocuments.has(document.documentId!)} onCheckedChange={() => toggleDocument(document)} aria-label="Vybrat stránku ke sloučení" />
                   )}
-                  <Button 
-                    variant="ghost" size="icon" 
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    onClick={() => handleDelete(doc.id)}
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+                    {firstPage?.url && !firstPage.fileName?.toLowerCase().endsWith(".pdf") ? (
+                      <img src={getAttachmentUrl(firstPage.url)} alt="" className="h-full w-full object-cover" />
+                    ) : <FileText className="h-5 w-5 text-muted-foreground" />}
+                  </div>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => firstPage?.url && setViewer({ url: getAttachmentUrl(firstPage.url)!, fileName: firstPage.fileName })}
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                    <p className="truncate text-sm font-semibold">{firstPage?.fileName || "Doklad"}</p>
+                    <p className={`text-xs ${document.docTypeSource === "conflict" ? "text-amber-600" : "text-muted-foreground"}`}>
+                      {typeLabel(document)} · {document.pageCount} {document.pageCount === 1 ? "strana" : document.pageCount < 5 ? "strany" : "stran"}
+                    </p>
+                  </button>
+                  {can("billing.view") && document.documentId != null && (
+                    <Link href={`/billing/documents/${document.documentId}`} className="text-xs font-medium text-primary">Kontrola</Link>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
-
-        {dokladyLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-14 w-full" />
-            <Skeleton className="h-14 w-full" />
-          </div>
-        ) : dokladyError ? (
-          <div className="flex items-center gap-2 text-destructive text-sm py-4">
-            <AlertCircle className="w-4 h-4" /> Nepodařilo se načíst doklady.
-          </div>
-        ) : doklady.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-xl border-muted">
-            <Receipt className="w-10 h-10 mx-auto mb-2 opacity-20" />
-            <p className="text-sm">Přidejte faktury, účtenky nebo dodací listy.</p>
-          </div>
-        ) : null}
-        {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
       </div>
-      <ConfirmDialog {...dialogPropsDoc} />
+
+      <Dialog open={captureOpen} onOpenChange={(open) => { if (!isUploading) { setCaptureOpen(open); if (!open) resetCapture(); } }}>
+        <DialogContent className="max-h-[92dvh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Přidat doklad</DialogTitle>
+            <DialogDescription>Vyfoťte všechny strany. Pořadí můžete upravit tažením za madlo.</DialogDescription>
+          </DialogHeader>
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCaptureFiles} />
+          <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.pdf" multiple className="hidden" onChange={handleCaptureFiles} />
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="secondary" onClick={() => openFilePicker(cameraInputRef.current)} disabled={isUploading}>
+              <Camera className="mr-2 h-4 w-4" /> Vyfotit stránku
+            </Button>
+            <Button type="button" variant="outline" onClick={() => openFilePicker(fileInputRef.current)} disabled={isUploading}>
+              <Plus className="mr-2 h-4 w-4" /> Přidat soubor
+            </Button>
+          </div>
+          {pendingPages.length > 0 && (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handlePendingDrag}>
+              <SortableContext items={pendingPages.map((page) => `pending-${page.id}`)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {pendingPages.map((page, index) => (
+                    <SortableDocumentPage key={page.id} sortableId={`pending-${page.id}`} index={index} fileName={page.file.name} previewUrl={page.previewUrl} onRemove={() => removePendingPage(page.id)} />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+          <Button type="button" variant="ghost" className="justify-start px-1" onClick={() => setShowType((current) => !current)}>
+            <ChevronRight className={`mr-1 h-4 w-4 transition-transform ${showType ? "rotate-90" : ""}`} /> Upřesnit typ
+          </Button>
+          {showType && (
+            <Select value={declaredType} onValueChange={setDeclaredType}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Automaticky rozpoznat</SelectItem>
+                <SelectItem value="invoice">Faktura</SelectItem>
+                <SelectItem value="receipt">Účtenka</SelectItem>
+                <SelectItem value="delivery_note">Dodací list</SelectItem>
+                <SelectItem value="credit_note">Dobropis</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCaptureOpen(false)} disabled={isUploading}>Zrušit</Button>
+            <Button type="button" onClick={finishUpload} disabled={pendingPages.length === 0 || isUploading}>
+              {isUploading ? "Nahrávám…" : `Dokončit${pendingPages.length ? ` (${pendingPages.length})` : ""}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mergeOpen} onOpenChange={(open) => !isMerging && setMergeOpen(open)}>
+        <DialogContent className="max-h-[92dvh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sloučit stránky</DialogTitle>
+            <DialogDescription>Zkontrolujte pořadí. Originální soubory zůstanou zachované.</DialogDescription>
+          </DialogHeader>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMergeDrag}>
+            <SortableContext items={mergePages.map((page) => `merge-${page.id}`)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
+                {mergePages.map((page, index) => (
+                  <SortableDocumentPage key={page.id} sortableId={`merge-${page.id}`} index={index} fileName={page.fileName} previewUrl={page.url ? getAttachmentUrl(page.url) ?? null : null} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setMergeOpen(false)} disabled={isMerging}>Zrušit</Button>
+            <Button type="button" onClick={finishMerge} disabled={mergePages.length < 2 || isMerging}>{isMerging ? "Slučuji…" : "Sloučit jako jeden doklad"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {viewer && <AttachmentViewer url={viewer.url} fileName={viewer.fileName} onClose={() => setViewer(null)} />}
     </SectionCard>
   );
 }

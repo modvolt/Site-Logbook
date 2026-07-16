@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 import { inArray, eq } from "drizzle-orm";
 import {
   db,
@@ -9,6 +9,7 @@ import {
   extractionJobsTable,
 } from "@workspace/db";
 import { ingestGroupFile, getDocumentAllFileBuffers } from "../src/lib/cost-document-service";
+import { ObjectStorageService } from "../src/lib/objectStorage";
 
 /**
  * Task #679: uploading several photos as "pages of one document" must produce
@@ -23,6 +24,23 @@ import { ingestGroupFile, getDocumentAllFileBuffers } from "../src/lib/cost-docu
 const TAG = `test-group-upload-${Date.now()}`;
 const docIds: number[] = [];
 const actor = { userId: null, name: TAG };
+const storedObjects = new Map<string, Buffer>();
+
+beforeAll(() => {
+  vi.spyOn(ObjectStorageService.prototype, "putPrivateObject").mockImplementation(
+    async (objectPath, body) => { storedObjects.set(objectPath, Buffer.from(body)); },
+  );
+  vi.spyOn(ObjectStorageService.prototype, "getPrivateObjectBuffer").mockImplementation(
+    async (objectPath) => {
+      const body = storedObjects.get(objectPath);
+      if (!body) throw new Error(`Missing test object: ${objectPath}`);
+      return Buffer.from(body);
+    },
+  );
+  vi.spyOn(ObjectStorageService.prototype, "deletePrivateObject").mockImplementation(
+    async (objectPath) => { storedObjects.delete(objectPath); },
+  );
+});
 
 afterAll(async () => {
   if (docIds.length) {
@@ -43,6 +61,8 @@ afterAll(async () => {
       .where(inArray(billingDocumentsTable.id, docIds));
     docIds.length = 0;
   }
+  storedObjects.clear();
+  vi.restoreAllMocks();
 });
 
 describe("ingestGroupFile (multi-page upload)", () => {
