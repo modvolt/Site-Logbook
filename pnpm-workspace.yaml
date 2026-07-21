@@ -5,6 +5,11 @@ packages:
   - scripts
   - e2e
 
+allowBuilds:
+  core-js: true
+  esbuild: true
+  tesseract.js: true
+
 autoInstallPeers: false
 
 catalog:
