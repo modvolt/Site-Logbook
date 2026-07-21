@@ -3663,8 +3663,9 @@ async function confirmedTargetJobIds(
  * removed, lost its job, became a fee, allocated to stock, or the whole
  * document left "approved") have their sourced material removed.
  *
- * Skipped: fee lines, non-material line types, and stock-allocated lines (those
- * go to the warehouse, not a job). A line's job is its own `jobId`, falling back
+ * Only `rebill` material lines are mirrored. Internal, stock, and explicitly
+ * non-rebilled costs stay on the supplier document and must never become lines
+ * on a customer invoice. A line's job is its own `jobId`, falling back
  * to the document's header `jobId`, and finally — when the document has no header
  * job — to a SINGLE job derived from confirmed references or their linked
  * delivery notes. Ambiguous links get no fallback, mirroring the target set of
@@ -3746,7 +3747,7 @@ export async function syncJobMaterialsForDocument(
     for (const line of lines) {
       if (line.feeType) continue;
       if (line.lineType !== "material") continue;
-      if (line.allocationType === "stock") continue;
+      if (line.allocationType !== REBILL_ALLOC) continue;
       // Skip lines whose price was already propagated onto a pre-existing
       // (delivery-note) material — creating a second material here would
       // duplicate the item and double-issue stock.
@@ -3982,7 +3983,7 @@ export async function propagateInvoicePricesToJobMaterials(
     (l) =>
       !l.feeType &&
       l.lineType === "material" &&
-      l.allocationType !== "stock" &&
+      l.allocationType === REBILL_ALLOC &&
       l.unitPriceWithoutVat != null &&
       num(l.unitPriceWithoutVat) > 0,
   );

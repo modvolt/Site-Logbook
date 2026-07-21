@@ -76,6 +76,7 @@ async function makeDoc(opts: {
   supplierSku?: string | null;
   quantity?: string;
   unitPrice?: string | null;
+  allocationType?: "rebill" | "internal" | "stock" | "not_rebilled";
 }): Promise<{ docId: number; lineId: number }> {
   const [doc] = await db
     .insert(billingDocumentsTable)
@@ -105,7 +106,7 @@ async function makeDoc(opts: {
       unit: "ks",
       unitPriceWithoutVat: opts.unitPrice ?? "0",
       lineType: "material",
-      allocationType: "rebill",
+      allocationType: opts.allocationType ?? "rebill",
       approved: 1,
     })
     .returning();
@@ -1018,5 +1019,32 @@ describe("invoice price propagation", () => {
         .set({ autoConfirmEnabled: false })
         .where(eq(documentLinkingSettingsTable.id, 1));
     }
+  });
+
+  it("scenario 12: internal and non-rebilled costs never become job materials", async () => {
+    const jobId = await makeJob();
+    const internal = await makeDoc({
+      docType: "invoice",
+      status: "approved",
+      jobId,
+      description: `Interni naklad ${TAG}`,
+      unitPrice: "300",
+      allocationType: "internal",
+    });
+    const excluded = await makeDoc({
+      docType: "invoice",
+      status: "approved",
+      jobId,
+      description: `Neprefakturovat ${TAG}`,
+      unitPrice: "450",
+      allocationType: "not_rebilled",
+    });
+
+    await db.transaction(async (tx) => {
+      await syncJobMaterialsForDocument(tx, internal.docId, actor);
+      await syncJobMaterialsForDocument(tx, excluded.docId, actor);
+    });
+
+    expect(await jobMaterials(jobId)).toHaveLength(0);
   });
 });
