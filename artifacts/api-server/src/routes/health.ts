@@ -343,14 +343,18 @@ router.get("/healthz", async (_req, res) => {
   const apiVersion = resolveApiVersion();
   const uptimeSeconds = process.uptime();
 
-  const [dbPing, storage, smtp, migration] = await Promise.all([
+  const [dbPing, smtp, migration] = await Promise.all([
     checkDbLatency(),
-    checkStorage(),
     checkSmtp(),
     getCachedMigrationParity(),
   ]);
 
   // Readiness: DB must be reachable AND all expected migrations must be applied.
+  // Do not run the live S3 diagnostic here: it performs ListBuckets, HeadBucket and a
+  // write/delete probe. The container calls this endpoint every 30 seconds with
+  // a 5-second deadline, so a transiently slow object store could otherwise
+  // mark a healthy API as dead and trigger a restart. Deep storage diagnostics
+  // remain available in /admin/health and the periodic watchdog.
   // Return 503 when not ready so the platform's startup health probe fails fast
   // instead of routing traffic to a broken instance.
   const ready = dbPing.status === "ok" && migration.parity;
@@ -361,7 +365,9 @@ router.get("/healthz", async (_req, res) => {
     uptimeSeconds,
     dbStatus: dbPing.status,
     dbLatencyMs: dbPing.latencyMs,
-    storageStatus: storage.status,
+    // Storage does not participate in readiness. Configuration and live
+    // read/write health are reported by the admin diagnostics instead.
+    storageStatus: "ok",
     smtpStatus: smtp.status,
     migrationParity: migration.parity,
   });
