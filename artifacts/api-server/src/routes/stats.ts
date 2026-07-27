@@ -191,10 +191,10 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       done: sql<number>`sum(case when ${jobsTable.status} = 'done' then 1 else 0 end)`.mapWith(Number),
       cancelled: sql<number>`sum(case when ${jobsTable.status} = 'cancelled' then 1 else 0 end)`.mapWith(Number),
       hours: sql<number>`coalesce(sum(coalesce(${jobsTable.hoursSpent}, coalesce(${jobsTable.hoursVasek}, 0) + coalesce(${jobsTable.hoursJonas}, 0))), 0)`.mapWith(Number),
-      price: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
-      parking: sql<number>`coalesce(sum(${jobsTable.parking}), 0)`.mapWith(Number),
-      fines: sql<number>`coalesce(sum(${jobsTable.fines}), 0)`.mapWith(Number),
-      transport: sql<number>`coalesce(sum(${jobsTable.transportCost}), 0)`.mapWith(Number),
+      price: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.price} else 0 end), 0)`.mapWith(Number),
+      parking: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.parking} else 0 end), 0)`.mapWith(Number),
+      fines: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.fines} else 0 end), 0)`.mapWith(Number),
+      transport: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.transportCost} else 0 end), 0)`.mapWith(Number),
     })
     .from(jobsTable)
     .where(and(isNull(jobsTable.archivedAt), inPeriod));
@@ -209,10 +209,10 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
   // ─── Jobs: previous period revenue for comparison ────────────────────────
   const [prevJobAgg] = await db
     .select({
-      price: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
-      parking: sql<number>`coalesce(sum(${jobsTable.parking}), 0)`.mapWith(Number),
-      fines: sql<number>`coalesce(sum(${jobsTable.fines}), 0)`.mapWith(Number),
-      transport: sql<number>`coalesce(sum(${jobsTable.transportCost}), 0)`.mapWith(Number),
+      price: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.price} else 0 end), 0)`.mapWith(Number),
+      parking: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.parking} else 0 end), 0)`.mapWith(Number),
+      fines: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.fines} else 0 end), 0)`.mapWith(Number),
+      transport: sql<number>`coalesce(sum(case when ${jobsTable.billingIntent} = 'billable' then ${jobsTable.transportCost} else 0 end), 0)`.mapWith(Number),
       done: sql<number>`sum(case when ${jobsTable.status} = 'done' then 1 else 0 end)`.mapWith(Number),
     })
     .from(jobsTable)
@@ -262,14 +262,19 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     .filter((e) => e.jobs > 0 || e.hours > 0)
     .sort((a, b) => b.hours - a.hours || b.jobs - a.jobs);
 
-  // ─── Previous period materials for comparison ─────────────────────────────
-  const [prevMaterialAgg] = await db
+  // ─── Previous-period billable materials for revenue comparison ────────────
+  const [prevBillableMaterialAgg] = await db
     .select({
       totalCost: sql<number>`coalesce(sum(${materialsTable.quantity} * ${materialsTable.pricePerUnit}), 0)`.mapWith(Number),
     })
     .from(materialsTable)
     .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
-    .where(and(isNull(jobsTable.archivedAt), eq(materialsTable.done, true), inPrevPeriod));
+    .where(and(
+      isNull(jobsTable.archivedAt),
+      eq(jobsTable.billingIntent, "billable"),
+      eq(materialsTable.done, true),
+      inPrevPeriod,
+    ));
 
   // ─── Materials ────────────────────────────────────────────────────────────
   const [materialAgg] = await db
@@ -279,6 +284,18 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     .from(materialsTable)
     .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
     .where(and(isNull(jobsTable.archivedAt), eq(materialsTable.done, true), inPeriod));
+  const [billableMaterialAgg] = await db
+    .select({
+      totalCost: sql<number>`coalesce(sum(${materialsTable.quantity} * ${materialsTable.pricePerUnit}), 0)`.mapWith(Number),
+    })
+    .from(materialsTable)
+    .innerJoin(jobsTable, eq(materialsTable.jobId, jobsTable.id))
+    .where(and(
+      isNull(jobsTable.archivedAt),
+      eq(jobsTable.billingIntent, "billable"),
+      eq(materialsTable.done, true),
+      inPeriod,
+    ));
 
   const topMaterials = await db
     .select({
@@ -352,7 +369,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
   const hasPartialCosts = incompleteMovements > 0;
 
   const work = num(jobAgg?.price) + num(jobAgg?.parking) + num(jobAgg?.fines) + num(jobAgg?.transport);
-  const material = num(materialAgg?.totalCost);
+  const material = num(billableMaterialAgg?.totalCost);
   const prevWork = num(prevJobAgg?.price) + num(prevJobAgg?.parking) + num(prevJobAgg?.fines) + num(prevJobAgg?.transport);
 
   // ─── Billing (invoices) ───────────────────────────────────────────────────
@@ -500,7 +517,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       .then(([r]) => r),
   ]);
 
-  // ─── Done jobs ready to bill (status='done', not yet vyfakturovano) ───────
+  // ─── Done jobs explicitly ready to bill ──────────────────────────────────
   // Used for combined readyToBill KPI (jobs + activities)
   const [readyToBillJobsAgg] = await db
     .select({
@@ -512,7 +529,11 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       ), 0)`.mapWith(Number),
     })
     .from(jobsTable)
-    .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "done")));
+    .where(and(
+      isNull(jobsTable.archivedAt),
+      eq(jobsTable.status, "done"),
+      eq(jobsTable.billingIntent, "billable"),
+    ));
 
   // ─── PPE snapshot ─────────────────────────────────────────────────────────
   const [ppeAgg] = await db
@@ -547,7 +568,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     },
     employees,
     materials: {
-      totalCost: material,
+      totalCost: num(materialAgg?.totalCost),
       top: topMaterials.map((m) => ({
         name: m.name,
         cost: num(m.cost),
@@ -595,7 +616,7 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
     comparison: {
       prevFrom,
       prevTo,
-      revenueTotal: prevWork + num(prevMaterialAgg?.totalCost),
+      revenueTotal: prevWork + num(prevBillableMaterialAgg?.totalCost),
       issuedWithVat: num(prevIssuedAgg?.issuedWithVat),
       paid: num(prevPaidAgg?.paidAmount),
       doneJobsCount: num(prevJobAgg?.done),

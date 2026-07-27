@@ -104,6 +104,7 @@ function permissionForRequest(req: Request): Permission | null {
   if (/^\/jobs\/\d+\/materials$/.test(path) && req.method === "POST") return "jobs.work";
   if (/^\/jobs\/\d+\/materials\/\d+$/.test(path) && req.method === "PATCH") return "jobs.work";
   if (/^\/jobs\/\d+\/time-entries\/\d+\/(?:start|stop)$/.test(path) && req.method === "POST") return "jobs.work";
+  if (/^\/jobs\/\d+\/billing-intent$/.test(path) && req.method === "PATCH") return "billing.manage";
 
   if (/\/(?:jobs|activities)\/\d+\/time-entries(?:\/|$)/.test(path)) {
     if (READ_METHODS.has(req.method)) return path.includes("/activities/") ? "activities.view" : "jobs.view";

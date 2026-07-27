@@ -215,6 +215,18 @@ export interface HealthLogEntry {
 }
 
 /**
+ * Customer-billing intent; null when the caller may not view billing data
+ * @nullable
+ */
+export type JobBillingIntent = typeof JobBillingIntent[keyof typeof JobBillingIntent] | null;
+
+
+export const JobBillingIntent = {
+  billable: 'billable',
+  not_billable: 'not_billable',
+} as const;
+
+/**
  * time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice
  */
 export type JobPricingMode = typeof JobPricingMode[keyof typeof JobPricingMode];
@@ -329,6 +341,26 @@ export interface Job {
   materialTotalCost?: number | null;
   /** True when the job is linked to at least one non-cancelled invoice */
   billingLinked: boolean;
+  /**
+     * Customer-billing intent; null when the caller may not view billing data
+     * @nullable
+     */
+  billingIntent: JobBillingIntent;
+  /**
+     * Required internal reason when billingIntent is not_billable
+     * @nullable
+     */
+  billingExclusionReason: string | null;
+  /**
+     * ISO timestamp of the last billing-intent change
+     * @nullable
+     */
+  billingIntentChangedAt: string | null;
+  /**
+     * User who last changed the billing intent
+     * @nullable
+     */
+  billingIntentChangedByUserId: number | null;
   /** time_material: bill materials + job price; fixed_price: bill a single agreed-upon line at contractPrice */
   pricingMode?: JobPricingMode;
   /**
@@ -696,6 +728,25 @@ export interface JobStatusTransitionError {
   code: string;
   jobId?: number;
   readiness?: JobCompletionReadiness;
+}
+
+export type JobBillingIntentUpdateBillingIntent = typeof JobBillingIntentUpdateBillingIntent[keyof typeof JobBillingIntentUpdateBillingIntent];
+
+
+export const JobBillingIntentUpdateBillingIntent = {
+  billable: 'billable',
+  not_billable: 'not_billable',
+} as const;
+
+export interface JobBillingIntentUpdate {
+  billingIntent: JobBillingIntentUpdateBillingIntent;
+  /**
+     * Required when excluding a job from customer billing
+     * @minLength 3
+     * @maxLength 500
+     * @nullable
+     */
+  reason?: string | null;
 }
 
 export interface SendJobEmailInput {

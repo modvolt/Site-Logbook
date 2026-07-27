@@ -439,6 +439,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/JobStatusTransitionError"
 
+  /jobs/{id}/billing-intent:
+    patch:
+      operationId: updateJobBillingIntent
+      tags: [jobs]
+      summary: Include or exclude a job from customer billing without changing time or costs
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobBillingIntentUpdate"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Missing or invalid exclusion reason
+        "403":
+          description: Billing permissions required
+        "404":
+          description: Job not found
+        "409":
+          description: Job is already linked to a live invoice
+
   /jobs/{id}/completion-readiness:
     get:
       operationId: getJobCompletionReadiness
@@ -9953,7 +9986,7 @@ components:
 
     Job:
       type: object
-      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked, assigneeIds, assigneeNames]
+      required: [id, jobNumber, title, type, date, status, sortOrder, createdAt, billingLinked, billingIntent, billingExclusionReason, billingIntentChangedAt, billingIntentChangedByUserId, assigneeIds, assigneeNames]
       properties:
         id:
           type: integer
@@ -10061,6 +10094,19 @@ components:
         billingLinked:
           type: boolean
           description: True when the job is linked to at least one non-cancelled invoice
+        billingIntent:
+          type: ["string", "null"]
+          enum: [billable, not_billable, null]
+          description: Customer-billing intent; null when the caller may not view billing data
+        billingExclusionReason:
+          type: ["string", "null"]
+          description: Required internal reason when billingIntent is not_billable
+        billingIntentChangedAt:
+          type: ["string", "null"]
+          description: ISO timestamp of the last billing-intent change
+        billingIntentChangedByUserId:
+          type: ["integer", "null"]
+          description: User who last changed the billing intent
         pricingMode:
           type: string
           enum: [time_material, fixed_price]
@@ -10293,6 +10339,20 @@ components:
           enum: [time_material, fixed_price]
         contractPrice:
           type: ["number", "null"]
+
+    JobBillingIntentUpdate:
+      type: object
+      required: [billingIntent]
+      additionalProperties: false
+      properties:
+        billingIntent:
+          type: string
+          enum: [billable, not_billable]
+        reason:
+          type: ["string", "null"]
+          minLength: 3
+          maxLength: 500
+          description: Required when excluding a job from customer billing
 
     Material:
       type: object

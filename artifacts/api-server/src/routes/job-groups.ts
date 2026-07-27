@@ -95,9 +95,26 @@ function serializeGroup(
 function serializeJob(
   job: typeof jobsTable.$inferSelect,
   personalTimerStarts = new Map<number, Date>(),
+  canViewBilling = false,
 ) {
+  const {
+    billingIntent,
+    billingExclusionReason,
+    billingIntentChangedAt,
+    billingIntentChangedByUserId,
+    ...jobWithoutBillingIntent
+  } = job;
   return {
-    ...job,
+    ...jobWithoutBillingIntent,
+    billingIntent: canViewBilling ? billingIntent : null,
+    billingExclusionReason: canViewBilling ? billingExclusionReason : null,
+    billingIntentChangedAt:
+      canViewBilling && billingIntentChangedAt
+        ? billingIntentChangedAt.toISOString()
+        : null,
+    billingIntentChangedByUserId: canViewBilling
+      ? billingIntentChangedByUserId
+      : null,
     hoursSpent: num(job.hoursSpent),
     hoursBeforePlan: num(job.hoursBeforePlan),
     hoursVasek: num(job.hoursVasek),
@@ -365,7 +382,11 @@ router.get("/job-groups/:id", async (req, res): Promise<void> => {
       scheduleRange,
     ),
     jobs: jobs.map((job) => ({
-      ...serializeJob(job, personalTimerStarts),
+      ...serializeJob(
+        job,
+        personalTimerStarts,
+        req.auth!.permissions.includes("billing.view"),
+      ),
       materials: materialsByJob.get(job.id) ?? [],
       tasks: tasksByJob.get(job.id) ?? [],
     })),

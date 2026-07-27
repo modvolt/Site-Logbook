@@ -41,6 +41,8 @@ import {
   DeleteJobParams,
   UpdateJobStatusParams,
   UpdateJobStatusBody,
+  UpdateJobBillingIntentParams,
+  UpdateJobBillingIntentBody,
   ReorderJobsBody,
   SendJobEmailParams,
   SendJobEmailBody,
@@ -76,6 +78,10 @@ import {
   requireAssignedJobView,
 } from "../middlewares/job-work-access";
 import { requirePermission } from "../middlewares/permissions";
+import {
+  JobBillingIntentError,
+  updateJobBillingIntent,
+} from "../lib/job-billing-intent-service";
 
 const router: IRouter = Router();
 
@@ -322,7 +328,14 @@ export async function enrichJobs(
     const rawCost = materialAgg?.totalCost;
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { signatureToken: _st, ...jobWithoutSecret } = job;
+    const {
+      signatureToken: _st,
+      billingIntent: rawBillingIntent,
+      billingExclusionReason: rawBillingExclusionReason,
+      billingIntentChangedAt: rawBillingIntentChangedAt,
+      billingIntentChangedByUserId: rawBillingIntentChangedByUserId,
+      ...jobWithoutSecret
+    } = job;
     return {
       ...jobWithoutSecret,
       hoursSpent: job.hoursSpent != null ? Number(job.hoursSpent) : null,
@@ -352,6 +365,17 @@ export async function enrichJobs(
       materialTotalCost:
         canViewFinancial && rawCost != null ? Number(rawCost) : null,
       billingLinked: billedJobIds.has(job.id),
+      billingIntent: canViewFinancial ? rawBillingIntent : null,
+      billingExclusionReason: canViewFinancial
+        ? rawBillingExclusionReason
+        : null,
+      billingIntentChangedAt:
+        canViewFinancial && rawBillingIntentChangedAt
+          ? rawBillingIntentChangedAt.toISOString()
+          : null,
+      billingIntentChangedByUserId: canViewFinancial
+        ? rawBillingIntentChangedByUserId
+        : null,
       assignedPersonName:
         job.assignedPersonId != null
           ? (peopleById.get(job.assignedPersonId) ?? null)
@@ -512,6 +536,7 @@ router.get("/jobs", async (req, res): Promise<void> => {
       case "ready_to_bill": {
         const billedIds = await getBilledJobIdSet();
         conditions.push(eq(jobsTable.status, "done"));
+        conditions.push(eq(jobsTable.billingIntent, "billable"));
         if (billedIds.size > 0) {
           const billedArr = Array.from(billedIds);
           conditions.push(
@@ -539,7 +564,10 @@ router.get("/jobs", async (req, res): Promise<void> => {
         conditions.push(
           or(
             isNull(jobsTable.customerId),
-            isNull(jobsTable.price),
+            and(
+              eq(jobsTable.billingIntent, "billable"),
+              isNull(jobsTable.price),
+            ),
             and(
               eq(jobsTable.status, "in_progress"),
               lte(jobsTable.date, staleThreshold),
@@ -1605,6 +1633,42 @@ router.patch("/jobs/:id/status", async (req, res): Promise<void> => {
     if (!respondStatusTransitionError(res, error)) throw error;
   }
 });
+
+router.patch(
+  "/jobs/:id/billing-intent",
+  requirePermission("billing.view"),
+  requirePermission("billing.manage"),
+  async (req, res): Promise<void> => {
+    const params = UpdateJobBillingIntentParams.safeParse(req.params);
+    const body = UpdateJobBillingIntentBody.safeParse(req.body);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
+
+    try {
+      const job = await updateJobBillingIntent(
+        params.data.id,
+        body.data,
+        { userId: req.auth!.userId, name: req.auth!.name },
+      );
+      res.json(await enrichJob(job, true, req.auth!.personId));
+    } catch (error) {
+      if (error instanceof JobBillingIntentError) {
+        res.status(error.statusCode).json({
+          error: error.message,
+          code: error.code,
+        });
+        return;
+      }
+      throw error;
+    }
+  },
+);
 
 router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   const params = SendJobEmailParams.safeParse(req.params);

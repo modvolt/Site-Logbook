@@ -54,10 +54,10 @@ describe("job material planned/consumed policy", () => {
     expect(patchRoute).toContain("Spotřebovaný materiál musí mít kladné množství.");
   });
 
-  it("keeps planned materials out of both invoice material queries", () => {
+  it("keeps planned materials out of every invoice and statistics material query", () => {
     const consumedFilters = invoiceService.match(/eq\(materialsTable\.done, true\)/g) ?? [];
-    expect(consumedFilters).toHaveLength(2);
-    expect(statsRoute.match(/eq\(materialsTable\.done, true\)/g)).toHaveLength(3);
+    expect(consumedFilters).toHaveLength(3);
+    expect(statsRoute.match(/eq\(materialsTable\.done, true\)/g)).toHaveLength(4);
   });
 
   it("exposes a clear field action and queues it while offline", () => {

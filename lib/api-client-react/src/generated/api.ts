@@ -159,6 +159,7 @@ import type {
   InvoiceUpdateInput,
   Job,
   JobAssigneesInput,
+  JobBillingIntentUpdate,
   JobBulkStatusUpdate,
   JobCompletionReadiness,
   JobDocumentSummary,
@@ -1453,6 +1454,78 @@ export const useUpdateJobStatus = <TError = ErrorType<JobStatusTransitionError>,
         TContext
       > => {
       return useMutation(getUpdateJobStatusMutationOptions(options));
+    }
+
+export const getUpdateJobBillingIntentUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/billing-intent`
+}
+
+/**
+ * @summary Include or exclude a job from customer billing without changing time or costs
+ */
+export const updateJobBillingIntent = async (id: number,
+    jobBillingIntentUpdate: JobBillingIntentUpdate, options?: RequestInit): Promise<Job> => {
+
+  return customFetch<Job>(getUpdateJobBillingIntentUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      jobBillingIntentUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateJobBillingIntentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobBillingIntent>>, TError,{id: number;data: BodyType<JobBillingIntentUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateJobBillingIntent>>, TError,{id: number;data: BodyType<JobBillingIntentUpdate>}, TContext> => {
+
+const mutationKey = ['updateJobBillingIntent'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateJobBillingIntent>>, {id: number;data: BodyType<JobBillingIntentUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateJobBillingIntent(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateJobBillingIntentMutationResult = NonNullable<Awaited<ReturnType<typeof updateJobBillingIntent>>>
+    export type UpdateJobBillingIntentMutationBody = BodyType<JobBillingIntentUpdate>
+    export type UpdateJobBillingIntentMutationError = ErrorType<void>
+
+    /**
+ * @summary Include or exclude a job from customer billing without changing time or costs
+ */
+export const useUpdateJobBillingIntent = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateJobBillingIntent>>, TError,{id: number;data: BodyType<JobBillingIntentUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateJobBillingIntent>>,
+        TError,
+        {id: number;data: BodyType<JobBillingIntentUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateJobBillingIntentMutationOptions(options));
     }
 
 export const getGetJobCompletionReadinessUrl = (id: number,) => {

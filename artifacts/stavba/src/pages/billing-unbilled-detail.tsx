@@ -11,6 +11,7 @@ import {
   getListInvoicesQueryKey,
   useListApprovedCostLines,
   getListApprovedCostLinesQueryKey,
+  useUpdateJobBillingIntent,
   type UnbilledJob,
   type UnbilledActivity,
 } from "@workspace/api-client-react";
@@ -22,9 +23,20 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TypeBadge } from "@/components/badges";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent, Clock, AlertTriangle } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent, Clock, AlertTriangle, Ban } from "lucide-react";
 import {
   InvoiceMaterialDisplayControl,
   type MaterialDisplayMode,
@@ -163,6 +175,8 @@ export default function BillingUnbilledDetail() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { can } = useAuth();
+  const canManageBilling = can("billing.manage");
 
   const { data, isLoading } = useGetUnbilledCustomerDetail(customerId, {
     query: { queryKey: getGetUnbilledCustomerDetailQueryKey(customerId), enabled: !!customerId },
@@ -171,6 +185,7 @@ export default function BillingUnbilledDetail() {
     query: { queryKey: getGetBillingSettingsQueryKey() },
   });
   const createInvoice = useCreateInvoice();
+  const updateBillingIntent = useUpdateJobBillingIntent();
 
   const { data: approvedLines } = useListApprovedCostLines(
     { customerId },
@@ -199,6 +214,8 @@ export default function BillingUnbilledDetail() {
   const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">("summary");
   const [materialDisplayMode, setMaterialDisplayMode] =
     useState<MaterialDisplayMode>("detailed");
+  const [excludedJob, setExcludedJob] = useState<UnbilledJob | null>(null);
+  const [exclusionReason, setExclusionReason] = useState("");
 
   type MaterialSource = "material" | "activity_material";
   const omKey = (sourceType: MaterialSource, id: number) => `${sourceType}:${id}`;
@@ -437,6 +454,38 @@ export default function BillingUnbilledDetail() {
     );
   };
 
+  const handleExcludeJob = () => {
+    if (!excludedJob || exclusionReason.trim().length < 3) return;
+    updateBillingIntent.mutate(
+      {
+        id: excludedJob.id,
+        data: {
+          billingIntent: "not_billable",
+          reason: exclusionReason.trim(),
+        },
+      },
+      {
+        onSuccess: () => {
+          setExcludedJob(null);
+          setExclusionReason("");
+          void invalidateData(queryClient, "jobs", "billingInvoices");
+          toast({
+            title: "Zakázka se nebude fakturovat",
+            description:
+              "Čas a náklady zůstávají uložené pro mzdy a interní přehledy.",
+          });
+        },
+        onError: (error: any) => {
+          toast({
+            title: "Zakázku se nepodařilo vyřadit z fakturace",
+            description: error?.data?.error ?? error?.message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto w-full space-y-3">
@@ -671,6 +720,22 @@ export default function BillingUnbilledDetail() {
                         0,
                       )}
                     </div>
+                    {canManageBilling && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/30"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setExcludedJob(job);
+                          setExclusionReason("");
+                        }}
+                      >
+                        <Ban className="mr-1.5 h-4 w-4" />
+                        Nefakturovat
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -807,6 +872,65 @@ export default function BillingUnbilledDetail() {
           );
         })}
       </div>
+
+      <Dialog
+        open={excludedJob != null}
+        onOpenChange={(open) => {
+          if (!open && !updateBillingIntent.isPending) {
+            setExcludedJob(null);
+            setExclusionReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85dvh] max-w-md overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Zakázku nefakturovat</DialogTitle>
+            <DialogDescription>
+              {excludedJob?.title} zmizí z fronty k fakturaci. Odpracovaný čas,
+              materiál a náklady zůstanou v evidenci pro mzdy a interní
+              vyhodnocení.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="unbilled-exclusion-reason">Důvod</Label>
+            <Textarea
+              id="unbilled-exclusion-reason"
+              value={exclusionReason}
+              maxLength={500}
+              autoFocus
+              placeholder="Např. reklamace - práce na naše náklady"
+              onChange={(event) => setExclusionReason(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Důvod zůstane dohledatelný v historii změn.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={updateBillingIntent.isPending}
+              onClick={() => {
+                setExcludedJob(null);
+                setExclusionReason("");
+              }}
+            >
+              Zrušit
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                exclusionReason.trim().length < 3 ||
+                updateBillingIntent.isPending
+              }
+              onClick={handleExcludeJob}
+            >
+              <Ban className="mr-2 h-4 w-4" />
+              Potvrdit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {costLines.length > 0 && (
         <Card className="mb-6 border-emerald-300 bg-emerald-50/60 dark:bg-emerald-900/15">

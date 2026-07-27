@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -24,6 +32,7 @@ import {
   listUnbilledCustomers,
   updateBillingSettings,
 } from "../src/lib/invoice-service";
+import { ObjectStorageService } from "../src/lib/objectStorage";
 
 /**
  * Job invoiced-status lifecycle, DB-backed.
@@ -68,6 +77,15 @@ async function makeDoneJob(): Promise<number> {
 }
 
 beforeAll(async () => {
+  vi.spyOn(
+    ObjectStorageService.prototype,
+    "putPrivateObject",
+  ).mockResolvedValue();
+  vi.spyOn(
+    ObjectStorageService.prototype,
+    "deletePrivateObject",
+  ).mockResolvedValue();
+
   const settings = await ensureBillingSettings();
   originalTransportRatePerKm = Number(settings.transportRatePerKm);
 
@@ -119,6 +137,7 @@ afterAll(async () => {
     await db.delete(customersTable).where(eq(customersTable.id, customerId));
   if (actor.userId)
     await db.delete(usersTable).where(eq(usersTable.id, actor.userId));
+  vi.restoreAllMocks();
 });
 
 describe("job invoice lifecycle (issue / storno) end-to-end", () => {

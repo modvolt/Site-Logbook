@@ -60,6 +60,10 @@ export type GroupJob = {
   transportCost: number | null;
   fines: number | null;
   parking: number | null;
+  billingIntent: "billable" | "not_billable" | null;
+  billingExclusionReason: string | null;
+  billingIntentChangedAt: string | null;
+  billingIntentChangedByUserId: number | null;
   address: string | null;
   materials: GroupMaterial[];
   tasks: GroupTask[];
@@ -81,6 +85,7 @@ export type JobListItem = {
   customerCompanyName?: string | null;
   address: string | null;
   clientSite: string | null;
+  billingIntent?: "billable" | "not_billable" | null;
 };
 
 export async function fetchJson<T>(

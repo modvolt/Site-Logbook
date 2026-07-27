@@ -40,6 +40,12 @@ export const jobsTable = pgTable("jobs", {
   pricingMode: text("pricing_mode").notNull().default("time_material"),
   // The agreed-upon fixed price for the job (only used when pricingMode = 'fixed_price').
   contractPrice: numeric("contract_price", { precision: 10, scale: 2 }),
+  // Customer-billing intent is independent of the operational lifecycle.
+  // A non-billable job still keeps time, materials and payroll costs.
+  billingIntent: text("billing_intent").notNull().default("billable"),
+  billingExclusionReason: text("billing_exclusion_reason"),
+  billingIntentChangedAt: timestamp("billing_intent_changed_at"),
+  billingIntentChangedByUserId: integer("billing_intent_changed_by_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   jobNumber: integer("job_number").unique(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   archivedAt: timestamp("archived_at"),
@@ -61,8 +67,17 @@ export const jobsTable = pgTable("jobs", {
     "jobs_status_check",
     sql`${table.status} IN ('planned', 'in_progress', 'done', 'cancelled', 'vyfakturovano')`,
   ),
+  check(
+    "jobs_billing_intent_check",
+    sql`${table.billingIntent} IN ('billable', 'not_billable')`,
+  ),
+  check(
+    "jobs_billing_exclusion_reason_check",
+    sql`(${table.billingIntent} = 'billable' AND ${table.billingExclusionReason} IS NULL) OR (${table.billingIntent} = 'not_billable' AND ${table.billingExclusionReason} IS NOT NULL AND length(btrim(${table.billingExclusionReason})) >= 3)`,
+  ),
   index("jobs_group_id_idx").on(table.groupId),
   index("jobs_archived_at_idx").on(table.archivedAt),
+  index("jobs_billing_intent_idx").on(table.billingIntent),
 ]);
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, createdAt: true });

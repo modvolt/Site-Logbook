@@ -659,6 +659,13 @@
       "when": 1785164749948,
       "tag": "0093_thin_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1785167642005,
+      "tag": "0094_steep_black_widow",
+      "breakpoints": true
     }
   ]
 }

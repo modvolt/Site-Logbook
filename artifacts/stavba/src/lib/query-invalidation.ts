@@ -100,7 +100,8 @@ const DOMAIN_RELATED: Partial<Record<LiveDomain, readonly LiveDomain[]>> = {
   billingDocuments: ["customers"],
   // Vydané faktury a zakázky mění finanční souhrn zákazníka.
   billingInvoices: ["customers"],
-  jobs: ["customers"],
+  // Job status, prices and billing intent all affect the unbilled queue.
+  jobs: ["customers", "billingInvoices"],
   // Nabídky se propíší do finančního souhrnu zákazníka.
   quotes: ["customers"],
   // Dovolené ovlivňují personální přehled.

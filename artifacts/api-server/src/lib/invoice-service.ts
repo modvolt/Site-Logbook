@@ -424,7 +424,7 @@ async function getCategoryMarkupByName(
 }
 
 // ---------------------------------------------------------------------------
-// Unbilled jobs (status "done", not linked to a non-cancelled invoice)
+// Unbilled jobs (done, explicitly billable, not linked to a live invoice)
 // ---------------------------------------------------------------------------
 
 async function getBilledJobIds(): Promise<number[]> {
@@ -455,6 +455,7 @@ async function getUnbilledDoneJobs(
   const billedIds = await getBilledJobIds();
   const conditions = [
     eq(jobsTable.status, "done"),
+    eq(jobsTable.billingIntent, "billable"),
     isNull(jobsTable.archivedAt),
   ];
   if (customerId != null) conditions.push(eq(jobsTable.customerId, customerId));
@@ -1517,6 +1518,16 @@ async function buildProposedLines(
     if (job.status !== "done") {
       throw appError(400, `Zakázka „${job.title}" není ve stavu „hotová".`);
     }
+    if (job.billingIntent !== "billable") {
+      throw appError(
+        409,
+        `Zakázka „${job.title}" je označena jako nefakturovaná${
+          job.billingExclusionReason
+            ? ` (${job.billingExclusionReason})`
+            : ""
+        }.`,
+      );
+    }
 
     const jobLines: RawLine[] = [];
     const isFixedPrice = (job as any).pricingMode === "fixed_price";
@@ -2428,6 +2439,7 @@ async function ensureQuoteGroupSourceLinks(
       and(
         eq(jobsTable.groupId, jobGroupId),
         eq(jobsTable.status, "done"),
+        eq(jobsTable.billingIntent, "billable"),
         isNull(jobsTable.archivedAt),
       ),
     );
@@ -2536,6 +2548,23 @@ export async function createQuoteJobGroupInvoiceDraft(
 
     const extraJobIds = Array.from(new Set(input.extraJobIds ?? []));
     const jobById = new Map(jobs.map((job) => [job.id, job]));
+    const primaryJob =
+      quote.convertedToJobId == null
+        ? null
+        : jobById.get(quote.convertedToJobId);
+    if (!primaryJob) {
+      throw appError(409, "První zakázka přijaté nabídky v akci chybí.");
+    }
+    if (primaryJob.billingIntent !== "billable") {
+      throw appError(
+        409,
+        `Zakázka „${primaryJob.title}" je označena jako nefakturovaná${
+          primaryJob.billingExclusionReason
+            ? ` (${primaryJob.billingExclusionReason})`
+            : ""
+        }.`,
+      );
+    }
     for (const extraJobId of extraJobIds) {
       const job = jobById.get(extraJobId);
       if (!job) {
@@ -2549,6 +2578,12 @@ export async function createQuoteJobGroupInvoiceDraft(
       }
       if (job.status !== "done") {
         throw appError(409, `Vícepráce „${job.title}“ není dokončená.`);
+      }
+      if (job.billingIntent !== "billable") {
+        throw appError(
+          409,
+          `Vícepráce „${job.title}" je označena jako nefakturovaná.`,
+        );
       }
     }
     const fineSet = new Set(input.billFineJobIds ?? []);
@@ -3109,6 +3144,7 @@ export async function issueInvoice(id: number, actor: Actor) {
         .select({
           status: quotesTable.status,
           convertedToInvoiceId: quotesTable.convertedToInvoiceId,
+          convertedToJobId: quotesTable.convertedToJobId,
         })
         .from(quotesTable)
         .where(eq(quotesTable.id, quoteBilling.quoteId))
@@ -3128,6 +3164,7 @@ export async function issueInvoice(id: number, actor: Actor) {
           id: jobsTable.id,
           title: jobsTable.title,
           status: jobsTable.status,
+          billingIntent: jobsTable.billingIntent,
         })
         .from(jobsTable)
         .where(
@@ -3144,6 +3181,15 @@ export async function issueInvoice(id: number, actor: Actor) {
         throw appError(
           409,
           `Zakázka „${unfinished.title}“ v akci už není dokončená; fakturu nelze vystavit.`,
+        );
+      }
+      const primaryJob = currentGroupJobs.find(
+        (job) => job.id === sourceQuote.convertedToJobId,
+      );
+      if (!primaryJob || primaryJob.billingIntent !== "billable") {
+        throw appError(
+          409,
+          "Hlavní zakázka přijaté nabídky už není určená k fakturaci.",
         );
       }
       await ensureQuoteGroupSourceLinks(tx, id, quoteBilling.jobGroupId);
@@ -3175,6 +3221,12 @@ export async function issueInvoice(id: number, actor: Actor) {
           throw appError(
             409,
             `Zakázku „${job.title}" už nelze fakturovat (stav: ${job.status}).`,
+          );
+        }
+        if (job.billingIntent !== "billable") {
+          throw appError(
+            409,
+            `Zakázku „${job.title}" už nelze fakturovat, protože je označena jako nefakturovaná.`,
           );
         }
       }

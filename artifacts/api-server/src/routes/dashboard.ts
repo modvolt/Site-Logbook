@@ -80,7 +80,11 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     .where(and(isNull(jobsTable.archivedAt), eq(jobsTable.status, "done")));
 
   const weekJobs = await db
-    .select({ hoursSpent: jobsTable.hoursSpent, price: jobsTable.price })
+    .select({
+      hoursSpent: jobsTable.hoursSpent,
+      price: jobsTable.price,
+      billingIntent: jobsTable.billingIntent,
+    })
     .from(jobsTable)
     .where(and(isNull(jobsTable.archivedAt), gte(jobsTable.date, from), lte(jobsTable.date, to)));
 
@@ -89,7 +93,11 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     0
   );
   const totalRevenueThisWeek = weekJobs.reduce(
-    (sum, j) => sum + (j.price != null ? Number(j.price) : 0),
+    (sum, j) =>
+      sum +
+      (j.billingIntent === "billable" && j.price != null
+        ? Number(j.price)
+        : 0),
     0
   );
 
@@ -114,8 +122,15 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
 
   const unbilledWhere =
     billedIds.length > 0
-      ? and(eq(jobsTable.status, "done"), notInArray(jobsTable.id, billedIds))
-      : eq(jobsTable.status, "done");
+      ? and(
+          eq(jobsTable.status, "done"),
+          eq(jobsTable.billingIntent, "billable"),
+          notInArray(jobsTable.id, billedIds),
+        )
+      : and(
+          eq(jobsTable.status, "done"),
+          eq(jobsTable.billingIntent, "billable"),
+        );
 
   const OVERDUE_UNBILLED_DAYS = 7;
   const overdueThreshold = subtractDaysIso(t, OVERDUE_UNBILLED_DAYS);
@@ -144,12 +159,14 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
           billedIds.length > 0
           ? and(
               eq(jobsTable.status, "done"),
+              eq(jobsTable.billingIntent, "billable"),
               sql`${jobsTable.customerId} IS NOT NULL`,
               lt(jobsTable.date, overdueThreshold),
               notInArray(jobsTable.id, billedIds),
             )
           : and(
               eq(jobsTable.status, "done"),
+              eq(jobsTable.billingIntent, "billable"),
               sql`${jobsTable.customerId} IS NOT NULL`,
               lt(jobsTable.date, overdueThreshold),
             ),
@@ -167,7 +184,10 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
         or(eq(jobsTable.status, "planned"), eq(jobsTable.status, "in_progress")),
         or(
           isNull(jobsTable.customerId),
-          isNull(jobsTable.price),
+          and(
+            eq(jobsTable.billingIntent, "billable"),
+            isNull(jobsTable.price),
+          ),
           and(eq(jobsTable.status, "in_progress"), lte(jobsTable.date, staleThreshold))
         )
       )

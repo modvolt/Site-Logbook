@@ -166,7 +166,11 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
           })
           .from(jobsTable)
           .where(
-            and(eq(jobsTable.status, "done"), notInArray(jobsTable.id, billedIds)),
+            and(
+              eq(jobsTable.status, "done"),
+              eq(jobsTable.billingIntent, "billable"),
+              notInArray(jobsTable.id, billedIds),
+            ),
           )
       : db
           .select({
@@ -175,7 +179,12 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
             parking: jobsTable.parking,
           })
           .from(jobsTable)
-          .where(eq(jobsTable.status, "done")),
+          .where(
+            and(
+              eq(jobsTable.status, "done"),
+              eq(jobsTable.billingIntent, "billable"),
+            ),
+          ),
 
     billedIds.length > 0
       ? db
@@ -184,6 +193,7 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
           .where(
             and(
               eq(jobsTable.status, "done"),
+              eq(jobsTable.billingIntent, "billable"),
               sql`${jobsTable.customerId} IS NOT NULL`,
               lt(jobsTable.date, overdueUnbilledThreshold),
               notInArray(jobsTable.id, billedIds),
@@ -195,6 +205,7 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
           .where(
             and(
               eq(jobsTable.status, "done"),
+              eq(jobsTable.billingIntent, "billable"),
               sql`${jobsTable.customerId} IS NOT NULL`,
               lt(jobsTable.date, overdueUnbilledThreshold),
             ),

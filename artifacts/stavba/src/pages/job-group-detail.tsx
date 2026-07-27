@@ -188,8 +188,15 @@ export default function JobGroupDetail() {
   const unfinishedJobs = group.jobs.filter(
     (job) => !["done", "cancelled"].includes(job.status),
   );
+  const primaryJob = group.jobs.find(
+    (job) => job.id === group.sourceQuoteJobId,
+  );
+  const primaryNotBillable = primaryJob?.billingIntent === "not_billable";
   const selectableExtraJobs = group.jobs.filter(
-    (job) => job.id !== group.sourceQuoteJobId && job.status === "done",
+    (job) =>
+      job.id !== group.sourceQuoteJobId &&
+      job.status === "done" &&
+      job.billingIntent !== "not_billable",
   );
 
   function toggleExtraJob(jobId: number) {
@@ -268,10 +275,16 @@ export default function JobGroupDetail() {
               <Button
                 variant="outline"
                 onClick={() => setInvoiceDialogOpen(true)}
-                disabled={unfinishedJobs.length > 0 || group.jobs.length === 0}
+                disabled={
+                  unfinishedJobs.length > 0 ||
+                  group.jobs.length === 0 ||
+                  primaryNotBillable
+                }
                 title={
                   unfinishedJobs.length > 0
                     ? "Nejprve dokončete nebo zrušte všechny zakázky v akci."
+                    : primaryNotBillable
+                      ? "Hlavní zakázka nabídky je označena jako nefakturovaná."
                     : undefined
                 }
               >

@@ -28,6 +28,7 @@ import {
   useLinkMaterialToDocument,
   useRequestJobSignature,
   useGetJobCompletionReadiness, getGetJobCompletionReadinessQueryKey,
+  useUpdateJobBillingIntent,
 } from "@workspace/api-client-react";
 import type { JobStatusUpdateStatus } from "@workspace/api-client-react";
 import { TimeEntriesSection } from "@/components/time-entries-section";
@@ -165,6 +166,7 @@ export default function JobDetail() {
   const { toast } = useToast();
   const { can } = useAuth();
   const canManage = can("jobs.manage");
+  const canManageBilling = can("billing.view") && can("billing.manage");
   const fieldMode = can("jobs.work") && !canManage;
 
   const initialSection = new URLSearchParams(search).get("section");
@@ -719,6 +721,7 @@ export default function JobDetail() {
           </DialogContent>
         </Dialog>}
         {can("rates.cost.view") && <JobMarginAlert jobId={id} />}
+        {canManageBilling && <JobBillingIntentPanel job={job} />}
         {canManage && <JobReadinessPanel job={job} onEditInfo={() => { setExpandedSection("info"); }} onOpenBilling={() => setLocation("/billing")} />}
         <InfoSection job={job} isExpanded={expandedSection === "info"} onToggle={() => toggleSection("info")} />
         <DokladySection jobId={id} isExpanded={expandedSection === "doklady"} onToggle={() => toggleSection("doklady")} />
@@ -781,6 +784,7 @@ function StatusDropdown({ currentStatus, onChange }: { currentStatus: string, on
 function JobReadinessPanel({ job, onEditInfo, onOpenBilling }: { job: any; onEditInfo: () => void; onOpenBilling: () => void }) {
   const isActive = job.status === "planned" || job.status === "in_progress";
   const isDone = job.status === "done";
+  const isNotBillable = job.billingIntent === "not_billable";
 
   const hasCustomer = !!job.customerId;
   const hasHours = job.hoursSpent != null && Number(job.hoursSpent) > 0;
@@ -794,6 +798,9 @@ function JobReadinessPanel({ job, onEditInfo, onOpenBilling }: { job: any; onEdi
   if (job.status === "vyfakturovano" || billingLinked) {
     billingLabel = "Vyfakturováno";
     billingColor = "text-violet-600 dark:text-violet-400";
+  } else if (isNotBillable) {
+    billingLabel = "Nefakturovat";
+    billingColor = "text-amber-700 dark:text-amber-300";
   } else if (isDone && !billingLinked) {
     billingLabel = "K fakturaci";
     billingColor = "text-green-600 dark:text-green-400";
@@ -849,9 +856,9 @@ function JobReadinessPanel({ job, onEditInfo, onOpenBilling }: { job: any; onEdi
       icon: <CircleDollarSign className="w-4 h-4" />,
       label: "Fakturace",
       value: <span className={`font-medium ${billingColor}`}>{billingLabel}</span>,
-      ok: billingLinked || job.status === "vyfakturovano",
-      warn: isDone && !billingLinked,
-      action: isDone && !billingLinked ? (
+      ok: billingLinked || job.status === "vyfakturovano" || isNotBillable,
+      warn: isDone && !billingLinked && !isNotBillable,
+      action: isDone && !billingLinked && !isNotBillable ? (
         <button type="button" onClick={onOpenBilling} className="text-xs text-primary hover:underline font-medium">
           Otevřít fakturaci
         </button>
@@ -892,6 +899,146 @@ function JobReadinessPanel({ job, onEditInfo, onOpenBilling }: { job: any; onEdi
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function JobBillingIntentPanel({ job }: { job: any }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const updateIntent = useUpdateJobBillingIntent();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const isNotBillable = job.billingIntent === "not_billable";
+  const isInvoiced = job.billingLinked || job.status === "vyfakturovano";
+
+  const applyIntent = (
+    billingIntent: "billable" | "not_billable",
+    exclusionReason?: string | null,
+  ) => {
+    updateIntent.mutate(
+      {
+        id: job.id,
+        data: { billingIntent, reason: exclusionReason ?? null },
+      },
+      {
+        onSuccess: (updated) => {
+          queryClient.setQueryData(getGetJobQueryKey(job.id), updated);
+          void invalidateData(queryClient, "jobs", "billingInvoices");
+          setDialogOpen(false);
+          setReason("");
+          toast({
+            title:
+              billingIntent === "not_billable"
+                ? "Zakázka se nebude fakturovat"
+                : "Zakázka je znovu určená k fakturaci",
+          });
+        },
+        onError: (error: any) => {
+          toast({
+            title: "Fakturační režim se nepodařilo uložit",
+            description: error?.data?.error ?? error?.message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${isNotBillable ? "border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/20" : "bg-card"}`}>
+      <div className="flex flex-wrap items-start gap-3">
+        <div className={`mt-0.5 rounded-md p-2 ${isNotBillable ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-primary/10 text-primary"}`}>
+          {isNotBillable ? <Ban className="h-4 w-4" /> : <Receipt className="h-4 w-4" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">Fakturace zakázky</p>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${isInvoiced ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" : isNotBillable ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"}`}>
+              {isInvoiced ? "Vyfakturováno" : isNotBillable ? "Nefakturovat" : "Fakturovat"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {isNotBillable
+              ? "Čas a náklady zůstávají v evidenci pro mzdy a interní přehledy."
+              : "Po dokončení se zakázka zobrazí v seznamu k vyfakturování."}
+          </p>
+          {isNotBillable && job.billingExclusionReason && (
+            <p className="mt-2 text-sm">
+              <span className="font-medium">Důvod:</span>{" "}
+              {job.billingExclusionReason}
+            </p>
+          )}
+        </div>
+        {!isInvoiced && (
+          isNotBillable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={updateIntent.isPending}
+              onClick={() => applyIntent("billable")}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Znovu fakturovat
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={updateIntent.isPending}
+              onClick={() => setDialogOpen(true)}
+            >
+              <Ban className="mr-2 h-4 w-4" />
+              Nefakturovat
+            </Button>
+          )
+        )}
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Zakázku nefakturovat</DialogTitle>
+            <DialogDescription>
+              Zakázka zmizí z fronty k fakturaci. Odpracovaný čas, materiál a
+              náklady zůstanou uložené pro mzdy a interní vyhodnocení.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="billing-exclusion-reason">Důvod</Label>
+            <Textarea
+              id="billing-exclusion-reason"
+              value={reason}
+              maxLength={500}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Např. reklamace - práce na naše náklady"
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Důvod zůstane dohledatelný v historii změn.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+            >
+              Zrušit
+            </Button>
+            <Button
+              type="button"
+              disabled={reason.trim().length < 3 || updateIntent.isPending}
+              onClick={() => applyIntent("not_billable", reason)}
+            >
+              <Ban className="mr-2 h-4 w-4" />
+              Potvrdit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
