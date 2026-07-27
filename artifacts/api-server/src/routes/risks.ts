@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, count, eq, isNull, lt, lte, gte, ne, isNotNull, or, sql, notInArray } from "drizzle-orm";
+import { and, count, eq, isNull, lt, lte, gte, isNotNull, or, sql, notInArray } from "drizzle-orm";
 import {
   db,
   jobsTable,
@@ -8,12 +8,10 @@ import {
   billingDocumentReferencesTable,
   warehouseItemsTable,
   machinesTable,
-  invoicesTable,
-  invoiceSourceLinksTable,
   customerSiteAttachmentsTable,
 } from "@workspace/db";
-import { num, round2 } from "../lib/invoice-calc";
 import { requireRole } from "../middlewares/auth";
+import { getReadyToBillSummary } from "../lib/invoice-service";
 
 const router: IRouter = Router();
 
@@ -47,20 +45,6 @@ function metric(
   };
 }
 
-async function getBilledJobIds(): Promise<number[]> {
-  const rows = await db
-    .select({ jobId: invoiceSourceLinksTable.jobId })
-    .from(invoiceSourceLinksTable)
-    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
-    .where(
-      and(
-        ne(invoicesTable.status, "cancelled"),
-        isNotNull(invoiceSourceLinksTable.jobId),
-      ),
-    );
-  return rows.map((r) => r.jobId).filter((x): x is number => x != null);
-}
-
 router.get("/risks/summary", requireRole("admin", "master"), async (req, res): Promise<void> => {
   const staleDaysRaw = Number(req.query.staleDays);
   const staleDays =
@@ -70,11 +54,8 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
   const staleThreshold = subtractDaysIso(today, staleDays);
   const inspectionSoonThreshold = addDaysIso(today, INSPECTION_SOON_DAYS);
 
-  const billedIds = await getBilledJobIds();
-
-  const overdueUnbilledThreshold = subtractDaysIso(today, 7);
-
   const [
+    readyToBill,
     docForReviewRows,
     warehouseBelowMinRows,
     jobsWithoutCustomerRows,
@@ -82,11 +63,10 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
     longInProgressRows,
     machinesExpiredRows,
     machinesSoonRows,
-    unbilledDoneRows,
-    overdueUnbilledCustomersRows,
     customerDocsExpiredRows,
     customerDocsExpiringSoonRows,
   ] = await Promise.all([
+    getReadyToBillSummary(),
     db
       .select({ c: count() })
       .from(billingDocumentsTable)
@@ -157,60 +137,6 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
         ),
       ),
 
-    billedIds.length > 0
-      ? db
-          .select({
-            price: jobsTable.price,
-            transportCost: jobsTable.transportCost,
-            parking: jobsTable.parking,
-          })
-          .from(jobsTable)
-          .where(
-            and(
-              eq(jobsTable.status, "done"),
-              eq(jobsTable.billingIntent, "billable"),
-              notInArray(jobsTable.id, billedIds),
-            ),
-          )
-      : db
-          .select({
-            price: jobsTable.price,
-            transportCost: jobsTable.transportCost,
-            parking: jobsTable.parking,
-          })
-          .from(jobsTable)
-          .where(
-            and(
-              eq(jobsTable.status, "done"),
-              eq(jobsTable.billingIntent, "billable"),
-            ),
-          ),
-
-    billedIds.length > 0
-      ? db
-          .select({ c: sql<number>`COUNT(DISTINCT ${jobsTable.customerId})`.mapWith(Number) })
-          .from(jobsTable)
-          .where(
-            and(
-              eq(jobsTable.status, "done"),
-              eq(jobsTable.billingIntent, "billable"),
-              sql`${jobsTable.customerId} IS NOT NULL`,
-              lt(jobsTable.date, overdueUnbilledThreshold),
-              notInArray(jobsTable.id, billedIds),
-            ),
-          )
-      : db
-          .select({ c: sql<number>`COUNT(DISTINCT ${jobsTable.customerId})`.mapWith(Number) })
-          .from(jobsTable)
-          .where(
-            and(
-              eq(jobsTable.status, "done"),
-              eq(jobsTable.billingIntent, "billable"),
-              sql`${jobsTable.customerId} IS NOT NULL`,
-              lt(jobsTable.date, overdueUnbilledThreshold),
-            ),
-          ),
-
     db
       .select({ c: count() })
       .from(customerSiteAttachmentsTable)
@@ -273,16 +199,15 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
           ),
         ));
 
-  const readyToBillCount = unbilledDoneRows.length;
-  const readyToBillAmount = round2(
-    unbilledDoneRows.reduce(
-      (acc, j) => acc + num(j.price) + num(j.transportCost) + num(j.parking),
-      0,
-    ),
-  );
+  const canViewBilling = req.auth!.permissions.includes("billing.view");
 
   res.json({
-    readyToBill: metric(readyToBillCount, "jobs", { segment: "ready_to_bill" }, readyToBillAmount),
+    readyToBill: metric(
+      readyToBill.count,
+      "billing/unbilled",
+      undefined,
+      canViewBilling ? readyToBill.totalWithoutVat : null,
+    ),
     documentsForReview: metric(docForReviewRows[0]?.c ?? 0, "billing/documents", { status: "needs_review" }),
     warehouseBelowMin: metric(warehouseBelowMinRows[0]?.c ?? 0, "warehouse", { belowMin: "true" }),
     jobsWithoutCustomer: metric(jobsWithoutCustomerRows[0]?.c ?? 0, "jobs", { segment: "without_customer" }),
@@ -300,7 +225,7 @@ router.get("/risks/summary", requireRole("admin", "master"), async (req, res): P
     machinesInspectionExpired: metric(machinesExpiredRows[0]?.c ?? 0, "machines", { inspectionExpired: "true" }),
     machinesInspectionSoon: metric(machinesSoonRows[0]?.c ?? 0, "machines", { inspectionSoon: "true" }),
     overdueUnbilledCustomers: metric(
-      overdueUnbilledCustomersRows[0]?.c ?? 0,
+      readyToBill.overdueCustomers,
       "billing/unbilled",
     ),
     customerDocumentsExpired: metric(

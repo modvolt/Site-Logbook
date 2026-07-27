@@ -10,12 +10,10 @@ import {
   warehouseMovementsTable,
   invoicesTable,
   ppeAssignmentsTable,
-  activitiesTable,
-  activityMaterialsTable,
-  activityExtraWorksTable,
 } from "@workspace/db";
 import { GetStatsOverviewQueryParams } from "@workspace/api-zod";
 import { round2 } from "../lib/invoice-calc";
+import { getReadyToBillSummary } from "../lib/invoice-service";
 
 const router: IRouter = Router();
 
@@ -475,66 +473,10 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
   const trend = await queryTrend(months, to, trendCustomerId, trendJobType);
 
   // ─── Activities: billable (ready-to-bill) snapshot ───────────────────────
-  // Run all three activity queries in parallel
-  const [activitiesCountAgg, activityMaterialsValueAgg, activityExtraWorksValueAgg] = await Promise.all([
-    // Count billable completed activities
-    db
-      .select({ readyToBillCount: sql<number>`count(*)`.mapWith(Number) })
-      .from(activitiesTable)
-      .where(and(
-        eq(activitiesTable.billingStatus, "billable"),
-        isNotNull(activitiesTable.completedAt),
-      ))
-      .then(([r]) => r),
-
-    // Value: sum of materials (quantity * pricePerUnit) for billable completed activities
-    db
-      .select({
-        totalValue: sql<number>`coalesce(sum(
-          coalesce(${activityMaterialsTable.quantity}::numeric, 0) *
-          coalesce(${activityMaterialsTable.pricePerUnit}::numeric, 0)
-        ), 0)`.mapWith(Number),
-      })
-      .from(activityMaterialsTable)
-      .innerJoin(activitiesTable, eq(activityMaterialsTable.activityId, activitiesTable.id))
-      .where(and(
-        eq(activitiesTable.billingStatus, "billable"),
-        isNotNull(activitiesTable.completedAt),
-      ))
-      .then(([r]) => r),
-
-    // Value: sum of extra works amounts for billable completed activities
-    db
-      .select({
-        totalValue: sql<number>`coalesce(sum(coalesce(${activityExtraWorksTable.amount}::numeric, 0)), 0)`.mapWith(Number),
-      })
-      .from(activityExtraWorksTable)
-      .innerJoin(activitiesTable, eq(activityExtraWorksTable.activityId, activitiesTable.id))
-      .where(and(
-        eq(activitiesTable.billingStatus, "billable"),
-        isNotNull(activitiesTable.completedAt),
-      ))
-      .then(([r]) => r),
-  ]);
+  // Keep dashboard KPIs identical to the Billing module.
+  const readyToBill = await getReadyToBillSummary();
 
   // ─── Done jobs explicitly ready to bill ──────────────────────────────────
-  // Used for combined readyToBill KPI (jobs + activities)
-  const [readyToBillJobsAgg] = await db
-    .select({
-      count: sql<number>`count(*)`.mapWith(Number),
-      amount: sql<number>`coalesce(sum(
-        coalesce(${jobsTable.price}::numeric, 0) +
-        coalesce(${jobsTable.transportCost}::numeric, 0) +
-        coalesce(${jobsTable.parking}::numeric, 0)
-      ), 0)`.mapWith(Number),
-    })
-    .from(jobsTable)
-    .where(and(
-      isNull(jobsTable.archivedAt),
-      eq(jobsTable.status, "done"),
-      eq(jobsTable.billingIntent, "billable"),
-    ));
-
   // ─── PPE snapshot ─────────────────────────────────────────────────────────
   const [ppeAgg] = await db
     .select({
@@ -598,20 +540,14 @@ router.get("/stats/overview", async (req, res): Promise<void> => {
       overdueAmount: num(overdueAgg?.amount),
     },
     activities: {
-      readyToBillCount: num(activitiesCountAgg?.readyToBillCount),
-      readyToBillAmount: round2(
-        num(activityMaterialsValueAgg?.totalValue) + num(activityExtraWorksValueAgg?.totalValue),
-      ),
+      readyToBillCount: readyToBill.activitiesCount,
+      readyToBillAmount: readyToBill.activitiesWithoutVat,
     },
     readyToBill: {
-      jobsCount: num(readyToBillJobsAgg?.count),
-      activitiesCount: num(activitiesCountAgg?.readyToBillCount),
-      count: num(readyToBillJobsAgg?.count) + num(activitiesCountAgg?.readyToBillCount),
-      amount: round2(
-        num(readyToBillJobsAgg?.amount) +
-        num(activityMaterialsValueAgg?.totalValue) +
-        num(activityExtraWorksValueAgg?.totalValue),
-      ),
+      jobsCount: readyToBill.jobsCount,
+      activitiesCount: readyToBill.activitiesCount,
+      count: readyToBill.count,
+      amount: readyToBill.totalWithoutVat,
     },
     comparison: {
       prevFrom,

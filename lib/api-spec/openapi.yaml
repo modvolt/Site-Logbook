@@ -9490,15 +9490,15 @@ components:
               description: Count of completed activities with billingStatus=billable
             readyToBillAmount:
               type: number
-              description: Total value without VAT (materials + extra works) for billable completed activities
+              description: Canonical value without VAT for completed activities awaiting invoicing
         readyToBill:
           type: object
           required: [jobsCount, activitiesCount, count, amount]
-          description: Combined ready-to-bill snapshot (done jobs + billable completed activities)
+          description: Canonical ready-to-bill snapshot shared with the Billing module
           properties:
             jobsCount:
               type: integer
-              description: Count of done jobs (status=done, not yet vyfakturovano)
+              description: Count of billable done jobs not linked to a non-cancelled invoice
             activitiesCount:
               type: integer
               description: Count of billable completed activities
@@ -9507,7 +9507,7 @@ components:
               description: Total combined count (jobs + activities)
             amount:
               type: number
-              description: Total combined value without VAT (job price/transport/parking + activity materials + extra works)
+              description: Total without VAT using the same recorded-work, material, transport and activity calculation as Billing
         trend:
           type: array
           description: Monthly time series for the 6 months ending in the period's month
@@ -10798,7 +10798,7 @@ components:
           description: Null without billing.view
         unbilledValue:
           type: ["number", "null"]
-          description: Sum of price on done jobs not yet linked to any non-cancelled invoice; null without billing.view
+          description: Canonical ready-to-invoice value without VAT, including recorded work, materials, transport, parking and completed activities; null without billing.view
         hoursThisMonth:
           type: number
           description: Total hours spent on all jobs this calendar month

@@ -720,21 +720,40 @@ function activityOrientationalTotal(agg: ActivityBillingAggregate): number {
   );
 }
 
-export async function getBillingSummary() {
-  const [unbilled, settings] = await Promise.all([
+export interface ReadyToBillSummary {
+  jobsCount: number;
+  activitiesCount: number;
+  count: number;
+  jobsWithoutVat: number;
+  activitiesWithoutVat: number;
+  totalWithoutVat: number;
+  oldestDoneAt: string | null;
+  oldestDays: number | null;
+  overdueCustomers: number;
+}
+
+async function computeReadyToBillSummary(): Promise<ReadyToBillSummary> {
+  const [unbilledJobs, settings, activityRows] = await Promise.all([
     getUnbilledDoneJobs(),
     ensureBillingSettings(),
+    getUnbilledDoneActivities(),
   ]);
-  const transportRatePerKm = num(settings.transportRatePerKm);
-  const jobAggregates = await getJobAutomaticBillingAggregates(
-    unbilled.map((row) => row.job.id),
+  const unbilledActivities = activityRows.filter(
+    (row) => row.activity.customerId != null && row.customer,
   );
-  const unbilledJobsTotal = unbilled.reduce(
-    (acc, r) =>
+  const transportRatePerKm = num(settings.transportRatePerKm);
+  const [jobAggregates, activityAggregates] = await Promise.all([
+    getJobAutomaticBillingAggregates(unbilledJobs.map((row) => row.job.id)),
+    getActivityBillingAggregates(
+      unbilledActivities.map((row) => row.activity.id),
+    ),
+  ]);
+  const jobsTotal = unbilledJobs.reduce(
+    (acc, row) =>
       acc +
       jobOrientationalTotal(
-        r.job,
-        jobAggregates.get(r.job.id) ?? {
+        row.job,
+        jobAggregates.get(row.job.id) ?? {
           materialTotal: 0,
           recordedWorkAmount: 0,
           recordedSessionCount: 0,
@@ -743,21 +762,60 @@ export async function getBillingSummary() {
       ),
     0,
   );
-
-  // Completed actions (dlouhodobé akce) with a customer awaiting invoicing.
-  const unbilledActivities = (await getUnbilledDoneActivities()).filter(
-    (r) => r.activity.customerId != null && r.customer,
-  );
-  const activityAggregates = await getActivityBillingAggregates(
-    unbilledActivities.map((r) => r.activity.id),
-  );
-  const unbilledActivitiesTotal = unbilledActivities.reduce((acc, r) => {
-    const agg = activityAggregates.get(r.activity.id);
-    return acc + (agg ? activityOrientationalTotal(agg) : 0);
+  const activitiesTotal = unbilledActivities.reduce((acc, row) => {
+    const aggregate = activityAggregates.get(row.activity.id);
+    return acc + (aggregate ? activityOrientationalTotal(aggregate) : 0);
   }, 0);
+  const oldestDoneAt = unbilledJobs.reduce<string | null>(
+    (oldest, row) =>
+      row.job.date != null && (oldest == null || row.job.date < oldest)
+        ? row.job.date
+        : oldest,
+    null,
+  );
+  const currentDate = todayIso();
+  const overdueThreshold = addDaysIso(currentDate, -7);
+  const overdueCustomers = new Set(
+    unbilledJobs
+      .filter(
+        (row) =>
+          row.job.customerId != null &&
+          row.job.date != null &&
+          row.job.date < overdueThreshold,
+      )
+      .map((row) => row.job.customerId),
+  ).size;
 
-  const unbilledTotal = round2(unbilledJobsTotal + unbilledActivitiesTotal);
+  return {
+    jobsCount: unbilledJobs.length,
+    activitiesCount: unbilledActivities.length,
+    count: unbilledJobs.length + unbilledActivities.length,
+    jobsWithoutVat: round2(jobsTotal),
+    activitiesWithoutVat: round2(activitiesTotal),
+    totalWithoutVat: round2(jobsTotal + activitiesTotal),
+    oldestDoneAt,
+    oldestDays:
+      oldestDoneAt == null
+        ? null
+        : Math.max(0, daysOverdue(oldestDoneAt, currentDate)),
+    overdueCustomers,
+  };
+}
 
+let readyToBillSummaryInFlight: Promise<ReadyToBillSummary> | null = null;
+
+export function getReadyToBillSummary(): Promise<ReadyToBillSummary> {
+  if (readyToBillSummaryInFlight) return readyToBillSummaryInFlight;
+  readyToBillSummaryInFlight = computeReadyToBillSummary().finally(() => {
+    readyToBillSummaryInFlight = null;
+  });
+  return readyToBillSummaryInFlight;
+}
+
+export async function getBillingSummary() {
+  const readyToBill = await getReadyToBillSummary();
+
+  // Existing invoice lifecycle metrics.
   const allInvoices = await db
     .select({
       status: invoicesTable.status,
@@ -819,29 +877,12 @@ export async function getBillingSummary() {
     ),
   );
 
-  const billingSummaryToday = todayIso();
-  const overdueUnbilledThreshold = (() => {
-    const d = new Date(`${billingSummaryToday}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - 7);
-    return d.toISOString().slice(0, 10);
-  })();
-  const overdueUnbilledCustomers = new Set(
-    unbilled
-      .filter(
-        (r) =>
-          r.job.customerId != null &&
-          r.job.date != null &&
-          r.job.date < overdueUnbilledThreshold,
-      )
-      .map((r) => r.job.customerId),
-  ).size;
-
   return {
-    unbilledDoneJobs: unbilled.length,
-    unbilledActivities: unbilledActivities.length,
+    unbilledDoneJobs: readyToBill.jobsCount,
+    unbilledActivities: readyToBill.activitiesCount,
     draftInvoices: draftCount,
     issuedInvoices: issuedCount,
-    totalToInvoiceWithoutVat: unbilledTotal,
+    totalToInvoiceWithoutVat: readyToBill.totalWithoutVat,
     issuedThisMonthWithVat,
     paidThisMonthCount: paidThisMonthInvoices.length,
     paidThisMonthWithVat,
@@ -849,7 +890,7 @@ export async function getBillingSummary() {
     unpaidTotalWithVat,
     overdueCount: overdueInvoices.length,
     overdueTotalWithVat,
-    overdueUnbilledCustomers,
+    overdueUnbilledCustomers: readyToBill.overdueCustomers,
   };
 }
 

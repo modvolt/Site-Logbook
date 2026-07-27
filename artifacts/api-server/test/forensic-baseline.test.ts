@@ -9,6 +9,8 @@ import {
   timeEntriesTable,
   usersTable,
   userPermissionOverridesTable,
+  workSessionBillingLinksTable,
+  workSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
 
@@ -81,6 +83,19 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (personIds.length) {
+    const sessions = await db
+      .select({ id: workSessionsTable.id })
+      .from(workSessionsTable)
+      .where(inArray(workSessionsTable.personId, personIds));
+    const sessionIds = sessions.map((session) => session.id);
+    if (sessionIds.length) {
+      await db
+        .delete(workSessionBillingLinksTable)
+        .where(inArray(workSessionBillingLinksTable.sessionId, sessionIds));
+      await db
+        .delete(workSessionsTable)
+        .where(inArray(workSessionsTable.id, sessionIds));
+    }
     await db.delete(timeEntriesTable).where(inArray(timeEntriesTable.personId, personIds));
   }
   if (jobIds.length) {

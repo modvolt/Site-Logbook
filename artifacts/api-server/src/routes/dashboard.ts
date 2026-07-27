@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { gte, lte, lt, and, eq, sql, isNull, or, ne, notInArray, inArray } from "drizzle-orm";
+import { gte, lte, and, eq, sql, isNull, or, inArray } from "drizzle-orm";
 import {
   db,
   jobsTable,
@@ -7,13 +7,12 @@ import {
   tasksTable,
   attachmentsTable,
   peopleTable,
-  invoiceSourceLinksTable,
-  invoicesTable,
 } from "@workspace/db";
 import { count } from "drizzle-orm";
 import { enrichJobs } from "./jobs";
 import { listJobScheduleOccurrences, listScheduledJobIds } from "../lib/job-schedule-service";
 import { isRestrictedFieldWorker } from "../middlewares/job-work-access";
+import { getReadyToBillSummary } from "../lib/invoice-service";
 
 const router: IRouter = Router();
 
@@ -58,6 +57,7 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
   const { from, to } = getWeekRange();
   const { from: monthFrom, to: monthTo } = getMonthRange();
   const staleThreshold = subtractDaysIso(t, DEFAULT_STALE_DAYS);
+  const canViewBilling = req.auth!.permissions.includes("billing.view");
 
   const [todayJobIds, weekJobIds] = await Promise.all([
     listScheduledJobIds(t, t),
@@ -109,70 +109,9 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     .from(jobsTable)
     .where(and(isNull(jobsTable.archivedAt), gte(jobsTable.date, monthFrom), lte(jobsTable.date, monthTo)));
 
-  // --- Unbilled value: done jobs not linked to any non-cancelled invoice ---
-  const billedRows = await db
-    .select({ jobId: invoiceSourceLinksTable.jobId })
-    .from(invoiceSourceLinksTable)
-    .innerJoin(invoicesTable, eq(invoiceSourceLinksTable.invoiceId, invoicesTable.id))
-    .where(ne(invoicesTable.status, "cancelled"));
-
-  const billedIds = billedRows
-    .map((r) => r.jobId)
-    .filter((x): x is number => x != null);
-
-  const unbilledWhere =
-    billedIds.length > 0
-      ? and(
-          eq(jobsTable.status, "done"),
-          eq(jobsTable.billingIntent, "billable"),
-          notInArray(jobsTable.id, billedIds),
-        )
-      : and(
-          eq(jobsTable.status, "done"),
-          eq(jobsTable.billingIntent, "billable"),
-        );
-
-  const OVERDUE_UNBILLED_DAYS = 7;
-  const overdueThreshold = subtractDaysIso(t, OVERDUE_UNBILLED_DAYS);
-
-  const [unbilledAgg, unbilledOldestRow, overdueUnbilledCustomersRow] = await Promise.all([
-    db
-      .select({
-        total: sql<number>`coalesce(sum(${jobsTable.price}), 0)`.mapWith(Number),
-      })
-      .from(jobsTable)
-      .where(and(isNull(jobsTable.archivedAt), unbilledWhere)),
-
-    db
-      .select({ oldest: sql<string | null>`MIN(${jobsTable.date})` })
-      .from(jobsTable)
-      .where(and(isNull(jobsTable.archivedAt), unbilledWhere)),
-
-    db
-      .select({
-        c: sql<number>`COUNT(DISTINCT ${jobsTable.customerId})`.mapWith(Number),
-      })
-      .from(jobsTable)
-      .where(
-        and(
-          isNull(jobsTable.archivedAt),
-          billedIds.length > 0
-          ? and(
-              eq(jobsTable.status, "done"),
-              eq(jobsTable.billingIntent, "billable"),
-              sql`${jobsTable.customerId} IS NOT NULL`,
-              lt(jobsTable.date, overdueThreshold),
-              notInArray(jobsTable.id, billedIds),
-            )
-          : and(
-              eq(jobsTable.status, "done"),
-              eq(jobsTable.billingIntent, "billable"),
-              sql`${jobsTable.customerId} IS NOT NULL`,
-              lt(jobsTable.date, overdueThreshold),
-            ),
-        ),
-      ),
-  ]);
+  const readyToBill = canViewBilling
+    ? await getReadyToBillSummary()
+    : null;
 
   // --- Problematic jobs: active with no customer, no price, or stale ---
   const [problematicAgg] = await db
@@ -193,16 +132,6 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
       )
     );
 
-  const unbilledOldest = unbilledOldestRow[0]?.oldest ?? null;
-  let unbilledOldestDays: number | null = null;
-  if (unbilledOldest != null) {
-    const msPerDay = 86_400_000;
-    const due = new Date(`${unbilledOldest}T00:00:00Z`).getTime();
-    const now = new Date(`${t}T00:00:00Z`).getTime();
-    unbilledOldestDays = Math.max(0, Math.floor((now - due) / msPerDay));
-  }
-
-  const canViewBilling = req.auth!.permissions.includes("billing.view");
   res.json({
     todayCount: todayJobIds.length,
     weekCount: weekJobIds.length,
@@ -212,9 +141,9 @@ router.get("/dashboard/summary", async (req, res): Promise<void> => {
     totalHoursThisWeek,
     totalRevenueThisWeek: canViewBilling ? totalRevenueThisWeek : null,
     hoursThisMonth: monthHoursAgg?.total ?? 0,
-    unbilledValue: canViewBilling ? (unbilledAgg[0]?.total ?? 0) : null,
-    unbilledOldestDays: canViewBilling ? unbilledOldestDays : null,
-    overdueUnbilledCustomers: canViewBilling ? (overdueUnbilledCustomersRow[0]?.c ?? 0) : null,
+    unbilledValue: readyToBill?.totalWithoutVat ?? null,
+    unbilledOldestDays: readyToBill?.oldestDays ?? null,
+    overdueUnbilledCustomers: readyToBill?.overdueCustomers ?? null,
     problematicJobsCount: problematicAgg?.c ?? 0,
   });
 });

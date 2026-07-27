@@ -31,6 +31,8 @@ import {
   deleteDraft,
   listUnbilledCustomers,
   updateBillingSettings,
+  getBillingSummary,
+  getReadyToBillSummary,
 } from "../src/lib/invoice-service";
 import { ObjectStorageService } from "../src/lib/objectStorage";
 
@@ -143,6 +145,7 @@ afterAll(async () => {
 describe("job invoice lifecycle (issue / storno) end-to-end", () => {
   it("uses recorded work by default and carries transport and materials into the draft", async () => {
     await updateBillingSettings({ transportRatePerKm: 30 });
+    const readyToBillBefore = await getReadyToBillSummary();
     const jobId = await makeDoneJob();
     await db
       .update(jobsTable)
@@ -192,6 +195,21 @@ describe("job invoice lifecycle (issue / storno) end-to-end", () => {
       costRateSnapshot: "500",
       saleRateSnapshot: "800",
     });
+
+    const [readyToBillAfter, billingSummaryAfter] = await Promise.all([
+      getReadyToBillSummary(),
+      getBillingSummary(),
+    ]);
+    expect(readyToBillAfter.jobsCount).toBe(
+      readyToBillBefore.jobsCount + 1,
+    );
+    expect(
+      readyToBillAfter.totalWithoutVat -
+        readyToBillBefore.totalWithoutVat,
+    ).toBe(4660);
+    expect(billingSummaryAfter.totalToInvoiceWithoutVat).toBe(
+      readyToBillAfter.totalWithoutVat,
+    );
 
     const customerSummaryBefore = (await listUnbilledCustomers()).find(
       (row) => row.customerId === customerId,
@@ -245,6 +263,13 @@ describe("job invoice lifecycle (issue / storno) end-to-end", () => {
       (row) => row.customerId === customerId,
     );
     expect(customerSummaryAfter).toBeUndefined();
+    const readyToBillAfterDraft = await getReadyToBillSummary();
+    expect(readyToBillAfterDraft.jobsCount).toBe(
+      readyToBillBefore.jobsCount,
+    );
+    expect(readyToBillAfterDraft.totalWithoutVat).toBe(
+      readyToBillBefore.totalWithoutVat,
+    );
   });
 
   it("keeps an explicit job transport cost instead of the default kilometre rate", async () => {
