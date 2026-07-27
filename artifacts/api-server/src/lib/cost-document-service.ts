@@ -4626,10 +4626,14 @@ export async function setDocumentStatus(
         lines.map((l) => l.id),
       );
     }
-    // Reconcile job materials (removes them when leaving "approved").
-    await syncJobMaterialsForDocument(tx, id, actor);
-    // Reverse warehouse receipts when leaving "approved" (storno of příjem).
-    await reconcileDocumentStockMovements(tx, id, actor);
+    if (doc.status === "approved") {
+      // Reconcile job materials only when leaving "approved". Open documents
+      // have never propagated materials, so running the full document sync for
+      // needs_review -> reviewed/ignored is both unnecessary and expensive.
+      await syncJobMaterialsForDocument(tx, id, actor);
+      // Reverse warehouse receipts only when leaving "approved" (storno příjmu).
+      await reconcileDocumentStockMovements(tx, id, actor);
+    }
   });
   return getDocument(id);
 }
