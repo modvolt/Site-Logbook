@@ -12691,7 +12691,7 @@ components:
           type: integer
         totalToInvoiceWithoutVat:
           type: number
-          description: Orientational sum (price+transportCost+parking) of unbilled done jobs
+          description: Orientational automatic-billing sum of unbilled work, materials, transport and parking
         issuedThisMonthWithVat:
           type: number
         paidThisMonthCount:
@@ -12768,6 +12768,7 @@ components:
         - defaultPaymentMethod
         - vatPayer
         - vatModeDefault
+        - transportRatePerKm
         - numberPrefix
         - numberFormat
         - numberNextSeq
@@ -12807,6 +12808,10 @@ components:
         materialMarkupPercent:
           type: number
           description: Default percent markup applied to material lines when proposing an invoice (0 = no markup)
+        transportRatePerKm:
+          type: number
+          minimum: 0
+          description: Default customer-facing transport price per kilometre, used when a job has no explicit transport cost
         marginAlertThresholdPercent:
           type: number
           description: Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin)
@@ -12863,6 +12868,10 @@ components:
         materialMarkupPercent:
           type: ["number", "null"]
           description: Default percent markup applied to material lines (0 = no markup)
+        transportRatePerKm:
+          type: ["number", "null"]
+          minimum: 0
+          description: Default customer-facing transport price per kilometre
         marginAlertThresholdPercent:
           type: ["number", "null"]
           description: Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
@@ -13204,9 +13213,13 @@ components:
           description: Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál)
         labourBillingMode:
           type: string
-          enum: [job_price, recorded_time, none]
-          default: job_price
-          description: Source of labour lines; recorded_time reserves immutable work sessions
+          enum: [automatic, job_price, recorded_time, none]
+          default: automatic
+          description: >-
+            Source of labour lines. automatic uses the contract price for
+            fixed-price jobs, recorded time when a time-and-material job has
+            completed sessions, and the legacy job price otherwise.
+            recorded_time reserves immutable work sessions.
         workGrouping:
           type: string
           enum: [summary, worker]
@@ -13595,10 +13608,22 @@ components:
           type: string
         price:
           type: ["number", "null"]
+        pricingMode:
+          type: string
+          enum: [time_material, fixed_price]
+        contractPrice:
+          type: ["number", "null"]
         transportKm:
           type: ["number", "null"]
         transportCost:
           type: ["number", "null"]
+          description: Effective transport cost; explicit job override or kilometres multiplied by the current default rate
+        transportCostCalculated:
+          type: boolean
+          description: True when transportCost was calculated from kilometres and the default rate
+        transportRatePerKm:
+          type: number
+          description: Default rate used for the calculated transport cost
         parking:
           type: ["number", "null"]
         fines:

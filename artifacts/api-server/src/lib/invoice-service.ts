@@ -172,6 +172,7 @@ export function serializeSettings(row: BillingSettings) {
     vatModeDefault: row.vatModeDefault as VatMode,
     invoiceFooterNote: row.invoiceFooterNote,
     materialMarkupPercent: num(row.materialMarkupPercent),
+    transportRatePerKm: num(row.transportRatePerKm),
     marginAlertThresholdPercent: num(row.marginAlertThresholdPercent),
     numberPrefix: row.numberPrefix,
     numberFormat: row.numberFormat,
@@ -201,6 +202,7 @@ export interface BillingSettingsInput {
   vatModeDefault?: VatMode;
   invoiceFooterNote?: string | null;
   materialMarkupPercent?: number;
+  transportRatePerKm?: number;
   marginAlertThresholdPercent?: number;
   numberPrefix?: string;
   numberFormat?: string;
@@ -245,6 +247,15 @@ export async function updateBillingSettings(
       throw appError(400, "Přirážka na materiál nesmí být záporná.");
     }
     set.materialMarkupPercent = String(round2(input.materialMarkupPercent));
+  }
+  if (input.transportRatePerKm !== undefined) {
+    if (
+      !Number.isFinite(input.transportRatePerKm) ||
+      input.transportRatePerKm < 0
+    ) {
+      throw appError(400, "Cena dopravy za kilometr nesmí být záporná.");
+    }
+    set.transportRatePerKm = String(round2(input.transportRatePerKm));
   }
   if (input.marginAlertThresholdPercent !== undefined) {
     if (!Number.isFinite(input.marginAlertThresholdPercent)) {
@@ -452,8 +463,118 @@ async function getUnbilledDoneJobs(
   return rows;
 }
 
-function jobOrientationalTotal(job: typeof jobsTable.$inferSelect): number {
-  return round2(num(job.price) + num(job.transportCost) + num(job.parking));
+interface JobAutomaticBillingAggregate {
+  materialTotal: number;
+  recordedWorkAmount: number;
+  recordedSessionCount: number;
+}
+
+async function getJobAutomaticBillingAggregates(
+  jobIds: number[],
+): Promise<Map<number, JobAutomaticBillingAggregate>> {
+  const out = new Map<number, JobAutomaticBillingAggregate>();
+  for (const jobId of jobIds) {
+    out.set(jobId, {
+      materialTotal: 0,
+      recordedWorkAmount: 0,
+      recordedSessionCount: 0,
+    });
+  }
+  if (!jobIds.length) return out;
+
+  const [materialRows, workRows] = await Promise.all([
+    db
+      .select({
+        jobId: materialsTable.jobId,
+        total:
+          sql<number>`coalesce(sum(coalesce(${materialsTable.quantity}, 1) * ${materialsTable.pricePerUnit}), 0)`.mapWith(
+            Number,
+          ),
+      })
+      .from(materialsTable)
+      .where(
+        and(
+          inArray(materialsTable.jobId, jobIds),
+          eq(materialsTable.done, true),
+          isNotNull(materialsTable.pricePerUnit),
+          isNull(materialsTable.invoicedInvoiceId),
+        ),
+      )
+      .groupBy(materialsTable.jobId),
+    db
+      .select({
+        jobId: workSessionsTable.jobId,
+        durationSeconds: workSessionsTable.durationSeconds,
+        saleRateSnapshot: workSessionsTable.saleRateSnapshot,
+      })
+      .from(workSessionsTable)
+      .where(
+        and(
+          inArray(workSessionsTable.jobId, jobIds),
+          eq(workSessionsTable.status, "completed"),
+          eq(workSessionsTable.billingStatus, "unbilled"),
+        ),
+      ),
+  ]);
+
+  for (const row of materialRows) {
+    const aggregate = out.get(row.jobId);
+    if (aggregate) aggregate.materialTotal = round2(num(row.total));
+  }
+  for (const row of workRows) {
+    if (row.jobId == null) continue;
+    const hours = round2((row.durationSeconds ?? 0) / 3600);
+    if (hours === 0) continue;
+    const aggregate = out.get(row.jobId);
+    if (!aggregate) continue;
+    aggregate.recordedSessionCount += 1;
+    if (row.saleRateSnapshot != null) {
+      aggregate.recordedWorkAmount = round2(
+        aggregate.recordedWorkAmount +
+          hours * num(row.saleRateSnapshot),
+      );
+    }
+  }
+  return out;
+}
+
+function automaticJobLabourTotal(
+  job: typeof jobsTable.$inferSelect,
+  aggregate: JobAutomaticBillingAggregate,
+): number {
+  if (job.pricingMode === "fixed_price") {
+    return round2(num(job.contractPrice ?? job.price));
+  }
+  if (aggregate.recordedSessionCount > 0) {
+    return round2(aggregate.recordedWorkAmount);
+  }
+  return round2(num(job.price));
+}
+
+function effectiveTransportCost(
+  job: Pick<typeof jobsTable.$inferSelect, "transportCost" | "transportKm">,
+  transportRatePerKm: number,
+): number {
+  const explicitCost = num(job.transportCost);
+  if (explicitCost > 0) return round2(explicitCost);
+  return round2(
+    Math.max(0, num(job.transportKm)) * Math.max(0, transportRatePerKm),
+  );
+}
+
+function jobOrientationalTotal(
+  job: typeof jobsTable.$inferSelect,
+  aggregate: JobAutomaticBillingAggregate,
+  transportRatePerKm: number,
+): number {
+  const materialTotal =
+    job.pricingMode === "fixed_price" ? 0 : aggregate.materialTotal;
+  return round2(
+    automaticJobLabourTotal(job, aggregate) +
+      materialTotal +
+      effectiveTransportCost(job, transportRatePerKm) +
+      num(job.parking),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +630,7 @@ async function getUnbilledDoneActivities(
 interface ActivityBillingAggregate {
   materialsTotal: number;
   extraWorksTotal: number;
+  recordedWorkAmount: number;
 }
 
 /** Per-activity billable totals: material purchase price + extra-work amounts. */
@@ -517,7 +639,11 @@ async function getActivityBillingAggregates(
 ): Promise<Map<number, ActivityBillingAggregate>> {
   const out = new Map<number, ActivityBillingAggregate>();
   for (const id of activityIds)
-    out.set(id, { materialsTotal: 0, extraWorksTotal: 0 });
+    out.set(id, {
+      materialsTotal: 0,
+      extraWorksTotal: 0,
+      recordedWorkAmount: 0,
+    });
   if (!activityIds.length) return out;
 
   const mats = await db
@@ -552,17 +678,63 @@ async function getActivityBillingAggregates(
     if (entry) entry.extraWorksTotal = round2(num(w.total));
   }
 
+  const workSessions = await db
+    .select({
+      activityId: workSessionsTable.activityId,
+      durationSeconds: workSessionsTable.durationSeconds,
+      saleRateSnapshot: workSessionsTable.saleRateSnapshot,
+    })
+    .from(workSessionsTable)
+    .where(
+      and(
+        inArray(workSessionsTable.activityId, activityIds),
+        eq(workSessionsTable.status, "completed"),
+        eq(workSessionsTable.billingStatus, "unbilled"),
+      ),
+    );
+  for (const session of workSessions) {
+    if (session.activityId == null || session.saleRateSnapshot == null) continue;
+    const hours = round2((session.durationSeconds ?? 0) / 3600);
+    if (hours === 0) continue;
+    const entry = out.get(session.activityId);
+    if (entry) {
+      entry.recordedWorkAmount = round2(
+        entry.recordedWorkAmount +
+          hours * num(session.saleRateSnapshot),
+      );
+    }
+  }
+
   return out;
 }
 
 function activityOrientationalTotal(agg: ActivityBillingAggregate): number {
-  return round2(agg.materialsTotal + agg.extraWorksTotal);
+  return round2(
+    agg.materialsTotal + agg.extraWorksTotal + agg.recordedWorkAmount,
+  );
 }
 
 export async function getBillingSummary() {
-  const unbilled = await getUnbilledDoneJobs();
+  const [unbilled, settings] = await Promise.all([
+    getUnbilledDoneJobs(),
+    ensureBillingSettings(),
+  ]);
+  const transportRatePerKm = num(settings.transportRatePerKm);
+  const jobAggregates = await getJobAutomaticBillingAggregates(
+    unbilled.map((row) => row.job.id),
+  );
   const unbilledJobsTotal = unbilled.reduce(
-    (acc, r) => acc + jobOrientationalTotal(r.job),
+    (acc, r) =>
+      acc +
+      jobOrientationalTotal(
+        r.job,
+        jobAggregates.get(r.job.id) ?? {
+          materialTotal: 0,
+          recordedWorkAmount: 0,
+          recordedSessionCount: 0,
+        },
+        transportRatePerKm,
+      ),
     0,
   );
 
@@ -681,17 +853,38 @@ export async function getCustomerUnbilledValueSummary(
   unbilledJobsValue: number;
   unbilledJobCount: number;
 }> {
-  const rows = await getUnbilledDoneJobs(customerId);
+  const [rows, settings] = await Promise.all([
+    getUnbilledDoneJobs(customerId),
+    ensureBillingSettings(),
+  ]);
+  const transportRatePerKm = num(settings.transportRatePerKm);
+  const jobAggregates = await getJobAutomaticBillingAggregates(
+    rows.map((row) => row.job.id),
+  );
   return {
     unbilledJobsValue: round2(
-      rows.reduce((acc, { job }) => acc + num(job.price), 0),
+      rows.reduce((acc, { job }) => {
+        const aggregate = jobAggregates.get(job.id) ?? {
+          materialTotal: 0,
+          recordedWorkAmount: 0,
+          recordedSessionCount: 0,
+        };
+        return acc + jobOrientationalTotal(job, aggregate, transportRatePerKm);
+      }, 0),
     ),
     unbilledJobCount: rows.length,
   };
 }
 
 export async function listUnbilledCustomers() {
-  const rows = await getUnbilledDoneJobs();
+  const [rows, settings] = await Promise.all([
+    getUnbilledDoneJobs(),
+    ensureBillingSettings(),
+  ]);
+  const transportRatePerKm = num(settings.transportRatePerKm);
+  const jobAggregates = await getJobAutomaticBillingAggregates(
+    rows.map((row) => row.job.id),
+  );
   const byCustomer = new Map<
     number,
     {
@@ -721,15 +914,27 @@ export async function listUnbilledCustomers() {
   });
   for (const { job, customer } of rows) {
     if (job.customerId == null || !customer) continue;
+    const jobAggregate = jobAggregates.get(job.id) ?? {
+      materialTotal: 0,
+      recordedWorkAmount: 0,
+      recordedSessionCount: 0,
+    };
     const entry =
       byCustomer.get(job.customerId) ??
       emptyEntry(job.customerId, customer.companyName);
     entry.jobCount += 1;
-    entry.totalPrice += num(job.price);
-    entry.totalTransportCost += num(job.transportCost);
+    entry.totalPrice += automaticJobLabourTotal(job, jobAggregate);
+    entry.totalTransportCost += effectiveTransportCost(
+      job,
+      transportRatePerKm,
+    );
     entry.totalParking += num(job.parking);
     entry.totalFines += num(job.fines);
-    entry.orientationalTotal += jobOrientationalTotal(job);
+    entry.orientationalTotal += jobOrientationalTotal(
+      job,
+      jobAggregate,
+      transportRatePerKm,
+    );
     if (job.date != null) {
       if (entry.oldestJobDate == null || job.date < entry.oldestJobDate) {
         entry.oldestJobDate = job.date;
@@ -780,11 +985,15 @@ export async function listUnbilledCustomers() {
 }
 
 export async function getUnbilledCustomerDetail(customerId: number) {
-  const [customer] = await db
-    .select()
-    .from(customersTable)
-    .where(eq(customersTable.id, customerId));
+  const [[customer], settings] = await Promise.all([
+    db
+      .select()
+      .from(customersTable)
+      .where(eq(customersTable.id, customerId)),
+    ensureBillingSettings(),
+  ]);
   if (!customer) throw appError(404, "Zákazník nenalezen.");
+  const transportRatePerKm = num(settings.transportRatePerKm);
 
   const rows = await getUnbilledDoneJobs(customerId);
   const jobIds = rows.map((r) => r.job.id);
@@ -827,8 +1036,17 @@ export async function getUnbilledCustomerDetail(customerId: number) {
     type: job.type,
     status: job.status,
     price: round2(num(job.price)),
+    pricingMode:
+      job.pricingMode === "fixed_price" ? "fixed_price" : "time_material",
+    contractPrice:
+      job.contractPrice == null ? null : round2(num(job.contractPrice)),
     transportKm: round2(num(job.transportKm)),
-    transportCost: round2(num(job.transportCost)),
+    transportCost: effectiveTransportCost(job, transportRatePerKm),
+    transportCostCalculated:
+      num(job.transportCost) <= 0 &&
+      num(job.transportKm) > 0 &&
+      transportRatePerKm > 0,
+    transportRatePerKm: round2(transportRatePerKm),
     parking: round2(num(job.parking)),
     fines: round2(num(job.fines)),
     daysUnbilled:
@@ -1200,6 +1418,10 @@ interface BuildProposedLinesOpts {
   /** Resolver for a material's category-default markup (second priority). */
   categoryMarkupForName?: (name: string | null | undefined) => number | null;
   includeJobPrice?: boolean;
+  /** Optional per-job override used by automatic labour selection. */
+  includeJobPriceIds?: Set<number>;
+  /** Default transport rate used when a job has no explicit transport cost. */
+  transportRatePerKm?: number;
 }
 
 /** Build the proposed lines + per-job billed amounts from a set of done jobs. */
@@ -1219,7 +1441,8 @@ async function buildProposedLines(
   const jobs = await exec
     .select()
     .from(jobsTable)
-    .where(inArray(jobsTable.id, jobIds));
+    .where(inArray(jobsTable.id, jobIds))
+    .for("update");
   const jobById = new Map(jobs.map((j) => [j.id, j]));
 
   // Reject jobs already linked to a non-cancelled invoice up front, so a draft
@@ -1285,8 +1508,12 @@ async function buildProposedLines(
 
     const jobLines: RawLine[] = [];
     const isFixedPrice = (job as any).pricingMode === "fixed_price";
+    const includeJobPrice =
+      opts.includeJobPrice !== false &&
+      (opts.includeJobPriceIds == null ||
+        opts.includeJobPriceIds.has(jobId));
 
-    if (isFixedPrice && opts.includeJobPrice !== false) {
+    if (isFixedPrice && includeJobPrice) {
       // Fixed-price mode: one single line at the agreed contract price.
       // Materials, hours (no hour lines exist currently) are internal only.
       // Transport, parking and fines are still billed separately.
@@ -1310,7 +1537,7 @@ async function buildProposedLines(
       });
     } else {
       // time_material mode (default): bill job price + materials individually.
-      if (opts.includeJobPrice !== false && num(job.price) > 0) {
+      if (includeJobPrice && num(job.price) > 0) {
         jobLines.push({
           sourceType: "job",
           jobId,
@@ -1349,7 +1576,11 @@ async function buildProposedLines(
         });
       }
     }
-    if (num(job.transportCost) > 0) {
+    const transportCost = effectiveTransportCost(
+      job,
+      opts.transportRatePerKm ?? 0,
+    );
+    if (transportCost > 0) {
       const km = num(job.transportKm);
       jobLines.push({
         sourceType: "transport",
@@ -1357,7 +1588,7 @@ async function buildProposedLines(
         description: km > 0 ? `Doprava (${km} km)` : "Doprava",
         quantity: 1,
         unit: "ks",
-        unitPriceWithoutVat: round2(num(job.transportCost)),
+        unitPriceWithoutVat: transportCost,
         vatMode: invoiceVatMode,
       });
     }
@@ -1623,7 +1854,7 @@ export interface InvoiceCreateInput {
   customerId: number;
   jobIds?: number[];
   activityIds?: number[];
-  labourBillingMode?: "job_price" | "recorded_time" | "none";
+  labourBillingMode?: "automatic" | "job_price" | "recorded_time" | "none";
   workGrouping?: "summary" | "worker";
   billFineJobIds?: number[];
   materialMarkupPercent?: number;
@@ -1670,6 +1901,118 @@ type ReservedWork = {
   saleRate: number;
   amountWithoutVat: number;
 };
+
+async function resolveAutomaticLabourParents(
+  tx: Tx,
+  jobIds: number[],
+  activityIds: number[],
+): Promise<{
+  jobPriceIds: Set<number>;
+  recordedJobIds: number[];
+  recordedActivityIds: number[];
+}> {
+  const jobs = jobIds.length
+    ? await tx
+        .select({
+          id: jobsTable.id,
+          pricingMode: jobsTable.pricingMode,
+        })
+        .from(jobsTable)
+        .where(inArray(jobsTable.id, jobIds))
+    : [];
+
+  const parentFilters = [];
+  if (jobIds.length)
+    parentFilters.push(inArray(workSessionsTable.jobId, jobIds));
+  if (activityIds.length)
+    parentFilters.push(inArray(workSessionsTable.activityId, activityIds));
+  const workRows = parentFilters.length
+    ? await tx
+        .select({
+          jobId: workSessionsTable.jobId,
+          activityId: workSessionsTable.activityId,
+          durationSeconds: workSessionsTable.durationSeconds,
+        })
+        .from(workSessionsTable)
+        .where(
+          and(
+            or(...parentFilters),
+            eq(workSessionsTable.status, "completed"),
+            eq(workSessionsTable.billingStatus, "unbilled"),
+          ),
+        )
+    : [];
+
+  const jobsWithWork = new Set<number>();
+  const activitiesWithWork = new Set<number>();
+  for (const row of workRows) {
+    if (round2((row.durationSeconds ?? 0) / 3600) === 0) continue;
+    if (row.jobId != null) jobsWithWork.add(row.jobId);
+    if (row.activityId != null) activitiesWithWork.add(row.activityId);
+  }
+
+  const jobPriceIds = new Set<number>();
+  const recordedJobIds: number[] = [];
+  for (const job of jobs) {
+    if (job.pricingMode === "fixed_price" || !jobsWithWork.has(job.id)) {
+      jobPriceIds.add(job.id);
+    } else {
+      recordedJobIds.push(job.id);
+    }
+  }
+
+  return {
+    jobPriceIds,
+    recordedJobIds,
+    recordedActivityIds: activityIds.filter((id) =>
+      activitiesWithWork.has(id),
+    ),
+  };
+}
+
+async function billingDocumentLinesRepresentedBySelection(
+  tx: Tx,
+  jobIds: number[],
+  activityIds: number[],
+  lineIds: number[],
+): Promise<Set<number>> {
+  const represented = new Set<number>();
+  if (!lineIds.length) return represented;
+
+  if (jobIds.length) {
+    const rows = await tx
+      .select({ sourceId: materialsTable.sourceId })
+      .from(materialsTable)
+      .where(
+        and(
+          inArray(materialsTable.jobId, jobIds),
+          eq(materialsTable.sourceType, "billing_document_line"),
+          inArray(materialsTable.sourceId, lineIds),
+        ),
+      );
+    for (const row of rows) {
+      if (row.sourceId != null) represented.add(row.sourceId);
+    }
+  }
+
+  if (activityIds.length) {
+    const rows = await tx
+      .select({ sourceId: activityMaterialsTable.sourceId })
+      .from(activityMaterialsTable)
+      .where(
+        and(
+          inArray(activityMaterialsTable.activityId, activityIds),
+          eq(activityMaterialsTable.sourceType, "billing_document_line"),
+          inArray(activityMaterialsTable.sourceId, lineIds),
+        ),
+      );
+    for (const row of rows) {
+      if (row.sourceId != null) represented.add(row.sourceId);
+    }
+  }
+
+  return represented;
+}
 
 async function buildRecordedWorkLines(
   tx: Tx,
@@ -1818,7 +2161,7 @@ export async function createDraft(
     input.vatModeDefault ?? (settings.vatModeDefault as VatMode);
   const jobIds = input.jobIds ?? [];
   const activityIds = input.activityIds ?? [];
-  const labourBillingMode = input.labourBillingMode ?? "job_price";
+  const labourBillingMode = input.labourBillingMode ?? "automatic";
   const workGrouping = input.workGrouping ?? "summary";
   const billFineJobIds = input.billFineJobIds ?? [];
   // Material markup: explicit per-invoice value wins, otherwise the saved
@@ -1851,6 +2194,10 @@ export async function createDraft(
 
   const doCreate = async (tx: Tx) => {
     const categoryMarkupForName = await buildCategoryMarkupResolver(tx);
+    const automaticLabour =
+      labourBillingMode === "automatic"
+        ? await resolveAutomaticLabourParents(tx, jobIds, activityIds)
+        : null;
     const { lines: proposed, jobAmounts } = await buildProposedLines(
       tx,
       jobIds,
@@ -1861,7 +2208,11 @@ export async function createDraft(
       {
         lineMarkupOverrides: jobLineMarkupOverrides,
         categoryMarkupForName,
-        includeJobPrice: labourBillingMode === "job_price",
+        includeJobPrice:
+          labourBillingMode === "job_price" ||
+          labourBillingMode === "automatic",
+        includeJobPriceIds: automaticLabour?.jobPriceIds,
+        transportRatePerKm: num(settings.transportRatePerKm),
       },
     );
     const { lines: proposedActivity, activityAmounts } =
@@ -1877,12 +2228,21 @@ export async function createDraft(
         },
       );
 
+    const recordedJobIds =
+      labourBillingMode === "automatic"
+        ? (automaticLabour?.recordedJobIds ?? [])
+        : jobIds;
+    const recordedActivityIds =
+      labourBillingMode === "automatic"
+        ? (automaticLabour?.recordedActivityIds ?? [])
+        : activityIds;
     const recordedWork =
-      labourBillingMode === "recorded_time"
+      labourBillingMode === "recorded_time" ||
+      labourBillingMode === "automatic"
         ? await buildRecordedWorkLines(
             tx,
-            jobIds,
-            activityIds,
+            recordedJobIds,
+            recordedActivityIds,
             vatModeDefault,
             workGrouping,
           )
@@ -1893,7 +2253,7 @@ export async function createDraft(
             activityAmounts: new Map<number, number>(),
           };
 
-    const manual: RawLine[] = (input.lines ?? []).map((l) => ({
+    const rawManual: RawLine[] = (input.lines ?? []).map((l) => ({
       sourceType: l.sourceType ?? "manual",
       sourceId: l.sourceId ?? null,
       description: l.description,
@@ -1904,6 +2264,31 @@ export async function createDraft(
       vatRate: l.vatRate ?? null,
       vatMode: l.vatMode ?? vatModeDefault,
     }));
+    const manualBillingLineIds = billingDocLineIds(rawManual);
+    const representedBillingLineIds =
+      await billingDocumentLinesRepresentedBySelection(
+        tx,
+        jobIds,
+        activityIds,
+        manualBillingLineIds,
+      );
+    const seenBillingLineIds = new Set<number>();
+    const manual = rawManual.filter((line) => {
+      if (
+        line.sourceType !== "billing_document_line" ||
+        line.sourceId == null
+      ) {
+        return true;
+      }
+      if (
+        representedBillingLineIds.has(line.sourceId) ||
+        seenBillingLineIds.has(line.sourceId)
+      ) {
+        return false;
+      }
+      seenBillingLineIds.add(line.sourceId);
+      return true;
+    });
 
     const allLines = [
       ...proposed,

@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent, Clock, AlertTriangle } from "lucide-react";
 
 type UnbilledMaterial = UnbilledJob["materials"][number];
+type LabourBillingMode = "automatic" | "job_price" | "recorded_time" | "none";
 
 /** Material subtotal (purchase price, no markup) for a single job. */
 function jobMaterialTotal(job: UnbilledJob): number {
@@ -56,11 +57,62 @@ function jobOrientationalTotal(
   job: UnbilledJob,
   billFine: boolean,
   effectiveMarkupFor: (m: UnbilledMaterial) => number,
+  labourBillingMode: LabourBillingMode,
 ): number {
-  let total = (job.price ?? 0) + (job.transportCost ?? 0) + (job.parking ?? 0);
-  total += jobMaterialTotalWithMarkup(job, effectiveMarkupFor);
+  let total =
+    jobLabourAmount(job, labourBillingMode) +
+    (job.transportCost ?? 0) +
+    (job.parking ?? 0);
+  const materialsAreIncluded =
+    job.pricingMode !== "fixed_price" ||
+    (labourBillingMode !== "automatic" &&
+      labourBillingMode !== "job_price");
+  if (materialsAreIncluded) {
+    total += jobMaterialTotalWithMarkup(job, effectiveMarkupFor);
+  }
   if (billFine) total += job.fines ?? 0;
   return total;
+}
+
+function jobUsesRecordedWork(
+  job: UnbilledJob,
+  labourBillingMode: LabourBillingMode,
+): boolean {
+  if (labourBillingMode === "recorded_time") return true;
+  return (
+    labourBillingMode === "automatic" &&
+    job.pricingMode !== "fixed_price" &&
+    job.recordedWork.sessionCount > 0
+  );
+}
+
+function activityUsesRecordedWork(
+  activity: UnbilledActivity,
+  labourBillingMode: LabourBillingMode,
+): boolean {
+  return (
+    labourBillingMode === "recorded_time" ||
+    (labourBillingMode === "automatic" &&
+      activity.recordedWork.sessionCount > 0)
+  );
+}
+
+function jobLabourAmount(
+  job: UnbilledJob,
+  labourBillingMode: LabourBillingMode,
+): number {
+  if (labourBillingMode === "none") return 0;
+  if (jobUsesRecordedWork(job, labourBillingMode)) {
+    return job.recordedWork.amount;
+  }
+  if (
+    job.pricingMode === "fixed_price" &&
+    (labourBillingMode === "automatic" ||
+      labourBillingMode === "job_price")
+  ) {
+    return job.contractPrice ?? job.price ?? 0;
+  }
+  return job.price ?? 0;
 }
 
 /** Material subtotal (purchase price, no markup) for a single activity. */
@@ -138,7 +190,8 @@ export default function BillingUnbilledDetail() {
   // tables with colliding ids, so the namespace keeps their overrides distinct.
   // Stored as raw strings; an absent/blank entry means "use category → default".
   const [materialMarkup, setMaterialMarkup] = useState<Record<string, string>>({});
-  const [labourBillingMode, setLabourBillingMode] = useState<"job_price" | "recorded_time" | "none">("job_price");
+  const [labourBillingMode, setLabourBillingMode] =
+    useState<LabourBillingMode>("automatic");
   const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">("summary");
 
   type MaterialSource = "material" | "activity_material";
@@ -229,22 +282,45 @@ export default function BillingUnbilledDetail() {
     () => {
       const base = jobs
         .filter((j) => isChecked(j.id))
-        .reduce((sum, j) => sum + jobOrientationalTotal(j, !!fines[j.id], jobMarkupFor), 0) +
+        .reduce(
+          (sum, j) =>
+            sum +
+            jobOrientationalTotal(
+              j,
+              !!fines[j.id],
+              jobMarkupFor,
+              labourBillingMode,
+            ),
+          0,
+        ) +
       activities
         .filter((a) => isActivityChecked(a.id))
-        .reduce((sum, a) => sum + activityOrientationalTotal(a, activityMarkupFor), 0);
-      const selectedJobs = jobs.filter((job) => isChecked(job.id));
-      const selectedActs = activities.filter((activity) => isActivityChecked(activity.id));
-      const removedJobPrice = labourBillingMode === "job_price" ? 0 : selectedJobs.reduce((sum, job) => sum + (job.price ?? 0), 0);
-      const recorded = labourBillingMode === "recorded_time"
-        ? selectedJobs.reduce((sum, job) => sum + job.recordedWork.amount, 0) + selectedActs.reduce((sum, activity) => sum + activity.recordedWork.amount, 0)
-        : 0;
-      return base - removedJobPrice + recorded;
+        .reduce(
+          (sum, a) =>
+            sum +
+            activityOrientationalTotal(a, activityMarkupFor) +
+            (activityUsesRecordedWork(a, labourBillingMode)
+              ? a.recordedWork.amount
+              : 0),
+          0,
+        );
+      return base;
     },
     [jobs, activities, selected, selectedActivities, fines, markupPercent, materialMarkup, labourBillingMode],
   );
 
-  const selectedRecordedWork = [...jobs.filter((job) => isChecked(job.id)), ...activities.filter((activity) => isActivityChecked(activity.id))];
+  const selectedRecordedWork = [
+    ...jobs.filter(
+      (job) =>
+        isChecked(job.id) &&
+        jobUsesRecordedWork(job, labourBillingMode),
+    ),
+    ...activities.filter(
+      (activity) =>
+        isActivityChecked(activity.id) &&
+        activityUsesRecordedWork(activity, labourBillingMode),
+    ),
+  ];
   const recordedWorkBlockers = selectedRecordedWork.reduce(
     (sum, item) => sum + item.recordedWork.missingRateCount + item.recordedWork.needsReviewCount,
     0,
@@ -402,13 +478,13 @@ export default function BillingUnbilledDetail() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4" /> Způsob fakturace práce</div>
-            <div className="text-xs text-muted-foreground mt-0.5">Pevná cena zakázky zůstává výchozí; skutečný čas použije historické sazby session.</div>
+            <div className="text-xs text-muted-foreground mt-0.5">Automaticky zachová smluvní cenu; u zakázek čas a materiál použije zaznamenané hodiny a jejich historické sazby.</div>
           </div>
-          <div className="inline-flex rounded-md border p-1 bg-muted/30">
-            {([['job_price', 'Cena zakázky'], ['recorded_time', 'Skutečný čas'], ['none', 'Bez práce']] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={labourBillingMode === value ? "default" : "ghost"} onClick={() => setLabourBillingMode(value)}>{label}</Button>)}
+          <div className="inline-flex flex-wrap rounded-md border p-1 bg-muted/30">
+            {([['automatic', 'Automaticky'], ['job_price', 'Cena zakázky'], ['recorded_time', 'Skutečný čas'], ['none', 'Bez práce']] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={labourBillingMode === value ? "default" : "ghost"} onClick={() => setLabourBillingMode(value)}>{label}</Button>)}
           </div>
         </div>
-        {labourBillingMode === "recorded_time" && <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        {(labourBillingMode === "automatic" || labourBillingMode === "recorded_time") && <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm">Vybráno {selectedRecordedWork.reduce((sum, item) => sum + item.recordedWork.hours, 0).toLocaleString("cs-CZ")} h za {fmtKc(selectedRecordedWork.reduce((sum, item) => sum + item.recordedWork.amount, 0), 2)}</div>
           <div className="inline-flex rounded-md border p-1"><Button size="sm" variant={workGrouping === "summary" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("summary")}>Souhrnně</Button><Button size="sm" variant={workGrouping === "worker" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("worker")}>Podle pracovníků</Button></div>
           {recordedWorkBlockers > 0 && <div className="w-full text-sm text-amber-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" /> {recordedWorkBlockers} časových záznamů vyžaduje doplnění sazby nebo kontrolu.</div>}
@@ -460,8 +536,26 @@ export default function BillingUnbilledDetail() {
                       )}
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 mt-2 text-sm">
-                      <PriceItem label={labourBillingMode === "recorded_time" ? `Práce (${job.recordedWork.hours} h)` : "Práce"} value={labourBillingMode === "recorded_time" ? job.recordedWork.amount : labourBillingMode === "none" ? 0 : job.price} />
-                      <PriceItem label="Doprava" value={job.transportCost} />
+                      <PriceItem
+                        label={
+                          jobUsesRecordedWork(job, labourBillingMode)
+                            ? `Práce (${job.recordedWork.hours} h)`
+                            : job.pricingMode === "fixed_price" &&
+                                (labourBillingMode === "automatic" ||
+                                  labourBillingMode === "job_price")
+                              ? "Smluvní cena"
+                              : "Práce"
+                        }
+                        value={jobLabourAmount(job, labourBillingMode)}
+                      />
+                      <PriceItem
+                        label={
+                          job.transportCostCalculated
+                            ? `Doprava (${job.transportKm ?? 0} km × ${job.transportRatePerKm ?? 0} Kč)`
+                            : "Doprava"
+                        }
+                        value={job.transportCost}
+                      />
                       <PriceItem label="Parkování" value={job.parking} />
                       {(job.fines ?? 0) > 0 && (
                         <PriceItem label="Pokuty" value={job.fines} muted={!fines[job.id]} />
@@ -561,9 +655,12 @@ export default function BillingUnbilledDetail() {
                   <div className="text-right shrink-0">
                     <div className="font-bold">
                       {fmtKc(
-                        jobOrientationalTotal(job, !!fines[job.id], jobMarkupFor)
-                          - (labourBillingMode === "job_price" ? 0 : (job.price ?? 0))
-                          + (labourBillingMode === "recorded_time" ? job.recordedWork.amount : 0),
+                        jobOrientationalTotal(
+                          job,
+                          !!fines[job.id],
+                          jobMarkupFor,
+                          labourBillingMode,
+                        ),
                         0,
                       )}
                     </div>
@@ -605,7 +702,7 @@ export default function BillingUnbilledDetail() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {fmtDate(activity.completedAt)}
                     </p>
-                    {labourBillingMode === "recorded_time" && activity.recordedWork.sessionCount > 0 && (
+                    {activityUsesRecordedWork(activity, labourBillingMode) && activity.recordedWork.sessionCount > 0 && (
                       <p className="text-sm mt-2"><span className="text-muted-foreground">Práce: </span><span className="font-medium">{activity.recordedWork.hours} h · {fmtKc(activity.recordedWork.amount, 2)}</span></p>
                     )}
                     {activity.extraWorks.length > 0 && (
@@ -694,7 +791,7 @@ export default function BillingUnbilledDetail() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="font-bold">
-                      {fmtKc(activityOrientationalTotal(activity, activityMarkupFor) + (labourBillingMode === "recorded_time" ? activity.recordedWork.amount : 0), 0)}
+                      {fmtKc(activityOrientationalTotal(activity, activityMarkupFor) + (activityUsesRecordedWork(activity, labourBillingMode) ? activity.recordedWork.amount : 0), 0)}
                     </div>
                   </div>
                 </div>
@@ -814,7 +911,7 @@ export default function BillingUnbilledDetail() {
                 chosenActivityIds.length === 0 &&
                 costLines.length === 0) ||
               createInvoice.isPending
-              || (labourBillingMode === "recorded_time" && recordedWorkBlockers > 0)
+              || ((labourBillingMode === "automatic" || labourBillingMode === "recorded_time") && recordedWorkBlockers > 0)
             }
             className="h-11"
           >

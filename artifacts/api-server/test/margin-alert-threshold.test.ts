@@ -34,10 +34,12 @@ import warehouseRouter from "../src/routes/warehouse-items";
 let server: Server;
 let baseUrl: string;
 let originalThreshold: string | null = null;
+let originalTransportRate: string | null = null;
 
 beforeAll(async () => {
   const existing = await ensureBillingSettings();
   originalThreshold = existing.marginAlertThresholdPercent;
+  originalTransportRate = existing.transportRatePerKm;
 
   const app = express();
   app.use(express.json());
@@ -70,7 +72,10 @@ afterAll(async () => {
   // Restore the singleton to its pre-test value.
   await db
     .update(billingSettingsTable)
-    .set({ marginAlertThresholdPercent: originalThreshold ?? "0" })
+    .set({
+      marginAlertThresholdPercent: originalThreshold ?? "0",
+      transportRatePerKm: originalTransportRate ?? "0",
+    })
     .where(eq(billingSettingsTable.id, 1));
   if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
@@ -88,6 +93,32 @@ async function getSettings(): Promise<{ marginAlertThresholdPercent: number }> {
   expect(res.status).toBe(200);
   return res.json();
 }
+
+async function putTransportRate(value: number): Promise<Response> {
+  return fetch(`${baseUrl}/billing/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ transportRatePerKm: value }),
+  });
+}
+
+describe("PUT/GET /billing/settings transportRatePerKm", () => {
+  it("persists and rounds the default kilometre rate", async () => {
+    const put = await putTransportRate(32.456);
+    expect(put.status).toBe(200);
+    const putBody = await put.json();
+    expect(putBody.transportRatePerKm).toBe(32.46);
+
+    const get = await fetch(`${baseUrl}/billing/settings`);
+    expect(get.status).toBe(200);
+    expect((await get.json()).transportRatePerKm).toBe(32.46);
+  });
+
+  it("rejects a negative kilometre rate", async () => {
+    const put = await putTransportRate(-1);
+    expect(put.status).toBe(400);
+  });
+});
 
 describe("PUT/GET /billing/settings marginAlertThresholdPercent", () => {
   it("persists a positive threshold and returns it on GET", async () => {

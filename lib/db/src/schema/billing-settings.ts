@@ -36,6 +36,11 @@ export const billingSettingsTable = pgTable("billing_settings", {
   materialMarkupPercent: numeric("material_markup_percent", { precision: 6, scale: 2 })
     .notNull()
     .default("0"),
+  // Default customer-facing transport rate. A positive per-job transport cost
+  // remains an explicit override; otherwise invoicing uses km * this rate.
+  transportRatePerKm: numeric("transport_rate_per_km", { precision: 10, scale: 2 })
+    .notNull()
+    .default("0"),
   // Operator-configurable margin warning threshold (in percent). The job-detail
   // warehouse margin alert fires when the cumulative margin drops below this
   // value. Default 0 = warn only on a negative margin; a positive floor (e.g. 5)

@@ -5884,7 +5884,7 @@ export const GetBillingSummaryResponse = zod.object({
   "unbilledActivities": zod.number().describe('Count of completed actions (dlouhodobé akce) not yet on a non-cancelled invoice'),
   "draftInvoices": zod.number(),
   "issuedInvoices": zod.number(),
-  "totalToInvoiceWithoutVat": zod.number().describe('Orientational sum (price+transportCost+parking) of unbilled done jobs'),
+  "totalToInvoiceWithoutVat": zod.number().describe('Orientational automatic-billing sum of unbilled work, materials, transport and parking'),
   "issuedThisMonthWithVat": zod.number(),
   "paidThisMonthCount": zod.number().describe('Count of non-cancelled invoices whose payment date (paidDate) is this month'),
   "paidThisMonthWithVat": zod.number().describe('Cash received this month by payment date (paidAmount, else invoice total)'),
@@ -6009,6 +6009,10 @@ export const ConfirmBankPaymentsResponse = zod.object({
 /**
  * @summary Get invoicing settings (admin only)
  */
+export const getBillingSettingsResponseTransportRatePerKmMin = 0;
+
+
+
 export const GetBillingSettingsResponse = zod.object({
   "id": zod.number(),
   "supplierName": zod.string(),
@@ -6026,6 +6030,7 @@ export const GetBillingSettingsResponse = zod.object({
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
   "invoiceFooterNote": zod.string().nullish(),
   "materialMarkupPercent": zod.number().optional().describe('Default percent markup applied to material lines when proposing an invoice (0 = no markup)'),
+  "transportRatePerKm": zod.number().min(getBillingSettingsResponseTransportRatePerKmMin).describe('Default customer-facing transport price per kilometre, used when a job has no explicit transport cost'),
   "marginAlertThresholdPercent": zod.number().optional().describe('Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin)'),
   "numberPrefix": zod.string(),
   "numberFormat": zod.string(),
@@ -6042,6 +6047,10 @@ export const GetBillingSettingsResponse = zod.object({
 /**
  * @summary Update invoicing settings (admin only)
  */
+export const updateBillingSettingsBodyTransportRatePerKmMin = 0;
+
+
+
 export const UpdateBillingSettingsBody = zod.object({
   "supplierName": zod.string().nullish(),
   "supplierIc": zod.string().nullish(),
@@ -6058,6 +6067,7 @@ export const UpdateBillingSettingsBody = zod.object({
   "vatModeDefault": zod.string().nullish(),
   "invoiceFooterNote": zod.string().nullish(),
   "materialMarkupPercent": zod.number().nullish().describe('Default percent markup applied to material lines (0 = no markup)'),
+  "transportRatePerKm": zod.number().min(updateBillingSettingsBodyTransportRatePerKmMin).nullish().describe('Default customer-facing transport price per kilometre'),
   "marginAlertThresholdPercent": zod.number().nullish().describe('Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)'),
   "numberPrefix": zod.string().nullish(),
   "numberFormat": zod.string().nullish(),
@@ -6068,6 +6078,10 @@ export const UpdateBillingSettingsBody = zod.object({
   "quoteNumberPrefix": zod.string().nullish(),
   "quoteNumberNextSeq": zod.number().nullish()
 })
+
+export const updateBillingSettingsResponseTransportRatePerKmMin = 0;
+
+
 
 export const UpdateBillingSettingsResponse = zod.object({
   "id": zod.number(),
@@ -6086,6 +6100,7 @@ export const UpdateBillingSettingsResponse = zod.object({
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
   "invoiceFooterNote": zod.string().nullish(),
   "materialMarkupPercent": zod.number().optional().describe('Default percent markup applied to material lines when proposing an invoice (0 = no markup)'),
+  "transportRatePerKm": zod.number().min(updateBillingSettingsResponseTransportRatePerKmMin).describe('Default customer-facing transport price per kilometre, used when a job has no explicit transport cost'),
   "marginAlertThresholdPercent": zod.number().optional().describe('Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin)'),
   "numberPrefix": zod.string(),
   "numberFormat": zod.string(),
@@ -6182,8 +6197,12 @@ export const GetUnbilledCustomerDetailResponse = zod.object({
   "type": zod.string().nullish(),
   "status": zod.string(),
   "price": zod.number().nullish(),
+  "pricingMode": zod.enum(['time_material', 'fixed_price']).optional(),
+  "contractPrice": zod.number().nullish(),
   "transportKm": zod.number().nullish(),
-  "transportCost": zod.number().nullish(),
+  "transportCost": zod.number().nullish().describe('Effective transport cost; explicit job override or kilometres multiplied by the current default rate'),
+  "transportCostCalculated": zod.boolean().optional().describe('True when transportCost was calculated from kilometres and the default rate'),
+  "transportRatePerKm": zod.number().optional().describe('Default rate used for the calculated transport cost'),
   "parking": zod.number().nullish(),
   "fines": zod.number().nullish(),
   "daysUnbilled": zod.number().nullish().describe('Calendar days since the job date (null if date is missing)'),
@@ -6321,7 +6340,7 @@ export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
 /**
  * @summary Create a draft invoice (admin only); does not change job status
  */
-export const createInvoiceBodyLabourBillingModeDefault = `job_price`;
+export const createInvoiceBodyLabourBillingModeDefault = `automatic`;
 export const createInvoiceBodyWorkGroupingDefault = `summary`;
 export const createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
 
@@ -6332,7 +6351,7 @@ export const CreateInvoiceBody = zod.object({
   "customerId": zod.number(),
   "jobIds": zod.array(zod.number()).optional().describe('Done jobs to auto-propose lines from (práce\/doprava\/parkování\/materiál)'),
   "activityIds": zod.array(zod.number()).optional().describe('Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál)'),
-  "labourBillingMode": zod.enum(['job_price', 'recorded_time', 'none']).default(createInvoiceBodyLabourBillingModeDefault).describe('Source of labour lines; recorded_time reserves immutable work sessions'),
+  "labourBillingMode": zod.enum(['automatic', 'job_price', 'recorded_time', 'none']).default(createInvoiceBodyLabourBillingModeDefault).describe('Source of labour lines. automatic uses the contract price for fixed-price jobs, recorded time when a time-and-material job has completed sessions, and the legacy job price otherwise. recorded_time reserves immutable work sessions.'),
   "workGrouping": zod.enum(['summary', 'worker']).default(createInvoiceBodyWorkGroupingDefault).describe('Group recorded-time lines by rate only or by worker and rate'),
   "billFineJobIds": zod.array(zod.number()).optional().describe('Subset of jobIds whose fines should also be billed (explicit opt-in)'),
   "materialMarkupPercent": zod.number().nullish().describe('Percent markup applied to auto-proposed material lines; defaults to the billing settings value when omitted'),

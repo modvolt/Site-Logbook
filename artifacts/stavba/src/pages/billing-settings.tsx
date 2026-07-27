@@ -83,6 +83,7 @@ type Form = {
   vatModeDefault: string;
   invoiceFooterNote: string;
   materialMarkupPercent: string;
+  transportRatePerKm: string;
   marginAlertThresholdPercent: string;
   numberPrefix: string;
   numberFormat: string;
@@ -111,6 +112,7 @@ function toForm(s: BillingSettings): Form {
     vatModeDefault: s.vatModeDefault,
     invoiceFooterNote: s.invoiceFooterNote ?? "",
     materialMarkupPercent: String(s.materialMarkupPercent ?? 0),
+    transportRatePerKm: String(s.transportRatePerKm ?? 0),
     marginAlertThresholdPercent: String(s.marginAlertThresholdPercent ?? 0),
     numberPrefix: s.numberPrefix ?? "",
     numberFormat: s.numberFormat ?? "",
@@ -302,6 +304,7 @@ export default function BillingSettings() {
           vatModeDefault: form.vatModeDefault,
           invoiceFooterNote: trimOrNull(form.invoiceFooterNote),
           materialMarkupPercent: parseDecimal(form.materialMarkupPercent),
+          transportRatePerKm: parseDecimal(form.transportRatePerKm),
           marginAlertThresholdPercent: parseDecimal(form.marginAlertThresholdPercent),
           numberPrefix: trimOrNull(form.numberPrefix),
           numberFormat: trimOrNull(form.numberFormat),
@@ -347,6 +350,7 @@ export default function BillingSettings() {
   const formErrors = {
     defaultDueDays: decimalError(form.defaultDueDays, { positiveOnly: true }),
     materialMarkupPercent: decimalError(form.materialMarkupPercent),
+    transportRatePerKm: decimalError(form.transportRatePerKm),
     marginAlertThresholdPercent: decimalError(form.marginAlertThresholdPercent, { allowNegative: true }),
     numberYear: decimalError(form.numberYear, { positiveOnly: true }),
     numberNextSeq: decimalError(form.numberNextSeq, { positiveOnly: true }),
@@ -629,6 +633,19 @@ export default function BillingSettings() {
                   Procentní marže přičtená k nákupní ceně materiálu při fakturaci.
                   0 = bez přirážky. Lze upravit i při vytváření konkrétní faktury.
                   Netýká se práce, dopravy ani pokut.
+                </p>
+              </Field>
+              <Field label="Cena dopravy za kilometr (Kč/km)">
+                <DecimalInput
+                  value={form.transportRatePerKm}
+                  onChange={(v) => set("transportRatePerKm", v)}
+                  className="max-w-[160px]"
+                  error={formErrors.transportRatePerKm}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Použije se u dokončených nevyfakturovaných zakázek, které mají
+                  zadané kilometry a nemají ručně určenou cenu dopravy. Již
+                  vystavené faktury se nepřepočítají.
                 </p>
               </Field>
               <Field label="Prahová hodnota marže (%)">

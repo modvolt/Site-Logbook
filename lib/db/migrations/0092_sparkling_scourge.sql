@@ -1,0 +1,1 @@
+ALTER TABLE "billing_settings" ADD COLUMN "transport_rate_per_km" numeric(10, 2) DEFAULT '0' NOT NULL;

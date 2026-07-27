@@ -12,13 +12,17 @@ import {
   workSessionsTable,
   workSessionBillingLinksTable,
   invoiceLinesTable,
+  materialsTable,
 } from "@workspace/db";
 import {
   createDraft,
   issueInvoice,
   cancelInvoice,
+  ensureBillingSettings,
   getUnbilledCustomerDetail,
   deleteDraft,
+  listUnbilledCustomers,
+  updateBillingSettings,
 } from "../src/lib/invoice-service";
 
 /**
@@ -45,6 +49,7 @@ let customerId: number;
 const jobIds: number[] = [];
 const invoiceIds: number[] = [];
 const personIds: number[] = [];
+let originalTransportRatePerKm = 0;
 
 async function makeDoneJob(): Promise<number> {
   const [job] = await db
@@ -63,6 +68,9 @@ async function makeDoneJob(): Promise<number> {
 }
 
 beforeAll(async () => {
+  const settings = await ensureBillingSettings();
+  originalTransportRatePerKm = Number(settings.transportRatePerKm);
+
   const [user] = await db
     .insert(usersTable)
     .values({
@@ -98,9 +106,15 @@ afterEach(async () => {
     await db.delete(jobsTable).where(inArray(jobsTable.id, jobIds));
     jobIds.length = 0;
   }
+  await updateBillingSettings({
+    transportRatePerKm: originalTransportRatePerKm,
+  });
 });
 
 afterAll(async () => {
+  await updateBillingSettings({
+    transportRatePerKm: originalTransportRatePerKm,
+  });
   if (customerId)
     await db.delete(customersTable).where(eq(customersTable.id, customerId));
   if (actor.userId)
@@ -108,6 +122,203 @@ afterAll(async () => {
 });
 
 describe("job invoice lifecycle (issue / storno) end-to-end", () => {
+  it("uses recorded work by default and carries transport and materials into the draft", async () => {
+    await updateBillingSettings({ transportRatePerKm: 30 });
+    const jobId = await makeDoneJob();
+    await db
+      .update(jobsTable)
+      .set({
+        price: "0",
+        pricingMode: "time_material",
+        transportKm: "42",
+        transportCost: "0",
+      })
+      .where(eq(jobsTable.id, jobId));
+    await db.insert(materialsTable).values({
+      jobId,
+      name: `Kabel ${TAG}`,
+      quantity: "2",
+      unit: "ks",
+      pricePerUnit: "500",
+      done: true,
+    });
+
+    const [person] = await db
+      .insert(peopleTable)
+      .values({ name: `Pracovník ${TAG}` })
+      .returning();
+    personIds.push(person.id);
+    const [rate] = await db
+      .insert(personHourlyRatesTable)
+      .values({
+        personId: person.id,
+        validFrom: "2026-01-01",
+        costRate: "500",
+        saleRate: "800",
+        reason: "Testovací sazba",
+        createdByUserId: actor.userId,
+      })
+      .returning();
+    await db.insert(workSessionsTable).values({
+      personId: person.id,
+      parentType: "job",
+      parentIdSnapshot: jobId,
+      jobId,
+      startedAt: new Date("2026-06-27T08:00:00Z"),
+      endedAt: new Date("2026-06-27T11:00:00Z"),
+      durationSeconds: 10_800,
+      status: "completed",
+      source: "manual",
+      hourlyRateId: rate.id,
+      costRateSnapshot: "500",
+      saleRateSnapshot: "800",
+    });
+
+    const customerSummaryBefore = (await listUnbilledCustomers()).find(
+      (row) => row.customerId === customerId,
+    );
+    expect(customerSummaryBefore?.orientationalTotal).toBe(4660);
+
+    const draft = await createDraft(
+      {
+        customerId,
+        jobIds: [jobId],
+        materialMarkupPercent: 0,
+      },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+    const lines = await db
+      .select()
+      .from(invoiceLinesTable)
+      .where(eq(invoiceLinesTable.invoiceId, draft.id));
+
+    expect(
+      lines.some(
+        (line) =>
+          line.sourceType === "work_session" &&
+          Number(line.quantity) === 3 &&
+          Number(line.unitPriceWithoutVat) === 800,
+      ),
+    ).toBe(true);
+    expect(
+      lines.some(
+        (line) =>
+          line.sourceType === "transport" &&
+          line.description.includes("42 km") &&
+          Number(line.totalWithoutVat) === 1260,
+      ),
+    ).toBe(true);
+    expect(
+      lines.some(
+        (line) =>
+          line.sourceType === "material" &&
+          Number(line.quantity) === 2 &&
+          Number(line.unitPriceWithoutVat) === 500,
+      ),
+    ).toBe(true);
+    expect(
+      lines.some((line) => line.sourceType === "job"),
+    ).toBe(false);
+    expect(draft.subtotalWithoutVat).toBe(4660);
+
+    const customerSummaryAfter = (await listUnbilledCustomers()).find(
+      (row) => row.customerId === customerId,
+    );
+    expect(customerSummaryAfter).toBeUndefined();
+  });
+
+  it("keeps an explicit job transport cost instead of the default kilometre rate", async () => {
+    await updateBillingSettings({ transportRatePerKm: 30 });
+    const jobId = await makeDoneJob();
+    await db
+      .update(jobsTable)
+      .set({
+        price: "0",
+        pricingMode: "time_material",
+        transportKm: "10",
+        transportCost: "500",
+      })
+      .where(eq(jobsTable.id, jobId));
+
+    const detail = await getUnbilledCustomerDetail(customerId);
+    const detailJob = detail.jobs.find((job) => job.id === jobId);
+    expect(detailJob?.transportCost).toBe(500);
+    expect(detailJob?.transportCostCalculated).toBe(false);
+
+    const draft = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(draft.id);
+    const lines = await db
+      .select()
+      .from(invoiceLinesTable)
+      .where(eq(invoiceLinesTable.invoiceId, draft.id));
+    const transportLine = lines.find(
+      (line) => line.sourceType === "transport",
+    );
+    expect(Number(transportLine?.totalWithoutVat)).toBe(500);
+  });
+
+  it("keeps a fixed-price job on its contract price in automatic mode", async () => {
+    const jobId = await makeDoneJob();
+    await db
+      .update(jobsTable)
+      .set({
+        pricingMode: "fixed_price",
+        contractPrice: "9000",
+        price: "9000",
+      })
+      .where(eq(jobsTable.id, jobId));
+
+    const [person] = await db
+      .insert(peopleTable)
+      .values({ name: `Pracovník ${TAG}` })
+      .returning();
+    personIds.push(person.id);
+    const [rate] = await db
+      .insert(personHourlyRatesTable)
+      .values({
+        personId: person.id,
+        validFrom: "2026-01-01",
+        costRate: "500",
+        saleRate: "800",
+        reason: "Testovací sazba",
+        createdByUserId: actor.userId,
+      })
+      .returning();
+    await db.insert(workSessionsTable).values({
+      personId: person.id,
+      parentType: "job",
+      parentIdSnapshot: jobId,
+      jobId,
+      startedAt: new Date("2026-06-27T08:00:00Z"),
+      endedAt: new Date("2026-06-27T11:00:00Z"),
+      durationSeconds: 10_800,
+      status: "completed",
+      source: "manual",
+      hourlyRateId: rate.id,
+      costRateSnapshot: "500",
+      saleRateSnapshot: "800",
+    });
+
+    const draft = await createDraft({ customerId, jobIds: [jobId] }, actor);
+    invoiceIds.push(draft.id);
+    const lines = await db
+      .select()
+      .from(invoiceLinesTable)
+      .where(eq(invoiceLinesTable.invoiceId, draft.id));
+
+    expect(
+      lines.some(
+        (line) =>
+          line.sourceType === "job" &&
+          Number(line.totalWithoutVat) === 9000,
+      ),
+    ).toBe(true);
+    expect(
+      lines.some((line) => line.sourceType === "work_session"),
+    ).toBe(false);
+  });
+
   it("reserves recorded sessions once and releases them when the draft is deleted", async () => {
     const jobId = await makeDoneJob();
     const [person] = await db.insert(peopleTable).values({ name: `Pracovník ${TAG}` }).returning();

@@ -7,6 +7,9 @@ import {
   invoicesTable,
   billingDocumentsTable,
   billingDocumentLinesTable,
+  jobsTable,
+  materialsTable,
+  invoiceLinesTable,
 } from "@workspace/db";
 import { createDraft, deleteDraft, cancelInvoice } from "../src/lib/invoice-service";
 import {
@@ -38,6 +41,7 @@ const actor = { userId: 0, name: "Test Runner" };
 let customerId: number;
 const docIds: number[] = [];
 const invoiceIds: number[] = [];
+const jobIds: number[] = [];
 
 async function makeApprovedDoc(opts: {
   documentNumber?: string | null;
@@ -131,6 +135,10 @@ afterEach(async () => {
       .where(inArray(billingDocumentsTable.id, docIds));
     docIds.length = 0;
   }
+  if (jobIds.length) {
+    await db.delete(jobsTable).where(inArray(jobsTable.id, jobIds));
+    jobIds.length = 0;
+  }
 });
 
 afterAll(async () => {
@@ -141,6 +149,85 @@ afterAll(async () => {
 });
 
 describe("cost-document line reservation roundtrip", () => {
+  it("does not offer or invoice a received-document line twice after it was propagated to job material", async () => {
+    const [job] = await db
+      .insert(jobsTable)
+      .values({
+        title: `Zakázka ${TAG}`,
+        type: "other",
+        date: "2026-06-27",
+        status: "done",
+        customerId,
+      })
+      .returning();
+    jobIds.push(job.id);
+    const { lineId } = await makeApprovedDoc({ withLine: true });
+    expect(lineId).not.toBeNull();
+    await db
+      .update(billingDocumentLinesTable)
+      .set({ jobId: job.id, lineType: "material" })
+      .where(eq(billingDocumentLinesTable.id, lineId!));
+    const [material] = await db
+      .insert(materialsTable)
+      .values({
+        jobId: job.id,
+        name: `Materiál ${TAG}`,
+        quantity: "2",
+        unit: "ks",
+        pricePerUnit: "500",
+        done: true,
+        sourceType: "billing_document_line",
+        sourceId: lineId!,
+      })
+      .returning();
+
+    const offered = await getApprovedLinesForCustomer(customerId);
+    expect(offered.map((line) => line.id)).not.toContain(lineId);
+
+    const draft = await createDraft(
+      {
+        customerId,
+        jobIds: [job.id],
+        materialMarkupPercent: 0,
+        lines: [
+          {
+            description: `Materiál ${TAG}`,
+            quantity: 2,
+            unitPriceWithoutVat: 500,
+            sourceType: "billing_document_line",
+            sourceId: lineId!,
+          },
+          {
+            description: `Materiál ${TAG}`,
+            quantity: 2,
+            unitPriceWithoutVat: 500,
+            sourceType: "billing_document_line",
+            sourceId: lineId!,
+          },
+        ],
+      },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+    const lines = await db
+      .select()
+      .from(invoiceLinesTable)
+      .where(eq(invoiceLinesTable.invoiceId, draft.id));
+
+    expect(
+      lines.filter(
+        (line) =>
+          line.sourceType === "material" &&
+          line.sourceId === material.id,
+      ),
+    ).toHaveLength(1);
+    expect(
+      lines.filter((line) => line.sourceType === "billing_document_line"),
+    ).toHaveLength(0);
+    expect(draft.subtotalWithoutVat).toBe(1000);
+    expect(await lineReservation(lineId!)).toBeNull();
+  });
+
   it("reserves an approved line when it is pulled onto a draft, then releases it on draft delete", async () => {
     const { lineId } = await makeApprovedDoc({ withLine: true });
     expect(lineId).not.toBeNull();

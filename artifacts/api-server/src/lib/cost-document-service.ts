@@ -5341,12 +5341,28 @@ export async function getApprovedLinesForCustomer(customerId: number) {
       eq(billingDocumentLinesTable.documentId, billingDocumentsTable.id),
     )
     .leftJoin(jobsTable, eq(billingDocumentLinesTable.jobId, jobsTable.id))
+    .leftJoin(
+      materialsTable,
+      and(
+        eq(materialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+        eq(materialsTable.sourceId, billingDocumentLinesTable.id),
+      ),
+    )
+    .leftJoin(
+      activityMaterialsTable,
+      and(
+        eq(activityMaterialsTable.sourceType, MATERIAL_SOURCE_TYPE),
+        eq(activityMaterialsTable.sourceId, billingDocumentLinesTable.id),
+      ),
+    )
     .where(
       and(
         eq(billingDocumentsTable.status, "approved"),
         eq(billingDocumentLinesTable.approved, 1),
         eq(billingDocumentLinesTable.allocationType, REBILL_ALLOC),
         isNull(billingDocumentLinesTable.invoicedInvoiceId),
+        isNull(materialsTable.id),
+        isNull(activityMaterialsTable.id),
         or(
           eq(billingDocumentsTable.customerId, customerId),
           eq(jobsTable.customerId, customerId),

@@ -4245,7 +4245,7 @@ export interface BillingSummary {
   unbilledActivities: number;
   draftInvoices: number;
   issuedInvoices: number;
-  /** Orientational sum (price+transportCost+parking) of unbilled done jobs */
+  /** Orientational automatic-billing sum of unbilled work, materials, transport and parking */
   totalToInvoiceWithoutVat: number;
   issuedThisMonthWithVat: number;
   /** Count of non-cancelled invoices whose payment date (paidDate) is this month */
@@ -4441,6 +4441,11 @@ export interface BillingSettings {
   invoiceFooterNote?: string | null;
   /** Default percent markup applied to material lines when proposing an invoice (0 = no markup) */
   materialMarkupPercent?: number;
+  /**
+     * Default customer-facing transport price per kilometre, used when a job has no explicit transport cost
+     * @minimum 0
+     */
+  transportRatePerKm: number;
   /** Margin warning threshold in percent; the job-detail warehouse margin alert fires when the cumulative margin drops below this value (0 = warn only on a negative margin) */
   marginAlertThresholdPercent?: number;
   numberPrefix: string;
@@ -4489,6 +4494,12 @@ export interface BillingSettingsInput {
      * @nullable
      */
   materialMarkupPercent?: number | null;
+  /**
+     * Default customer-facing transport price per kilometre
+     * @minimum 0
+     * @nullable
+     */
+  transportRatePerKm?: number | null;
   /**
      * Margin warning threshold in percent for the job-detail margin alert (0 = warn only on a negative margin)
      * @nullable
@@ -4559,6 +4570,14 @@ export interface UnbilledCustomer {
   daysUnbilled?: number | null;
 }
 
+export type UnbilledJobPricingMode = typeof UnbilledJobPricingMode[keyof typeof UnbilledJobPricingMode];
+
+
+export const UnbilledJobPricingMode = {
+  time_material: 'time_material',
+  fixed_price: 'fixed_price',
+} as const;
+
 export interface UnbilledJobMaterial {
   id: number;
   name: string;
@@ -4599,10 +4618,20 @@ export interface UnbilledJob {
   status: string;
   /** @nullable */
   price?: number | null;
+  pricingMode?: UnbilledJobPricingMode;
+  /** @nullable */
+  contractPrice?: number | null;
   /** @nullable */
   transportKm?: number | null;
-  /** @nullable */
+  /**
+     * Effective transport cost; explicit job override or kilometres multiplied by the current default rate
+     * @nullable
+     */
   transportCost?: number | null;
+  /** True when transportCost was calculated from kilometres and the default rate */
+  transportCostCalculated?: boolean;
+  /** Default rate used for the calculated transport cost */
+  transportRatePerKm?: number;
   /** @nullable */
   parking?: number | null;
   /** @nullable */
@@ -4976,12 +5005,13 @@ export interface Invoice {
 }
 
 /**
- * Source of labour lines; recorded_time reserves immutable work sessions
+ * Source of labour lines. automatic uses the contract price for fixed-price jobs, recorded time when a time-and-material job has completed sessions, and the legacy job price otherwise. recorded_time reserves immutable work sessions.
  */
 export type InvoiceCreateInputLabourBillingMode = typeof InvoiceCreateInputLabourBillingMode[keyof typeof InvoiceCreateInputLabourBillingMode];
 
 
 export const InvoiceCreateInputLabourBillingMode = {
+  automatic: 'automatic',
   job_price: 'job_price',
   recorded_time: 'recorded_time',
   none: 'none',
@@ -5067,7 +5097,7 @@ export interface InvoiceCreateInput {
   jobIds?: number[];
   /** Completed actions (dlouhodobé akce) to auto-propose lines from (vícepráce + materiál) */
   activityIds?: number[];
-  /** Source of labour lines; recorded_time reserves immutable work sessions */
+  /** Source of labour lines. automatic uses the contract price for fixed-price jobs, recorded time when a time-and-material job has completed sessions, and the legacy job price otherwise. recorded_time reserves immutable work sessions. */
   labourBillingMode?: InvoiceCreateInputLabourBillingMode;
   /** Group recorded-time lines by rate only or by worker and rate */
   workGrouping?: InvoiceCreateInputWorkGrouping;

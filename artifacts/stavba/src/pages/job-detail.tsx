@@ -3792,23 +3792,30 @@ function CostsSection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { saved, flash } = useSaveFlash();
+  const { can } = useAuth();
+  const canManageFinance = can("billing.manage");
   
   const [costs, setCosts] = useState({
     transportKm: job.transportKm?.toString() || "",
+    transportCost: job.transportCost?.toString() || "",
     fines: job.fines?.toString() || "",
     parking: job.parking?.toString() || ""
   });
 
   const transportKmErr = decimalError(costs.transportKm);
+  const transportCostErr = decimalError(costs.transportCost);
   const parkingErr = decimalError(costs.parking);
   const finesErr = decimalError(costs.fines);
-  const costsHaveErrors = !!(transportKmErr || parkingErr || finesErr);
+  const costsHaveErrors = !!(transportKmErr || transportCostErr || parkingErr || finesErr);
 
   const handleSave = () => {
     const data = {
       transportKm: parseDecimal(costs.transportKm),
-      fines: parseDecimal(costs.fines),
-      parking: parseDecimal(costs.parking),
+      ...(canManageFinance ? {
+        transportCost: parseDecimal(costs.transportCost),
+        fines: parseDecimal(costs.fines),
+        parking: parseDecimal(costs.parking),
+      } : {}),
     };
     
     updateJob.mutate({ id: job.id, data }, {
@@ -3821,11 +3828,12 @@ function CostsSection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
     });
   };
 
-  const hasCosts = job.transportKm || job.fines || job.parking;
+  const hasCosts = job.transportKm || job.transportCost || job.fines || job.parking;
 
   const costsLabel = hasCosts
     ? [
         job.transportKm ? `${Number(job.transportKm)} km` : null,
+        job.transportCost ? `Doprava: ${Number(job.transportCost).toLocaleString("cs-CZ")} Kč` : null,
         job.parking ? `P: ${Number(job.parking).toLocaleString("cs-CZ")} Kč` : null,
         job.fines ? `Pok.: ${Number(job.fines).toLocaleString("cs-CZ")} Kč` : null,
       ].filter(Boolean).join(" • ")
@@ -3854,32 +3862,58 @@ function CostsSection({ job, isExpanded, onToggle, matHasUnsaved }: any) {
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">km</span>
             </div>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Parkování (Kč)</label>
-            <div className="relative">
-              <DecimalInput
-                value={costs.parking}
-                onChange={v => setCosts(prev => ({...prev, parking: v}))}
-                className="h-14 text-base pr-12"
-                placeholder="0"
-                error={parkingErr}
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
+          {canManageFinance && (
+            <div className="col-span-2 space-y-2">
+              <label className="text-sm font-bold text-muted-foreground">
+                Ruční cena dopravy k fakturaci (Kč)
+              </label>
+              <div className="relative">
+                <DecimalInput
+                  value={costs.transportCost}
+                  onChange={v => setCosts(prev => ({...prev, transportCost: v}))}
+                  className="h-14 text-base pr-12"
+                  placeholder="0"
+                  error={transportCostErr}
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Kladná částka přepíše výpočet podle kilometrů. Při prázdné
+                hodnotě nebo 0 fakturace použije výchozí cenu za kilometr z
+                nastavení fakturace.
+              </p>
             </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-muted-foreground">Pokuty (Kč)</label>
-            <div className="relative">
-              <DecimalInput
-                value={costs.fines}
-                onChange={v => setCosts(prev => ({...prev, fines: v}))}
-                className="h-14 text-base pr-12"
-                placeholder="0"
-                error={finesErr}
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
-            </div>
-          </div>
+          )}
+          {canManageFinance && (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-muted-foreground">Parkování (Kč)</label>
+                <div className="relative">
+                  <DecimalInput
+                    value={costs.parking}
+                    onChange={v => setCosts(prev => ({...prev, parking: v}))}
+                    className="h-14 text-base pr-12"
+                    placeholder="0"
+                    error={parkingErr}
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-muted-foreground">Pokuty (Kč)</label>
+                <div className="relative">
+                  <DecimalInput
+                    value={costs.fines}
+                    onChange={v => setCosts(prev => ({...prev, fines: v}))}
+                    className="h-14 text-base pr-12"
+                    placeholder="0"
+                    error={finesErr}
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Kč</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <Button 
           onClick={handleSave} 
