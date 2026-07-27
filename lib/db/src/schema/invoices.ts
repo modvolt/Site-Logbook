@@ -55,6 +55,11 @@ export const invoicesTable = pgTable(
     constantSymbol: text("constant_symbol"),
     specificSymbol: text("specific_symbol"),
     vatModeDefault: text("vat_mode_default").notNull().default("standard"),
+    // Customer-facing material layout: detailed | summary. Source invoice
+    // lines always remain detailed so billing and warehouse provenance is kept.
+    materialDisplayMode: text("material_display_mode")
+      .notNull()
+      .default("detailed"),
     subtotalWithoutVat: numeric("subtotal_without_vat", { precision: 12, scale: 2 })
       .notNull()
       .default("0"),

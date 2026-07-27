@@ -26,6 +26,10 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  InvoiceMaterialDisplayControl,
+  type MaterialDisplayMode,
+} from "@/components/invoice-material-display-control";
+import {
   Table,
   TableBody,
   TableCell,
@@ -61,6 +65,8 @@ export default function JobGroupDetail() {
   const [labourBillingMode, setLabourBillingMode] = useState<
     "job_price" | "recorded_time" | "none"
   >("job_price");
+  const [materialDisplayMode, setMaterialDisplayMode] =
+    useState<MaterialDisplayMode>("detailed");
 
   const detailQuery = useQuery({
     queryKey: ["job-groups", id],
@@ -204,6 +210,7 @@ export default function JobGroupDetail() {
           extraJobIds: Array.from(extraJobIds),
           labourBillingMode,
           workGrouping: "summary",
+          materialDisplayMode,
         },
       },
       {
@@ -561,6 +568,14 @@ export default function JobGroupDetail() {
                   automaticky. Koncept lze před vystavením zkontrolovat.
                 </p>
               </div>
+            )}
+
+            {extraJobIds.size > 0 && (
+              <InvoiceMaterialDisplayControl
+                value={materialDisplayMode}
+                onChange={setMaterialDisplayMode}
+                className="border-t pt-4"
+              />
             )}
           </div>
 

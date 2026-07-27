@@ -28,6 +28,10 @@ import {
 import { fmtKc, VAT_RATE_OPTIONS, VAT_HEADER_OPTIONS } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Plus, Trash2, AlertCircle } from "lucide-react";
+import {
+  InvoiceMaterialDisplayControl,
+  type MaterialDisplayMode,
+} from "@/components/invoice-material-display-control";
 
 function errMsg(err: unknown): string | undefined {
   if (err && typeof err === "object") {
@@ -133,6 +137,8 @@ export default function BillingInvoiceEdit() {
 
   const [header, setHeader] = useState<Header | null>(null);
   const [rows, setRows] = useState<LineRow[]>([]);
+  const [materialDisplayMode, setMaterialDisplayMode] =
+    useState<MaterialDisplayMode>("detailed");
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -140,6 +146,7 @@ export default function BillingInvoiceEdit() {
     if (inv && header === null) {
       setHeader(toHeader(inv));
       setRows(toRows(inv));
+      setMaterialDisplayMode(inv.materialDisplayMode);
     }
   }, [inv, header]);
 
@@ -223,6 +230,7 @@ export default function BillingInvoiceEdit() {
           constantSymbol: header.constantSymbol.trim() || null,
           specificSymbol: header.specificSymbol.trim() || null,
           vatModeDefault: header.vatModeDefault as InvoiceUpdateInput["vatModeDefault"],
+          materialDisplayMode,
           notes: header.notes.trim() || null,
           lines,
         },
@@ -330,6 +338,17 @@ export default function BillingInvoiceEdit() {
           </Field>
         </CardContent>
       </Card>
+
+      {rows.some((row) =>
+        ["material", "activity_material"].includes(row.sourceType),
+      ) && (
+        <div className="mb-4 border-y py-3">
+          <InvoiceMaterialDisplayControl
+            value={materialDisplayMode}
+            onChange={setMaterialDisplayMode}
+          />
+        </div>
+      )}
 
       <Card className="mb-4">
         <CardHeader className="flex-row items-center justify-between space-y-0">

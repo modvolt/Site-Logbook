@@ -401,6 +401,10 @@ export default function BillingInvoiceDetail() {
   const isActive = inv.status === "issued" || inv.status === "sent" || inv.status === "paid";
   const showVat = inv.totalVat > 0;
   const overdue = overdueDays(inv.dueDate, inv.status);
+  const displayLines = inv.presentationLines;
+  const internalMaterialLines = inv.lines.filter((line) =>
+    ["material", "activity_material"].includes(line.sourceType),
+  );
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -535,6 +539,14 @@ export default function BillingInvoiceDetail() {
             <InfoRow label="Způsob platby" value={inv.paymentMethod || "—"} />
             <InfoRow label="Variabilní symbol" value={inv.variableSymbol || "—"} />
             <InfoRow label="Režim DPH" value={vatModeLabel(inv.vatModeDefault)} />
+            <InfoRow
+              label="Materiál na faktuře"
+              value={
+                inv.materialDisplayMode === "summary"
+                  ? "Jednou částkou"
+                  : "Po položkách"
+              }
+            />
             {inv.paidDate && (
               <InfoRow label="Datum úhrady" value={fmtDate(inv.paidDate)} />
             )}
@@ -597,7 +609,7 @@ export default function BillingInvoiceDetail() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inv.lines.map((line) => (
+                {displayLines.map((line) => (
                   <TableRow key={line.id}>
                     <TableCell className="font-medium">{line.description}</TableCell>
                     <TableCell className="text-right">
@@ -612,7 +624,7 @@ export default function BillingInvoiceDetail() {
                     {showVat && <TableCell className="text-right">{fmtKc(line.totalWithVat)}</TableCell>}
                   </TableRow>
                 ))}
-                {inv.lines.length === 0 && (
+                {displayLines.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={showVat ? 6 : 4} className="text-center text-muted-foreground py-6">
                       Žádné položky.
@@ -622,6 +634,33 @@ export default function BillingInvoiceDetail() {
               </TableBody>
             </Table>
           </div>
+          {inv.materialDisplayMode === "summary" &&
+            internalMaterialLines.length > 1 && (
+              <details className="border-t px-4 py-3 sm:px-0">
+                <summary className="cursor-pointer text-sm font-medium">
+                  Interní rozpad materiálu ({internalMaterialLines.length})
+                </summary>
+                <div className="mt-3 space-y-2 text-sm">
+                  {internalMaterialLines.map((line) => (
+                    <div
+                      key={line.id}
+                      className="flex items-start justify-between gap-3"
+                    >
+                      <span className="min-w-0">
+                        {line.description}
+                        <span className="ml-1 text-muted-foreground">
+                          ({line.quantity}
+                          {line.unit ? ` ${line.unit}` : ""})
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-medium">
+                        {fmtKc(line.totalWithoutVat)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
         </CardContent>
       </Card>
 

@@ -1,0 +1,1 @@
+ALTER TABLE "invoices" ADD COLUMN "material_display_mode" text DEFAULT 'detailed' NOT NULL;

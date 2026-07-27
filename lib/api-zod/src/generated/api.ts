@@ -6263,7 +6263,7 @@ export const createQuoteJobGroupInvoiceDraftBodyLabourBillingModeDefault = `job_
 export const createQuoteJobGroupInvoiceDraftBodyWorkGroupingDefault = `summary`;
 export const createQuoteJobGroupInvoiceDraftBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
 
-
+export const createQuoteJobGroupInvoiceDraftBodyMaterialDisplayModeDefault = `detailed`;
 
 export const CreateQuoteJobGroupInvoiceDraftBody = zod.object({
   "extraJobIds": zod.array(zod.number()).optional().describe('Explicitly approved completed follow-up jobs to bill in addition to the accepted quote'),
@@ -6276,6 +6276,7 @@ export const CreateQuoteJobGroupInvoiceDraftBody = zod.object({
   "markupPercent": zod.number().min(createQuoteJobGroupInvoiceDraftBodyMaterialMarkupOverridesItemMarkupPercentMin).describe('Effective markup percent for this material line (0 = no markup)'),
   "sourceType": zod.enum(['material', 'activity_material']).optional().describe('Which material table the id belongs to — a job material (\"material\") or an activity material (\"activity_material\"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).')
 })).optional(),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).default(createQuoteJobGroupInvoiceDraftBodyMaterialDisplayModeDefault).describe('Display material as individual lines or as one amount per VAT rate'),
   "issueDate": zod.string().nullish(),
   "taxableSupplyDate": zod.string().nullish(),
   "dueDate": zod.string().nullish(),
@@ -6312,6 +6313,7 @@ export const ListInvoicesResponseItem = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6344,7 +6346,7 @@ export const createInvoiceBodyLabourBillingModeDefault = `automatic`;
 export const createInvoiceBodyWorkGroupingDefault = `summary`;
 export const createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin = 0;
 
-
+export const createInvoiceBodyMaterialDisplayModeDefault = `detailed`;
 
 
 export const CreateInvoiceBody = zod.object({
@@ -6360,6 +6362,7 @@ export const CreateInvoiceBody = zod.object({
   "markupPercent": zod.number().min(createInvoiceBodyMaterialMarkupOverridesItemMarkupPercentMin).describe('Effective markup percent for this material line (0 = no markup)'),
   "sourceType": zod.enum(['material', 'activity_material']).optional().describe('Which material table the id belongs to — a job material (\"material\") or an activity material (\"activity_material\"). Job and activity material ids come from separate sequences and collide, so this disambiguates them. Omitted = job material (backwards compatible).')
 })).optional().describe('Per-material markup overrides (highest priority); each entry overrides the category default and the invoice\/settings default for that material line'),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).default(createInvoiceBodyMaterialDisplayModeDefault).describe('Display material as individual lines or as one amount per VAT rate'),
   "lines": zod.array(zod.object({
   "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']).optional(),
   "sourceId": zod.number().nullish(),
@@ -6412,6 +6415,7 @@ export const GetInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6446,6 +6450,25 @@ export const GetInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
+  "presentationLines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})).describe('Lines rendered on the customer invoice and PDF'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6481,6 +6504,7 @@ export const UpdateInvoiceBody = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']).optional(),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).optional().describe('Display material as individual lines or as one amount per VAT rate'),
   "notes": zod.string().nullish(),
   "lines": zod.array(zod.object({
   "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']).optional(),
@@ -6517,6 +6541,7 @@ export const UpdateInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6551,6 +6576,25 @@ export const UpdateInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
+  "presentationLines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})).describe('Lines rendered on the customer invoice and PDF'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6600,6 +6644,7 @@ export const RecalculateInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6634,6 +6679,25 @@ export const RecalculateInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
+  "presentationLines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})).describe('Lines rendered on the customer invoice and PDF'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6675,6 +6739,7 @@ export const IssueInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6709,6 +6774,25 @@ export const IssueInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
+  "presentationLines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})).describe('Lines rendered on the customer invoice and PDF'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6754,6 +6838,7 @@ export const CancelInvoiceResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),
@@ -6788,6 +6873,25 @@ export const CancelInvoiceResponse = zod.object({
   "totalWithVat": zod.number(),
   "sortOrder": zod.number()
 })),
+  "presentationLines": zod.array(zod.object({
+  "id": zod.number(),
+  "invoiceId": zod.number(),
+  "sourceType": zod.enum(['job', 'activity', 'activity_material', 'activity_work', 'material', 'billing_document_line', 'work_session', 'quote_item', 'transport', 'parking', 'fine', 'manual']),
+  "sourceId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "discountPercent": zod.number().nullish(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "sortOrder": zod.number()
+})).describe('Lines rendered on the customer invoice and PDF'),
   "sourceJobIds": zod.array(zod.number()),
   "sourceActivityIds": zod.array(zod.number()).optional(),
   "sourceJobs": zod.array(zod.object({
@@ -6835,6 +6939,7 @@ export const UpdateInvoiceStatusResponse = zod.object({
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "vatModeDefault": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "materialDisplayMode": zod.enum(['detailed', 'summary']).describe('Customer-facing material layout; source lines remain detailed'),
   "subtotalWithoutVat": zod.number(),
   "totalVat": zod.number(),
   "totalWithVat": zod.number(),

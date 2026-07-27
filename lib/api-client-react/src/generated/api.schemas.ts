@@ -4693,6 +4693,17 @@ export const QuoteJobGroupInvoiceDraftInputWorkGrouping = {
   worker: 'worker',
 } as const;
 
+/**
+ * Display material as individual lines or as one amount per VAT rate
+ */
+export type QuoteJobGroupInvoiceDraftInputMaterialDisplayMode = typeof QuoteJobGroupInvoiceDraftInputMaterialDisplayMode[keyof typeof QuoteJobGroupInvoiceDraftInputMaterialDisplayMode];
+
+
+export const QuoteJobGroupInvoiceDraftInputMaterialDisplayMode = {
+  detailed: 'detailed',
+  summary: 'summary',
+} as const;
+
 export type QuoteJobGroupInvoiceDraftInputVatModeDefault = typeof QuoteJobGroupInvoiceDraftInputVatModeDefault[keyof typeof QuoteJobGroupInvoiceDraftInputVatModeDefault];
 
 
@@ -4735,6 +4746,8 @@ export interface QuoteJobGroupInvoiceDraftInput {
   /** @nullable */
   materialMarkupPercent?: number | null;
   materialMarkupOverrides?: MaterialMarkupOverride[];
+  /** Display material as individual lines or as one amount per VAT rate */
+  materialDisplayMode?: QuoteJobGroupInvoiceDraftInputMaterialDisplayMode;
   /** @nullable */
   issueDate?: string | null;
   /** @nullable */
@@ -4767,6 +4780,17 @@ export const InvoiceDetailVatModeDefault = {
   reverse_charge: 'reverse_charge',
   zero: 'zero',
   non_vat: 'non_vat',
+} as const;
+
+/**
+ * Customer-facing material layout; source lines remain detailed
+ */
+export type InvoiceDetailMaterialDisplayMode = typeof InvoiceDetailMaterialDisplayMode[keyof typeof InvoiceDetailMaterialDisplayMode];
+
+
+export const InvoiceDetailMaterialDisplayMode = {
+  detailed: 'detailed',
+  summary: 'summary',
 } as const;
 
 export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof InvoiceLineSourceType];
@@ -4872,6 +4896,8 @@ export interface InvoiceDetail {
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceDetailVatModeDefault;
+  /** Customer-facing material layout; source lines remain detailed */
+  materialDisplayMode: InvoiceDetailMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
   totalWithVat: number;
@@ -4907,6 +4933,8 @@ export interface InvoiceDetail {
   createdAt: string;
   updatedAt: string;
   lines: InvoiceLine[];
+  /** Lines rendered on the customer invoice and PDF */
+  presentationLines: InvoiceLine[];
   sourceJobIds: number[];
   sourceActivityIds?: number[];
   sourceJobs?: InvoiceSourceJob[];
@@ -4932,6 +4960,17 @@ export const InvoiceVatModeDefault = {
   reverse_charge: 'reverse_charge',
   zero: 'zero',
   non_vat: 'non_vat',
+} as const;
+
+/**
+ * Customer-facing material layout; source lines remain detailed
+ */
+export type InvoiceMaterialDisplayMode = typeof InvoiceMaterialDisplayMode[keyof typeof InvoiceMaterialDisplayMode];
+
+
+export const InvoiceMaterialDisplayMode = {
+  detailed: 'detailed',
+  summary: 'summary',
 } as const;
 
 export interface Invoice {
@@ -4967,6 +5006,8 @@ export interface Invoice {
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceVatModeDefault;
+  /** Customer-facing material layout; source lines remain detailed */
+  materialDisplayMode: InvoiceMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
   totalWithVat: number;
@@ -5026,6 +5067,17 @@ export type InvoiceCreateInputWorkGrouping = typeof InvoiceCreateInputWorkGroupi
 export const InvoiceCreateInputWorkGrouping = {
   summary: 'summary',
   worker: 'worker',
+} as const;
+
+/**
+ * Display material as individual lines or as one amount per VAT rate
+ */
+export type InvoiceCreateInputMaterialDisplayMode = typeof InvoiceCreateInputMaterialDisplayMode[keyof typeof InvoiceCreateInputMaterialDisplayMode];
+
+
+export const InvoiceCreateInputMaterialDisplayMode = {
+  detailed: 'detailed',
+  summary: 'summary',
 } as const;
 
 export type InvoiceCreateInputVatModeDefault = typeof InvoiceCreateInputVatModeDefault[keyof typeof InvoiceCreateInputVatModeDefault];
@@ -5110,6 +5162,8 @@ export interface InvoiceCreateInput {
   materialMarkupPercent?: number | null;
   /** Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line */
   materialMarkupOverrides?: MaterialMarkupOverride[];
+  /** Display material as individual lines or as one amount per VAT rate */
+  materialDisplayMode?: InvoiceCreateInputMaterialDisplayMode;
   /** Extra manual lines appended after the auto-proposed ones */
   lines?: InvoiceLineInput[];
   /** @nullable */
@@ -5141,6 +5195,17 @@ export const InvoiceUpdateInputVatModeDefault = {
   non_vat: 'non_vat',
 } as const;
 
+/**
+ * Display material as individual lines or as one amount per VAT rate
+ */
+export type InvoiceUpdateInputMaterialDisplayMode = typeof InvoiceUpdateInputMaterialDisplayMode[keyof typeof InvoiceUpdateInputMaterialDisplayMode];
+
+
+export const InvoiceUpdateInputMaterialDisplayMode = {
+  detailed: 'detailed',
+  summary: 'summary',
+} as const;
+
 export interface InvoiceUpdateInput {
   /** @nullable */
   customerId?: number | null;
@@ -5159,6 +5224,8 @@ export interface InvoiceUpdateInput {
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault?: InvoiceUpdateInputVatModeDefault;
+  /** Display material as individual lines or as one amount per VAT rate */
+  materialDisplayMode?: InvoiceUpdateInputMaterialDisplayMode;
   /** @nullable */
   notes?: string | null;
   /** If provided, replaces ALL lines of the draft */

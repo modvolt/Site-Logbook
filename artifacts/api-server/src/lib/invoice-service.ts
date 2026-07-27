@@ -70,6 +70,11 @@ import {
   markMaterialsInvoiced,
   releaseInvoicedMaterials,
 } from "./cost-document-service";
+import {
+  normalizeMaterialDisplayMode,
+  presentInvoiceLines,
+  type MaterialDisplayMode,
+} from "./invoice-line-presentation";
 
 const objectStorage = new ObjectStorageService();
 
@@ -1245,6 +1250,9 @@ export function serializeInvoice(row: Invoice) {
     constantSymbol: row.constantSymbol,
     specificSymbol: row.specificSymbol,
     vatModeDefault: row.vatModeDefault,
+    materialDisplayMode: normalizeMaterialDisplayMode(
+      row.materialDisplayMode,
+    ),
     subtotalWithoutVat: num(row.subtotalWithoutVat),
     totalVat: num(row.totalVat),
     totalWithVat: num(row.totalWithVat),
@@ -1333,6 +1341,10 @@ export async function getInvoiceDetail(id: number) {
   return {
     ...serializeInvoice(invoice),
     lines: lines.map(serializeLine),
+    presentationLines: presentInvoiceLines(
+      lines,
+      normalizeMaterialDisplayMode(invoice.materialDisplayMode),
+    ).map(serializeLine),
     sourceJobIds: linkedJobIds,
     sourceActivityIds: linkedActivityIds,
     sourceJobs,
@@ -1868,6 +1880,7 @@ export interface InvoiceCreateInput {
     markupPercent: number;
     sourceType?: "material" | "activity_material";
   }>;
+  materialDisplayMode?: MaterialDisplayMode;
   vatModeDefault?: VatMode;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
@@ -1887,6 +1900,7 @@ export interface QuoteJobGroupInvoiceDraftInput {
   billFineJobIds?: number[];
   materialMarkupPercent?: number;
   materialMarkupOverrides?: InvoiceCreateInput["materialMarkupOverrides"];
+  materialDisplayMode?: MaterialDisplayMode;
   vatModeDefault?: VatMode;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
@@ -2324,6 +2338,9 @@ export async function createDraft(
         constantSymbol: INVOICE_CONSTANT_SYMBOL,
         specificSymbol: input.specificSymbol ?? null,
         vatModeDefault,
+        materialDisplayMode: normalizeMaterialDisplayMode(
+          input.materialDisplayMode,
+        ),
         notes: input.notes ?? null,
         createdByUserId: actor.userId,
       })
@@ -2557,6 +2574,7 @@ export async function createQuoteJobGroupInvoiceDraft(
         billFineJobIds: input.billFineJobIds,
         materialMarkupPercent: input.materialMarkupPercent,
         materialMarkupOverrides: input.materialMarkupOverrides,
+        materialDisplayMode: input.materialDisplayMode,
         vatModeDefault: input.vatModeDefault,
         issueDate: input.issueDate,
         taxableSupplyDate: input.taxableSupplyDate,
@@ -2611,6 +2629,7 @@ export async function createQuoteJobGroupInvoiceDraft(
 
 export interface InvoiceUpdateInput {
   vatModeDefault?: VatMode;
+  materialDisplayMode?: MaterialDisplayMode;
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
   dueDate?: string | null;
@@ -2654,6 +2673,11 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
     if (input.specificSymbol !== undefined)
       set.specificSymbol = input.specificSymbol;
     if (input.notes !== undefined) set.notes = input.notes;
+    if (input.materialDisplayMode !== undefined) {
+      set.materialDisplayMode = normalizeMaterialDisplayMode(
+        input.materialDisplayMode,
+      );
+    }
     await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
 
     if (input.lines !== undefined) {
@@ -2992,6 +3016,10 @@ async function buildPdfData(
   settings: BillingSettings,
 ): Promise<InvoicePdfData> {
   const paymentQrDataUrl = await buildPaymentQrDataUrl(invoice, settings);
+  const presentationLines = presentInvoiceLines(
+    lines,
+    normalizeMaterialDisplayMode(invoice.materialDisplayMode),
+  );
   return {
     invoiceNumber: invoice.invoiceNumber ?? "—",
     status: invoice.status,
@@ -3013,7 +3041,7 @@ async function buildPdfData(
     subtotalWithoutVat: num(invoice.subtotalWithoutVat),
     totalVat: num(invoice.totalVat),
     totalWithVat: num(invoice.totalWithVat),
-    lines: lines.map((l) => ({
+    lines: presentationLines.map((l) => ({
       description: l.description,
       unit: l.unit,
       quantity: num(l.quantity),

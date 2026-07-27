@@ -271,6 +271,55 @@ describe("buildProposedLines material markup (via createDraft)", () => {
     expect(byDesc.get(categoryName)).toBe(120); // category 20%
     expect(byDesc.get(plainName)).toBe(105); // invoice default 5%
   });
+
+  it("keeps marked-up source lines while presenting material as one amount", async () => {
+    const jobId = await makeJob();
+    const firstId = await addMaterial(jobId, `Souhrn ${TAG} A`, "100");
+    const secondId = await addMaterial(jobId, `Souhrn ${TAG} B`, "200");
+
+    const detail = await createDraft(
+      {
+        customerId,
+        jobIds: [jobId],
+        materialDisplayMode: "summary",
+        materialMarkupPercent: 0,
+        materialMarkupOverrides: [
+          { materialId: firstId, markupPercent: 10 },
+          { materialId: secondId, markupPercent: 20 },
+        ],
+      },
+      actor,
+    );
+    invoiceIds.push(detail.id);
+
+    const sourceLines = materialLines(detail);
+    expect(sourceLines).toHaveLength(2);
+    expect(sourceLines.map((line) => line.unitPriceWithoutVat).sort()).toEqual([
+      110,
+      240,
+    ]);
+
+    const customerMaterialLines = detail.presentationLines.filter(
+      (line) => line.sourceType === "material",
+    );
+    expect(customerMaterialLines).toHaveLength(1);
+    expect(customerMaterialLines[0]).toMatchObject({
+      description: "Materiál",
+      quantity: 1,
+      unit: "soubor",
+      totalWithoutVat: 350,
+    });
+
+    const reserved = await db
+      .select({
+        id: materialsTable.id,
+        invoiceId: materialsTable.invoicedInvoiceId,
+      })
+      .from(materialsTable)
+      .where(inArray(materialsTable.id, [firstId, secondId]));
+    expect(reserved).toHaveLength(2);
+    expect(reserved.every((row) => row.invoiceId === detail.id)).toBe(true);
+  });
 });
 
 describe("upsertMaterialMarkupRule case-insensitive upsert", () => {

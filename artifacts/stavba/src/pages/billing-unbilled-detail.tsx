@@ -25,6 +25,10 @@ import { Input } from "@/components/ui/input";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Building2, FileEdit, Inbox, Receipt, Percent, Clock, AlertTriangle } from "lucide-react";
+import {
+  InvoiceMaterialDisplayControl,
+  type MaterialDisplayMode,
+} from "@/components/invoice-material-display-control";
 
 type UnbilledMaterial = UnbilledJob["materials"][number];
 type LabourBillingMode = "automatic" | "job_price" | "recorded_time" | "none";
@@ -193,6 +197,8 @@ export default function BillingUnbilledDetail() {
   const [labourBillingMode, setLabourBillingMode] =
     useState<LabourBillingMode>("automatic");
   const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">("summary");
+  const [materialDisplayMode, setMaterialDisplayMode] =
+    useState<MaterialDisplayMode>("detailed");
 
   type MaterialSource = "material" | "activity_material";
   const omKey = (sourceType: MaterialSource, id: number) => `${sourceType}:${id}`;
@@ -414,6 +420,7 @@ export default function BillingUnbilledDetail() {
           billFineJobIds,
           materialMarkupPercent: markupPercent,
           ...(materialMarkupOverrides.length > 0 ? { materialMarkupOverrides } : {}),
+          materialDisplayMode,
           vatModeDefault: settings?.vatModeDefault ?? "standard",
           ...(costLineInputs.length > 0 ? { lines: costLineInputs } : {}),
         },
@@ -890,6 +897,11 @@ export default function BillingUnbilledDetail() {
               <span className="font-medium">výchozí</span>). Přičte se pouze
               k materiálu – práce, doprava ani pokuty se nemění.
             </p>
+            <InvoiceMaterialDisplayControl
+              value={materialDisplayMode}
+              onChange={setMaterialDisplayMode}
+              className="mt-4 border-t pt-4"
+            />
           </CardContent>
         </Card>
       )}

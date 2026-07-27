@@ -340,6 +340,7 @@ router.post("/billing/invoices", async (req, res): Promise<void> => {
     billFineJobIds: d.billFineJobIds ?? undefined,
     materialMarkupPercent: d.materialMarkupPercent ?? undefined,
     materialMarkupOverrides: d.materialMarkupOverrides ?? undefined,
+    materialDisplayMode: d.materialDisplayMode ?? undefined,
     vatModeDefault: d.vatModeDefault ?? undefined,
     issueDate: d.issueDate ?? undefined,
     taxableSupplyDate: d.taxableSupplyDate ?? undefined,
@@ -383,6 +384,8 @@ router.post(
           materialMarkupPercent: parsed.data.materialMarkupPercent ?? undefined,
           materialMarkupOverrides:
             parsed.data.materialMarkupOverrides ?? undefined,
+          materialDisplayMode:
+            parsed.data.materialDisplayMode ?? undefined,
           issueDate: parsed.data.issueDate ?? undefined,
           taxableSupplyDate: parsed.data.taxableSupplyDate ?? undefined,
           dueDate: parsed.data.dueDate ?? undefined,
@@ -434,6 +437,7 @@ router.patch("/billing/invoices/:id", async (req, res): Promise<void> => {
     constantSymbol: d.constantSymbol ?? undefined,
     specificSymbol: d.specificSymbol ?? undefined,
     vatModeDefault: d.vatModeDefault ?? undefined,
+    materialDisplayMode: d.materialDisplayMode ?? undefined,
     notes: d.notes ?? undefined,
     lines: d.lines?.map(mapLineInput),
   };

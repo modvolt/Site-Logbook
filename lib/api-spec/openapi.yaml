@@ -12899,6 +12899,7 @@ components:
         - status
         - currency
         - vatModeDefault
+        - materialDisplayMode
         - subtotalWithoutVat
         - totalVat
         - totalWithVat
@@ -12943,6 +12944,10 @@ components:
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
+        materialDisplayMode:
+          type: string
+          enum: [detailed, summary]
+          description: Customer-facing material layout; source lines remain detailed
         subtotalWithoutVat:
           type: number
         totalVat:
@@ -13063,12 +13068,14 @@ components:
         - status
         - currency
         - vatModeDefault
+        - materialDisplayMode
         - subtotalWithoutVat
         - totalVat
         - totalWithVat
         - createdAt
         - updatedAt
         - lines
+        - presentationLines
         - sourceJobIds
       properties:
         id:
@@ -13109,6 +13116,10 @@ components:
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
+        materialDisplayMode:
+          type: string
+          enum: [detailed, summary]
+          description: Customer-facing material layout; source lines remain detailed
         subtotalWithoutVat:
           type: number
         totalVat:
@@ -13144,6 +13155,11 @@ components:
           type: string
         lines:
           type: array
+          items:
+            $ref: "#/components/schemas/InvoiceLine"
+        presentationLines:
+          type: array
+          description: Lines rendered on the customer invoice and PDF
           items:
             $ref: "#/components/schemas/InvoiceLine"
         sourceJobIds:
@@ -13238,6 +13254,11 @@ components:
           items:
             $ref: "#/components/schemas/MaterialMarkupOverride"
           description: Per-material markup overrides (highest priority); each entry overrides the category default and the invoice/settings default for that material line
+        materialDisplayMode:
+          type: string
+          enum: [detailed, summary]
+          default: detailed
+          description: Display material as individual lines or as one amount per VAT rate
         lines:
           type: array
           items:
@@ -13290,6 +13311,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MaterialMarkupOverride"
+        materialDisplayMode:
+          type: string
+          enum: [detailed, summary]
+          default: detailed
+          description: Display material as individual lines or as one amount per VAT rate
         issueDate:
           type: ["string", "null"]
         taxableSupplyDate:
@@ -13326,6 +13352,10 @@ components:
         vatModeDefault:
           type: string
           enum: [standard, reverse_charge, zero, non_vat]
+        materialDisplayMode:
+          type: string
+          enum: [detailed, summary]
+          description: Display material as individual lines or as one amount per VAT rate
         notes:
           type: ["string", "null"]
         lines:
