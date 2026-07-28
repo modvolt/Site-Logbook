@@ -92,6 +92,7 @@ import {
   PackageCheck,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Scissors,
   Sparkles,
@@ -307,6 +308,23 @@ export default function BillingDocumentDetail() {
       invalidate();
       toast({ title: "Doklad schválen" });
     }, "Schválení selhalo");
+  };
+
+  const handleReturnToReview = () => {
+    openConfirm(
+      {
+        title: "Vrátit doklad ke kontrole?",
+        description:
+          "Schválení se zruší a doklad bude znovu možné upravit. Nevyfakturované materiály, skladové pohyby a převzaté ceny se bezpečně vrátí zpět.",
+        confirmLabel: "Vrátit ke kontrole",
+        destructive: false,
+      },
+      () =>
+        handleStatus(
+          "needs_review",
+          "Doklad byl vrácen ke kontrole",
+        ),
+    );
   };
 
   const handleMarkDuplicate = (duplicateDocumentId: number) => {
@@ -549,7 +567,17 @@ export default function BillingDocumentDetail() {
             <Check className="h-4 w-4 mr-1" /> Zkontrolováno
           </Button>
         )}
-        {doc.status !== "ignored" && (
+        {doc.status === "approved" && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleReturnToReview}
+            disabled={isDocumentActionPending || setStatus.isPending}
+          >
+            <RotateCcw className="h-4 w-4 mr-1" /> Vrátit ke kontrole
+          </Button>
+        )}
+        {doc.status !== "ignored" && doc.status !== "approved" && (
           <Button
             size="sm"
             variant="outline"

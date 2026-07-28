@@ -68,4 +68,17 @@ describe("billing document action sequencing contract", () => {
     );
     expect(source).toContain("if (documentActionLockRef.current)");
   });
+
+  it("separates reopening an approved document from ignoring it", () => {
+    expect(source).toContain("const handleReturnToReview =");
+    expect(source).toContain('title: "Vrátit doklad ke kontrole?"');
+    expect(source).toMatch(
+      /handleReturnToReview[\s\S]*handleStatus\([\s\S]*"needs_review"[\s\S]*"Doklad byl vrácen ke kontrole"/,
+    );
+    expect(source).toContain('{doc.status === "approved" && (');
+    expect(source).toContain("Vrátit ke kontrole");
+    expect(source).toContain(
+      '{doc.status !== "ignored" && doc.status !== "approved" && (',
+    );
+  });
 });
