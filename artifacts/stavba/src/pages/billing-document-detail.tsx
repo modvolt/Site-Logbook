@@ -190,19 +190,64 @@ export default function BillingDocumentDetail() {
   const [linkedDuplicatesOpen, setLinkedDuplicatesOpen] = useState(true);
   const [isConfirmingType, setIsConfirmingType] = useState(false);
   const [isRevertingMerge, setIsRevertingMerge] = useState(false);
+  const [isDocumentActionPending, setIsDocumentActionPending] = useState(false);
 
   const lineCardsRef = useRef<Map<number, LineCardRef>>(new Map());
+  const documentActionLockRef = useRef(false);
 
   const invalidate = () => {
     invalidateData(queryClient, "billingDocuments", "jobs", "warehouse");
   };
 
+  const saveAllLines = async (overrides?: { approved?: boolean }) => {
+    // Each line update reconciles the whole document on the server. Keep these
+    // requests sequential so an older response cannot restore stale line data.
+    for (const cardRef of lineCardsRef.current.values()) {
+      await cardRef.save(overrides, { silent: true });
+    }
+  };
+
+  const runDocumentAction = async (
+    action: () => Promise<void>,
+    errorTitle: string,
+  ) => {
+    if (documentActionLockRef.current) {
+      toast({ title: "Počkejte na dokončení probíhající akce" });
+      return;
+    }
+
+    documentActionLockRef.current = true;
+    setIsDocumentActionPending(true);
+    try {
+      await action();
+    } catch (error) {
+      toast({
+        title: errorTitle,
+        description:
+          saveErrorMessage(error) ??
+          (error instanceof Error ? error.message : undefined),
+        variant: "destructive",
+      });
+    } finally {
+      documentActionLockRef.current = false;
+      setIsDocumentActionPending(false);
+    }
+  };
+
   const handleBulkSave = () => {
-    lineCardsRef.current.forEach((cardRef) => cardRef.save());
+    void runDocumentAction(async () => {
+      await saveAllLines();
+      invalidate();
+      toast({ title: "Všechny položky uloženy" });
+    }, "Uložení položek selhalo");
   };
 
   const handleApproveAll = () => {
-    lineCardsRef.current.forEach((cardRef) => cardRef.save({ approved: true }));
+    void runDocumentAction(async () => {
+      await saveAllLines({ approved: true });
+      invalidate();
+      toast({ title: "Všechny položky schváleny" });
+    }, "Schválení položek selhalo");
   };
 
   const doc = data?.document;
@@ -251,35 +296,23 @@ export default function BillingDocumentDetail() {
     status: "needs_review" | "reviewed" | "ignored" | "duplicate",
     successTitle: string,
   ) => {
-    setStatus.mutate(
-      { id, data: { status } },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: successTitle });
-        },
-        onError: () =>
-          toast({ title: "Změna stavu selhala", variant: "destructive" }),
-      },
-    );
+    void runDocumentAction(async () => {
+      if (status === "reviewed") {
+        await saveAllLines();
+      }
+      await setStatus.mutateAsync({ id, data: { status } });
+      invalidate();
+      toast({ title: successTitle });
+    }, "Změna stavu selhala");
   };
 
   const handleApprove = () => {
-    approveDoc.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Doklad schválen" });
-        },
-        onError: (err) =>
-          toast({
-            title: "Schválení selhalo",
-            description: err instanceof Error ? err.message : undefined,
-            variant: "destructive",
-          }),
-      },
-    );
+    void runDocumentAction(async () => {
+      await saveAllLines();
+      await approveDoc.mutateAsync({ id });
+      invalidate();
+      toast({ title: "Doklad schválen" });
+    }, "Schválení selhalo");
   };
 
   const handleMarkDuplicate = (duplicateDocumentId: number) => {
@@ -501,7 +534,12 @@ export default function BillingDocumentDetail() {
           <Button
             size="sm"
             onClick={handleApprove}
-            disabled={approveDoc.isPending || String(doc.docType) === "unknown" || extendedDoc?.docTypeSource === "conflict"}
+            disabled={
+              isDocumentActionPending ||
+              approveDoc.isPending ||
+              String(doc.docType) === "unknown" ||
+              extendedDoc?.docTypeSource === "conflict"
+            }
             title={extendedDoc?.docTypeSource === "conflict" ? "Nejprve rozhodněte správný typ dokladu" : undefined}
           >
             <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit doklad
@@ -512,7 +550,7 @@ export default function BillingDocumentDetail() {
             size="sm"
             variant="secondary"
             onClick={() => handleStatus("reviewed", "Označeno jako zkontrolováno")}
-            disabled={setStatus.isPending}
+            disabled={isDocumentActionPending || setStatus.isPending}
           >
             <Check className="h-4 w-4 mr-1" /> Zkontrolováno
           </Button>
@@ -522,7 +560,7 @@ export default function BillingDocumentDetail() {
             size="sm"
             variant="outline"
             onClick={() => handleStatus("ignored", "Doklad ignorován")}
-            disabled={setStatus.isPending}
+            disabled={isDocumentActionPending || setStatus.isPending}
           >
             <EyeOff className="h-4 w-4 mr-1" /> Ignorovat
           </Button>
@@ -532,7 +570,7 @@ export default function BillingDocumentDetail() {
           variant="ghost"
           className="text-destructive hover:text-destructive"
           onClick={handleDelete}
-          disabled={deleteDoc.isPending}
+          disabled={isDocumentActionPending || deleteDoc.isPending}
         >
           <Trash2 className="h-4 w-4 mr-1" /> Smazat
         </Button>
@@ -831,10 +869,19 @@ export default function BillingDocumentDetail() {
         <h2 className="text-lg font-semibold">Položky dokladu</h2>
         {data.lines.length > 0 && (
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={handleApproveAll}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleApproveAll}
+              disabled={isDocumentActionPending}
+            >
               <CheckCheck className="h-4 w-4 mr-1" /> Schválit vše
             </Button>
-            <Button size="sm" onClick={handleBulkSave}>
+            <Button
+              size="sm"
+              onClick={handleBulkSave}
+              disabled={isDocumentActionPending}
+            >
               <Save className="h-4 w-4 mr-1" /> Uložit vše
             </Button>
           </div>
@@ -1145,7 +1192,10 @@ function Field({
 // ---------------------------------------------------------------------------
 
 export interface LineCardRef {
-  save: (overrides?: { approved?: boolean }) => void;
+  save: (
+    overrides?: { approved?: boolean },
+    options?: { silent?: boolean },
+  ) => Promise<void>;
 }
 
 const LineCard = forwardRef<LineCardRef, {
@@ -1192,40 +1242,49 @@ const LineCard = forwardRef<LineCardRef, {
   const priceError = decimalError(form.unitPriceWithoutVat);
   const lineHasErrors = !!(qtyError || priceError);
 
-  const save = useCallback((overrides?: Partial<typeof form>) => {
-    if (lineHasErrors) return;
-    const f = { ...form, ...overrides };
-    if (overrides) setForm(f);
-    const data: CostDocumentLineUpdateInput = {
-      lineType: f.lineType as CostDocumentLineUpdateInput["lineType"],
-      description: f.description,
-      quantity: numOrNull(f.quantity),
-      unit: f.unit || null,
-      unitPriceWithoutVat: numOrNull(f.unitPriceWithoutVat),
-      jobId: f.jobId === NONE ? null : Number(f.jobId),
-      activityId: f.activityId === NONE ? null : Number(f.activityId),
-      allocationType:
-        f.allocationType as CostDocumentLineUpdateInput["allocationType"],
-      matchConfirmed: f.matchConfirmed,
-      approved: f.approved,
-    };
-    updateLine.mutate(
-      { id: documentId, lineId: line.id, data },
-      {
-        onSuccess: () => {
+  const save = useCallback(
+    async (
+      overrides?: Partial<typeof form>,
+      options?: { silent?: boolean },
+    ) => {
+      if (lineHasErrors) {
+        throw new Error("Položka obsahuje neplatné množství nebo cenu.");
+      }
+      const f = { ...form, ...overrides };
+      if (overrides) setForm(f);
+      const data: CostDocumentLineUpdateInput = {
+        lineType: f.lineType as CostDocumentLineUpdateInput["lineType"],
+        description: f.description,
+        quantity: numOrNull(f.quantity),
+        unit: f.unit || null,
+        unitPriceWithoutVat: numOrNull(f.unitPriceWithoutVat),
+        jobId: f.jobId === NONE ? null : Number(f.jobId),
+        activityId: f.activityId === NONE ? null : Number(f.activityId),
+        allocationType:
+          f.allocationType as CostDocumentLineUpdateInput["allocationType"],
+        matchConfirmed: f.matchConfirmed,
+        approved: f.approved,
+      };
+      try {
+        await updateLine.mutateAsync({ id: documentId, lineId: line.id, data });
+        if (!options?.silent) {
           onChanged();
           toast({ title: "Položka uložena" });
-        },
-        onError: (err) =>
+        }
+      } catch (error) {
+        if (!options?.silent) {
           toast({
             title: "Uložení položky selhalo",
-            description: err instanceof Error ? err.message : undefined,
+            description: error instanceof Error ? error.message : undefined,
             variant: "destructive",
-          }),
-      },
-    );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, lineHasErrors, documentId, line.id]);
+          });
+        }
+        throw error;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, lineHasErrors, documentId, line.id],
+  );
 
   useImperativeHandle(ref, () => ({ save }), [save]);
 
