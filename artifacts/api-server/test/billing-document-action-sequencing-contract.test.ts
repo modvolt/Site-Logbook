@@ -18,7 +18,7 @@ describe("billing document action sequencing contract", () => {
     expect(end).toBeGreaterThan(start);
     expect(saveAllLines).toContain("await Promise.all(");
     expect(saveAllLines).toContain(
-      "cardRef.save(overrides, { silent: true })",
+      "cardRef.save({ silent: true })",
     );
     expect(source).not.toContain("lineCardsRef.current.forEach");
     expect(source).toContain("await updateLine.mutateAsync");
@@ -31,6 +31,20 @@ describe("billing document action sequencing contract", () => {
     expect(source).toContain("const lastSavedFormRef = useRef(form)");
     expect(source).toContain("if (isUnchanged) return");
     expect(source).toContain("lastSavedFormRef.current = f");
+  });
+
+  it("keeps line review focused on assignment and final document approval", () => {
+    const lineCardStart = source.indexOf("const LineCard =");
+    const lineCardEnd = source.indexOf("interface SplitPart", lineCardStart);
+    const lineCard = source.slice(lineCardStart, lineCardEnd);
+
+    expect(source).not.toContain("handleApproveAll");
+    expect(source).not.toContain("Schválit vše");
+    expect(lineCard).toContain("Přiřazení ke zakázce je správně");
+    expect(lineCard).toContain("Nastavení položky je správně");
+    expect(lineCard).not.toContain("checked={form.approved}");
+    expect(lineCard).not.toContain("approved: f.approved");
+    expect(lineCard).toContain("documentActionPending || updateLine.isPending");
   });
 
   it("saves current line forms before review and final approval", () => {

@@ -83,7 +83,6 @@ import {
   ArrowLeft,
   AlertTriangle,
   Check,
-  CheckCheck,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -199,13 +198,13 @@ export default function BillingDocumentDetail() {
     invalidateData(queryClient, "billingDocuments", "jobs", "warehouse");
   };
 
-  const saveAllLines = async (overrides?: { approved?: boolean }) => {
+  const saveAllLines = async () => {
     // The document action still awaits every line, but independent line writes
     // can run together. The action lock prevents review/approval from racing
     // ahead while avoiding one full request latency per line.
     await Promise.all(
       Array.from(lineCardsRef.current.values(), (cardRef) =>
-        cardRef.save(overrides, { silent: true }),
+        cardRef.save({ silent: true }),
       ),
     );
   };
@@ -243,14 +242,6 @@ export default function BillingDocumentDetail() {
       invalidate();
       toast({ title: "Všechny položky uloženy" });
     }, "Uložení položek selhalo");
-  };
-
-  const handleApproveAll = () => {
-    void runDocumentAction(async () => {
-      await saveAllLines({ approved: true });
-      invalidate();
-      toast({ title: "Všechny položky schváleny" });
-    }, "Schválení položek selhalo");
   };
 
   const doc = data?.document;
@@ -874,14 +865,6 @@ export default function BillingDocumentDetail() {
           <div className="flex items-center gap-2">
             <Button
               size="sm"
-              variant="outline"
-              onClick={handleApproveAll}
-              disabled={isDocumentActionPending}
-            >
-              <CheckCheck className="h-4 w-4 mr-1" /> Schválit vše
-            </Button>
-            <Button
-              size="sm"
               onClick={handleBulkSave}
               disabled={isDocumentActionPending}
             >
@@ -907,6 +890,8 @@ export default function BillingDocumentDetail() {
               line={line}
               jobs={jobs ?? []}
               activities={activities ?? []}
+              documentApproved={doc.status === "approved"}
+              documentActionPending={isDocumentActionPending}
               onChanged={invalidate}
               onSplit={() => setSplitLine(line)}
             />
@@ -1195,10 +1180,7 @@ function Field({
 // ---------------------------------------------------------------------------
 
 export interface LineCardRef {
-  save: (
-    overrides?: { approved?: boolean },
-    options?: { silent?: boolean },
-  ) => Promise<void>;
+  save: (options?: { silent?: boolean }) => Promise<void>;
 }
 
 const LineCard = forwardRef<LineCardRef, {
@@ -1207,6 +1189,8 @@ const LineCard = forwardRef<LineCardRef, {
   jobs: Job[];
   activities: Activity[];
   onChanged: () => void;
+  documentApproved: boolean;
+  documentActionPending: boolean;
   onSplit: () => void;
 }>(function LineCard({
   documentId,
@@ -1214,6 +1198,8 @@ const LineCard = forwardRef<LineCardRef, {
   jobs,
   activities,
   onChanged,
+  documentApproved,
+  documentActionPending,
   onSplit,
 }, ref) {
   const { toast } = useToast();
@@ -1229,7 +1215,6 @@ const LineCard = forwardRef<LineCardRef, {
     jobId: line.jobId != null ? String(line.jobId) : NONE,
     activityId: line.activityId != null ? String(line.activityId) : NONE,
     matchConfirmed: line.matchConfirmed,
-    approved: line.approved,
   });
   const lastSavedFormRef = useRef(form);
 
@@ -1247,15 +1232,11 @@ const LineCard = forwardRef<LineCardRef, {
   const lineHasErrors = !!(qtyError || priceError);
 
   const save = useCallback(
-    async (
-      overrides?: Partial<typeof form>,
-      options?: { silent?: boolean },
-    ) => {
+    async (options?: { silent?: boolean }) => {
       if (lineHasErrors) {
         throw new Error("Položka obsahuje neplatné množství nebo cenu.");
       }
-      const f = { ...form, ...overrides };
-      if (overrides) setForm(f);
+      const f = form;
       const lastSaved = lastSavedFormRef.current;
       const isUnchanged = (
         Object.keys(f) as Array<keyof typeof f>
@@ -1273,7 +1254,6 @@ const LineCard = forwardRef<LineCardRef, {
         allocationType:
           f.allocationType as CostDocumentLineUpdateInput["allocationType"],
         matchConfirmed: f.matchConfirmed,
-        approved: f.approved,
       };
       try {
         await updateLine.mutateAsync({ id: documentId, lineId: line.id, data });
@@ -1303,7 +1283,7 @@ const LineCard = forwardRef<LineCardRef, {
     line.matchConfidence != null ? Math.round(line.matchConfidence * 100) : null;
 
   return (
-    <Card className={line.approved ? "border-emerald-400/50" : ""}>
+    <Card>
       <CardContent className="p-4 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
           <div className="sm:col-span-3 space-y-1">
@@ -1356,7 +1336,7 @@ const LineCard = forwardRef<LineCardRef, {
               Režim nákladu
               {form.allocationType === "stock" && (
                 <span className="inline-flex items-center rounded-full bg-cyan-100 text-cyan-700 text-[10px] font-medium px-1.5 py-0.5">
-                  Sklad +{line.approved ? " (naskladněno)" : ""}
+                  Sklad +{documentApproved ? " (naskladněno)" : ""}
                 </span>
               )}
             </Label>
@@ -1424,14 +1404,9 @@ const LineCard = forwardRef<LineCardRef, {
                 checked={form.matchConfirmed}
                 onCheckedChange={(v) => set("matchConfirmed", v === true)}
               />
-              Potvrdit přiřazení
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox
-                checked={form.approved}
-                onCheckedChange={(v) => set("approved", v === true)}
-              />
-              Schváleno
+              {form.allocationType === "rebill"
+                ? "Přiřazení ke zakázce je správně"
+                : "Nastavení položky je správně"}
             </label>
           </div>
           <div className="text-sm text-muted-foreground">
@@ -1443,11 +1418,30 @@ const LineCard = forwardRef<LineCardRef, {
         </div>
 
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onSplit}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSplit}
+            disabled={documentActionPending || updateLine.isPending}
+          >
             <Scissors className="h-4 w-4 mr-1" /> Rozdělit
           </Button>
-          <Button size="sm" onClick={() => save()} disabled={updateLine.isPending || lineHasErrors}>
-            <Save className="h-4 w-4 mr-1" /> Uložit položku
+          <Button
+            size="sm"
+            onClick={() => save()}
+            disabled={
+              documentActionPending || updateLine.isPending || lineHasErrors
+            }
+          >
+            {documentActionPending || updateLine.isPending ? (
+              <>
+                <RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Ukládám…
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-1" /> Uložit položku
+              </>
+            )}
           </Button>
         </div>
       </CardContent>
