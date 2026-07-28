@@ -1,87 +1,95 @@
-import { useEffect, Component, type ReactNode, type ErrorInfo } from "react";
+import { lazy, Suspense, useEffect, Component, type ReactNode, type ErrorInfo } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { loadCompanySettings, applyTextColor, applyUiScale } from "@/lib/company-settings";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 import { AuthProvider, useAuth, type Permission } from "@/hooks/use-auth";
 import { QuickAddDateProvider } from "@/hooks/use-quick-add-date";
 import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
 import { OfflineBanner } from "@/components/offline-banner";
-import OoppSign from "@/pages/oopp-sign";
-import JobSign from "@/pages/job-sign";
-import QuoteShare from "@/pages/quote-share";
-import SwitchboardPublic from "@/pages/switchboard-public";
-
-import Dashboard from "@/pages/dashboard";
-import FieldHome from "@/pages/field-home";
-import Calendar from "@/pages/calendar";
-import Jobs from "@/pages/jobs";
-import JobDetail from "@/pages/job-detail";
-import JobExport from "@/pages/job-export";
-import JobForm from "@/pages/job-form";
-import JobGroups from "@/pages/job-groups";
-import JobGroupDetail from "@/pages/job-group-detail";
-import JobGroupExport from "@/pages/job-group-export";
-import Switchboards from "@/pages/switchboards";
-import SwitchboardDetail from "@/pages/switchboard-detail";
-import SwitchboardParserSettings from "@/pages/switchboard-parser-settings";
-import SwitchboardTemplateSettings from "@/pages/switchboard-template-settings";
-import SwitchboardAudit from "@/pages/switchboard-audit";
-import People from "@/pages/people";
-import Customers from "@/pages/customers";
-import CustomerDetail from "@/pages/customer-detail";
-import SiteDetail from "@/pages/site-detail";
-import PristupoveUdaje from "@/pages/pristupove-udaje";
-import PristupoveUdajeExport from "@/pages/pristupove-udaje-export";
-import Settings from "@/pages/settings";
-import Admin from "@/pages/admin";
-import Login from "@/pages/login";
-import UsersAdmin from "@/pages/users-admin";
-import Activities from "@/pages/activities";
-import ActivityDetail from "@/pages/activity-detail";
-import ActivityExport from "@/pages/activity-export";
-import MyOverview from "@/pages/my-overview";
-import Sklad from "@/pages/sklad";
-import SkladPohyby from "@/pages/sklad-pohyby";
-import Stroje from "@/pages/stroje";
-import StrojDetail from "@/pages/stroj-detail";
-import Oopp from "@/pages/oopp";
-import OoppMoje from "@/pages/oopp-moje";
-import PpeConfirm from "@/pages/ppe-confirm";
-import PersonDetail from "@/pages/person-detail";
-import AuditLog from "@/pages/audit-log";
-import ClientErrors from "@/pages/client-errors";
-import Gdpr from "@/pages/gdpr";
-import Statistika from "@/pages/statistika";
-import Billing from "@/pages/billing";
-import BillingUnbilled from "@/pages/billing-unbilled";
-import BillingUnbilledDetail from "@/pages/billing-unbilled-detail";
-import BillingInvoices from "@/pages/billing-invoices";
-import BillingInvoiceDetail from "@/pages/billing-invoice-detail";
-import BillingInvoiceEdit from "@/pages/billing-invoice-edit";
-import BillingSettings from "@/pages/billing-settings";
-import BillingBankImport from "@/pages/billing-bank-import";
-import BillingDocuments from "@/pages/billing-documents";
-import BillingDocumentDetail from "@/pages/billing-document-detail";
-import BillingReviewQueue from "@/pages/billing-review-queue";
-import BillingEmailImport from "@/pages/billing-email-import";
-import BillingRecurringTemplates from "@/pages/billing-recurring-templates";
-import BillingRecurringTemplateDetail from "@/pages/billing-recurring-template-detail";
-import AdminHealth from "@/pages/admin-health";
-import AdminSessions from "@/pages/admin-sessions";
-import AdminWarehouseBackfill from "@/pages/admin-warehouse-backfill";
-import Quotes from "@/pages/quotes";
-import QuoteDetail from "@/pages/quote-detail";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
+
+const NotFound = lazy(() => import("@/pages/not-found"));
+const OoppSign = lazy(() => import("@/pages/oopp-sign"));
+const JobSign = lazy(() => import("@/pages/job-sign"));
+const QuoteShare = lazy(() => import("@/pages/quote-share"));
+const SwitchboardPublic = lazy(() => import("@/pages/switchboard-public"));
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const FieldHome = lazy(() => import("@/pages/field-home"));
+const Calendar = lazy(() => import("@/pages/calendar"));
+const Jobs = lazy(() => import("@/pages/jobs"));
+const JobDetail = lazy(() => import("@/pages/job-detail"));
+const JobExport = lazy(() => import("@/pages/job-export"));
+const JobForm = lazy(() => import("@/pages/job-form"));
+const JobGroups = lazy(() => import("@/pages/job-groups"));
+const JobGroupDetail = lazy(() => import("@/pages/job-group-detail"));
+const JobGroupExport = lazy(() => import("@/pages/job-group-export"));
+const Switchboards = lazy(() => import("@/pages/switchboards"));
+const SwitchboardDetail = lazy(() => import("@/pages/switchboard-detail"));
+const SwitchboardParserSettings = lazy(() => import("@/pages/switchboard-parser-settings"));
+const SwitchboardTemplateSettings = lazy(() => import("@/pages/switchboard-template-settings"));
+const SwitchboardAudit = lazy(() => import("@/pages/switchboard-audit"));
+const People = lazy(() => import("@/pages/people"));
+const Customers = lazy(() => import("@/pages/customers"));
+const CustomerDetail = lazy(() => import("@/pages/customer-detail"));
+const SiteDetail = lazy(() => import("@/pages/site-detail"));
+const PristupoveUdaje = lazy(() => import("@/pages/pristupove-udaje"));
+const PristupoveUdajeExport = lazy(() => import("@/pages/pristupove-udaje-export"));
+const Settings = lazy(() => import("@/pages/settings"));
+const Admin = lazy(() => import("@/pages/admin"));
+const Login = lazy(() => import("@/pages/login"));
+const UsersAdmin = lazy(() => import("@/pages/users-admin"));
+const Activities = lazy(() => import("@/pages/activities"));
+const ActivityDetail = lazy(() => import("@/pages/activity-detail"));
+const ActivityExport = lazy(() => import("@/pages/activity-export"));
+const MyOverview = lazy(() => import("@/pages/my-overview"));
+const Sklad = lazy(() => import("@/pages/sklad"));
+const SkladPohyby = lazy(() => import("@/pages/sklad-pohyby"));
+const Stroje = lazy(() => import("@/pages/stroje"));
+const StrojDetail = lazy(() => import("@/pages/stroj-detail"));
+const Oopp = lazy(() => import("@/pages/oopp"));
+const OoppMoje = lazy(() => import("@/pages/oopp-moje"));
+const PpeConfirm = lazy(() => import("@/pages/ppe-confirm"));
+const PersonDetail = lazy(() => import("@/pages/person-detail"));
+const AuditLog = lazy(() => import("@/pages/audit-log"));
+const ClientErrors = lazy(() => import("@/pages/client-errors"));
+const Gdpr = lazy(() => import("@/pages/gdpr"));
+const Statistika = lazy(() => import("@/pages/statistika"));
+const Billing = lazy(() => import("@/pages/billing"));
+const BillingUnbilled = lazy(() => import("@/pages/billing-unbilled"));
+const BillingUnbilledDetail = lazy(() => import("@/pages/billing-unbilled-detail"));
+const BillingInvoices = lazy(() => import("@/pages/billing-invoices"));
+const BillingInvoiceDetail = lazy(() => import("@/pages/billing-invoice-detail"));
+const BillingInvoiceEdit = lazy(() => import("@/pages/billing-invoice-edit"));
+const BillingSettings = lazy(() => import("@/pages/billing-settings"));
+const BillingBankImport = lazy(() => import("@/pages/billing-bank-import"));
+const BillingDocuments = lazy(() => import("@/pages/billing-documents"));
+const BillingDocumentDetail = lazy(() => import("@/pages/billing-document-detail"));
+const BillingReviewQueue = lazy(() => import("@/pages/billing-review-queue"));
+const BillingEmailImport = lazy(() => import("@/pages/billing-email-import"));
+const BillingRecurringTemplates = lazy(() => import("@/pages/billing-recurring-templates"));
+const BillingRecurringTemplateDetail = lazy(() => import("@/pages/billing-recurring-template-detail"));
+const AdminHealth = lazy(() => import("@/pages/admin-health"));
+const AdminSessions = lazy(() => import("@/pages/admin-sessions"));
+const AdminWarehouseBackfill = lazy(() => import("@/pages/admin-warehouse-backfill"));
+const Quotes = lazy(() => import("@/pages/quotes"));
+const QuoteDetail = lazy(() => import("@/pages/quote-detail"));
 
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+}
+
+function PageLoading() {
+  return (
+    <div className="min-h-[50dvh] flex items-center justify-center text-muted-foreground">
+      Načítám…
+    </div>
+  );
 }
 
 class PageErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
@@ -195,6 +203,7 @@ function AuthenticatedApp() {
       <Layout>
         <OfflineBanner />
         <PageErrorBoundary key={path}>
+        <Suspense fallback={<PageLoading />}>
         <Switch>
         <Route path="/" component={HomePage} />
         <Route path="/calendar">{() => <PermissionOnly component={Calendar} permission="jobs.view" />}</Route>
@@ -256,6 +265,7 @@ function AuthenticatedApp() {
         <Route path="/quotes">{() => <PermissionOnly component={Quotes} permission="quotes.view" />}</Route>
         <Route component={NotFound} />
         </Switch>
+        </Suspense>
         </PageErrorBoundary>
       </Layout>
     </QuickAddDateProvider>
@@ -305,7 +315,11 @@ function App() {
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
             <AuthProvider>
-              <Router />
+              <PageErrorBoundary>
+                <Suspense fallback={<PageLoading />}>
+                  <Router />
+                </Suspense>
+              </PageErrorBoundary>
             </AuthProvider>
           </WouterRouter>
           <Toaster />

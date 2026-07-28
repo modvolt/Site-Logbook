@@ -77,9 +77,6 @@ export default defineConfig(async ({ command }) => {
         injectManifest: {
           // Precache the static app shell (HTML/JS/CSS/fonts/bundled images).
           globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
-          // The main JS bundle is >2 MiB; raise the precache limit so the full
-          // offline app shell is cached (default is 2 MiB, which fails the build).
-          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         },
         devOptions: {
           enabled: false,

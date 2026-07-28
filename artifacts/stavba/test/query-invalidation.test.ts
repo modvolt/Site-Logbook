@@ -150,11 +150,12 @@ describe("invalidateData – prefix predikát", () => {
     expect(hit.has("statsOverview")).toBe(true);
   });
 
-  it("nezasáhne zcela cizí domény (stroje, sklad, email import)", () => {
+  it("obnoví navázanou fakturaci, ale nezasáhne nesouvisející domény", () => {
     const hit = invalidatedNames("jobs");
-    // jobs → customers kaskáda obnovuje finanční souhrn zákazníka; ostatní domény ne.
+    // Jobs cascade into customer finance and the ready-to-bill queue.
     expect(hit.has("warehouseItems")).toBe(false);
-    expect(hit.has("invoicesList")).toBe(false);
+    expect(hit.has("invoicesList")).toBe(true);
+    expect(hit.has("unbilledCustomers")).toBe(true);
     expect(hit.has("costDocumentsList")).toBe(false);
     expect(hit.has("peopleList")).toBe(false);
     expect(hit.has("machinesList")).toBe(false);
