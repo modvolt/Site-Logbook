@@ -9,24 +9,28 @@ const source = readFileSync(
 );
 
 describe("billing document action sequencing contract", () => {
-  it("awaits line saves sequentially instead of racing document reconciliation", () => {
+  it("awaits all line saves instead of racing document status changes", () => {
     const start = source.indexOf("const saveAllLines = async");
     const end = source.indexOf("const runDocumentAction", start);
     const saveAllLines = source.slice(start, end);
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
+    expect(saveAllLines).toContain("await Promise.all(");
     expect(saveAllLines).toContain(
-      "for (const cardRef of lineCardsRef.current.values())",
-    );
-    expect(saveAllLines).toContain(
-      "await cardRef.save(overrides, { silent: true })",
+      "cardRef.save(overrides, { silent: true })",
     );
     expect(source).not.toContain("lineCardsRef.current.forEach");
     expect(source).toContain("await updateLine.mutateAsync");
     expect(source).toMatch(
       /export interface LineCardRef \{[\s\S]*\) => Promise<void>;/,
     );
+  });
+
+  it("does not send unchanged lines again for review and approval", () => {
+    expect(source).toContain("const lastSavedFormRef = useRef(form)");
+    expect(source).toContain("if (isUnchanged) return");
+    expect(source).toContain("lastSavedFormRef.current = f");
   });
 
   it("saves current line forms before review and final approval", () => {

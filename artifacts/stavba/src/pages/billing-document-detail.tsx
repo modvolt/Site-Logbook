@@ -200,11 +200,14 @@ export default function BillingDocumentDetail() {
   };
 
   const saveAllLines = async (overrides?: { approved?: boolean }) => {
-    // Each line update reconciles the whole document on the server. Keep these
-    // requests sequential so an older response cannot restore stale line data.
-    for (const cardRef of lineCardsRef.current.values()) {
-      await cardRef.save(overrides, { silent: true });
-    }
+    // The document action still awaits every line, but independent line writes
+    // can run together. The action lock prevents review/approval from racing
+    // ahead while avoiding one full request latency per line.
+    await Promise.all(
+      Array.from(lineCardsRef.current.values(), (cardRef) =>
+        cardRef.save(overrides, { silent: true }),
+      ),
+    );
   };
 
   const runDocumentAction = async (
@@ -1228,6 +1231,7 @@ const LineCard = forwardRef<LineCardRef, {
     matchConfirmed: line.matchConfirmed,
     approved: line.approved,
   });
+  const lastSavedFormRef = useRef(form);
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
@@ -1252,6 +1256,12 @@ const LineCard = forwardRef<LineCardRef, {
       }
       const f = { ...form, ...overrides };
       if (overrides) setForm(f);
+      const lastSaved = lastSavedFormRef.current;
+      const isUnchanged = (
+        Object.keys(f) as Array<keyof typeof f>
+      ).every((key) => f[key] === lastSaved[key]);
+      if (isUnchanged) return;
+
       const data: CostDocumentLineUpdateInput = {
         lineType: f.lineType as CostDocumentLineUpdateInput["lineType"],
         description: f.description,
@@ -1267,6 +1277,7 @@ const LineCard = forwardRef<LineCardRef, {
       };
       try {
         await updateLine.mutateAsync({ id: documentId, lineId: line.id, data });
+        lastSavedFormRef.current = f;
         if (!options?.silent) {
           onChanged();
           toast({ title: "Položka uložena" });
