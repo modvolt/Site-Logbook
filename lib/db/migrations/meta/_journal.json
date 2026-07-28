@@ -666,6 +666,13 @@
       "when": 1785167642005,
       "tag": "0094_steep_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1785254065112,
+      "tag": "0095_motionless_ozymandias",
+      "breakpoints": true
     }
   ]
 }

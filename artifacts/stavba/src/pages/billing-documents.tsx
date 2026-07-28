@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateData } from "@/lib/query-invalidation";
 import {
@@ -39,6 +39,7 @@ import {
   CostDocStatusBadge,
   MaterialStateBadge,
   AiConfidenceBadge,
+  DeliveryNoteWorkflowBadge,
 } from "@/lib/cost-document-format";
 import {
   uploadCostDocument,
@@ -76,13 +77,54 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "ignored", label: COST_DOC_STATUS_LABELS.ignored },
 ];
 
+const DOC_TYPE_FILTERS = [
+  { value: "all", label: "Všechny" },
+  { value: "delivery_note", label: "Dodací listy" },
+  { value: "invoice", label: "Faktury" },
+  { value: "receipt", label: "Účtenky" },
+  { value: "credit_note", label: "Dobropisy" },
+  { value: "unknown", label: "Nerozpoznané" },
+] as const;
+
+function readDocumentFilters(search: string) {
+  const params = new URLSearchParams(search);
+  const requestedStatus = params.get("status");
+  const requestedDocType = params.get("docType");
+  return {
+    status:
+      requestedStatus &&
+      STATUS_FILTERS.some((filter) => filter.value === requestedStatus)
+        ? requestedStatus
+        : "all",
+    docType:
+      requestedDocType &&
+      DOC_TYPE_FILTERS.some((filter) => filter.value === requestedDocType)
+        ? requestedDocType
+        : "all",
+  };
+}
+
+function buildDocumentFilterSearch(status: string, docType: string) {
+  const params = new URLSearchParams();
+  if (status !== "all") params.set("status", status);
+  if (docType !== "all") params.set("docType", docType);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 export default function BillingDocuments() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilterState] = useState(
+    () => readDocumentFilters(search).status,
+  );
+  const [docTypeFilter, setDocTypeFilterState] = useState(
+    () => readDocumentFilters(search).docType,
+  );
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
     null,
@@ -104,7 +146,37 @@ export default function BillingDocuments() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const params = statusFilter === "all" ? undefined : { status: statusFilter };
+  useEffect(() => {
+    const filters = readDocumentFilters(search);
+    setStatusFilterState(filters.status);
+    setDocTypeFilterState(filters.docType);
+  }, [search]);
+
+  const setStatusFilter = (status: string) => {
+    setStatusFilterState(status);
+    setLocation(buildDocumentFilterSearch(status, docTypeFilter), {
+      replace: true,
+    });
+  };
+  const setDocTypeFilter = (docType: string) => {
+    setDocTypeFilterState(docType);
+    setLocation(buildDocumentFilterSearch(statusFilter, docType), {
+      replace: true,
+    });
+  };
+
+  const params: ListCostDocumentsParams | undefined =
+    statusFilter === "all" && docTypeFilter === "all"
+      ? undefined
+      : {
+          ...(statusFilter !== "all" ? { status: statusFilter } : {}),
+          ...(docTypeFilter !== "all"
+            ? {
+                docType:
+                  docTypeFilter as NonNullable<ListCostDocumentsParams["docType"]>,
+              }
+            : {}),
+        };
   const { data: docs, isLoading, isError, error, refetch } = useListCostDocuments(params, {
     query: { queryKey: getListCostDocumentsQueryKey(params) },
   });
@@ -113,6 +185,18 @@ export default function BillingDocuments() {
     query: { queryKey: getListCostDocumentsQueryKey(AI_REVIEW_PARAMS) },
   });
   const aiReviewCount = aiReviewDocs?.length ?? 0;
+  const pageTitle =
+    docTypeFilter === "delivery_note"
+      ? "1. Dodací listy"
+      : docTypeFilter === "invoice"
+        ? "2. Přijaté faktury"
+        : "Přijaté doklady";
+  const pageSubtitle =
+    docTypeFilter === "delivery_note"
+      ? "Nejprve potvrďte materiál, množství a přiřazení"
+      : docTypeFilter === "invoice"
+        ? "Párování s dodacími listy a finální schválení cen"
+        : "Účtenky, dodací listy, přijaté faktury a dobropisy";
 
   const refresh = () => {
     invalidateData(queryClient, "billingDocuments");
@@ -404,9 +488,9 @@ export default function BillingDocuments() {
             <Inbox className="h-6 w-6" />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-bold">Přijaté doklady</h1>
+            <h1 className="text-2xl font-bold">{pageTitle}</h1>
             <p className="text-sm text-muted-foreground break-words">
-              Účtenky, dodací listy, přijaté faktury a dobropisy
+              {pageSubtitle}
             </p>
           </div>
         </div>
@@ -475,6 +559,29 @@ export default function BillingDocuments() {
           disabled={isUploading || isLoading || isError}
           label="Sem přetáhněte doklady (PDF, foto, ISDOC/XML nebo ZIP)"
         />
+      </div>
+
+      <div
+        className="mb-3 flex w-full gap-1 overflow-x-auto rounded-md border bg-muted/40 p-1"
+        role="tablist"
+        aria-label="Typ dokladu"
+      >
+        {DOC_TYPE_FILTERS.map((filter) => (
+          <button
+            key={filter.value}
+            type="button"
+            role="tab"
+            aria-selected={docTypeFilter === filter.value}
+            className={`min-h-9 shrink-0 px-3 text-sm font-medium transition-colors ${
+              docTypeFilter === filter.value
+                ? "rounded bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setDocTypeFilter(filter.value)}
+          >
+            {filter.label}
+          </button>
+        ))}
       </div>
 
       <div className="mb-4">
@@ -747,7 +854,14 @@ function DocumentCard({
   selected: boolean;
   onSelected: () => void;
 }) {
-  const canApprove = !NOT_APPROVABLE_STATUSES.has(doc.status) && String(doc.docType) !== "unknown";
+  const invoiceWorkflowReady =
+    doc.docType !== "invoice" ||
+    doc.deliveryNoteWorkflow.state === "ready" ||
+    doc.deliveryNoteWorkflow.state === "ready_without_delivery_note";
+  const canApprove =
+    !NOT_APPROVABLE_STATUSES.has(doc.status) &&
+    String(doc.docType) !== "unknown" &&
+    invoiceWorkflowReady;
   const canMerge = ["uploaded", "needs_review"].includes(doc.status);
   return (
     <Card className="overflow-hidden">
@@ -771,6 +885,9 @@ function DocumentCard({
                 </p>
                 <CostDocStatusBadge status={doc.status} />
                 <MaterialStateBadge state={doc.materialState} />
+                <DeliveryNoteWorkflowBadge
+                  state={doc.deliveryNoteWorkflow.state}
+                />
                 {doc.aiConfidence != null && (
                   <AiConfidenceBadge confidence={doc.aiConfidence} />
                 )}
@@ -814,6 +931,13 @@ function DocumentCard({
           </Button>
         </div>
       )}
+      {!canApprove &&
+        doc.docType === "invoice" &&
+        !NOT_APPROVABLE_STATUSES.has(doc.status) && (
+          <div className="px-4 pb-3 -mt-1 text-xs text-amber-700 dark:text-amber-300">
+            Otevřete fakturu a vyřešte její dodací listy.
+          </div>
+        )}
     </Card>
   );
 }

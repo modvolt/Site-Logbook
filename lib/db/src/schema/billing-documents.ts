@@ -5,6 +5,7 @@ import {
   text,
   numeric,
   boolean,
+  check,
   timestamp,
   index,
   uniqueIndex,
@@ -93,6 +94,19 @@ export const billingDocumentsTable = pgTable(
     orderNumber: text("order_number"),
     supplierOrderNumber: text("supplier_order_number"),
 
+    // Approval gate for supplier invoices. "required" means the invoice waits
+    // for confirmed, approved delivery notes. "not_required" is an explicit
+    // statement that no delivery note exists; "waived" is an audited exception
+    // when an expected delivery note is unavailable.
+    deliveryNoteResolution: text("delivery_note_resolution")
+      .notNull()
+      .default("unknown"),
+    deliveryNoteResolutionReason: text("delivery_note_resolution_reason"),
+    deliveryNoteResolutionByUserId: integer(
+      "delivery_note_resolution_by_user_id",
+    ).references(() => usersTable.id, { onDelete: "set null" }),
+    deliveryNoteResolutionAt: timestamp("delivery_note_resolution_at"),
+
     // Bank / payment header fields (mostly from ISDOC). Stored for audit + QR.
     constantSymbol: text("constant_symbol"),
     specificSymbol: text("specific_symbol"),
@@ -175,6 +189,21 @@ export const billingDocumentsTable = pgTable(
     index("billing_documents_document_number_idx").on(t.documentNumber),
     index("billing_documents_job_id_idx").on(t.jobId),
     index("billing_documents_customer_id_idx").on(t.customerId),
+    index("billing_documents_delivery_note_resolution_idx").on(
+      t.deliveryNoteResolution,
+    ),
+    check(
+      "billing_documents_delivery_note_resolution_check",
+      sql`${t.deliveryNoteResolution} in ('unknown', 'required', 'not_required', 'waived')`,
+    ),
+    check(
+      "billing_documents_delivery_note_resolution_reason_check",
+      sql`(
+        (${t.deliveryNoteResolution} in ('unknown', 'required') and ${t.deliveryNoteResolutionReason} is null)
+        or
+        (${t.deliveryNoteResolution} in ('not_required', 'waived') and length(btrim(${t.deliveryNoteResolutionReason})) >= 3)
+      )`,
+    ),
   ],
 );
 

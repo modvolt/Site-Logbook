@@ -99,6 +99,7 @@ import type {
   CustomerSiteAttachmentInput,
   CustomerSiteInput,
   DashboardSummary,
+  DeliveryNoteResolutionInput,
   DeviceCredential,
   DeviceCredentialInput,
   DeviceCredentialUpdate,
@@ -20602,6 +20603,78 @@ export const useConfirmCostDocumentType = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getConfirmCostDocumentTypeMutationOptions(options));
+    }
+
+export const getSetCostDocumentDeliveryNoteResolutionUrl = (id: number,) => {
+
+
+
+
+  return `/api/billing/documents/${id}/delivery-note-resolution`
+}
+
+/**
+ * @summary Decide how a received invoice satisfies the delivery-note gate
+ */
+export const setCostDocumentDeliveryNoteResolution = async (id: number,
+    deliveryNoteResolutionInput: DeliveryNoteResolutionInput, options?: RequestInit): Promise<CostDocumentDetail> => {
+
+  return customFetch<CostDocumentDetail>(getSetCostDocumentDeliveryNoteResolutionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      deliveryNoteResolutionInput,)
+  }
+);}
+
+
+
+
+export const getSetCostDocumentDeliveryNoteResolutionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setCostDocumentDeliveryNoteResolution>>, TError,{id: number;data: BodyType<DeliveryNoteResolutionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setCostDocumentDeliveryNoteResolution>>, TError,{id: number;data: BodyType<DeliveryNoteResolutionInput>}, TContext> => {
+
+const mutationKey = ['setCostDocumentDeliveryNoteResolution'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setCostDocumentDeliveryNoteResolution>>, {id: number;data: BodyType<DeliveryNoteResolutionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  setCostDocumentDeliveryNoteResolution(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetCostDocumentDeliveryNoteResolutionMutationResult = NonNullable<Awaited<ReturnType<typeof setCostDocumentDeliveryNoteResolution>>>
+    export type SetCostDocumentDeliveryNoteResolutionMutationBody = BodyType<DeliveryNoteResolutionInput>
+    export type SetCostDocumentDeliveryNoteResolutionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Decide how a received invoice satisfies the delivery-note gate
+ */
+export const useSetCostDocumentDeliveryNoteResolution = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setCostDocumentDeliveryNoteResolution>>, TError,{id: number;data: BodyType<DeliveryNoteResolutionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setCostDocumentDeliveryNoteResolution>>,
+        TError,
+        {id: number;data: BodyType<DeliveryNoteResolutionInput>},
+        TContext
+      > => {
+      return useMutation(getSetCostDocumentDeliveryNoteResolutionMutationOptions(options));
     }
 
 export const getGetCostDocumentUrl = (id: number,) => {

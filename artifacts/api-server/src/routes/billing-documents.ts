@@ -56,6 +56,7 @@ import {
   reorderDocumentMerge,
   revertDocumentMerge,
   confirmDocumentType,
+  setDocumentDeliveryNoteResolution,
   type AppError,
   type Actor,
 } from "../lib/cost-document-service";
@@ -97,6 +98,10 @@ const ConfirmDocumentTypeBody = z.object({
 });
 const MergeJobDocumentPagesBody = z.object({
   orderedAttachmentIds: z.array(z.number().int().positive()).min(2).max(50),
+});
+const DeliveryNoteResolutionBody = z.object({
+  resolution: z.enum(["unknown", "required", "not_required", "waived"]),
+  reason: z.string().trim().min(3).max(500).nullish(),
 });
 
 // --- AI extraction (OpenAI) — optional, admin-only status + connectivity test ---
@@ -304,12 +309,20 @@ function optNonNegativeInt(raw: unknown): number | undefined {
 
 router.get("/billing/documents", async (req, res): Promise<void> => {
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const docType =
+    typeof req.query.docType === "string" &&
+    ["unknown", "receipt", "delivery_note", "invoice", "credit_note"].includes(
+      req.query.docType,
+    )
+      ? req.query.docType
+      : undefined;
   const supplierIc =
     typeof req.query.supplierIc === "string" ? req.query.supplierIc : undefined;
   const aiOnly = req.query.aiOnly === "true";
   const sort = typeof req.query.sort === "string" ? req.query.sort : undefined;
   const docs = await listDocuments({
     status,
+    docType,
     supplierIc,
     jobId: optInt(req.query.jobId),
     customerId: optInt(req.query.customerId),
@@ -647,6 +660,31 @@ router.post("/billing/documents/:id/confirm-type", async (req, res): Promise<voi
     handleError(error, "Typ dokladu se nepodařilo potvrdit.", res);
   }
 });
+
+router.post(
+  "/billing/documents/:id/delivery-note-resolution",
+  async (req, res): Promise<void> => {
+    const id = parseId(req.params.id);
+    const parsed = DeliveryNoteResolutionBody.safeParse(req.body);
+    if (id == null) {
+      res.status(400).json({ error: "Doklad nenalezen." });
+      return;
+    }
+    if (!parsed.success) {
+      res.status(400).json({
+        error: parsed.error.issues[0]?.message ?? "Neplatné rozhodnutí.",
+      });
+      return;
+    }
+    try {
+      res.json(
+        await setDocumentDeliveryNoteResolution(id, parsed.data, actorOf(req)),
+      );
+    } catch (error) {
+      handleError(error, "Rozhodnutí o dodacím listu se nepodařilo uložit.", res);
+    }
+  },
+);
 
 router.get("/billing/documents/:id", async (req, res): Promise<void> => {
   const id = parseId(req.params.id);

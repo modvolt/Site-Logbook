@@ -109,6 +109,8 @@ async function makeStockDoc(opts: {
       source: "manual",
       supplierName: `Dodavatel ${TAG}`,
       documentNumber: `FV-${TAG}-${docIds.length + 1}`,
+      deliveryNoteResolution: "not_required",
+      deliveryNoteResolutionReason: `Testovací skladová faktura ${TAG} nemá dodací list`,
     })
     .returning();
   docIds.push(doc.id);

@@ -121,6 +121,12 @@ function permissionForRequest(req: Request): Permission | null {
 
   if (path.startsWith("/billing/")) {
     if (
+      !READ_METHODS.has(req.method) &&
+      /\/delivery-note-resolution$/.test(path)
+    ) {
+      return "billing.approve";
+    }
+    if (
       path.startsWith("/billing/settings") ||
       path.startsWith("/billing/ai-extraction") ||
       path.startsWith("/billing/document-linking") ||

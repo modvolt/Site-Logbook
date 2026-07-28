@@ -27,6 +27,8 @@ import {
   Mail,
   CheckCircle2,
   CalendarClock,
+  Truck,
+  ReceiptText,
 } from "lucide-react";
 
 const NEEDS_REVIEW_PARAMS: ListCostDocumentsParams = { status: "needs_review" };
@@ -46,6 +48,15 @@ export default function Billing() {
   });
 
   const reviewCount = reviewDocs?.length ?? 0;
+  const deliveryNoteReviewCount =
+    reviewDocs?.filter((document) => document.docType === "delivery_note").length ??
+    0;
+  const invoiceReviewCount =
+    reviewDocs?.filter((document) => document.docType === "invoice").length ?? 0;
+  const otherDocumentReviewCount = Math.max(
+    0,
+    reviewCount - deliveryNoteReviewCount - invoiceReviewCount,
+  );
   const reviewQueueCount = reviewQueueData?.total ?? 0;
   const unbilledCount = (data?.unbilledDoneJobs ?? 0) + (data?.unbilledActivities ?? 0);
   const overdueCount = data?.overdueCount ?? 0;
@@ -55,6 +66,36 @@ export default function Billing() {
     unbilledCount > 0 || reviewCount > 0 || overdueCount > 0 || reviewQueueCount > 0;
 
   const queueItems = [
+    {
+      key: "deliveryNotes",
+      icon: Truck,
+      label: "1. Dodací listy ke schválení",
+      subtitle: "Nejprve potvrďte materiál, množství a zakázky",
+      count: deliveryNoteReviewCount,
+      urgent: deliveryNoteReviewCount > 0,
+      urgentColor: "text-sky-700 dark:text-sky-400",
+      urgentBg:
+        "border-sky-200 bg-sky-50 dark:border-sky-900/50 dark:bg-sky-950/20",
+      iconColor: "text-sky-500",
+      onClick: () =>
+        setLocation(
+          "/billing/documents?docType=delivery_note&status=needs_review",
+        ),
+    },
+    {
+      key: "supplierInvoices",
+      icon: ReceiptText,
+      label: "2. Faktury ke spárování",
+      subtitle: "Schválení až po vyřešení jejich dodacích listů",
+      count: invoiceReviewCount,
+      urgent: invoiceReviewCount > 0,
+      urgentColor: "text-emerald-700 dark:text-emerald-400",
+      urgentBg:
+        "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20",
+      iconColor: "text-emerald-500",
+      onClick: () =>
+        setLocation("/billing/documents?docType=invoice&status=needs_review"),
+    },
     {
       key: "unbilled",
       icon: Building2,
@@ -73,19 +114,24 @@ export default function Billing() {
       iconColor: overdueUnbilledCustomers > 0 ? "text-red-500" : "text-amber-500",
       onClick: () => setLocation("/billing/unbilled"),
     },
-    {
-      key: "review",
-      icon: Inbox,
-      label: "Doklady ke kontrole",
-      subtitle: "Přijaté doklady čekající na schválení",
-      count: reviewCount,
-      urgent: reviewCount > 0,
-      urgentColor: "text-emerald-700 dark:text-emerald-400",
-      urgentBg:
-        "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20",
-      iconColor: "text-emerald-500",
-      onClick: () => setLocation("/billing/documents?status=needs_review"),
-    },
+    ...(otherDocumentReviewCount > 0
+      ? [
+          {
+            key: "otherDocuments",
+            icon: Inbox,
+            label: "Ostatní doklady ke kontrole",
+            subtitle: "Účtenky, dobropisy a doklady s neurčeným typem",
+            count: otherDocumentReviewCount,
+            urgent: true,
+            urgentColor: "text-amber-700 dark:text-amber-400",
+            urgentBg:
+              "border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20",
+            iconColor: "text-amber-500",
+            onClick: () =>
+              setLocation("/billing/documents?status=needs_review"),
+          },
+        ]
+      : []),
     {
       key: "reviewQueue",
       icon: ClipboardList,
@@ -219,10 +265,26 @@ export default function Billing() {
           onClick={() => setLocation("/billing/unbilled")}
         />
         <NavCard
-          icon={Inbox}
+          icon={Truck}
+          color="text-sky-500"
+          title="1. Dodací listy"
+          subtitle="Kontrola materiálu, množství a přiřazení k zakázkám"
+          badge={deliveryNoteReviewCount}
+          onClick={() => setLocation("/billing/documents?docType=delivery_note")}
+        />
+        <NavCard
+          icon={ReceiptText}
           color="text-emerald-500"
-          title="Doklady a dodací listy"
-          subtitle="Účtenky, dodací listy, přijaté faktury a dobropisy"
+          title="2. Přijaté faktury"
+          subtitle="Párování s dodacími listy a finální schválení cen"
+          badge={invoiceReviewCount}
+          onClick={() => setLocation("/billing/documents?docType=invoice")}
+        />
+        <NavCard
+          icon={Inbox}
+          color="text-slate-500"
+          title="Všechny přijaté doklady"
+          subtitle="Účtenky, dobropisy, nerozpoznané a archiv dokladů"
           badge={reviewCount}
           onClick={() => setLocation("/billing/documents")}
         />

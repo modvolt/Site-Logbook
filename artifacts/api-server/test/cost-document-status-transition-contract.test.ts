@@ -20,7 +20,7 @@ describe("cost-document status transition contract", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     expect(handler).toMatch(
-      /if \(doc\.status === "approved"\) \{[\s\S]*await syncJobMaterialsForDocument\(tx, id, actor\);[\s\S]*await reconcileDocumentStockMovements\(tx, id, actor\);[\s\S]*\}/,
+      /if \(currentDoc\.status === "approved"\) \{[\s\S]*await syncJobMaterialsForDocument\(tx, id, actor\);[\s\S]*await reconcileDocumentStockMovements\(tx, id, actor\);[\s\S]*\}/,
     );
   });
 });

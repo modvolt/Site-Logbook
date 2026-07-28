@@ -98,6 +98,17 @@ const VALID_LINE_TYPE = new Set(["material", "work", "transport", "other"]);
 const VALID_DOC_TYPE = new Set(["receipt", "delivery_note", "invoice", "credit_note"]);
 const MERGEABLE_DOCUMENT_STATUSES = new Set(["uploaded", "needs_review"]);
 const DOCUMENT_PAGE_MERGE_LOCK_CLASS = 894_612_306;
+const DELIVERY_NOTE_REFERENCE_TYPES = [
+  "delivery_note",
+  "summary_delivery_note",
+  "delivery",
+] as const;
+const DELIVERY_NOTE_RESOLUTIONS = new Set([
+  "unknown",
+  "required",
+  "not_required",
+  "waived",
+]);
 
 function looksLikeIncompleteMultipageDocument(doc: Pick<BillingDocument, "warnings" | "totalWithVat">): boolean {
   const warnings = doc.warnings ?? "";
@@ -386,6 +397,127 @@ export async function findDuplicates(probe: DuplicateProbe): Promise<DuplicateMa
  */
 export type MaterialState = "assigned" | "approved" | null;
 
+export type DeliveryNoteWorkflowState =
+  | "not_applicable"
+  | "needs_decision"
+  | "waiting_for_delivery_note"
+  | "ready"
+  | "ready_without_delivery_note";
+
+export interface DeliveryNoteWorkflow {
+  state: DeliveryNoteWorkflowState;
+  referenceCount: number;
+  approvedReferenceCount: number;
+  unresolvedReferenceNumbers: string[];
+}
+
+function nonInvoiceDeliveryNoteWorkflow(): DeliveryNoteWorkflow {
+  return {
+    state: "not_applicable",
+    referenceCount: 0,
+    approvedReferenceCount: 0,
+    unresolvedReferenceNumbers: [],
+  };
+}
+
+async function getDeliveryNoteWorkflowMap(
+  documents: BillingDocument[],
+  executor: DbOrTx = db,
+): Promise<Map<number, DeliveryNoteWorkflow>> {
+  const result = new Map<number, DeliveryNoteWorkflow>();
+  const invoices = documents.filter((document) => document.docType === "invoice");
+  for (const document of documents) {
+    if (document.docType !== "invoice") {
+      result.set(document.id, nonInvoiceDeliveryNoteWorkflow());
+    }
+  }
+  if (invoices.length === 0) return result;
+
+  const invoiceIds = invoices.map((document) => document.id);
+  const references = await executor
+    .select({
+      documentId: billingDocumentReferencesTable.documentId,
+      referenceNumber: billingDocumentReferencesTable.referenceNumber,
+      matchedDocumentId: billingDocumentReferencesTable.matchedDocumentId,
+      matchConfirmed: billingDocumentReferencesTable.matchConfirmed,
+      rejected: billingDocumentReferencesTable.rejected,
+    })
+    .from(billingDocumentReferencesTable)
+    .where(
+      and(
+        inArray(billingDocumentReferencesTable.documentId, invoiceIds),
+        inArray(
+          billingDocumentReferencesTable.referenceType,
+          DELIVERY_NOTE_REFERENCE_TYPES,
+        ),
+      ),
+    );
+
+  const matchedDocumentIds = Array.from(
+    new Set(
+      references
+        .map((reference) => reference.matchedDocumentId)
+        .filter((id): id is number => id != null),
+    ),
+  );
+  const matchedDocuments = matchedDocumentIds.length
+    ? await executor
+        .select({
+          id: billingDocumentsTable.id,
+          status: billingDocumentsTable.status,
+          docType: billingDocumentsTable.docType,
+        })
+        .from(billingDocumentsTable)
+        .where(inArray(billingDocumentsTable.id, matchedDocumentIds))
+    : [];
+  const matchedById = new Map(
+    matchedDocuments.map((document) => [document.id, document]),
+  );
+
+  for (const invoice of invoices) {
+    const activeReferences = references.filter(
+      (reference) =>
+        reference.documentId === invoice.id && reference.rejected !== 1,
+    );
+    const approvedReferences = activeReferences.filter((reference) => {
+      if (reference.matchConfirmed !== 1 || reference.matchedDocumentId == null) {
+        return false;
+      }
+      const matched = matchedById.get(reference.matchedDocumentId);
+      return matched?.docType === "delivery_note" && matched.status === "approved";
+    });
+    const unresolvedReferenceNumbers = activeReferences
+      .filter((reference) => !approvedReferences.includes(reference))
+      .map((reference) => reference.referenceNumber);
+
+    let state: DeliveryNoteWorkflowState;
+    if (invoice.deliveryNoteResolution === "waived") {
+      state = "ready_without_delivery_note";
+    } else if (activeReferences.length === 0) {
+      state =
+        invoice.deliveryNoteResolution === "not_required"
+          ? "ready_without_delivery_note"
+          : invoice.deliveryNoteResolution === "required"
+            ? "waiting_for_delivery_note"
+            : "needs_decision";
+    } else {
+      state =
+        approvedReferences.length === activeReferences.length
+          ? "ready"
+          : "waiting_for_delivery_note";
+    }
+
+    result.set(invoice.id, {
+      state,
+      referenceCount: activeReferences.length,
+      approvedReferenceCount: approvedReferences.length,
+      unresolvedReferenceNumbers,
+    });
+  }
+
+  return result;
+}
+
 function deriveMaterialState(
   lines: {
     lineType: string | null;
@@ -406,6 +538,7 @@ function deriveMaterialState(
 function serializeDocument(
   row: BillingDocument,
   materialState: MaterialState = null,
+  deliveryNoteWorkflow: DeliveryNoteWorkflow = nonInvoiceDeliveryNoteWorkflow(),
 ) {
   const warnings =
     row.status !== "duplicate" && row.primaryDocumentId == null && row.warnings
@@ -452,6 +585,10 @@ function serializeDocument(
     deliveryNumber: row.deliveryNumber,
     orderNumber: row.orderNumber,
     supplierOrderNumber: row.supplierOrderNumber,
+    deliveryNoteResolution: row.deliveryNoteResolution,
+    deliveryNoteResolutionReason: row.deliveryNoteResolutionReason,
+    deliveryNoteResolutionAt: row.deliveryNoteResolutionAt?.toISOString() ?? null,
+    deliveryNoteWorkflow,
     constantSymbol: row.constantSymbol,
     specificSymbol: row.specificSymbol,
     bankAccount: row.bankAccount,
@@ -2129,6 +2266,7 @@ export async function ingestGroupFile(
 
 export interface DocumentFilters {
   status?: string;
+  docType?: string;
   supplierIc?: string;
   jobId?: number;
   customerId?: number;
@@ -2236,6 +2374,9 @@ export async function listDocuments(filters: DocumentFilters) {
     );
     if (notFoldedDuplicate) conds.push(notFoldedDuplicate);
   }
+  if (filters.docType) {
+    conds.push(eq(billingDocumentsTable.docType, filters.docType));
+  }
   if (filters.supplierIc)
     conds.push(eq(billingDocumentsTable.supplierIc, filters.supplierIc));
   if (filters.jobId != null) {
@@ -2288,7 +2429,14 @@ export async function listDocuments(filters: DocumentFilters) {
       stateById.set(docId, deriveMaterialState(ls));
   }
 
-  return rows.map((r) => serializeDocument(r, stateById.get(r.id) ?? null));
+  const deliveryNoteWorkflowById = await getDeliveryNoteWorkflowMap(rows);
+  return rows.map((row) =>
+    serializeDocument(
+      row,
+      stateById.get(row.id) ?? null,
+      deliveryNoteWorkflowById.get(row.id) ?? nonInvoiceDeliveryNoteWorkflow(),
+    ),
+  );
 }
 
 export async function getDocument(id: number) {
@@ -2418,6 +2566,7 @@ export async function getDocument(id: number) {
     .from(billingDocumentReferencesTable)
     .where(eq(billingDocumentReferencesTable.documentId, id))
     .orderBy(billingDocumentReferencesTable.id);
+  const deliveryNoteWorkflowById = await getDeliveryNoteWorkflowMap([doc]);
 
   let files = await db
     .select()
@@ -2484,7 +2633,11 @@ export async function getDocument(id: number) {
     .orderBy(materialsTable.id);
 
   return {
-    document: serializeDocument(doc, deriveMaterialState(lines)),
+    document: serializeDocument(
+      doc,
+      deriveMaterialState(lines),
+      deliveryNoteWorkflowById.get(doc.id) ?? nonInvoiceDeliveryNoteWorkflow(),
+    ),
     lines: lines.map(serializeLine),
     duplicates,
     linkedDuplicates,
@@ -2576,22 +2729,38 @@ export interface AddReferenceInput {
   confidence?: number | null;
 }
 
+async function lockDocumentForReferenceEdit(
+  tx: DbOrTx,
+  documentId: number,
+): Promise<void> {
+  await tx.execute(
+    sql`select id from billing_documents where id = ${documentId} for update`,
+  );
+  const [document] = await tx
+    .select({ status: billingDocumentsTable.status })
+    .from(billingDocumentsTable)
+    .where(eq(billingDocumentsTable.id, documentId));
+  if (!document) throw appError(404, "Doklad nenalezen.");
+  if (document.status === "approved") {
+    throw appError(
+      409,
+      "Vazby schváleného dokladu jsou uzamčené. Nejprve vraťte doklad ke kontrole.",
+    );
+  }
+}
+
 export async function addReference(
   documentId: number,
   input: AddReferenceInput,
   actor: Actor = SYSTEM_ACTOR,
 ) {
-  const [doc] = await db
-    .select({ id: billingDocumentsTable.id })
-    .from(billingDocumentsTable)
-    .where(eq(billingDocumentsTable.id, documentId));
-  if (!doc) throw appError(404, "Doklad nenalezen.");
   const referenceType = VALID_REFERENCE_TYPE.has(input.referenceType)
     ? input.referenceType
     : "other";
   const refNum = input.referenceNumber.trim();
   if (!refNum) throw appError(400, "Číslo reference je povinné.");
   await db.transaction(async (tx) => {
+    await lockDocumentForReferenceEdit(tx, documentId);
     const [created] = await tx.insert(billingDocumentReferencesTable).values({
       documentId,
       referenceType,
@@ -2632,17 +2801,6 @@ export async function updateReference(
   input: ReferenceUpdateInput,
   actor: Actor = SYSTEM_ACTOR,
 ) {
-  const [ref] = await db
-    .select()
-    .from(billingDocumentReferencesTable)
-    .where(
-      and(
-        eq(billingDocumentReferencesTable.id, referenceId),
-        eq(billingDocumentReferencesTable.documentId, documentId),
-      ),
-    );
-  if (!ref) throw appError(404, "Reference nenalezena.");
-
   const patch: Partial<typeof billingDocumentReferencesTable.$inferInsert> = {
     updatedAt: new Date(),
   };
@@ -2668,6 +2826,17 @@ export async function updateReference(
   if (input.notes !== undefined) patch.notes = input.notes;
 
   await db.transaction(async (tx) => {
+    await lockDocumentForReferenceEdit(tx, documentId);
+    const [ref] = await tx
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(
+        and(
+          eq(billingDocumentReferencesTable.id, referenceId),
+          eq(billingDocumentReferencesTable.documentId, documentId),
+        ),
+      );
+    if (!ref) throw appError(404, "Reference nenalezena.");
     await tx
       .update(billingDocumentReferencesTable)
       .set(patch)
@@ -2699,17 +2868,18 @@ export async function deleteReference(
   referenceId: number,
   actor: Actor = SYSTEM_ACTOR,
 ) {
-  const [ref] = await db
-    .select()
-    .from(billingDocumentReferencesTable)
-    .where(
-      and(
-        eq(billingDocumentReferencesTable.id, referenceId),
-        eq(billingDocumentReferencesTable.documentId, documentId),
-      ),
-    );
-  if (!ref) throw appError(404, "Reference nenalezena.");
   await db.transaction(async (tx) => {
+    await lockDocumentForReferenceEdit(tx, documentId);
+    const [ref] = await tx
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(
+        and(
+          eq(billingDocumentReferencesTable.id, referenceId),
+          eq(billingDocumentReferencesTable.documentId, documentId),
+        ),
+      );
+    if (!ref) throw appError(404, "Reference nenalezena.");
     await tx
       .delete(billingDocumentReferencesTable)
       .where(eq(billingDocumentReferencesTable.id, referenceId));
@@ -2762,6 +2932,12 @@ export async function matchDocumentReferences(documentId: number) {
     number,
     { jobId: number; jobTitle: string | null; score: number; strength: string; reasons: string[] }[]
   > = {};
+  const pendingUpdates: {
+    referenceId: number;
+    matchedJobId: number | null;
+    matchConfidence: string;
+    matchConfirmed?: number;
+  }[] = [];
 
   for (const ref of refs) {
     if (ref.matchConfirmed === 1 || ref.rejected === 1) continue;
@@ -2787,16 +2963,36 @@ export async function matchDocumentReferences(documentId: number) {
         linkable &&
         cfg.autoConfirmEnabled &&
         best.match.score >= cfg.autoConfirmMinScore;
-      await db
-        .update(billingDocumentReferencesTable)
-        .set({
-          matchedJobId: linkable ? best.job.id : null,
-          matchConfidence: String(best.match.score),
-          ...(confirmable ? { matchConfirmed: 1 } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(billingDocumentReferencesTable.id, ref.id));
+      pendingUpdates.push({
+        referenceId: ref.id,
+        matchedJobId: linkable ? best.job.id : null,
+        matchConfidence: String(best.match.score),
+        ...(confirmable ? { matchConfirmed: 1 } : {}),
+      });
     }
+  }
+  if (pendingUpdates.length > 0) {
+    await db.transaction(async (tx) => {
+      await lockDocumentForReferenceEdit(tx, documentId);
+      for (const update of pendingUpdates) {
+        await tx
+          .update(billingDocumentReferencesTable)
+          .set({
+            matchedJobId: update.matchedJobId,
+            matchConfidence: update.matchConfidence,
+            ...(update.matchConfirmed != null
+              ? { matchConfirmed: update.matchConfirmed }
+              : {}),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(billingDocumentReferencesTable.id, update.referenceId),
+              eq(billingDocumentReferencesTable.documentId, documentId),
+            ),
+          );
+      }
+    });
   }
 
   const detail = await getDocument(documentId);
@@ -2807,6 +3003,7 @@ export interface DocumentMatchSuggestion {
   documentId: number;
   documentNumber: string | null;
   docType: string;
+  status: string;
   score: number;
   strength: string;
   reasons: string[];
@@ -2928,6 +3125,7 @@ async function findDocumentMatchSuggestions(
       documentId: other.id,
       documentNumber: other.documentNumber,
       docType: other.docType,
+      status: other.status,
       score: scored.score,
       strength: scored.strength,
       reasons: scored.reasons,
@@ -3006,9 +3204,18 @@ async function persistDocumentRelationship(
     ) {
       return { linked: false, confirmed: false };
     }
-
     const lockA = Math.min(invoice.id, deliveryNote.id);
     const lockB = Math.max(invoice.id, deliveryNote.id);
+    await tx.execute(
+      sql`select id from billing_documents where id = ${invoice.id} for update`,
+    );
+    const [lockedInvoice] = await tx
+      .select({ status: billingDocumentsTable.status })
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, invoice.id));
+    if (!lockedInvoice || lockedInvoice.status === "approved") {
+      return { linked: false, confirmed: false };
+    }
     await tx.execute(sql`select pg_advisory_xact_lock(${lockA}, ${lockB})`);
 
     const linkNumber =
@@ -4226,8 +4433,168 @@ export async function revertInvoicePricePropagation(
 // Lifecycle: approve / ignore / set status / requeue / delete
 // ---------------------------------------------------------------------------
 
+export interface DeliveryNoteResolutionInput {
+  resolution: "unknown" | "required" | "not_required" | "waived";
+  reason?: string | null;
+}
+
+export async function setDocumentDeliveryNoteResolution(
+  id: number,
+  input: DeliveryNoteResolutionInput,
+  actor: Actor,
+) {
+  if (!DELIVERY_NOTE_RESOLUTIONS.has(input.resolution)) {
+    throw appError(400, "Neplatné rozhodnutí o dodacím listu.");
+  }
+  const reason = input.reason?.trim() || null;
+  if (
+    (input.resolution === "not_required" || input.resolution === "waived") &&
+    (reason == null || reason.length < 3)
+  ) {
+    throw appError(
+      400,
+      "Pro pokračování bez dodacího listu uveďte důvod alespoň o 3 znacích.",
+    );
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from billing_documents where id = ${id} for update`,
+    );
+    const [doc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, id));
+    if (!doc) throw appError(404, "Doklad nenalezen.");
+    if (doc.docType !== "invoice") {
+      throw appError(
+        400,
+        "Rozhodnutí o dodacím listu lze nastavit pouze u přijaté faktury.",
+      );
+    }
+    if (doc.status === "approved") {
+      throw appError(
+        409,
+        "U schválené faktury nelze měnit rozhodnutí o dodacím listu.",
+      );
+    }
+
+    if (input.resolution === "not_required") {
+      const [activeReference] = await tx
+        .select({ id: billingDocumentReferencesTable.id })
+        .from(billingDocumentReferencesTable)
+        .where(
+          and(
+            eq(billingDocumentReferencesTable.documentId, id),
+            inArray(
+              billingDocumentReferencesTable.referenceType,
+              DELIVERY_NOTE_REFERENCE_TYPES,
+            ),
+            eq(billingDocumentReferencesTable.rejected, 0),
+          ),
+        )
+        .limit(1);
+      if (activeReference) {
+        throw appError(
+          409,
+          "Faktura obsahuje odkaz na dodací list. Spárujte jej, nebo použijte schválenou výjimku s důvodem.",
+        );
+      }
+    }
+
+    await tx
+      .update(billingDocumentsTable)
+      .set({
+        deliveryNoteResolution: input.resolution,
+        deliveryNoteResolutionReason:
+          input.resolution === "not_required" || input.resolution === "waived"
+            ? reason
+            : null,
+        deliveryNoteResolutionByUserId:
+          input.resolution === "unknown" ? null : actor.userId,
+        deliveryNoteResolutionAt:
+          input.resolution === "unknown" ? null : new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(billingDocumentsTable.id, id));
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: actor.userId,
+      actorName: actor.name,
+      action: "delivery_note_resolution_changed",
+      entityType: "billing_documents",
+      entityId: id,
+      summary: `Rozhodnutí o dodacím listu změněno z ${doc.deliveryNoteResolution} na ${input.resolution}${reason ? `; důvod: ${reason}` : ""}.`,
+      method: "POST",
+      path: `/billing/documents/${id}/delivery-note-resolution`,
+    });
+  });
+
+  return getDocument(id);
+}
+
+async function assertInvoiceDeliveryNotesReady(
+  tx: DbOrTx,
+  doc: BillingDocument,
+): Promise<void> {
+  if (doc.docType !== "invoice") return;
+  await tx.execute(
+    sql`select id from billing_document_references where document_id = ${doc.id} for update`,
+  );
+  const linkedDeliveryNotes = await tx
+    .select({ id: billingDocumentReferencesTable.matchedDocumentId })
+    .from(billingDocumentReferencesTable)
+    .where(
+      and(
+        eq(billingDocumentReferencesTable.documentId, doc.id),
+        inArray(
+          billingDocumentReferencesTable.referenceType,
+          DELIVERY_NOTE_REFERENCE_TYPES,
+        ),
+        eq(billingDocumentReferencesTable.matchConfirmed, 1),
+        eq(billingDocumentReferencesTable.rejected, 0),
+        isNotNull(billingDocumentReferencesTable.matchedDocumentId),
+      ),
+    );
+  for (const deliveryNoteId of Array.from(
+    new Set(
+      linkedDeliveryNotes
+        .map((row) => row.id)
+        .filter((id): id is number => id != null),
+    ),
+  ).sort((a, b) => a - b)) {
+    const lockA = Math.min(doc.id, deliveryNoteId);
+    const lockB = Math.max(doc.id, deliveryNoteId);
+    await tx.execute(sql`select pg_advisory_xact_lock(${lockA}, ${lockB})`);
+  }
+  const workflows = await getDeliveryNoteWorkflowMap([doc], tx);
+  const workflow = workflows.get(doc.id);
+  if (
+    workflow?.state === "ready" ||
+    workflow?.state === "ready_without_delivery_note"
+  ) {
+    return;
+  }
+  if (workflow?.state === "needs_decision") {
+    throw appError(
+      409,
+      "Nejprve potvrďte, zda má tato faktura dodací list. Bez tohoto rozhodnutí ji nelze schválit.",
+    );
+  }
+  const unresolved = workflow?.unresolvedReferenceNumbers.length
+    ? ` Nevyřešené reference: ${workflow.unresolvedReferenceNumbers.join(", ")}.`
+    : "";
+  throw appError(
+    409,
+    `Fakturu nelze schválit, dokud nejsou její dodací listy spárované, potvrzené a schválené.${unresolved}`,
+  );
+}
+
 export async function approveDocument(id: number, actor: Actor) {
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from billing_documents where id = ${id} for update`,
+    );
     const [doc] = await tx
       .select()
       .from(billingDocumentsTable)
@@ -4262,6 +4629,7 @@ export async function approveDocument(id: number, actor: Actor) {
     const attachmentJobId =
       doc.jobId == null ? await resolveSingleAttachmentJobIdTx(tx, doc) : null;
     await assertCompleteBeforeTerminalAction(tx, doc, "approve");
+    await assertInvoiceDeliveryNotesReady(tx, doc);
     await tx
       .update(billingDocumentsTable)
       .set({
@@ -4569,6 +4937,53 @@ export async function updateWarehousePricesFromDocument(
   });
 }
 
+async function assertDeliveryNoteCanLeaveApproved(
+  tx: DbOrTx,
+  doc: BillingDocument,
+): Promise<void> {
+  if (doc.docType !== "delivery_note" || doc.status !== "approved") return;
+  const linkedInvoiceRows = await tx
+    .select({ invoiceId: billingDocumentReferencesTable.documentId })
+    .from(billingDocumentReferencesTable)
+    .where(
+      and(
+        eq(billingDocumentReferencesTable.matchedDocumentId, doc.id),
+        inArray(
+          billingDocumentReferencesTable.referenceType,
+          DELIVERY_NOTE_REFERENCE_TYPES,
+        ),
+        eq(billingDocumentReferencesTable.matchConfirmed, 1),
+        eq(billingDocumentReferencesTable.rejected, 0),
+      ),
+    );
+  const invoiceIds = Array.from(
+    new Set(linkedInvoiceRows.map((row) => row.invoiceId)),
+  ).sort((a, b) => a - b);
+  for (const invoiceId of invoiceIds) {
+    const lockA = Math.min(doc.id, invoiceId);
+    const lockB = Math.max(doc.id, invoiceId);
+    await tx.execute(sql`select pg_advisory_xact_lock(${lockA}, ${lockB})`);
+  }
+  if (invoiceIds.length === 0) return;
+  const [approvedInvoice] = await tx
+    .select({ id: billingDocumentsTable.id })
+    .from(billingDocumentsTable)
+    .where(
+      and(
+        inArray(billingDocumentsTable.id, invoiceIds),
+        eq(billingDocumentsTable.docType, "invoice"),
+        eq(billingDocumentsTable.status, "approved"),
+      ),
+    )
+    .limit(1);
+  if (approvedInvoice) {
+    throw appError(
+      409,
+      `Dodací list je použitý ve schválené faktuře #${approvedInvoice.id}. Nejprve vraťte tuto fakturu ke kontrole.`,
+    );
+  }
+}
+
 export async function setDocumentStatus(
   id: number,
   status: "needs_review" | "reviewed" | "ignored" | "duplicate",
@@ -4586,8 +5001,17 @@ export async function setDocumentStatus(
     );
   }
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select id from billing_documents where id = ${id} for update`,
+    );
+    const [currentDoc] = await tx
+      .select()
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, id));
+    if (!currentDoc) throw appError(404, "Doklad nenalezen.");
+    await assertDeliveryNoteCanLeaveApproved(tx, currentDoc);
     if (status === "ignored") {
-      await assertCompleteBeforeTerminalAction(tx, doc, "ignore");
+      await assertCompleteBeforeTerminalAction(tx, currentDoc, "ignore");
     }
     await tx
       .update(billingDocumentsTable)
@@ -4599,7 +5023,7 @@ export async function setDocumentStatus(
       })
       .where(eq(billingDocumentsTable.id, id));
     // Leaving "approved" → un-approve its lines so they stop being offered.
-    if (doc.status === "approved") {
+    if (currentDoc.status === "approved") {
       await tx
         .update(billingDocumentLinesTable)
         .set({ approved: 0, updatedAt: new Date() })
@@ -4612,10 +5036,10 @@ export async function setDocumentStatus(
     }
     // Roll back any prices this invoice had filled onto OTHER documents'
     // materials (delivery-note "čeká na fakturu") before they're re-offered.
-    if (doc.status === "approved") {
+    if (currentDoc.status === "approved") {
       await revertInvoicePricePropagation(tx, id, actor);
     }
-    if (doc.status === "approved") {
+    if (currentDoc.status === "approved") {
       const lines = await tx
         .select({ id: billingDocumentLinesTable.id })
         .from(billingDocumentLinesTable)
@@ -4626,7 +5050,7 @@ export async function setDocumentStatus(
         lines.map((l) => l.id),
       );
     }
-    if (doc.status === "approved") {
+    if (currentDoc.status === "approved") {
       // Reconcile job materials only when leaving "approved". Open documents
       // have never propagated materials, so running the full document sync for
       // needs_review -> reviewed/ignored is both unnecessary and expensive.

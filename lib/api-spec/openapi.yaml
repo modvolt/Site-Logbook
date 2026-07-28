@@ -6847,6 +6847,13 @@ paths:
           required: false
           schema:
             type: string
+        - name: docType
+          in: query
+          required: false
+          description: Restrict the inbox to one detected or confirmed document type.
+          schema:
+            type: string
+            enum: [unknown, receipt, delivery_note, invoice, credit_note]
         - name: supplierIc
           in: query
           required: false
@@ -7117,6 +7124,48 @@ paths:
                 $ref: "#/components/schemas/CostDocumentDetail"
         "403":
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /billing/documents/{id}/delivery-note-resolution:
+    post:
+      operationId: setCostDocumentDeliveryNoteResolution
+      tags: [billing]
+      summary: Decide how a received invoice satisfies the delivery-note gate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliveryNoteResolutionInput"
+      responses:
+        "200":
+          description: Updated document and workflow state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostDocumentDetail"
+        "400":
+          description: Invalid decision or missing reason
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Document is approved or conflicts with extracted references
           content:
             application/json:
               schema:
@@ -13859,6 +13908,8 @@ components:
         - docType
         - source
         - currency
+        - deliveryNoteResolution
+        - deliveryNoteWorkflow
         - createdAt
         - updatedAt
       properties:
@@ -13946,6 +13997,15 @@ components:
           type: ["string", "null"]
         supplierOrderNumber:
           type: ["string", "null"]
+        deliveryNoteResolution:
+          type: string
+          enum: [unknown, required, not_required, waived]
+        deliveryNoteResolutionReason:
+          type: ["string", "null"]
+        deliveryNoteResolutionAt:
+          type: ["string", "null"]
+        deliveryNoteWorkflow:
+          $ref: "#/components/schemas/DeliveryNoteWorkflow"
         constantSymbol:
           type: ["string", "null"]
         specificSymbol:
@@ -13986,6 +14046,40 @@ components:
           type: string
         updatedAt:
           type: string
+
+    DeliveryNoteWorkflow:
+      type: object
+      required:
+        [state, referenceCount, approvedReferenceCount, unresolvedReferenceNumbers]
+      properties:
+        state:
+          type: string
+          enum:
+            - not_applicable
+            - needs_decision
+            - waiting_for_delivery_note
+            - ready
+            - ready_without_delivery_note
+        referenceCount:
+          type: integer
+        approvedReferenceCount:
+          type: integer
+        unresolvedReferenceNumbers:
+          type: array
+          items:
+            type: string
+
+    DeliveryNoteResolutionInput:
+      type: object
+      required: [resolution]
+      properties:
+        resolution:
+          type: string
+          enum: [unknown, required, not_required, waived]
+        reason:
+          type: ["string", "null"]
+          minLength: 3
+          maxLength: 500
 
     DocumentExtractionStatus:
       type: object
@@ -14944,13 +15038,15 @@ components:
 
     CostDocumentSiblingMatch:
       type: object
-      required: [documentId, docType, score, strength, reasons]
+      required: [documentId, docType, status, score, strength, reasons]
       properties:
         documentId:
           type: integer
         documentNumber:
           type: ["string", "null"]
         docType:
+          type: string
+        status:
           type: string
         score:
           type: number

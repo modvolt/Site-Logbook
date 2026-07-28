@@ -90,6 +90,12 @@ async function makeDoc(opts: {
       supplierIc: "12345678",
       documentNumber: `DOC-${TAG}-${Math.random().toString(36).slice(2, 7)}`,
       issueDate: "2026-01-15",
+      ...(opts.docType === "invoice"
+        ? {
+            deliveryNoteResolution: "not_required",
+            deliveryNoteResolutionReason: `Testovací faktura ${TAG} nemá dodací list`,
+          }
+        : {}),
     })
     .returning();
   docIds.push(doc.id);

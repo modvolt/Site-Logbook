@@ -20,6 +20,9 @@ import {
   useUpdateCostDocumentReference,
   useDeleteCostDocumentReference,
   useMatchCostDocumentReferences,
+  useSetCostDocumentDeliveryNoteResolution,
+  useGetCostDocumentSuggestedMatches,
+  getGetCostDocumentSuggestedMatchesQueryKey,
   useApplyCostDocumentWarehousePrices,
   useListCustomers,
   getListCustomersQueryKey,
@@ -35,6 +38,7 @@ import {
   type CostDocumentReference,
   type CostDocumentReferenceJobCandidate,
   type CostDocumentMatchResult,
+  type CostDocumentSiblingMatch,
   type CostDocumentUpdateInput,
   type CostDocumentLineUpdateInput,
   type CostDocumentLineSplitInput,
@@ -59,6 +63,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -76,6 +81,7 @@ import {
   AI_CONFIDENCE_LOW,
   CostDocStatusBadge,
   MaterialStateBadge,
+  DeliveryNoteWorkflowBadge,
   isPaymentDocument,
   filterWarningsForDocType,
 } from "@/lib/cost-document-format";
@@ -99,6 +105,7 @@ import {
   Trash2,
   Truck,
   Wand2,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import { confirmCostDocumentType, revertCostDocumentMerge } from "@/lib/cost-document-upload";
@@ -182,6 +189,8 @@ export default function BillingDocumentDetail() {
   const markDuplicate = useMarkCostDocumentDuplicate();
   const unmarkDuplicate = useUnmarkCostDocumentDuplicate();
   const requeue = useRequeueCostDocumentExtraction();
+  const setDeliveryNoteResolution =
+    useSetCostDocumentDeliveryNoteResolution();
 
   const [viewerFile, setViewerFile] = useState<{ url: string; name?: string | null } | null>(
     null,
@@ -191,6 +200,10 @@ export default function BillingDocumentDetail() {
   const [isConfirmingType, setIsConfirmingType] = useState(false);
   const [isRevertingMerge, setIsRevertingMerge] = useState(false);
   const [isDocumentActionPending, setIsDocumentActionPending] = useState(false);
+  const [deliveryNoteExceptionOpen, setDeliveryNoteExceptionOpen] =
+    useState(false);
+  const [deliveryNoteExceptionReason, setDeliveryNoteExceptionReason] =
+    useState("");
 
   const lineCardsRef = useRef<Map<number, LineCardRef>>(new Map());
   const documentActionLockRef = useRef(false);
@@ -391,6 +404,23 @@ export default function BillingDocumentDetail() {
     }
   };
 
+  const handleDeliveryNoteResolution = (
+    resolution: "unknown" | "required" | "not_required" | "waived",
+    reason?: string,
+  ) => {
+    void runDocumentAction(async () => {
+      await setDeliveryNoteResolution.mutateAsync({
+        id,
+        data: { resolution, reason: reason || null },
+      });
+      invalidate();
+      await refetch();
+      setDeliveryNoteExceptionOpen(false);
+      setDeliveryNoteExceptionReason("");
+      toast({ title: "Postup dodacího listu byl uložen" });
+    }, "Rozhodnutí o dodacím listu se nepodařilo uložit");
+  };
+
   const handleRevertMerge = () => {
     if (!pageMerge) return;
     openConfirm("Rozdělit tento doklad zpět na původní samostatné strany? Originální soubory zůstanou zachované.", async () => {
@@ -463,6 +493,9 @@ export default function BillingDocumentDetail() {
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <CostDocStatusBadge status={doc.status} />
               <MaterialStateBadge state={doc.materialState} />
+              <DeliveryNoteWorkflowBadge
+                state={doc.deliveryNoteWorkflow.state}
+              />
               <span className="text-sm text-muted-foreground">
                 {COST_DOC_TYPE_LABELS[doc.docType] ?? doc.docType}
               </span>
@@ -550,9 +583,22 @@ export default function BillingDocumentDetail() {
               isDocumentActionPending ||
               approveDoc.isPending ||
               String(doc.docType) === "unknown" ||
-              extendedDoc?.docTypeSource === "conflict"
+              extendedDoc?.docTypeSource === "conflict" ||
+              (doc.docType === "invoice" &&
+                !["ready", "ready_without_delivery_note"].includes(
+                  doc.deliveryNoteWorkflow.state,
+                ))
             }
-            title={extendedDoc?.docTypeSource === "conflict" ? "Nejprve rozhodněte správný typ dokladu" : undefined}
+            title={
+              extendedDoc?.docTypeSource === "conflict"
+                ? "Nejprve rozhodněte správný typ dokladu"
+                : doc.docType === "invoice" &&
+                    !["ready", "ready_without_delivery_note"].includes(
+                      doc.deliveryNoteWorkflow.state,
+                    )
+                  ? "Nejprve vyřešte dodací listy faktury"
+                  : undefined
+            }
           >
             <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit doklad
           </Button>
@@ -622,6 +668,123 @@ export default function BillingDocumentDetail() {
                 </Button>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {doc.docType === "invoice" && (
+        <Card
+          className={`mb-4 ${
+            doc.deliveryNoteWorkflow.state === "ready"
+              ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20"
+              : doc.deliveryNoteWorkflow.state ===
+                  "ready_without_delivery_note"
+                ? "border-blue-300 bg-blue-50 dark:bg-blue-950/20"
+                : "border-amber-300 bg-amber-50 dark:bg-amber-950/20"
+          }`}
+        >
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start gap-2">
+              {["ready", "ready_without_delivery_note"].includes(
+                doc.deliveryNoteWorkflow.state,
+              ) ? (
+                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              ) : (
+                <Truck className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+              )}
+              <div className="min-w-0">
+                <p className="font-semibold">Dodací listy faktury</p>
+                {doc.deliveryNoteWorkflow.state === "needs_decision" && (
+                  <p className="text-sm text-muted-foreground">
+                    Potvrďte, zda k této faktuře existuje dodací list. Bez
+                    rozhodnutí fakturu nelze schválit.
+                  </p>
+                )}
+                {doc.deliveryNoteWorkflow.state ===
+                  "waiting_for_delivery_note" && (
+                  <p className="text-sm text-muted-foreground">
+                    {doc.deliveryNoteWorkflow.referenceCount === 0 ? (
+                      <>
+                        Dodací list je očekáván. Přidejte jeho číslo nebo jej
+                        nejprve nahrajte a schvalte.
+                      </>
+                    ) : (
+                      <>
+                        Schváleno{" "}
+                        {doc.deliveryNoteWorkflow.approvedReferenceCount}/
+                        {doc.deliveryNoteWorkflow.referenceCount} vazeb. Nejprve
+                        spárujte a schvalte všechny uvedené dodací listy.
+                      </>
+                    )}
+                  </p>
+                )}
+                {doc.deliveryNoteWorkflow.state === "ready" && (
+                  <p className="text-sm text-muted-foreground">
+                    Všechny dodací listy jsou spárované, potvrzené a schválené.
+                    Faktura může doplnit jejich skutečné ceny.
+                  </p>
+                )}
+                {doc.deliveryNoteWorkflow.state ===
+                  "ready_without_delivery_note" && (
+                  <p className="text-sm text-muted-foreground">
+                    Pokračování bez dodacího listu bylo výslovně potvrzeno
+                    {doc.deliveryNoteResolutionReason
+                      ? `: ${doc.deliveryNoteResolutionReason}`
+                      : "."}
+                  </p>
+                )}
+                {doc.deliveryNoteWorkflow.unresolvedReferenceNumbers.length >
+                  0 && (
+                  <p className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200">
+                    Nevyřešené:{" "}
+                    {doc.deliveryNoteWorkflow.unresolvedReferenceNumbers.join(
+                      ", ",
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+            {doc.status !== "approved" && (
+              <div className="flex flex-wrap gap-2">
+                {doc.deliveryNoteWorkflow.state === "needs_decision" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isDocumentActionPending}
+                    onClick={() =>
+                      handleDeliveryNoteResolution("required")
+                    }
+                  >
+                    <Truck className="mr-1 h-4 w-4" /> Čekám na dodací list
+                  </Button>
+                )}
+                {!["ready", "ready_without_delivery_note"].includes(
+                  doc.deliveryNoteWorkflow.state,
+                ) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isDocumentActionPending}
+                    onClick={() => setDeliveryNoteExceptionOpen(true)}
+                  >
+                    Pokračovat bez dodacího listu
+                  </Button>
+                )}
+                {doc.deliveryNoteWorkflow.state ===
+                  "ready_without_delivery_note" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={isDocumentActionPending}
+                    onClick={() =>
+                      handleDeliveryNoteResolution("unknown")
+                    }
+                  >
+                    Obnovit kontrolu dodacího listu
+                  </Button>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -931,6 +1094,7 @@ export default function BillingDocumentDetail() {
         documentId={id}
         references={data.references}
         jobs={jobs ?? []}
+        docType={doc.docType}
         onChanged={invalidate}
       />
 
@@ -963,6 +1127,63 @@ export default function BillingDocumentDetail() {
           }}
         />
       )}
+
+      <Dialog
+        open={deliveryNoteExceptionOpen}
+        onOpenChange={(open) => {
+          if (!isDocumentActionPending) setDeliveryNoteExceptionOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pokračovat bez dodacího listu</DialogTitle>
+            <DialogDescription>
+              Tato výjimka umožní fakturu schválit bez dokončeného párování.
+              Důvod zůstane uložený v historii dokladu.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delivery-note-exception-reason">
+              Důvod výjimky
+            </Label>
+            <Textarea
+              id="delivery-note-exception-reason"
+              value={deliveryNoteExceptionReason}
+              onChange={(event) =>
+                setDeliveryNoteExceptionReason(event.target.value)
+              }
+              placeholder="Např. dodavatel dodací list nevystavil"
+              maxLength={500}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={isDocumentActionPending}
+              onClick={() => setDeliveryNoteExceptionOpen(false)}
+            >
+              Zrušit
+            </Button>
+            <Button
+              disabled={
+                isDocumentActionPending ||
+                deliveryNoteExceptionReason.trim().length < 3
+              }
+              onClick={() =>
+                handleDeliveryNoteResolution(
+                  doc.deliveryNoteWorkflow.referenceCount > 0
+                    ? "waived"
+                    : "not_required",
+                  deliveryNoteExceptionReason.trim(),
+                )
+              }
+            >
+              Potvrdit výjimku
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog {...dialogProps} />
     </div>
   );
@@ -1216,18 +1437,18 @@ const LineCard = forwardRef<LineCardRef, {
   line: CostDocumentLine;
   jobs: Job[];
   activities: Activity[];
-  onChanged: () => void;
   documentApproved: boolean;
   documentActionPending: boolean;
+  onChanged: () => void;
   onSplit: () => void;
 }>(function LineCard({
   documentId,
   line,
   jobs,
   activities,
-  onChanged,
   documentApproved,
   documentActionPending,
+  onChanged,
   onSplit,
 }, ref) {
   const { toast } = useToast();
@@ -1782,11 +2003,13 @@ function ReferencesSection({
   documentId,
   references,
   jobs,
+  docType,
   onChanged,
 }: {
   documentId: number;
   references: CostDocumentReference[];
   jobs: Job[];
+  docType: string;
   onChanged: () => void;
 }) {
   const { toast } = useToast();
@@ -1800,6 +2023,13 @@ function ReferencesSection({
 
   const addRef = useAddCostDocumentReference();
   const matchRefs = useMatchCostDocumentReferences();
+  const { data: siblingMatches, refetch: refetchSiblingMatches } =
+    useGetCostDocumentSuggestedMatches(documentId, {
+      query: {
+        queryKey: getGetCostDocumentSuggestedMatchesQueryKey(documentId),
+        enabled: docType === "invoice" || docType === "delivery_note",
+      },
+    });
 
   const jobTitle = (jobId: number | null) =>
     jobId == null ? null : (jobs.find((j) => j.id === jobId)?.title ?? `#${jobId}`);
@@ -1836,6 +2066,7 @@ function ReferencesSection({
             >,
           );
           onChanged();
+          void refetchSiblingMatches();
           toast({ title: "Návrhy párování připraveny" });
         },
         onError: () =>
@@ -1856,8 +2087,9 @@ function ReferencesSection({
             size="sm"
             onClick={handleMatch}
             disabled={matchRefs.isPending || references.length === 0}
+            title="Vyhledat odpovídající dodací listy a zakázky"
           >
-            <Wand2 className="h-4 w-4 mr-1" /> Navrhnout zakázky
+            <Wand2 className="h-4 w-4 mr-1" /> Navrhnout vazby
           </Button>
           <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
             <Plus className="h-4 w-4 mr-1" /> Přidat
@@ -1913,7 +2145,12 @@ function ReferencesSection({
               jobs={jobs}
               jobTitle={jobTitle}
               candidates={candidates[ref.id] ?? []}
+              documentCandidates={siblingMatches ?? []}
               onChanged={onChanged}
+              onDocumentLinked={() => {
+                onChanged();
+                void refetchSiblingMatches();
+              }}
             />
           ))}
         </div>
@@ -1928,14 +2165,18 @@ function ReferenceCard({
   jobs,
   jobTitle,
   candidates,
+  documentCandidates,
   onChanged,
+  onDocumentLinked,
 }: {
   documentId: number;
   reference: CostDocumentReference;
   jobs: Job[];
   jobTitle: (jobId: number | null) => string | null;
   candidates: CostDocumentReferenceJobCandidate[];
+  documentCandidates: CostDocumentSiblingMatch[];
   onChanged: () => void;
+  onDocumentLinked: () => void;
 }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -1950,7 +2191,11 @@ function ReferenceCard({
       { id: documentId, referenceId: reference.id, data },
       {
         onSuccess: () => {
-          onChanged();
+          if (data.matchedDocumentId != null || data.matchConfirmed === true) {
+            onDocumentLinked();
+          } else {
+            onChanged();
+          }
           toast({ title: okTitle });
         },
         onError: () =>
@@ -1977,6 +2222,16 @@ function ReferenceCard({
   const lowMatchConfidence =
     reference.matchConfidence != null &&
     reference.matchConfidence < MATCH_CONFIDENCE_ALARM;
+  const isDeliveryNoteReference = [
+    "delivery_note",
+    "summary_delivery_note",
+    "delivery",
+  ].includes(reference.referenceType);
+  const matchingDocuments = isDeliveryNoteReference
+    ? documentCandidates.filter(
+        (candidate) => candidate.docType === "delivery_note",
+      )
+    : [];
 
   return (
     <Card
@@ -2104,6 +2359,71 @@ function ReferenceCard({
             </Button>
           )}
         </div>
+
+        {/* Ranked sibling-document suggestions from the matcher */}
+        {matchingDocuments.length > 0 && !confirmed && !rejected && (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-2 dark:border-sky-900 dark:bg-sky-950/20">
+            <p className="mb-2 text-xs font-medium text-sky-800 dark:text-sky-200">
+              Navržené dodací listy
+            </p>
+            <div className="space-y-2">
+              {matchingDocuments.slice(0, 3).map((candidate) => (
+                <div
+                  key={candidate.documentId}
+                  className="flex flex-wrap items-center justify-between gap-2"
+                >
+                  <div className="min-w-0 text-xs">
+                    <span className="font-semibold">
+                      {candidate.documentNumber ||
+                        `Doklad #${candidate.documentId}`}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · shoda {Math.round(candidate.score * 100)} % ·{" "}
+                      {candidate.status === "approved"
+                        ? "schválen"
+                        : "čeká na schválení"}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7"
+                      onClick={() =>
+                        navigate(
+                          `/billing/documents/${candidate.documentId}`,
+                        )
+                      }
+                    >
+                      Otevřít
+                    </Button>
+                    {candidate.status === "approved" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7"
+                        onClick={() =>
+                          patch(
+                            {
+                              matchedDocumentId: candidate.documentId,
+                              matchConfirmed: true,
+                            },
+                            "Dodací list byl spárován",
+                          )
+                        }
+                      >
+                        <Link2 className="mr-1 h-3.5 w-3.5" />
+                        Spárovat
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Ranked job suggestions from the matcher */}
         {candidates.length > 0 && !confirmed && (

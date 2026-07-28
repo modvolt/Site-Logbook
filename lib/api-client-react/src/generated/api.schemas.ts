@@ -1056,6 +1056,34 @@ export const CostDocumentSource = {
   email: 'email',
 } as const;
 
+export type CostDocumentDeliveryNoteResolution = typeof CostDocumentDeliveryNoteResolution[keyof typeof CostDocumentDeliveryNoteResolution];
+
+
+export const CostDocumentDeliveryNoteResolution = {
+  unknown: 'unknown',
+  required: 'required',
+  not_required: 'not_required',
+  waived: 'waived',
+} as const;
+
+export type DeliveryNoteWorkflowState = typeof DeliveryNoteWorkflowState[keyof typeof DeliveryNoteWorkflowState];
+
+
+export const DeliveryNoteWorkflowState = {
+  not_applicable: 'not_applicable',
+  needs_decision: 'needs_decision',
+  waiting_for_delivery_note: 'waiting_for_delivery_note',
+  ready: 'ready',
+  ready_without_delivery_note: 'ready_without_delivery_note',
+} as const;
+
+export interface DeliveryNoteWorkflow {
+  state: DeliveryNoteWorkflowState;
+  referenceCount: number;
+  approvedReferenceCount: number;
+  unresolvedReferenceNumbers: string[];
+}
+
 export interface CostDocument {
   id: number;
   status: CostDocumentStatus;
@@ -1128,6 +1156,12 @@ export interface CostDocument {
   orderNumber?: string | null;
   /** @nullable */
   supplierOrderNumber?: string | null;
+  deliveryNoteResolution: CostDocumentDeliveryNoteResolution;
+  /** @nullable */
+  deliveryNoteResolutionReason?: string | null;
+  /** @nullable */
+  deliveryNoteResolutionAt?: string | null;
+  deliveryNoteWorkflow: DeliveryNoteWorkflow;
   /** @nullable */
   constantSymbol?: string | null;
   /** @nullable */
@@ -1800,21 +1834,21 @@ export type StatsOverviewComparison = {
 export type StatsOverviewActivities = {
   /** Count of completed activities with billingStatus=billable */
   readyToBillCount: number;
-  /** Total value without VAT (materials + extra works) for billable completed activities */
+  /** Canonical value without VAT for completed activities awaiting invoicing */
   readyToBillAmount: number;
 };
 
 /**
- * Combined ready-to-bill snapshot (done jobs + billable completed activities)
+ * Canonical ready-to-bill snapshot shared with the Billing module
  */
 export type StatsOverviewReadyToBill = {
-  /** Count of done jobs (status=done, not yet vyfakturovano) */
+  /** Count of billable done jobs not linked to a non-cancelled invoice */
   jobsCount: number;
   /** Count of billable completed activities */
   activitiesCount: number;
   /** Total combined count (jobs + activities) */
   count: number;
-  /** Total combined value without VAT (job price/transport/parking + activity materials + extra works) */
+  /** Total without VAT using the same recorded-work, material, transport and activity calculation as Billing */
   amount: number;
 };
 
@@ -1874,7 +1908,7 @@ export interface StatsOverview {
   comparison: StatsOverviewComparison;
   /** Snapshot of billable activities ready for invoicing */
   activities: StatsOverviewActivities;
-  /** Combined ready-to-bill snapshot (done jobs + billable completed activities) */
+  /** Canonical ready-to-bill snapshot shared with the Billing module */
   readyToBill: StatsOverviewReadyToBill;
   /** Monthly time series for the 6 months ending in the period's month */
   trend: StatsTrendMonth[];
@@ -2676,7 +2710,7 @@ export interface DashboardSummary {
      */
   totalRevenueThisWeek: number | null;
   /**
-     * Sum of price on done jobs not yet linked to any non-cancelled invoice; null without billing.view
+     * Canonical ready-to-invoice value without VAT, including recorded work, materials, transport, parking and completed activities; null without billing.view
      * @nullable
      */
   unbilledValue: number | null;
@@ -5499,6 +5533,26 @@ export interface ConfirmDocumentTypeInput {
   docType: ConfirmDocumentTypeInputDocType;
 }
 
+export type DeliveryNoteResolutionInputResolution = typeof DeliveryNoteResolutionInputResolution[keyof typeof DeliveryNoteResolutionInputResolution];
+
+
+export const DeliveryNoteResolutionInputResolution = {
+  unknown: 'unknown',
+  required: 'required',
+  not_required: 'not_required',
+  waived: 'waived',
+} as const;
+
+export interface DeliveryNoteResolutionInput {
+  resolution: DeliveryNoteResolutionInputResolution;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     * @nullable
+     */
+  reason?: string | null;
+}
+
 /**
  * @nullable
  */
@@ -5751,6 +5805,7 @@ export interface CostDocumentSiblingMatch {
   /** @nullable */
   documentNumber?: string | null;
   docType: string;
+  status: string;
   score: number;
   strength: string;
   reasons: string[];
@@ -6809,6 +6864,10 @@ export const ListBillingReviewQueueReason = {
 
 export type ListCostDocumentsParams = {
 status?: string;
+/**
+ * Restrict the inbox to one detected or confirmed document type.
+ */
+docType?: ListCostDocumentsDocType;
 supplierIc?: string;
 jobId?: number;
 customerId?: number;
@@ -6823,6 +6882,17 @@ aiOnly?: boolean;
  */
 sort?: ListCostDocumentsSort;
 };
+
+export type ListCostDocumentsDocType = typeof ListCostDocumentsDocType[keyof typeof ListCostDocumentsDocType];
+
+
+export const ListCostDocumentsDocType = {
+  unknown: 'unknown',
+  receipt: 'receipt',
+  delivery_note: 'delivery_note',
+  invoice: 'invoice',
+  credit_note: 'credit_note',
+} as const;
 
 export type ListCostDocumentsSort = typeof ListCostDocumentsSort[keyof typeof ListCostDocumentsSort];
 

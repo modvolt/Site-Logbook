@@ -1272,6 +1272,15 @@ export const MergeJobDocumentPagesResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -2019,14 +2028,14 @@ export const GetStatsOverviewResponse = zod.object({
 }).describe('Same metrics computed for the immediately preceding period of equal length (for KPI delta).'),
   "activities": zod.object({
   "readyToBillCount": zod.number().describe('Count of completed activities with billingStatus=billable'),
-  "readyToBillAmount": zod.number().describe('Total value without VAT (materials + extra works) for billable completed activities')
+  "readyToBillAmount": zod.number().describe('Canonical value without VAT for completed activities awaiting invoicing')
 }).describe('Snapshot of billable activities ready for invoicing'),
   "readyToBill": zod.object({
-  "jobsCount": zod.number().describe('Count of done jobs (status=done, not yet vyfakturovano)'),
+  "jobsCount": zod.number().describe('Count of billable done jobs not linked to a non-cancelled invoice'),
   "activitiesCount": zod.number().describe('Count of billable completed activities'),
   "count": zod.number().describe('Total combined count (jobs + activities)'),
-  "amount": zod.number().describe('Total combined value without VAT (job price\/transport\/parking + activity materials + extra works)')
-}).describe('Combined ready-to-bill snapshot (done jobs + billable completed activities)'),
+  "amount": zod.number().describe('Total without VAT using the same recorded-work, material, transport and activity calculation as Billing')
+}).describe('Canonical ready-to-bill snapshot shared with the Billing module'),
   "trend": zod.array(zod.object({
   "month": zod.string().describe('YYYY-MM'),
   "issuedWithVat": zod.number().describe('Sum of invoice totalWithVat issued in this month'),
@@ -3260,7 +3269,7 @@ export const GetDashboardSummaryResponse = zod.object({
   "doneCount": zod.number(),
   "totalHoursThisWeek": zod.number(),
   "totalRevenueThisWeek": zod.number().nullable().describe('Null without billing.view'),
-  "unbilledValue": zod.number().nullable().describe('Sum of price on done jobs not yet linked to any non-cancelled invoice; null without billing.view'),
+  "unbilledValue": zod.number().nullable().describe('Canonical ready-to-invoice value without VAT, including recorded work, materials, transport, parking and completed activities; null without billing.view'),
   "hoursThisMonth": zod.number().describe('Total hours spent on all jobs this calendar month'),
   "problematicJobsCount": zod.number().describe('Count of active jobs that have no customer, no price, or are stale'),
   "unbilledOldestDays": zod.number().nullish().describe('Days since the oldest done unbilled job date; null without billing.view or when no matching job exists'),
@@ -7254,6 +7263,7 @@ export const AssignWarehouseItemToReviewLineResponse = zod.object({
  */
 export const ListCostDocumentsQueryParams = zod.object({
   "status": zod.coerce.string().optional(),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']).optional().describe('Restrict the inbox to one detected or confirmed document type.'),
   "supplierIc": zod.coerce.string().optional(),
   "jobId": zod.coerce.number().optional(),
   "customerId": zod.coerce.number().optional(),
@@ -7302,6 +7312,15 @@ export const ListCostDocumentsResponseItem = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -7397,6 +7416,15 @@ export const UploadCostDocumentResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -7628,6 +7656,15 @@ export const MergeCostDocumentPagesResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -7861,6 +7898,15 @@ export const ReorderCostDocumentPagesResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -8096,6 +8142,257 @@ export const ConfirmCostDocumentTypeResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
+  "constantSymbol": zod.string().nullish(),
+  "specificSymbol": zod.string().nullish(),
+  "bankAccount": zod.string().nullish(),
+  "iban": zod.string().nullish(),
+  "bic": zod.string().nullish(),
+  "isdocUuid": zod.string().nullish(),
+  "mergeGroupId": zod.string().nullish(),
+  "uploadGroupToken": zod.string().nullish(),
+  "uploadCompletedAt": zod.string().nullish(),
+  "primaryDocumentId": zod.number().nullish(),
+  "sourcePriority": zod.string().nullish(),
+  "parsedBy": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "warnings": zod.string().nullish(),
+  "aiConfidence": zod.number().nullish(),
+  "aiModel": zod.string().nullish(),
+  "aiExtractedAt": zod.string().nullish(),
+  "reviewedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "parentLineId": zod.number().nullish(),
+  "lineType": zod.enum(['material', 'work', 'transport', 'other']),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPriceWithoutVat": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "vatMode": zod.enum(['standard', 'reverse_charge', 'zero', 'non_vat']),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "jobId": zod.number().nullish(),
+  "activityId": zod.number().nullish(),
+  "allocationType": zod.enum(['rebill', 'internal', 'stock', 'not_rebilled']),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "approved": zod.boolean(),
+  "invoicedInvoiceId": zod.number().nullish(),
+  "originalUnit": zod.string().nullish(),
+  "supplierSku": zod.string().nullish(),
+  "ean": zod.string().nullish(),
+  "manufacturer": zod.string().nullish(),
+  "sourceLineNumber": zod.string().nullish(),
+  "listPriceWithoutVat": zod.number().nullish(),
+  "discountPercent": zod.number().nullish(),
+  "priceBaseQuantity": zod.number().nullish(),
+  "priceBaseUnit": zod.string().nullish(),
+  "feeType": zod.string().nullish(),
+  "isEnvironmentalFee": zod.boolean().optional(),
+  "environmentalFee": zod.number().nullish(),
+  "recyclingFee": zod.number().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "warehouseState": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "sortOrder": zod.number()
+})),
+  "duplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})),
+  "linkedDuplicates": zod.array(zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+})).describe('Documents already confirmed (manually or automatically) as duplicates of this one — this document is their primary.'),
+  "duplicateOf": zod.union([zod.object({
+  "id": zod.number(),
+  "reason": zod.string(),
+  "documentNumber": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "totalWithVat": zod.string().nullish(),
+  "status": zod.string(),
+  "createdAt": zod.string(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})).optional().describe('Populated only for confirmed linked duplicates (linkedDuplicates \/ duplicateOf), so the paired document\'s files can be previewed without navigating away. Omitted for heuristic candidates.')
+}),zod.null()]).describe('Set when this document itself was paired as a duplicate of another document — summary of that primary document.'),
+  "references": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "referenceType": zod.string(),
+  "referenceNumber": zod.string(),
+  "source": zod.string(),
+  "confidence": zod.number().nullish(),
+  "matchedJobId": zod.number().nullish(),
+  "matchedDocumentId": zod.number().nullish(),
+  "matchedAttachmentId": zod.number().nullish(),
+  "matchConfidence": zod.number().nullish(),
+  "matchConfirmed": zod.boolean(),
+  "rejected": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "linkedMaterials": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "name": zod.string(),
+  "quantity": zod.number().nullish(),
+  "unit": zod.string().nullish(),
+  "pricePerUnit": zod.number().nullish(),
+  "priceSource": zod.string().nullish(),
+  "priceConfidence": zod.number().nullish(),
+  "priceSourceLineId": zod.number().nullish(),
+  "invoicedInvoiceId": zod.number().nullish()
+})).optional(),
+  "files": zod.array(zod.object({
+  "id": zod.number(),
+  "documentId": zod.number(),
+  "role": zod.string(),
+  "originalFileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "objectPath": zod.string(),
+  "sizeBytes": zod.number().nullish(),
+  "pageIndex": zod.number().nullish(),
+  "createdAt": zod.string()
+})),
+  "pageMerge": zod.union([zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['active', 'reverted']),
+  "members": zod.array(zod.object({
+  "documentId": zod.number(),
+  "pageOrder": zod.number(),
+  "fileName": zod.string().nullish()
+}))
+}),zod.null()]).optional()
+})
+
+
+/**
+ * @summary Decide how a received invoice satisfies the delivery-note gate
+ */
+export const SetCostDocumentDeliveryNoteResolutionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const setCostDocumentDeliveryNoteResolutionBodyReasonMin = 3;
+export const setCostDocumentDeliveryNoteResolutionBodyReasonMax = 500;
+
+
+
+export const SetCostDocumentDeliveryNoteResolutionBody = zod.object({
+  "resolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "reason": zod.string().min(setCostDocumentDeliveryNoteResolutionBodyReasonMin).max(setCostDocumentDeliveryNoteResolutionBodyReasonMax).nullish()
+})
+
+export const setCostDocumentDeliveryNoteResolutionResponseDocumentDetectedDocTypeConfidenceMin = 0;
+export const setCostDocumentDeliveryNoteResolutionResponseDocumentDetectedDocTypeConfidenceMax = 1;
+
+
+
+export const SetCostDocumentDeliveryNoteResolutionResponse = zod.object({
+  "document": zod.object({
+  "id": zod.number(),
+  "status": zod.enum(['uploaded', 'needs_review', 'reviewed', 'approved', 'ignored', 'duplicate', 'merged']),
+  "materialState": zod.union([zod.literal('assigned'),zod.literal('approved'),zod.literal(null)]).nullish().describe('Derived, document-level material state aggregated from the document\'s material lines. \"assigned\" = every material line has its job assignment confirmed; \"approved\" = every material line is approved; null = no material lines or a mixed state.'),
+  "docType": zod.enum(['unknown', 'receipt', 'delivery_note', 'invoice', 'credit_note']),
+  "declaredDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocType": zod.union([zod.literal('receipt'),zod.literal('delivery_note'),zod.literal('invoice'),zod.literal('credit_note'),zod.literal(null)]).nullish(),
+  "detectedDocTypeConfidence": zod.number().min(setCostDocumentDeliveryNoteResolutionResponseDocumentDetectedDocTypeConfidenceMin).max(setCostDocumentDeliveryNoteResolutionResponseDocumentDetectedDocTypeConfidenceMax).nullish(),
+  "docTypeSource": zod.enum(['unknown', 'user', 'ai', 'conflict', 'admin']).optional(),
+  "docTypeConfirmedAt": zod.string().nullish(),
+  "source": zod.enum(['manual', 'job_attachment', 'isdoc', 'email']),
+  "objectPath": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "contentType": zod.string().nullish(),
+  "fileSize": zod.number().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierIc": zod.string().nullish(),
+  "supplierDic": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "documentNumber": zod.string().nullish(),
+  "variableSymbol": zod.string().nullish(),
+  "issueDate": zod.string().nullish(),
+  "taxableSupplyDate": zod.string().nullish(),
+  "dueDate": zod.string().nullish(),
+  "currency": zod.string(),
+  "subtotalWithoutVat": zod.number().nullish(),
+  "totalVat": zod.number().nullish(),
+  "totalWithVat": zod.number().nullish(),
+  "customerId": zod.number().nullish(),
+  "jobId": zod.number().nullish(),
+  "sourceRef": zod.string().nullish(),
+  "deliveryNoteNumber": zod.string().nullish(),
+  "summaryDeliveryNoteNumber": zod.string().nullish(),
+  "deliveryNumber": zod.string().nullish(),
+  "orderNumber": zod.string().nullish(),
+  "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -8319,6 +8616,15 @@ export const GetCostDocumentResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -8562,6 +8868,15 @@ export const UpdateCostDocumentResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -8793,6 +9108,15 @@ export const ApproveCostDocumentResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -9020,6 +9344,15 @@ export const SetCostDocumentStatusResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -9247,6 +9580,15 @@ export const MarkCostDocumentDuplicateResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -9470,6 +9812,15 @@ export const UnmarkCostDocumentDuplicateResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -9693,6 +10044,15 @@ export const RequeueCostDocumentExtractionResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -9958,6 +10318,15 @@ export const UpdateCostDocumentLineResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -10191,6 +10560,15 @@ export const SplitCostDocumentLineResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -10421,6 +10799,15 @@ export const AddCostDocumentReferenceResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -10656,6 +11043,15 @@ export const UpdateCostDocumentReferenceResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -10880,6 +11276,15 @@ export const DeleteCostDocumentReferenceResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -11103,6 +11508,15 @@ export const MatchCostDocumentReferencesResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
@@ -11234,6 +11648,7 @@ export const GetCostDocumentSuggestedMatchesResponseItem = zod.object({
   "documentId": zod.number(),
   "documentNumber": zod.string().nullish(),
   "docType": zod.string(),
+  "status": zod.string(),
   "score": zod.number(),
   "strength": zod.string(),
   "reasons": zod.array(zod.string())
@@ -11787,6 +12202,15 @@ export const AnalyzeJobDocumentsResponse = zod.object({
   "deliveryNumber": zod.string().nullish(),
   "orderNumber": zod.string().nullish(),
   "supplierOrderNumber": zod.string().nullish(),
+  "deliveryNoteResolution": zod.enum(['unknown', 'required', 'not_required', 'waived']),
+  "deliveryNoteResolutionReason": zod.string().nullish(),
+  "deliveryNoteResolutionAt": zod.string().nullish(),
+  "deliveryNoteWorkflow": zod.object({
+  "state": zod.enum(['not_applicable', 'needs_decision', 'waiting_for_delivery_note', 'ready', 'ready_without_delivery_note']),
+  "referenceCount": zod.number(),
+  "approvedReferenceCount": zod.number(),
+  "unresolvedReferenceNumbers": zod.array(zod.string())
+}),
   "constantSymbol": zod.string().nullish(),
   "specificSymbol": zod.string().nullish(),
   "bankAccount": zod.string().nullish(),
