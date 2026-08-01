@@ -2,7 +2,7 @@
 
 - **Stav:** FÁZE 8.1 dokončena; R00 je lokálně dokončen, R01 zůstává řízeně rozpracovaný. R02 ani FÁZE 9 nebyly zahájeny.
 - **Výchozí revize:** `a25c3128e317c7efe6feaa3a6a8a40eecd6cdc0f` (`main`).
-- **Výsledná implementační revize:** `8ddea6d` (`main`); checkpoint je následný dokumentační commit. Vše zůstává pouze lokálně, nic nebylo pushnuto ani nasazeno.
+- **Výsledná implementační revize:** `2c660c1` (`main`); checkpoint je následný dokumentační commit. Vše zůstává pouze lokálně, nic nebylo pushnuto ani nasazeno.
 - **Produkční zásah:** žádný. Nebyla načtena ani změněna produkční data, sessions, secrets, databáze, objekty ani konfigurace.
 
 ## 1. Implementované logické celky
@@ -13,6 +13,7 @@
 | `da5e734` | R01 / SEC-02 | společný `regenerate → identita → save` helper pro heslový login, prvotní setup a WebAuthn login | revert commitu; existující sessions se nemění |
 | `f5f6349` | R01 / SEC-01 | odstranění otázkové obnovy z API, UI, OpenAPI a klientů; lokální servisní reset admina přes stdin s audit eventem a revokací | revert commitu obnoví starý endpoint; nedoporučeno bez náhradního omezení |
 | `8ddea6d` | R01 / SEC-03/04 | transakční advisory lock prvního admin setupu, atomická revokace sessions při změně hesla/deaktivaci a minimum 12 znaků pro nově nastavovaná hesla | revert commitu; žádná schema migrace ani backfill |
+| `2c660c1` | R00 | rozšíření hermetického scrubování na obecné auth/token/password/key secrets | revert commitu; bez datového dopadu |
 
 Servisní příkaz `auth:reset-admin-password` nebyl spuštěn, protože by měnil reálný účet a sessions. Heslo nepřijímá v argumentu příkazové řádky a nikdy je neloguje.
 
@@ -28,7 +29,7 @@ Servisní příkaz `auth:reset-admin-password` nebyl spuštěn, protože by měn
 
 ## 3. Provedené kontroly
 
-Závěrečný `pnpm gate:release` nad `8ddea6d` prošel bez `DATABASE_URL` a provider secrets:
+Závěrečný `pnpm gate:release` nad `2c660c1` prošel bez DB, auth, token, password, key a provider secrets:
 
 - root/library/API/PWA TypeScript typecheck: prošel;
 - test guardu prostředí: 5/5;

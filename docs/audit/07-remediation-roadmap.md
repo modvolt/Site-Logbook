@@ -17,7 +17,7 @@ Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolo
 
 | Workstream | Stav | Důkaz | Zbývající hranice |
 |---|---|---|---|
-| R00 | Dokončeno lokálně | `f1bb210`; hermetický `pnpm gate:release` prošel 2026-08-01 | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14 |
+| R00 | Dokončeno lokálně | `f1bb210`, `2c660c1`; hermetický `pnpm gate:release` prošel 2026-08-01 | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14 |
 | R01 | Probíhá | `da5e734`, `f5f6349`, `8ddea6d`; odstranění otázkové obnovy, session rotation, servisní reset, atomický setup a revokace | funkční izolovaný PostgreSQL test setup/revoke; rozhodnutí a případná migrace session generation proti souběžnému re-save |
 
 FÁZE 8.1 nic nenasadila ani neposlala na remote. R02 a další workstreamy nebyly zahájeny. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
@@ -81,7 +81,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R00 – Minimální izolovaný release gate
 
-- **Stav:** dokončeno lokálně ve FÁZI 8.1 (`f1bb210`); vzdálený CI běh zatím nepotvrzen.
+- **Stav:** dokončeno lokálně ve FÁZI 8.1 (`f1bb210`, `2c660c1`); vzdálený CI běh zatím nepotvrzen.
 
 - **Přínos:** každá P0 změna má reprodukovatelný typecheck, unit/contract testy, cílené auth testy a build bez produkčních secrets.
 - **Riziko neprovedení:** bezpečnostní opravy mohou být nasazeny bez regresní ochrany nebo testy zasáhnou sdílenou DB.
