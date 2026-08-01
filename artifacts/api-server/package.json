@@ -8,7 +8,10 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "pnpm run test:unit",
+    "test:unit": "node ../../scripts/assert-safe-test-env.mjs --mode unit && vitest run --config vitest.unit.config.ts",
+    "test:db": "node ../../scripts/run-safe-test-db.mjs",
+    "test:all:isolated": "node ../../scripts/run-safe-test-db.mjs --all",
     "cleanup-materials": "tsx src/scripts/cleanup-duplicate-materials.ts"
   },
   "dependencies": {

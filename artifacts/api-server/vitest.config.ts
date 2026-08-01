@@ -6,7 +6,7 @@ import { defineConfig, type Plugin } from "vitest/config";
  * `.ttf` imports resolve to a base64 string under vitest too. Without this the
  * PDF font assets import as undefined and jsPDF crashes during invoice issuing.
  */
-function ttfBase64(): Plugin {
+export function ttfBase64(): Plugin {
   return {
     name: "ttf-base64",
     transform(_code, id) {

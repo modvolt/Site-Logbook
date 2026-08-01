@@ -1,0 +1,24 @@
+import { defineConfig } from "vitest/config";
+import { ttfBase64 } from "./vitest.config";
+
+/**
+ * Fast, hermetic API gate. Files in this suite must not import the application
+ * bootstrap or @workspace/db's connection-exporting entry point.
+ *
+ * DB-backed tests remain in the API test tree and are run only through
+ * `pnpm test:db` / `pnpm test:all:isolated` with an explicitly supplied local
+ * TEST_DATABASE_URL. R14 will move the remaining DB tests under a reusable
+ * ephemeral stack; this allow-list keeps the default gate fail-closed today.
+ */
+export default defineConfig({
+  plugins: [ttfBase64()],
+  test: {
+    include: [
+      "test/**/*contract.test.ts",
+      "test/permission-resolution.test.ts",
+      "test/work-session-math.test.ts",
+      "test/live-events-domains.test.ts",
+    ],
+    exclude: ["test/ppe-contract.test.ts"],
+  },
+});

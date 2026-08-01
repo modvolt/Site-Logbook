@@ -5,10 +5,13 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "gate:release": "node ./scripts/run-hermetic-gate.mjs",
+    "test": "node ./scripts/run-hermetic-gate.mjs --tests-only",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts"
   },
+  "packageManager": "pnpm@11.9.0",
   "private": true,
   "devDependencies": {
     "@playwright/test": "^1.53.0",
