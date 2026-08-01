@@ -3363,6 +3363,31 @@ paths:
         "204":
           description: Logged out
 
+  /auth/vault/verify-password:
+    post:
+      operationId: verifyVaultPassword
+      tags: [auth]
+      summary: Re-verify the current password for temporary plaintext vault access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultPasswordVerifyInput"
+      responses:
+        "200":
+          description: Vault step-up established for the current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebAuthnVerifyResult"
+        "401":
+          description: Current password did not verify
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /auth/me:
     get:
       operationId: getMe
@@ -3530,7 +3555,7 @@ paths:
     post:
       operationId: webauthnVerifyComplete
       tags: [auth]
-      summary: Complete biometric re-verification; sets session biometricVerifiedAt
+      summary: Complete biometric re-verification for temporary plaintext vault access
       requestBody:
         required: true
         content:
@@ -10849,6 +10874,21 @@ components:
       properties:
         verified:
           type: boolean
+        method:
+          type: string
+          enum: [password, webauthn]
+        expiresAt:
+          type: string
+          format: date-time
+
+    VaultPasswordVerifyInput:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
 
     WebAuthnCredentialItem:
       type: object

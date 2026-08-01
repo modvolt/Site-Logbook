@@ -3114,6 +3114,28 @@ export interface AuthUser {
   permissionOverrides: UserPermissionOverride[];
 }
 
+export interface VaultPasswordVerifyInput {
+  /**
+     * @minLength 1
+     * @maxLength 256
+     */
+  password: string;
+}
+
+export type WebAuthnVerifyResultMethod = typeof WebAuthnVerifyResultMethod[keyof typeof WebAuthnVerifyResultMethod];
+
+
+export const WebAuthnVerifyResultMethod = {
+  password: 'password',
+  webauthn: 'webauthn',
+} as const;
+
+export interface WebAuthnVerifyResult {
+  verified: boolean;
+  method?: WebAuthnVerifyResultMethod;
+  expiresAt?: string;
+}
+
 export interface MeResponse {
   authenticated: boolean;
   /** True when no users exist yet — show setup screen */
@@ -3170,10 +3192,6 @@ export type WebAuthnAuthCompleteInputResponse = { [key: string]: unknown };
 export interface WebAuthnAuthCompleteInput {
   /** AuthenticationResponseJSON from @simplewebauthn/browser */
   response: WebAuthnAuthCompleteInputResponse;
-}
-
-export interface WebAuthnVerifyResult {
-  verified: boolean;
 }
 
 export interface UserPreferences {

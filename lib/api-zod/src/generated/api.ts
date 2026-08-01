@@ -3969,6 +3969,24 @@ export const LoginResponse = zod.object({
 
 
 /**
+ * @summary Re-verify the current password for temporary plaintext vault access
+ */
+export const verifyVaultPasswordBodyPasswordMax = 256;
+
+
+
+export const VerifyVaultPasswordBody = zod.object({
+  "password": zod.string().min(1).max(verifyVaultPasswordBodyPasswordMax)
+})
+
+export const VerifyVaultPasswordResponse = zod.object({
+  "verified": zod.boolean(),
+  "method": zod.enum(['password', 'webauthn']).optional(),
+  "expiresAt": zod.coerce.date().optional()
+})
+
+
+/**
  * @summary Current authenticated user (or setup info)
  */
 export const GetMeResponse = zod.object({
@@ -4069,14 +4087,16 @@ export const WebauthnVerifyBeginResponse = zod.record(zod.string(), zod.unknown(
 
 
 /**
- * @summary Complete biometric re-verification; sets session biometricVerifiedAt
+ * @summary Complete biometric re-verification for temporary plaintext vault access
  */
 export const WebauthnVerifyCompleteBody = zod.object({
   "response": zod.record(zod.string(), zod.unknown()).describe('AuthenticationResponseJSON from @simplewebauthn\/browser')
 })
 
 export const WebauthnVerifyCompleteResponse = zod.object({
-  "verified": zod.boolean()
+  "verified": zod.boolean(),
+  "method": zod.enum(['password', 'webauthn']).optional(),
+  "expiresAt": zod.coerce.date().optional()
 })
 
 

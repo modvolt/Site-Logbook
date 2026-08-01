@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request, { type SuperAgentTest } from "supertest";
 import bcrypt from "bcryptjs";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   auditLogTable,
   customersTable,
@@ -25,6 +25,7 @@ const PASSWORD = "Vault-Authorization-Test-42";
 type TestActor = {
   agent: SuperAgentTest;
   userId: number;
+  username: string;
 };
 
 let customerId: number;
@@ -32,6 +33,7 @@ let credentialId: number;
 let cannotView: TestActor;
 let cannotManage: TestActor;
 let cannotAccessCustomer: TestActor;
+let fullAccess: TestActor;
 
 async function createActor(
   username: string,
@@ -42,20 +44,31 @@ async function createActor(
     .insert(usersTable)
     .values({ username, passwordHash, name: username, role: "master", isActive: true })
     .returning();
-  await db.insert(userPermissionOverridesTable).values(
-    deniedPermissions.map((permission) => ({
-      userId: user.id,
-      permission,
-      effect: "deny",
-    })),
-  );
+  if (deniedPermissions.length > 0) {
+    await db.insert(userPermissionOverridesTable).values(
+      deniedPermissions.map((permission) => ({
+        userId: user.id,
+        permission,
+        effect: "deny",
+      })),
+    );
+  }
 
   const agent = request.agent(app);
   const login = await agent
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
   expect(login.status).toBe(200);
-  return { agent, userId: user.id };
+  return { agent, userId: user.id, username };
+}
+
+async function loginActor(username: string): Promise<SuperAgentTest> {
+  const agent = request.agent(app);
+  const login = await agent
+    .post("/api/auth/login")
+    .send({ username, password: PASSWORD });
+  expect(login.status).toBe(200);
+  return agent;
 }
 
 function expectPermissionDenied(
@@ -98,10 +111,16 @@ beforeAll(async () => {
     "customers.view",
     "customers.manage",
   ]);
+  fullAccess = await createActor("vault-full-access", []);
 });
 
 afterAll(async () => {
-  const actorIds = [cannotView.userId, cannotManage.userId, cannotAccessCustomer.userId];
+  const actorIds = [
+    cannotView.userId,
+    cannotManage.userId,
+    cannotAccessCustomer.userId,
+    fullAccess.userId,
+  ];
   await db.delete(userSessionsTable);
   await db.delete(auditLogTable);
   await db.delete(deviceCredentialsTable);
@@ -114,6 +133,66 @@ afterAll(async () => {
 });
 
 describe("credential vault permission composition", () => {
+  it("fails closed on every vault path until password step-up succeeds for this session", async () => {
+    const blocked = await Promise.all([
+      fullAccess.agent.get(`/api/customers/${customerId}/device-credentials`),
+      fullAccess.agent
+        .post(`/api/customers/${customerId}/device-credentials`)
+        .send({ type: "blocked-create" }),
+      fullAccess.agent
+        .patch(`/api/device-credentials/${credentialId}`)
+        .send({ note: "blocked-update" }),
+      fullAccess.agent.delete(`/api/device-credentials/${credentialId}`),
+      fullAccess.agent.post(`/api/customers/${customerId}/device-credentials/audit-export`),
+      fullAccess.agent
+        .post(`/api/device-credentials/${credentialId}/audit-access`)
+        .send({ action: "view", field: "password" }),
+      fullAccess.agent
+        .post(`/api/customers/${customerId}/send-credentials-email`)
+        .send({}),
+    ]);
+
+    for (const response of blocked) {
+      expect(response.status).toBe(403);
+      expect(response.body).toMatchObject({ code: "biometric_required" });
+    }
+
+    const wrongPassword = await fullAccess.agent
+      .post("/api/auth/vault/verify-password")
+      .send({ password: "wrong-password" });
+    expect(wrongPassword.status).toBe(401);
+    expect(
+      (await fullAccess.agent.get(`/api/customers/${customerId}/device-credentials`)).status,
+    ).toBe(403);
+
+    const verified = await fullAccess.agent
+      .post("/api/auth/vault/verify-password")
+      .send({ password: PASSWORD });
+    expect(verified.status).toBe(200);
+    expect(verified.body).toMatchObject({ verified: true, method: "password" });
+
+    const listed = await fullAccess.agent.get(
+      `/api/customers/${customerId}/device-credentials`,
+    );
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual([
+      expect.objectContaining({ id: credentialId, password: "vault-canary-secret" }),
+    ]);
+
+    const [audit] = await db
+      .select()
+      .from(auditLogTable)
+      .where(eq(auditLogTable.entityType, "vault-step-up"));
+    expect(audit).toMatchObject({ actorUserId: fullAccess.userId, action: "security" });
+
+    const separateSession = await loginActor(fullAccess.username);
+    const separateRequest = await separateSession.get(
+      `/api/customers/${customerId}/device-credentials`,
+    );
+    expect(separateRequest.status).toBe(403);
+    expect(separateRequest.body).toMatchObject({ code: "biometric_required" });
+  });
+
   it("applies credentials.view deny to every plaintext read and distribution path", async () => {
     const responses = await Promise.all([
       cannotView.agent.get(`/api/customers/${customerId}/device-credentials`),
@@ -132,6 +211,11 @@ describe("credential vault permission composition", () => {
   });
 
   it("allows viewing but blocks every vault mutation when credentials.manage is denied", async () => {
+    const verified = await cannotManage.agent
+      .post("/api/auth/vault/verify-password")
+      .send({ password: PASSWORD });
+    expect(verified.status).toBe(200);
+
     const listed = await cannotManage.agent.get(
       `/api/customers/${customerId}/device-credentials`,
     );

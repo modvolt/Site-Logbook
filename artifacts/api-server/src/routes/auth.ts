@@ -3,9 +3,10 @@ import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { db, usersTable, USER_ROLES, resolvePermissions, type PermissionEffect, type User, type UserRole } from "@workspace/db";
-import { LoginBody, SetupFirstAdminBody } from "@workspace/api-zod";
+import { LoginBody, SetupFirstAdminBody, VerifyVaultPasswordBody } from "@workspace/api-zod";
 import { getPermissionOverrides } from "../lib/permissions";
 import { establishAuthenticatedSession } from "../lib/auth-session";
+import { establishVaultStepUp } from "../lib/vault-step-up";
 
 const router: IRouter = Router();
 
@@ -20,6 +21,18 @@ const authLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." },
+  skip: (req) => {
+    const ip = req.ip ?? "";
+    return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  },
+});
+
+const vaultPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Příliš mnoho pokusů o ověření. Zkuste to prosím za chvíli." },
   skip: (req) => {
     const ip = req.ip ?? "";
     return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
@@ -123,6 +136,40 @@ router.post("/auth/logout", (req, res): void => {
     res.sendStatus(204);
   });
 });
+
+router.post(
+  "/auth/vault/verify-password",
+  vaultPasswordLimiter,
+  async (req, res): Promise<void> => {
+    if (!req.auth) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const parsed = VerifyVaultPasswordBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const [user] = await db
+      .select({ passwordHash: usersTable.passwordHash, isActive: usersTable.isActive })
+      .from(usersTable)
+      .where(eq(usersTable.id, req.auth.userId));
+    const verified = !!user?.isActive && await bcrypt.compare(parsed.data.password, user.passwordHash);
+    if (!verified) {
+      res.status(401).json({ error: "Ověření se nezdařilo" });
+      return;
+    }
+
+    const result = await establishVaultStepUp(req, "password");
+    res.json({
+      verified: true,
+      method: "password",
+      expiresAt: new Date(result.expiresAt).toISOString(),
+    });
+  },
+);
 
 router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
   const parsed = SetupFirstAdminBody.safeParse(req.body);

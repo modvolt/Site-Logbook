@@ -18,7 +18,7 @@ import {
   AuditCredentialAccessBody,
   AuditCredentialExportParams,
 } from "@workspace/api-zod";
-import { requireBiometricVerified } from "../middlewares/auth";
+import { requireVaultStepUp } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
 
 const router: IRouter = Router();
@@ -55,7 +55,7 @@ async function siteBelongsToCustomer(
 router.get(
   "/customers/:customerId/device-credentials",
   requireVaultView,
-  requireBiometricVerified,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = ListDeviceCredentialsParams.safeParse(req.params);
     if (!params.success) {
@@ -75,6 +75,7 @@ router.get(
 router.post(
   "/customers/:customerId/device-credentials",
   requireVaultManage,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = CreateDeviceCredentialParams.safeParse(req.params);
     if (!params.success) {
@@ -113,7 +114,7 @@ router.post(
   },
 );
 
-router.patch("/device-credentials/:id", requireVaultManage, async (req, res): Promise<void> => {
+router.patch("/device-credentials/:id", requireVaultManage, requireVaultStepUp, async (req, res): Promise<void> => {
   const params = UpdateDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -153,7 +154,7 @@ router.patch("/device-credentials/:id", requireVaultManage, async (req, res): Pr
   res.json(serializeCredential(credential));
 });
 
-router.delete("/device-credentials/:id", requireVaultManage, async (req, res): Promise<void> => {
+router.delete("/device-credentials/:id", requireVaultManage, requireVaultStepUp, async (req, res): Promise<void> => {
   const params = DeleteDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -177,6 +178,7 @@ router.delete("/device-credentials/:id", requireVaultManage, async (req, res): P
 router.post(
   "/customers/:customerId/device-credentials/audit-export",
   requireVaultView,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = AuditCredentialExportParams.safeParse(req.params);
     if (!params.success) {
@@ -222,6 +224,7 @@ const FIELD_LABELS: Record<string, string> = {
 router.post(
   "/device-credentials/:id/audit-access",
   requireVaultView,
+  requireVaultStepUp,
   async (req, res): Promise<void> => {
     const params = AuditCredentialAccessParams.safeParse(req.params);
     if (!params.success) {

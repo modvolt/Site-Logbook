@@ -18,6 +18,7 @@ import { serializeUser } from "./auth";
 import { getPermissionOverrides } from "../lib/permissions";
 import rateLimit from "express-rate-limit";
 import { establishAuthenticatedSession } from "../lib/auth-session";
+import { establishVaultStepUp } from "../lib/vault-step-up";
 
 const router: IRouter = Router();
 
@@ -422,8 +423,12 @@ router.post("/auth/webauthn/verify/complete", async (req, res): Promise<void> =>
     .set({ counter: verification.authenticationInfo.newCounter })
     .where(eq(webauthnCredentialsTable.id, cred.id));
 
-  req.session.biometricVerifiedAt = Date.now();
-  res.json({ verified: true });
+  const result = await establishVaultStepUp(req, "webauthn");
+  res.json({
+    verified: true,
+    method: "webauthn",
+    expiresAt: new Date(result.expiresAt).toISOString(),
+  });
 });
 
 router.get("/auth/webauthn/credentials", async (req, res): Promise<void> => {

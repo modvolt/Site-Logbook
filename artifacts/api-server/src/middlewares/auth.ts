@@ -1,9 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
 import type { Permission, UserRole } from "@workspace/db";
-import { db, webauthnCredentialsTable } from "@workspace/db";
-import { eq, count } from "drizzle-orm";
 import { getUserAuthorization } from "../lib/permissions";
 import { destroySession } from "../lib/auth-session";
+import { hasRecentVaultStepUp } from "../lib/vault-step-up-policy";
 
 declare module "express-session" {
   interface SessionData {
@@ -19,9 +18,11 @@ declare module "express-session" {
     webauthnChallenge?: string;
     // Temporary username stored between webauthn login/begin and login/complete.
     webauthnUsername?: string;
-    // Unix ms timestamp when the user last passed biometric re-verification.
-    // Used by requireBiometricVerified to gate vault access for 5 minutes.
+    // Legacy timestamp retained only so a new step-up can remove it safely.
     biometricVerifiedAt?: number;
+    // Unix ms timestamp when this session last passed password or WebAuthn
+    // re-verification for plaintext vault access.
+    vaultVerifiedAt?: number;
   }
 }
 
@@ -114,39 +115,31 @@ export function requireWriteAccess(req: Request, res: Response, next: NextFuncti
   next();
 }
 
-const BIOMETRIC_TTL_MS = 5 * 60 * 1000;
-
 /**
- * Require recent biometric verification before proceeding.
- * Skips the check when the user has no WebAuthn credentials registered
- * (so users on non-biometric devices can still access the vault).
+ * Require a recent session-bound password or WebAuthn re-verification.
+ * This check has no database fallback: missing, expired, malformed or future
+ * timestamps all fail closed. The legacy `biometric_required` code is kept so
+ * cached PWA clients from the previous release still display their gate.
  */
-export function requireBiometricVerified(req: Request, res: Response, next: NextFunction): void {
+export function requireVaultStepUp(req: Request, res: Response, next: NextFunction): void {
   if (!req.auth) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const verifiedAt = req.session?.biometricVerifiedAt;
-  if (verifiedAt && Date.now() - verifiedAt < BIOMETRIC_TTL_MS) {
+  const verifiedAt = req.session?.vaultVerifiedAt;
+  if (hasRecentVaultStepUp(verifiedAt)) {
     next();
     return;
   }
 
-  const userId = req.auth.userId;
-  db.select({ cnt: count() })
-    .from(webauthnCredentialsTable)
-    .where(eq(webauthnCredentialsTable.userId, userId))
-    .then(([row]) => {
-      const cnt = Number(row?.cnt ?? 0);
-      if (cnt === 0) {
-        next();
-        return;
-      }
-      res.status(403).json({ error: "Biometrické ověření vyžadováno", code: "biometric_required" });
-    })
-    .catch(() => {
-      // On DB error, fail open to prevent permanent lockout
-      next();
-    });
+  if (req.session) {
+    delete req.session.vaultVerifiedAt;
+    delete req.session.biometricVerifiedAt;
+  }
+  res.status(403).json({
+    error: "Opětovné ověření pro přístup do trezoru je vyžadováno",
+    code: "biometric_required",
+    supportedMethods: ["webauthn", "password"],
+  });
 }

@@ -287,6 +287,7 @@ import type {
   UserPreferences,
   UserPreferencesInput,
   UserUpdate,
+  VaultPasswordVerifyInput,
   VoidPersonHourlyRateInput,
   WarehouseActivityMarginTrend,
   WarehouseImportInput,
@@ -10594,6 +10595,77 @@ export const useLogout = <TError = ErrorType<unknown>,
       return useMutation(getLogoutMutationOptions(options));
     }
 
+export const getVerifyVaultPasswordUrl = () => {
+
+
+
+
+  return `/api/auth/vault/verify-password`
+}
+
+/**
+ * @summary Re-verify the current password for temporary plaintext vault access
+ */
+export const verifyVaultPassword = async (vaultPasswordVerifyInput: VaultPasswordVerifyInput, options?: RequestInit): Promise<WebAuthnVerifyResult> => {
+
+  return customFetch<WebAuthnVerifyResult>(getVerifyVaultPasswordUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      vaultPasswordVerifyInput,)
+  }
+);}
+
+
+
+
+export const getVerifyVaultPasswordMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyVaultPassword>>, TError,{data: BodyType<VaultPasswordVerifyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof verifyVaultPassword>>, TError,{data: BodyType<VaultPasswordVerifyInput>}, TContext> => {
+
+const mutationKey = ['verifyVaultPassword'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof verifyVaultPassword>>, {data: BodyType<VaultPasswordVerifyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  verifyVaultPassword(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VerifyVaultPasswordMutationResult = NonNullable<Awaited<ReturnType<typeof verifyVaultPassword>>>
+    export type VerifyVaultPasswordMutationBody = BodyType<VaultPasswordVerifyInput>
+    export type VerifyVaultPasswordMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Re-verify the current password for temporary plaintext vault access
+ */
+export const useVerifyVaultPassword = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof verifyVaultPassword>>, TError,{data: BodyType<VaultPasswordVerifyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof verifyVaultPassword>>,
+        TError,
+        {data: BodyType<VaultPasswordVerifyInput>},
+        TContext
+      > => {
+      return useMutation(getVerifyVaultPasswordMutationOptions(options));
+    }
+
 export const getGetMeUrl = () => {
 
 
@@ -11104,7 +11176,7 @@ export const getWebauthnVerifyCompleteUrl = () => {
 }
 
 /**
- * @summary Complete biometric re-verification; sets session biometricVerifiedAt
+ * @summary Complete biometric re-verification for temporary plaintext vault access
  */
 export const webauthnVerifyComplete = async (webAuthnAuthCompleteInput: WebAuthnAuthCompleteInput, options?: RequestInit): Promise<WebAuthnVerifyResult> => {
 
@@ -11153,7 +11225,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type WebauthnVerifyCompleteMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Complete biometric re-verification; sets session biometricVerifiedAt
+ * @summary Complete biometric re-verification for temporary plaintext vault access
  */
 export const useWebauthnVerifyComplete = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof webauthnVerifyComplete>>, TError,{data: BodyType<WebAuthnAuthCompleteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
