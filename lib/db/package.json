@@ -15,6 +15,7 @@
     "stamp": "tsx ./src/stamp-cli.ts",
     "migrate": "tsx ./src/migrate-cli.ts",
     "test:migrate": "tsx ./src/test-migrate.ts",
+    "test:auth-session-db": "tsx ./src/test-auth-session-db-suite.ts",
     "test:workflow-rollback": "tsx ./src/test-workflow-rollback.ts",
     "test:workflow-db": "tsx ./src/test-workflow-db-suite.ts"
   },
