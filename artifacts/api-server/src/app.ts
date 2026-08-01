@@ -13,6 +13,7 @@ import { rejectArchivedJobMutations } from "./middlewares/archived-job";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
 import { enforceOfflineReplayScope } from "./middlewares/offline-replay-scope";
+import { enforceOfflineIdempotency } from "./middlewares/offline-idempotency";
 import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
 
@@ -162,6 +163,8 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (isPublicApiRequest(req.method, req.originalUrl)) return next();
   return enforceApiPermission(req, res, next);
 });
+
+app.use("/api", enforceOfflineIdempotency);
 
 // Record successful data mutations to the audit log (after auth so the actor is known)
 app.use("/api", auditMutations);

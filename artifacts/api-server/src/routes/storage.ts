@@ -15,6 +15,7 @@ import {
 import { requirePermission } from "../middlewares/permissions";
 import { contentMatchesType } from "../lib/fileSignature";
 import { canAccessPrivateObject } from "../lib/private-object-access";
+import { verifyOfflineContentDigest } from "../lib/offline-content-digest";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -93,6 +94,13 @@ router.post(
     if (body.length > MAX_UPLOAD_BYTES) {
       res.status(413).json({
         error: `Soubor je příliš velký (max ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} MB).`,
+      });
+      return;
+    }
+    if (!verifyOfflineContentDigest(req, body)) {
+      res.status(400).json({
+        error: "SHA-256 offline uploadu neodpovídá přijatému obsahu.",
+        code: "offline_content_digest_mismatch",
       });
       return;
     }

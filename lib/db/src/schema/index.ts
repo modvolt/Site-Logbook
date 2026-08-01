@@ -26,6 +26,7 @@ export * from "./customer-sites";
 export * from "./customer-site-attachments";
 export * from "./device-credentials";
 export * from "./audit-log";
+export * from "./api-idempotency";
 export * from "./time-entries";
 export * from "./work-sessions";
 export * from "./work-session-billing";

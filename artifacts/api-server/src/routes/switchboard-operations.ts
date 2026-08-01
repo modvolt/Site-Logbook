@@ -10,6 +10,7 @@ import {
 import { requirePermission } from "../middlewares/permissions";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { contentMatchesType } from "../lib/fileSignature";
+import { verifyOfflineContentDigest } from "../lib/offline-content-digest";
 import { checklistDefinitionSchema, findChecklistItem } from "../lib/switchboard-checklist";
 import { isPlausibleMeasurementTime, normalizeOptionalText, summarizeLatestMeasurements } from "../lib/switchboard-operation-rules";
 
@@ -298,6 +299,7 @@ router.post("/switchboards/:id/photos", requirePermission("switchboards.photos.c
   if (!PHOTO_TYPES.has(meta.data.contentType)) { res.status(415).json({ error: "Podporovány jsou pouze JPEG, PNG, WebP a HEIC fotografie." }); return; }
   const body = req.body;
   if (!Buffer.isBuffer(body) || !body.length) { res.status(400).json({ error: "Chybí obsah fotografie." }); return; }
+  if (!verifyOfflineContentDigest(req, body)) { res.status(400).json({ error: "SHA-256 offline fotografie neodpovídá přijatému obsahu.", code: "offline_content_digest_mismatch" }); return; }
   if (!contentMatchesType(meta.data.contentType, body)) { res.status(415).json({ error: "Obsah fotografie neodpovídá deklarovanému typu." }); return; }
   const takenAt = meta.data.takenAt ? new Date(meta.data.takenAt) : null;
   if (takenAt && !isPlausibleMeasurementTime(takenAt)) { res.status(400).json({ error: "Datum pořízení fotografie není platné." }); return; }

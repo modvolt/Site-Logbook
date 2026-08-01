@@ -13,6 +13,7 @@ import { runMigrations } from "./migrate.js";
 
 const { Client, Pool } = pg;
 const SESSION_MIGRATION_WHEN = 1785604750584;
+const IDEMPOTENCY_MIGRATION_WHEN = 1785615206350;
 
 function requireSafeEnvironment(): URL {
   if (process.env.AUTH_DB_SUITE_ENABLED !== "true") {
@@ -66,6 +67,20 @@ async function assertColumn(pool: pg.Pool, expected: boolean): Promise<void> {
   }
 }
 
+async function assertIdempotencyTable(pool: pg.Pool, expected: boolean): Promise<void> {
+  const result = await pool.query<{ present: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'api_idempotency_records'
+    ) AS present
+  `);
+  if (result.rows[0]?.present !== expected) {
+    throw new Error(`api_idempotency_records presence was ${String(result.rows[0]?.present)}, expected ${expected}.`);
+  }
+}
+
 async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promise<void> {
   const apiDir = path.join(repoRoot, "artifacts", "api-server");
   const vitestEntrypoint = path.join(apiDir, "node_modules", "vitest", "vitest.mjs");
@@ -73,6 +88,7 @@ async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promi
     "test/auth-session-generation.db.test.ts",
     "test/vault-authorization.db.test.ts",
     "test/private-object-authorization.db.test.ts",
+    "test/offline-idempotency.db.test.ts",
   ];
 
   for (const testFile of testFiles) {
@@ -132,6 +148,10 @@ async function main(): Promise<void> {
     path.join(repoRoot, "lib", "db", "rollbacks", "0096_daffy_puppet_master.down.sql"),
     "utf8",
   );
+  const idempotencyRollbackSql = readFileSync(
+    path.join(repoRoot, "lib", "db", "rollbacks", "0097_api_idempotency_records.down.sql"),
+    "utf8",
+  );
   let databaseCreated = false;
 
   try {
@@ -171,10 +191,30 @@ async function main(): Promise<void> {
     const forwardPool = new Pool({ connectionString: testDbUrl });
     try {
       await assertColumn(forwardPool, true);
+      await assertIdempotencyTable(forwardPool, true);
+      await forwardPool.query(idempotencyRollbackSql);
+      await assertIdempotencyTable(forwardPool, false);
+      const journal = await forwardPool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations WHERE created_at = $1",
+        [IDEMPOTENCY_MIGRATION_WHEN],
+      );
+      if (journal.rows[0]?.count !== "0") throw new Error("Rollback left migration 0097 stamped.");
     } finally {
       await forwardPool.end();
     }
     console.log("[test:auth-db] Migration forward/down/forward cycle passed.");
+
+    const idempotencyForwardFix = await runMigrations(testDbUrl);
+    if (idempotencyForwardFix.newlyApplied !== 1) {
+      throw new Error(`Expected one idempotency forward-fix migration, applied ${idempotencyForwardFix.newlyApplied}.`);
+    }
+    const idempotencyForwardPool = new Pool({ connectionString: testDbUrl });
+    try {
+      await assertIdempotencyTable(idempotencyForwardPool, true);
+    } finally {
+      await idempotencyForwardPool.end();
+    }
+    console.log("[test:auth-db] Idempotency migration forward/down/forward cycle passed.");
 
     await runAuthorizationTests(repoRoot, testDbUrl);
     console.log("[test:auth-db] All isolated authorization DB tests passed.");
@@ -196,6 +236,36 @@ async function main(): Promise<void> {
       await rollbackGuardPool.end();
     }
     console.log("[test:auth-db] Used-generation rollback guard passed.");
+
+    const idempotencyGuardPool = new Pool({ connectionString: testDbUrl });
+    try {
+      const insertedUser = await idempotencyGuardPool.query<{ id: number }>(
+        `INSERT INTO users (username, password_hash, name, role)
+         VALUES ($1, 'isolated-test-hash', 'Idempotency rollback guard', 'admin')
+         RETURNING id`,
+        [`idempotency-rollback-guard-${Date.now()}`],
+      );
+      const guardUserId = insertedUser.rows[0]!.id;
+      await idempotencyGuardPool.query(
+        `INSERT INTO api_idempotency_records
+          (user_id, offline_scope, idempotency_key, method, path, request_hash, state)
+         VALUES ($1, $2, 'rollback-guard-key', 'POST', '/api/rollback-guard', $3, 'pending')`,
+        [guardUserId, "f".repeat(64), "e".repeat(64)],
+      );
+      let blocked = false;
+      try {
+        await idempotencyGuardPool.query(idempotencyRollbackSql);
+      } catch (error) {
+        blocked = String(error).includes("idempotency ledger already contains records");
+        await idempotencyGuardPool.query("ROLLBACK").catch(() => undefined);
+      }
+      if (!blocked) throw new Error("Rollback 0097 was not blocked after the ledger was used.");
+      await assertIdempotencyTable(idempotencyGuardPool, true);
+      await idempotencyGuardPool.query("DELETE FROM users WHERE id = $1", [guardUserId]);
+    } finally {
+      await idempotencyGuardPool.end();
+    }
+    console.log("[test:auth-db] Used-ledger rollback guard passed.");
   } finally {
     if (databaseCreated) {
       const cleanupClient = new Client({ connectionString: adminUrl });
