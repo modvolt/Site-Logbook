@@ -20,9 +20,9 @@ Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolo
 | R00 | Dokončeno lokálně | `f1bb210`, `2c660c1`; hermetický `pnpm gate:release` prošel 2026-08-01 | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14 |
 | R01 | Dokončeno lokálně | `da5e734`, `f5f6349`, `8ddea6d`, `b5ef912`, `bf18843`; izolovaný PostgreSQL test prokázal paralelní setup, rotaci cookie, revokaci dvou agents a odmítnutí znovuuložené staré session | před produkcí aplikovat migraci `0096`, připravit oznámení jednorázového odhlášení a sledovat 401/login chyby |
 | R02 | Dokončeno lokálně | `77422e6`, `8d3c4b9`, `96e5e96`, `cf34a09`, `fbff6fa`, `5b7dbb0`; 397 unikátních method/path registrací je generováno ze zdrojů a každá má explicitní public, authenticated-only nebo permission policy | před produkcí read-only inventura legitimních tras/objektů, měřitelný rollout a monitoring nových `route_not_authorized` odpovědí |
-| R03 | Částečně dokončeno lokálně | `71bf9d8`, `7e9d819`; API cache a IndexedDB jsou oddělené podle serverem odvozené identity/autorizační epochy, legacy v1 fronta je v karanténě a replay má live i atomickou serverovou scope kontrolu | doplnit cross-tab lease, jednotnou serverovou idempotenci, bounded backoff/conflict stavy a skutečné dvoutabové browser testy |
+| R03 | Dokončeno lokálně | `71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`; identity partition a live scope kontrolu doplňuje atomický IndexedDB lease, durable serverový ledger pro všechny offline mutace, SHA-256 raw uploadů a řízené retry/conflict/ambiguous stavy | před produkcí aplikovat `0097`, nasadit server a frontend jako jeden řízený rollout; plný browser E2E se dvěma reálnými taby zůstává v R14 |
 
-FÁZE 8.1–8.6 nic nenasadily ani neposlaly na remote. První řez R03 lokálně uzavřel SEC-08, SEC-09, GDPR-07 a ROB-01; celý R03 zůstává otevřený kvůli ROB-02. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
+FÁZE 8.1–8.7 nic nenasadily ani neposlaly na remote. Druhý řez R03 lokálně uzavřel ROB-02: dvě tabové instance jsou serializované v browser storage a server navíc deduplikuje každý scoped offline zápis i po restartu procesu. Podrobnosti, rollout hranice a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
 
 ## 2. Definice priorit
 
@@ -128,7 +128,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R03 – Identity-safe PWA cache a offline fronta
 
-- **Stav:** částečně dokončeno lokálně ve FÁZI 8.6 (`71bf9d8`, `7e9d819`). Server vydává neprůhledný scope identity/autorizační epochy, všechny API odpovědi mají `private, no-store`, service worker ukládá pouze explicitní same-origin field-work allowlist do cache podle scope a IndexedDB v2 ukládá operace i blob pod vlastníka. Legacy v1 stores se nečtou ani nereplayují. Před každým replayem proběhne live `/auth/me` kontrola a každá mutace nese serverem ověřený scope, takže změna účtu mezi kontrolou a zápisem selže. SEC-08, SEC-09, GDPR-07 a ROB-01 jsou tímto řezem lokálně uzavřeny. ROB-02 zůstává otevřený: chybí cross-tab lease, úplná idempotence všech typů operací a řízený backoff/conflict model.
+- **Stav:** dokončeno lokálně ve FÁZÍCH 8.6–8.7 (`71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`). Server vydává neprůhledný scope identity/autorizační epochy, všechny API odpovědi mají `private, no-store`, service worker ukládá pouze explicitní same-origin field-work allowlist a IndexedDB v3 ukládá operace i blob pod vlastníka. Legacy v1 stores se nečtou ani nereplayují. Cross-tab lease s expirací dovolí flush jediné instanci; každá offline mutace nese stabilní idempotency key a server ji přijímá přes durable ledger s krátkou transakční advisory lock, heartbeat a fail-closed ambiguous stavem. Raw uploady vážou fingerprint na klientský SHA-256 ověřený po načtení těla. Klient rozlišuje auth, transient, conflict, permanent a ambiguous výsledky, používá nejvýše pět automatických pokusů s bounded backoffem a stejné durable ID ručně opakuje jen po transient chybě. SEC-08, SEC-09, GDPR-07, ROB-01 a ROB-02 jsou lokálně uzavřeny.
 
 - **Přínos:** data jednoho uživatele se nezobrazí ani nepřehrají pod jiným účtem; replay je idempotentní.
 - **Riziko neprovedení:** únik lokálních dat, mutace pod cizí identitou a duplicity při dvou tabech/retry.
@@ -139,7 +139,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Migrace dat:** ano v browser storage; staré neidentifikované fronty bezpečně karanténovat nebo odstranit, nikoli automaticky přehrát.
 - **Změna uživatelského procesu:** ano, přesnější stav sync a možné jednorázové zrušení starých lokálních položek.
 - **Doporučené pořadí:** 4.
-- **Hotovo když:** logout/user switch a dva taby nemohou replayovat cizí/duplicitní operaci. Izolace cizí identity je lokálně prokázaná; zákaz duplicit mezi dvěma taby bude dokončen v následujícím řezu R03.
+- **Hotovo když:** logout/user switch a dva taby nemohou replayovat cizí/duplicitní operaci. Lokálně splněno kombinací identity partition, atomického IndexedDB lease race testu a skutečné PostgreSQL/API concurrency sady; plný Playwright scénář dvou reálných tabů a service-worker update zůstává průřezovým důkazem R14, nikoli otevřenou implementační mezerou R03.
 
 ### R04 – Request/upload/object-storage ochrana
 

@@ -1,116 +1,115 @@
-# Checkpoint FÁZE 8.6 – první izolovaný řez R03
+# Checkpoint FÁZE 8.7 – dokončení R03
 
-- **Stav:** FÁZE 8.6 dokončena; identity-safe cache a offline fronta jsou lokálně implementované a ověřené. R03 jako celek zůstává rozpracovaný a FÁZE 8.7 ani FÁZE 9 nebyly zahájeny.
-- **Výchozí revize:** `2c05eba` (`main`; lokálně devatenáct commitů před `origin/main`).
-- **Implementační revize:** `71bf9d8`, `7e9d819` (`main`; lokálně dvacet jedna commitů před `origin/main`). Dokumentační checkpoint následuje jako samostatný commit.
-- **Produkční zásah:** žádný. Nebyla použita produkční DB, produkční secrets, `modvoltapp.cz` ani vzdálený Git; nic nebylo pushnuto ani nasazeno.
-- **Databázová migrace:** žádná.
-- **Browser storage migrace:** IndexedDB `stavba-offline-v1` se aditivně povyšuje z verze 1 na 2. Původní stores zůstávají jako nečtená karanténa; nové vlastněné záznamy používají oddělené stores.
+- **Stav:** FÁZE 8.7 dokončena. Druhý izolovaný řez R03 je lokálně implementovaný a ověřený; FÁZE 8.8 ani FÁZE 9 nebyly zahájeny.
+- **Výchozí revize:** `2c6b52b` (`main`; lokálně dvacet dva commitů před `origin/main`).
+- **Implementační revize:** `45937f6`, `583eaa4` (`main`; lokálně dvacet čtyři commitů před `origin/main`). Dokumentační checkpoint následuje jako samostatný commit.
+- **Produkční zásah:** žádný. Nebyla použita produkční DB, produkční secrets, `modvoltapp.cz`, vzdálený Git, push ani deploy.
+- **Databázová migrace:** nová aditivní migrace `0097_api_idempotency_records`; byla aplikována a vrácena pouze v jednorázových lokálních PostgreSQL 18 databázích.
+- **Browser storage migrace:** IndexedDB `stavba-offline-v1` se aditivně povyšuje z verze 2 na 3 a přidává store `scope-leases`. Vlastněné operace, bloby i v1 karanténa zůstávají zachované.
 
 ## 1. Uzavřený rozsah
 
-### Serverová identita a atomická replay hranice
+### Durable serverová deduplikace
 
-`GET /api/auth/me` po přihlášení vrací `offlineScope`: SHA-256 nad kanonickým `userId`, `sessionGeneration`, rolí a výslednou sadou oprávnění. Nejde o session secret ani autorizační token; je to neprůhledný identifikátor identity/autorizační epochy. Stejný uživatel se stejnou epochou může po opětovném přihlášení obnovit vlastní frontu, zatímco změna uživatele, revokace session generation, role nebo oprávnění scope otočí.
+Každá mutace, která nese serverem ověřený `X-Stavba-Offline-Scope`, nyní musí mít platný `Idempotency-Key`. Middleware běží po autentizaci, scope a permission kontrole, ale před auditním middlewarem a doménovým handlerem. Online mutace bez offline scope tímto protokolem nejsou změněny.
 
-Všechny `/api` odpovědi dostávají `Cache-Control: private, no-store`. Replay mutace navíc posílají `X-Stavba-Offline-Scope`. Middleware hlavičku porovná s identitou aktuální cookie session ještě před permission policy a handlerem. Nesoulad končí `409 offline_scope_mismatch`, takže ani změna účtu mezi klientskou kontrolou a samotným zápisem nemůže provést operaci pod jinou identitou.
+Nová tabulka `api_idempotency_records` váže klíč na uživatele, autorizační scope, HTTP metodu a cestu. Ukládá otisk požadavku, stav `pending/completed/ambiguous`, omezenou JSON odpověď a časové údaje. Otisk zahrnuje kanonický query string, JSON tělo nebo SHA-256 raw obsahu. Stejný klíč s jiným požadavkem je odmítnut.
 
-### Service worker a Cache Storage
+Krátká transakční PostgreSQL advisory lock serializuje pouze přijetí klíče. HTTP handler nedrží klienta ze sdíleného poolu. Aktivní `pending` záznam má heartbeat; souběžný pokus dostane transient `idempotency_in_progress`. Dokončená odpověď je vrácena se `Idempotency-Replayed: true`. Stará nebo přerušená `pending` operace a serverový 5xx výsledek se mění na `idempotency_ambiguous` a nikdy se automaticky neprovedou podruhé. Nedostupný ledger končí `503 idempotency_unavailable` ještě před doménovým zápisem.
 
-Původní globální cache `stavba-api`, která zachytávala každý úspěšný API GET, byla odstraněna. Nový service worker:
+Odpovědi 408, 425 a 429 ledger neupevní a mohou se bezpečně opakovat. Zachycená JSON odpověď má limit 64 KiB; všechny současné offline write routy vracejí malé kontrakty.
 
-- ukládá jen explicitní same-origin allowlist terénních read modelů zakázek a rozvaděčů;
-- nikdy necachuje auth, sessions, trezor, billing, storage objekty, events ani neznámé budoucí API cesty;
-- přijímá jen HTTP `200` odpovědi a používá cache `stavba-api-v2-<scope>`;
-- bez potvrzeného scope obsluhuje požadavek pouze ze sítě s `cache: no-store`;
-- při aktivaci odstraní legacy cache, při změně identity nebo logoutu odstraní ostatní managed cache.
+### Raw uploady
 
-### IndexedDB a lifecycle identity
+U offline fotografií nemá idempotency middleware ještě parsované binární tělo. Klient proto před odesláním spočítá SHA-256 a přidá `X-Stavba-Content-SHA256`. Digest vstupuje do serverového request fingerprintu a storage/switchboard route jej po načtení `Buffer` znovu ověří. Chybějící, neplatný nebo neshodný digest selže před uložením objektu.
 
-IndexedDB v2 ukládá každou operaci a fotografický blob pod složený klíč scope + lokální ID a eviduje `ownerUserId` i `ownerScope`. Čtení, update, delete i replay vyžadují vlastníka. Stejné lokální ID proto může existovat ve více partitions bez kolize a jiný uživatel jeho payload nedostane.
+Dvoudílný job photo workflow používá odvozené klíče `<op>-upload` a `<op>-attachment`; opakovaný upload tak vrací stejný `objectPath` a registrace přílohy má vlastní deduplikační hranici.
 
-Původní v1 stores `ops` a `blobs` se zachovávají beze změny, ale runtime z nich čte pouze počty. Jejich payload se nezobrazuje a nikdy automaticky nereplayuje. Banner informuje o uzamčených nebo legacy položkách.
+### Cross-tab lease a retry state machine
 
-Před každým flush klient provede live `/api/auth/me` s `cache: no-store` a porovná user ID i scope. 401 nebo mismatch frontu skryje, obnoví auth stav a nic neodešle. Každý následný write je ještě svázán serverovou replay hlavičkou. Login před autentizací čistí API cache; logout upozorní na vlastní neodeslané akce, po potvrzení je ponechá uzamčené pro stejnou epochu a vyčistí cache, query data i timer notifikaci. Každá 401 z generovaného klienta také invaliduje auth a cache.
+IndexedDB v3 má atomický read/write lease po autorizačním scope. Jedna tabová instance jej získá na 45 sekund a každých 15 sekund obnovuje. Druhá instance flush přeskočí; takeover je povolen až po expiraci. Release i renew kontrolují holder ID a uživatele. Po získání lease klient znovu živě ověří `/api/auth/me`, takže čekající tab nemůže použít zastaralou identitu.
+
+Všechny offline typy a jejich dílčí requesty posílají stabilní idempotency key. Výsledek se klasifikuje jako `auth`, `transient`, `conflict`, `permanent` nebo `ambiguous`:
+
+- transient chyby mají nejvýše pět automatických pokusů s exponenciálním backoffem 1–30 sekund a respektují bounded `Retry-After`;
+- FIFO se po plánovaném transient retry zastaví, aby pozdější závislé operace nepředběhly první;
+- auth změna skryje partition, obnoví auth stav a nic dalšího neodešle;
+- conflict, permanent a ambiguous výsledky se nepřehrávají stejným durable klíčem; uživatel musí ověřit stav a vytvořit novou opravenou operaci nebo položku zahodit;
+- ruční opakování stejného klíče je dostupné pouze po vyčerpání transient chyb.
 
 ## 2. Stav nálezů
 
-| Nález | Stav po FÁZI 8.6 | Důkaz |
+| Nález | Stav po FÁZI 8.7 | Důkaz |
 |---|---|---|
-| SEC-08 | uzavřen lokálně | globální API cache nahrazena explicitním same-origin allowlistem a per-scope cache; citlivé a neznámé cesty jsou network-only |
-| SEC-09 | uzavřen lokálně | fronta i bloby mají vlastníka; live kontrola a atomická serverová scope vazba brání replayi pod jiným účtem |
-| GDPR-07 | uzavřen lokálně | logout/identity rotation odstraňuje API cache a cizí/legacy IndexedDB payload není dostupný aktuální identitě |
-| ROB-01 | uzavřen lokálně | stará bezejmenná fronta je karanténovaná a nová data jsou partitioned podle serverové epochy |
-| ROB-02 | otevřen | stále chybí lease mezi taby, úplná serverová idempotence a bounded backoff/conflict klasifikace |
+| SEC-08 | uzavřen lokálně ve FÁZI 8.6 | explicitní per-scope API cache allowlist |
+| SEC-09 | uzavřen lokálně ve FÁZI 8.6 | vlastněná IndexedDB partition a atomická serverová scope kontrola |
+| GDPR-07 | uzavřen lokálně ve FÁZI 8.6 | identity rotation odstraní cache a cizí/legacy payload není dostupný |
+| ROB-01 | uzavřen lokálně ve FÁZI 8.6 | v1 fronta v karanténě, nové záznamy vlastněné scope |
+| ROB-02 | uzavřen lokálně ve FÁZI 8.7 | atomický lease race, durable ledger, raw digest, bounded retry a fail-closed ambiguous stav |
 
-R03 je proto **částečně dokončen**, nikoli uzavřen.
+R03 je tímto **lokálně dokončen**. Plný Playwright scénář dvou skutečných tabů, restartu service workeru a offline/online přechodu zůstává průřezovým E2E důkazem v R14, nikoli známou mezerou implementačního invariantu.
 
 ## 3. Logické commity a návrat
 
 | Commit | Změna | Návrat |
 |---|---|---|
-| `71bf9d8` | serverem odvozený offline scope, `no-store` API, replay middleware, OpenAPI/generované typy a API/DB kontrakty | samostatný revert odstraní serverovou vazbu; nesmí být proveden před frontendovým revertem, protože nový klient na tuto ochranu spoléhá |
-| `7e9d819` | same-origin per-scope PWA cache, IndexedDB v2, identity verification, bezpečný logout a frontendové regrese | kód lze vrátit samostatně až po návratu serverové změny; zařízení s DB verzí 2 pak fail-closed odmítnou otevření starým v1 klientem, takže rollback musí ponechat kompatibilní DB version nebo vypnout offline frontu |
+| `45937f6` | serverový offline idempotency middleware, raw SHA-256 vazba, schema/migrace `0097`, bezpečný down skript a DB concurrency testy | nejdříve zastavit/omezit offline replay a vrátit aplikační kód; aditivní tabulku ponechat. Down migrace se záměrně zablokuje, jakmile ledger obsahuje jediný záznam |
+| `583eaa4` | IndexedDB v3 lease, stabilní klíče všech requestů, retry klasifikace/backoff a bezpečné UI stavy | starý v2 klient nedokáže otevřít již povýšenou DB v3 a selže uzavřeně; rollback musí zachovat kompatibilní DB verzi nebo offline frontu explicitně vypnout |
 
-Aditivní browser migrace nemaže legacy data. Návrat nevyžaduje produkční SQL, ale musí počítat s již vytvořenými IndexedDB v2 stores a s aktualizací service workeru na zařízeních.
+Bezpečné produkční pořadí je: záloha a read-only preflight, migrace `0097`, koordinované nasazení API a frontend/PWA, kontrola health a následné sledování idempotency kódů. Starší otevřený klient z FÁZE 8.6 posílá scope, ale u části operací ještě neposílá klíč; nový server jej proto bezpečně odmítne 400 místo rizika duplicity. Rollout musí uživatele navést k obnovení PWA. Fronta zůstane v IndexedDB a nový klient ji může ručně znovu odeslat.
 
 ## 4. Provedené kontroly
 
-### Cílené a statické kontroly
+### Statické a hermetické kontroly
 
-- workspace TypeScript typecheck: prošel;
-- frontend cache/IndexedDB/replay testy: 3 soubory, 29/29;
-- API identity/replay kontrakty: 2 soubory, 9/9;
+- workspace, API a frontend TypeScript typecheck: prošly;
+- API unit/contract sada: 28 souborů, 213/213;
+- frontend release sada: 8 souborů, 127/127;
+- `live-events`: 15/15;
+- test-environment guard: 5/5;
+- API production build: prošel;
+- frontend production build, PWA inject manifest a service worker build: prošly;
 - `git diff --check`: prošel.
 
 ### Izolovaný PostgreSQL 18
 
-Jednorázový cluster běžel pouze na `127.0.0.1` v náhodném systémovém temp adresáři a portu. Ambientní `DATABASE_URL` byla odstraněna. Po testu byly dočasná DB, PostgreSQL server i celý ověřený temp adresář odstraněny.
+Jednorázové clustery běžely pouze na `127.0.0.1`, náhodném portu a v ověřených systémových temp adresářích. Ambientní `DATABASE_URL` byla pro autorizační sadu odstraněna. Po každém běhu byly testovací databáze, server i celý temp adresář odstraněny.
 
-- migration chain a forward → DOWN → forward: prošly;
-- auth/session generation lifecycle: 4/4;
-- vault, route-access a nový `/auth/me` offline scope/replay kontrakt: 10/10;
-- private-object DB/API matice: 17/17;
-- použitá session generation dál blokuje destruktivní rollback migrace `0096`.
+- journal a migration parity: 98/98 migrací, latest `0097`, 91/91 tabulek proti snapshotu;
+- migrace `0096` forward → down → forward: prošla;
+- migrace `0097` forward → down → forward: prošla;
+- auth/session lifecycle: 4/4;
+- vault authorization: 10/10;
+- private-object authorization: 17/17;
+- offline idempotency: 7/7;
+- použitá session generation blokuje destruktivní rollback `0096`;
+- použitý idempotency ledger blokuje destruktivní rollback `0097`.
 
-DB test potvrdil stabilní scope stejné identity napříč novou login session, odlišný scope jiného uživatele, přijetí správné replay hlavičky a odmítnutí nesprávné hlavičky bez provedení handleru.
+Idempotency sada prokázala jeden side effect při dvou souběžných stejných requestech, replay stejné odpovědi, odmítnutí změněného payloadu, fail-closed chování bez klíče/digestu, přerušení jako ambiguous a 12 souběžných různých operací bez vyčerpání sdíleného DB poolu. IndexedDB test prokázal jediného vítěze skutečného souběžného `Promise.all` lease race, ochranu release, expiraci a takeover.
 
-### Hermetická release brána
+Na Windows bylo pro release gate nutné dočasně použít Node ekvivalent kořenového Unix `sh` preinstallu a přesně verzované bindingy esbuild, Rollup, Lightning CSS a Tailwind Oxide. Po finální úspěšné bráně byly odstraněny; `package.json` a `pnpm-lock.yaml` nemají žádný diff.
 
-Závěrečný `pnpm gate:release` prošel bez DB a provider secretů:
-
-- všechny TypeScript typechecky;
-- test-environment guard 5/5;
-- frontend 7 souborů, 107/107;
-- `live-events` 15/15;
-- API unit/contract sada 27 souborů, 210/210;
-- API production build;
-- frontend production build, PWA inject manifest a nový service worker build.
-
-Na Windows bylo pro samotné spuštění brány nutné dočasně použít Node ekvivalent kořenového Unix `sh` preinstallu a doplnit přesně verzované Windows native bindingy esbuild, Rollup, Lightning CSS a Tailwind Oxide. Všechny tyto dočasné manifest/lock změny byly před commitem odstraněny; výsledný lock přidává pouze testovací `fake-indexeddb`.
-
-Zůstala známá neblokující Vite upozornění na chunky `index` přibližně 831 kB a HEIC přibližně 1,35 MB. Produkční smoke, DAST, vzdálené CI, skutečný dvoutabový browser test a nasazení spuštěny nebyly.
+Zůstala známá neblokující Vite upozornění na chunky `index` přibližně 835 KiB a HEIC přibližně 1,35 MiB. Produkční smoke, DAST, vzdálené CI, skutečný browser E2E, push a deploy spuštěny nebyly.
 
 ## 5. Nejasnosti a zbytková rizika
 
-1. ROB-02 zůstává otevřený. Dvě taby nemají sdílený lease a mohou současně načíst stejnou partition. Některé operace mají idempotency key, ale `add_material`, změna spotřeby, nastavení hodin a část photo registration nemají jednotný durable serverový ledger.
-2. HTTP 401/409 vzniklé až během jednotlivé mutace bezpečně neprovedou cizí zápis, ale současný klient je klasifikuje jako obecný retry. FÁZE 8.7 musí zavést explicitní auth/conflict/transient stavy, bounded exponential backoff a bezpečné ruční obnovení.
-3. Legacy v1 payload zůstává na zařízení v karanténě bez recovery/export/delete UI. Banner ukazuje pouze počet. Automatické přiřazení aktuálnímu uživateli je zakázané, protože původního vlastníka nelze prokázat.
-4. Povolený terénní dataset je stále uložen lokálně jako plaintext browser storage. Partition a logout purge brání záměně účtu v aplikaci, ale neřeší kompromitované nebo ztracené BYOD zařízení, šifrování at rest ani vzdálený wipe.
-5. Explicitní cache allowlist může zpočátku vynechat legitimní offline read cestu. Rozšiřovat jej lze jen po revizi datového obsahu a oprávnění; nevracet obecné `/api/*` cachování.
-6. Scope je záměrně epocha identity/oprávnění, ne unikátní ID každé login session. Stejný uživatel může po běžném znovupřihlášení obnovit vlastní práci; revokace session generation nebo změna oprávnění ji uzamkne.
-7. Unit/contract a skutečná API DB sada pokrývají user switch a karanténu, ale ještě chybí reálný browser E2E scénář se dvěma účty, dvěma taby, restartem service workeru a offline/online přechodem.
+1. `api_idempotency_records` ukládá omezenou kopii odpovědi bez automatické retence. Produkční retenční lhůtu, cleanup a případný minimalizovaný payload je nutné schválit v R10; tabulku do té doby nemažte, protože je důkazem proti duplicitě.
+2. Plný browser E2E dvou tabů, PWA update a skutečného reconnectu není v tomto řezu spuštěn. Atomický IndexedDB kontrakt a skutečná PostgreSQL concurrency dokazují obě ochranné vrstvy, end-to-end provozní scénář ale patří do R14.
+3. Legacy v1 payload zůstává na zařízení v karanténě bez recovery/export/delete UI. Automatické přiřazení aktuálnímu uživateli zůstává zakázané.
+4. Povolený terénní dataset je stále plaintext browser storage. Partition neřeší kompromitované nebo ztracené BYOD zařízení, šifrování at rest ani vzdálený wipe.
+5. Aditivní `0097` musí být v produkci aplikována před aktivací serverového middleware. Bez tabulky scoped offline mutace záměrně končí 503; běžné online mutace bez scope zůstávají dostupné.
+6. Stale PWA klient během rollout okna dostane fail-closed chybu kvůli chybějícímu klíči. Je nutný řízený refresh/update postup a monitoring `idempotency_key_required`, `idempotency_unavailable`, `idempotency_ambiguous` a `offline_content_digest_*`.
 
 ## 6. Jednoznačný checkpoint a doporučení pro další spuštění
 
-**CHECKPOINT FÁZE 8.6:** SEC-08, SEC-09, GDPR-07 a ROB-01 jsou lokálně uzavřeny. Cache i nová offline data jsou oddělené podle serverové identity/autorizační epochy, legacy fronta se nereplayuje a server atomicky odmítne mutaci se scope jiné epochy. Typecheck, cílené testy, izolovaná PostgreSQL matice i úplná release brána prošly. R03 zůstává otevřený pouze v následujícím samostatném concurrency/idempotency řezu. Nebyl proveden push, deploy, produkční test ani SQL migrace. V tomto spuštění se nepokračuje do FÁZE 8.7 ani FÁZE 9.
+**CHECKPOINT FÁZE 8.7:** R03 a ROB-02 jsou lokálně uzavřeny. Dvě tabové instance mají scope lease, všechny offline requesty používají stabilní klíče, server má durable fail-closed ledger a raw uploady jsou svázané SHA-256. Retry je omezený a rozlišuje bezpečné, konfliktní a nejednoznačné výsledky. Typecheck, 355 hermetických aplikačních testů plus 5 environment guard testů, izolovaná PostgreSQL matice, obě migrační/rollback pojistky a production build prošly. Nebyl proveden push, deploy, produkční test ani produkční migrace. V tomto spuštění se nepokračuje do FÁZE 8.8 ani FÁZE 9.
 
-- **další fáze:** FÁZE 8.7 – druhý izolovaný řez R03: cross-tab lease, jednotná idempotence a řízené retry/conflict stavy.
+- **další fáze:** FÁZE 8.8 – izolovaný řez R04: request/upload/object-storage ochrana.
 - **doporučený model:** GPT-5.6 Sol
 - **doporučený reasoning:** xhigh
-- **důvod použití této úrovně:** změna propojí souběh více tabů, durable serverovou deduplikaci, transakční hranice doménových zápisů a bezpečné zotavení po nejednoznačném výsledku; chyba může vytvořit duplicitu nebo potlačit legitimní operaci.
-- **očekávané činnosti:** zmapovat idempotency pokrytí všech offline typů; navrhnout cross-tab lease s expirací a takeoverem; doplnit durable idempotency registry nebo přesné doménové unique invarianty; klasifikovat auth/conflict/transient chyby; zavést bounded backoff; otestovat dvě taby, přerušenou odpověď, retry po timeoutu, logout/user switch a service-worker update.
-- **soubory, které budou pravděpodobně změněny:** `artifacts/stavba/src/lib/offline-queue.ts`, `artifacts/stavba/src/hooks/use-offline-queue.tsx`, nové browser/concurrency testy, API middleware nebo služby zapisujících rout, `lib/db/src/schema/*`, `lib/db/migrations/*` a případně OpenAPI/generované klienty.
-- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Pravděpodobná je aditivní DB migrace pro durable idempotency ledger a případně další browser storage verze pro lease metadata. Jde o vysoce rizikovou změnu souběhu a replay semantics; vyžaduje izolované PostgreSQL concurrency testy, browser multi-tab testy a předem ověřený rollback.
+- **důvod použití této úrovně:** změna zasáhne pořadí autentizace a body parserů, streaming limity, MIME/magic validaci, checksumy a lifecycle objektů; chyba může otevřít DoS, upload škodlivého obsahu, orphaned data nebo nekompatibilní metadata.
+- **očekávané činnosti:** zmapovat všechny upload/decompression a object-storage vstupy; prokázat auth před nákladným parsingem; zavést per-route byte/time/decompression limity, MIME+magic validaci, skutečné dekódování podpisových obrázků, checksum/status metadata a quarantine/scanner hook; doplnit malformed/polyglot/ZIP-bomb/abort/orphan testy; připravit rollout a rollback bez mazání neznámých objektů.
+- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/app.ts`, `artifacts/api-server/src/routes/storage.ts`, billing/document a signature upload routy, `artifacts/api-server/src/lib/fileSignature.ts`, `artifacts/api-server/src/lib/objectStorage.ts`, upload kontrakty/testy, případně `lib/db/src/schema/*`, `lib/db/migrations/*`, reverse-proxy/Coolify konfigurace a provozní runbook.
+- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Může vyžadovat aditivní metadata migraci a řízený backfill checksumů/statusů. Quarantine, cleanup orphanů, změny limitů a proxy konfigurace jsou rizikové; žádné existující objekty se nesmí automaticky mazat ani označit za ověřené bez důkazu.
 
 Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**.
