@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
+import rateLimit from "express-rate-limit";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
+import { secureTokenEqual } from "../lib/internal-auth";
 import { requireRole } from "../middlewares/auth";
 import {
   createBackup,
@@ -16,6 +18,13 @@ import type { BackupLog } from "@workspace/db";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
+const backupTriggerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many backup trigger attempts." },
+});
 
 // All backup operations are restricted to elevated roles (backups contain the
 // entire database). Path-scoped so it does not leak to other routers.
@@ -181,10 +190,10 @@ router.get("/backups/status", async (_req, res): Promise<void> => {
 // ─── Internal trigger endpoint ────────────────────────────────────────────────
 // Protected by BACKUP_TRIGGER_SECRET (Bearer token in Authorization header).
 // Designed for external cron schedulers / Replit Scheduled Deployments.
-// Auth is verified in the handler (not via requireRole) because this path is
-// in the PUBLIC_PREFIXES allowlist (no session cookie required).
+// Auth is verified in the handler (not via requireRole) because the exact
+// POST path is in the public API policy (no session cookie required).
 
-router.post("/internal/backup-trigger", async (req, res): Promise<void> => {
+router.post("/internal/backup-trigger", backupTriggerLimiter, async (req, res): Promise<void> => {
   const secret = process.env.BACKUP_TRIGGER_SECRET;
   if (!secret) {
     res.status(503).json({ error: "BACKUP_TRIGGER_SECRET not configured on this server." });
@@ -193,7 +202,7 @@ router.post("/internal/backup-trigger", async (req, res): Promise<void> => {
 
   const authHeader = req.headers.authorization ?? "";
   const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (!provided || provided !== secret) {
+  if (!secureTokenEqual(provided, secret)) {
     res.status(401).json({ error: "Invalid or missing Authorization: Bearer <secret>." });
     return;
   }

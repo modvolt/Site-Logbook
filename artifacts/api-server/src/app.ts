@@ -13,6 +13,7 @@ import { rejectArchivedJobMutations } from "./middlewares/archived-job";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
 import { record5xxError } from "./lib/server-errors";
+import { isPublicApiRequest } from "./lib/public-api-policy";
 
 const app: Express = express();
 
@@ -138,24 +139,15 @@ app.use(
 app.use("/api", attachAuth);
 app.use("/api", trackSessionActivity);
 
-// Public endpoints must bypass both authentication and permission enforcement.
-// Keep this list centralized so a route cannot pass one guard and fail the next.
-const PUBLIC_PREFIXES = ["/api/healthz", "/api/auth/", "/api/storage/public-objects/", "/api/ppe/sign/", "/api/sign/", "/api/quotes/public/", "/api/q/board/", "/api/internal/"];
-
-function isPublicApiRequest(req: Request): boolean {
-  const url = req.originalUrl.split("?")[0];
-  return PUBLIC_PREFIXES.some((prefix) => url === prefix || url.startsWith(prefix));
-}
-
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-  if (isPublicApiRequest(req)) return next();
+  if (isPublicApiRequest(req.method, req.originalUrl)) return next();
   return requireAuth(req, res, next);
 });
 
 // Enforce module permissions on the backend. Role defaults are resolved with
 // per-user allow/deny overrides before this middleware runs.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-  if (isPublicApiRequest(req)) return next();
+  if (isPublicApiRequest(req.method, req.originalUrl)) return next();
   const url = req.originalUrl.split("?")[0];
   if (url.startsWith("/api/preferences")) return next();
   return enforceApiPermission(req, res, next);
