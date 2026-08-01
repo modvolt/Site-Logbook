@@ -1,115 +1,88 @@
-# Checkpoint FÁZE 8.7 – dokončení R03
+# Checkpoint FÁZE 8.8 – dokončení R04
 
-- **Stav:** FÁZE 8.7 dokončena. Druhý izolovaný řez R03 je lokálně implementovaný a ověřený; FÁZE 8.8 ani FÁZE 9 nebyly zahájeny.
-- **Výchozí revize:** `2c6b52b` (`main`; lokálně dvacet dva commitů před `origin/main`).
-- **Implementační revize:** `45937f6`, `583eaa4` (`main`; lokálně dvacet čtyři commitů před `origin/main`). Dokumentační checkpoint následuje jako samostatný commit.
+- **Stav:** FÁZE 8.8 dokončena lokálně. Request/upload/object-storage řez R04 je implementovaný; FÁZE 8.9 ani FÁZE 9 nebyly zahájeny.
+- **Výchozí revize:** `1ed61f4` (`main`; lokálně dvacet pět commitů před `origin/main`).
+- **Implementační revize:** `63ba086` (`main`; lokálně dvacet šest commitů před `origin/main`). Dokumentační checkpoint následuje jako samostatný commit.
 - **Produkční zásah:** žádný. Nebyla použita produkční DB, produkční secrets, `modvoltapp.cz`, vzdálený Git, push ani deploy.
-- **Databázová migrace:** nová aditivní migrace `0097_api_idempotency_records`; byla aplikována a vrácena pouze v jednorázových lokálních PostgreSQL 18 databázích.
-- **Browser storage migrace:** IndexedDB `stavba-offline-v1` se aditivně povyšuje z verze 2 na 3 a přidává store `scope-leases`. Vlastněné operace, bloby i v1 karanténa zůstávají zachované.
+- **Databázová změna:** aditivní migrace `0098_object-upload-ledger`; nebyla aplikována do produkce ani do existující sdílené databáze.
+- **Provozní dokument:** [08-upload-protection-runbook.md](08-upload-protection-runbook.md).
 
-## 1. Uzavřený rozsah
+## 1. Uzavřená architektura R04
 
-### Durable serverová deduplikace
+### Request hranice
 
-Každá mutace, která nese serverem ověřený `X-Stavba-Offline-Scope`, nyní musí mít platný `Idempotency-Key`. Middleware běží po autentizaci, scope a permission kontrole, ale před auditním middlewarem a doménovým handlerem. Online mutace bez offline scope tímto protokolem nejsou změněny.
+Globální 50MB JSON parser před autentizací byl odstraněn. Pořadí je nyní autentizace → route permission → přesná body policy/parser → offline idempotency → handler. Běžné public i authenticated JSON má 1 MiB, URL-encoded body 256 KiB a pouze přesně vyjmenované POST routy pro base64 PDF/bankovní parse mají 32 MiB. Raw uploady si ponechávají route-local parser, ale autentizace běží před rate limiterem i načtením těla. Nginx pro `/api` používá 30s body timeout a neposílá celý request do proxy bufferu.
 
-Nová tabulka `api_idempotency_records` váže klíč na uživatele, autorizační scope, HTTP metodu a cestu. Ukládá otisk požadavku, stav `pending/completed/ambiguous`, omezenou JSON odpověď a časové údaje. Otisk zahrnuje kanonický query string, JSON tělo nebo SHA-256 raw obsahu. Stejný klíč s jiným požadavkem je odmítnut.
+### Strukturální validace a decompression budget
 
-Krátká transakční PostgreSQL advisory lock serializuje pouze přijetí klíče. HTTP handler nedrží klienta ze sdíleného poolu. Aktivní `pending` záznam má heartbeat; souběžný pokus dostane transient `idempotency_in_progress`. Dokončená odpověď je vrácena se `Idempotency-Replayed: true`. Stará nebo přerušená `pending` operace a serverový 5xx výsledek se mění na `idempotency_ambiguous` a nikdy se automaticky neprovedou podruhé. Nedostupný ledger končí `503 idempotency_unavailable` ještě před doménovým zápisem.
+PNG, JPEG, GIF, WebP, PDF a ZIP mají kanonické strukturální kontroly včetně platného konce bez trailing polyglot dat. Neznámý MIME typ selže uzavřeně. OLE/OOXML mají vlastní validátory; OOXML odmítá macros, ActiveX, embeddings a XML signatures. Běžný ZIP má předalokovací budget 25 MiB vstup, 50 entries, 25 MiB/entry, 64 MiB celkem a poměr 100:1. Office povoluje nejvýše 2000 entries při stejných byte limitech. ISDOCX má přísnější 10/10/20 MiB budget. Vnitřní ZIP soubory se znovu typově ověřují; traversal, nested ZIP a nepovolené typy jsou odmítnuty.
 
-Odpovědi 408, 425 a 429 ledger neupevní a mohou se bezpečně opakovat. Zachycená JSON odpověď má limit 64 KiB; všechny současné offline write routy vracejí malé kontrakty.
+Podpisové data URL/base64 mají limit 500 KiB, musí být skutečný PNG, dekódují se přes canvas, mají limit 2048 × 2048 a 2 miliony pixelů a před uložením se sanitizovaně znovu kódují. Job/customer/bank base64 vstupy používají kanonický bounded decoder a PDF se strukturálně ověří.
 
-### Raw uploady
+Gmail a IMAP byly zahrnuty jako samostatné ne-HTTP vstupy: 25 MiB/příloha, kanonické Gmail Base64URL a shoda deklarované velikosti, IMAP nejvýše 20 podporovaných příloh a 64 MiB na zprávu, strukturální/ZIP validace a stejný Office scanner. Přechodná nedostupnost scanneru se nepřepíše na trvalé „skipped“; zůstává retryable/fail-closed.
 
-U offline fotografií nemá idempotency middleware ještě parsované binární tělo. Klient proto před odesláním spočítá SHA-256 a přidá `X-Stavba-Content-SHA256`. Digest vstupuje do serverového request fingerprintu a storage/switchboard route jej po načtení `Buffer` znovu ověří. Chybějící, neplatný nebo neshodný digest selže před uložením objektu.
+### Scanner, provider metadata a durable staging
 
-Dvoudílný job photo workflow používá odvozené klíče `<op>-upload` a `<op>-attachment`; opakovaný upload tak vrací stejný `objectPath` a registrace přílohy má vlastní deduplikační hranici.
+Nový scanner adapter používá `UPLOAD_SCANNER_URL`, volitelný `UPLOAD_SCANNER_TOKEN`, produkční HTTPS, timeout 10 s a nejvýše 8 KiB odpovědi. Pasivní strukturálně validované formáty mohou pokračovat jako `content_validated`. Office vyžaduje verdict `clean`; malicious je odmítnut a unavailable selže uzavřeně. Generický unavailable Office upload je uložen pouze do nepřístupné karantény a klient nedostane použitelný object path.
 
-### Cross-tab lease a retry state machine
+Každý provider put počítá SHA-256 a zapisuje checksum i upload status do S3/GCS metadat. Hetzner kompatibilita zůstává zachována; nebyl vynucen S3 checksum režim, který tento provider dříve vyžadoval vypnout.
 
-IndexedDB v3 má atomický read/write lease po autorizačním scope. Jedna tabová instance jej získá na 45 sekund a každých 15 sekund obnovuje. Druhá instance flush přeskočí; takeover je povolen až po expiraci. Release i renew kontrolují holder ID a uživatele. Po získání lease klient znovu živě ověří `/api/auth/me`, takže čekající tab nemůže použít zastaralou identitu.
+Migrace `0098` přidává `object_uploads` se stavem uploadu, scanneru, checksumem, vlastníkem, claim referencí, chybou a timestamps. Nové generické uploady používají `/objects/uploads/v2/…`. Job, activity a customer-site registrace atomicky claimnou jen `stored` objekt stejného uživatele ve stejné DB transakci. Frontendová inventura potvrdila, že všechny současné `useUpload` konzumenty končí v jedné z těchto tří claim rout. Legacy `/objects/uploads/…` zůstávají kompatibilní bez backfillu; nelze zpětně tvrdit, že byly ledgerem ověřeny.
 
-Všechny offline typy a jejich dílčí requesty posílají stabilní idempotency key. Výsledek se klasifikuje jako `auth`, `transient`, `conflict`, `permanent` nebo `ambiguous`:
+Cost-document ingest a přímé customer/job PDF cesty odstraňují nově uložený objekt, pokud následný DB zápis selže. Pokud selže ledger update po provider putu, durable záznam zůstane `pending/failed` s chybou namísto bezevidence orphanu. Úplný reconciler, retence a mazání patří do R12.
 
-- transient chyby mají nejvýše pět automatických pokusů s exponenciálním backoffem 1–30 sekund a respektují bounded `Retry-After`;
-- FIFO se po plánovaném transient retry zastaví, aby pozdější závislé operace nepředběhly první;
-- auth změna skryje partition, obnoví auth stav a nic dalšího neodešle;
-- conflict, permanent a ambiguous výsledky se nepřehrávají stejným durable klíčem; uživatel musí ověřit stav a vytvořit novou opravenou operaci nebo položku zahodit;
-- ruční opakování stejného klíče je dostupné pouze po vyčerpání transient chyb.
+## 2. Stav nálezů a hranice
 
-## 2. Stav nálezů
-
-| Nález | Stav po FÁZI 8.7 | Důkaz |
+| Nález | Stav po FÁZI 8.8 | Důkaz / hranice |
 |---|---|---|
-| SEC-08 | uzavřen lokálně ve FÁZI 8.6 | explicitní per-scope API cache allowlist |
-| SEC-09 | uzavřen lokálně ve FÁZI 8.6 | vlastněná IndexedDB partition a atomická serverová scope kontrola |
-| GDPR-07 | uzavřen lokálně ve FÁZI 8.6 | identity rotation odstraní cache a cizí/legacy payload není dostupný |
-| ROB-01 | uzavřen lokálně ve FÁZI 8.6 | v1 fronta v karanténě, nové záznamy vlastněné scope |
-| ROB-02 | uzavřen lokálně ve FÁZI 8.7 | atomický lease race, durable ledger, raw digest, bounded retry a fail-closed ambiguous stav |
+| SEC-11 | uzavřen lokálně pro nové vstupy | auth před parserem, pevné body/time/decompression limity, abort/413 kontrakty |
+| SEC-13 | uzavřen lokálně pro nové vstupy | strukturální MIME/ZIP/OOXML validace, skutečné dekódování podpisu, scanner/quarantine |
+| SEC-21 | částečně uzavřen R04, lifecycle pokračuje v R12 | SHA-256/status metadata, durable staging/claim; staré objekty, backup SSE/KMS, retence a cleanup se nemění |
 
-R03 je tímto **lokálně dokončen**. Plný Playwright scénář dvou skutečných tabů, restartu service workeru a offline/online přechodu zůstává průřezovým E2E důkazem v R14, nikoli známou mezerou implementačního invariantu.
+R04 je tímto **lokálně dokončen**. R12 musí nad ledgerem doplnit inventuru, bezpečný reconciler, retenci, delete retry a orphan cleanup. V této fázi se žádný starý objekt nemaže, nemění ani neoznačuje zpětně za ověřený.
 
-## 3. Logické commity a návrat
+## 3. Provedené kontroly
 
-| Commit | Změna | Návrat |
-|---|---|---|
-| `45937f6` | serverový offline idempotency middleware, raw SHA-256 vazba, schema/migrace `0097`, bezpečný down skript a DB concurrency testy | nejdříve zastavit/omezit offline replay a vrátit aplikační kód; aditivní tabulku ponechat. Down migrace se záměrně zablokuje, jakmile ledger obsahuje jediný záznam |
-| `583eaa4` | IndexedDB v3 lease, stabilní klíče všech requestů, retry klasifikace/backoff a bezpečné UI stavy | starý v2 klient nedokáže otevřít již povýšenou DB v3 a selže uzavřeně; rollback musí zachovat kompatibilní DB verzi nebo offline frontu explicitně vypnout |
+### Hermetická a statická brána
 
-Bezpečné produkční pořadí je: záloha a read-only preflight, migrace `0097`, koordinované nasazení API a frontend/PWA, kontrola health a následné sledování idempotency kódů. Starší otevřený klient z FÁZE 8.6 posílá scope, ale u části operací ještě neposílá klíč; nový server jej proto bezpečně odmítne 400 místo rizika duplicity. Rollout musí uživatele navést k obnovení PWA. Fronta zůstane v IndexedDB a nový klient ji může ručně znovu odeslat.
+- po hlavní implementaci prošel celý release gate: API/stavba/mockup/scripts typecheck, pět environment guardů, frontend 127/127, live-events 15/15, API 241/241 a API/PWA production build; celkem 383 aplikačních testů plus 5 guardů;
+- po rozšíření ochrany na Gmail/IMAP prošel API typecheck a rozšířená hermetická sada 35 souborů, 245/245;
+- bezpečnostní cílená sada pokrývá spoof/polyglot, trailing payload, ZIP bomb/entry/ratio budget, OOXML active content, oversized/aborted request, podpis decode/re-encode, scanner verdicty a upload ledger;
+- `git diff --check` prošel; `package.json`, `pnpm-lock.yaml` a `pnpm-workspace.yaml` nemají diff po odstranění dočasných Windows bindingů;
+- po posledním rozlišení retryable `scanner_unavailable` proběhla ještě syntax/transpile kontrola změněných importérů a diff kontrola. Opakovaný Vitest běh bez vyšších oprávnění zastavilo výhradně sandboxové čtení pnpm junction cest.
 
-## 4. Provedené kontroly
-
-### Statické a hermetické kontroly
-
-- workspace, API a frontend TypeScript typecheck: prošly;
-- API unit/contract sada: 28 souborů, 213/213;
-- frontend release sada: 8 souborů, 127/127;
-- `live-events`: 15/15;
-- test-environment guard: 5/5;
-- API production build: prošel;
-- frontend production build, PWA inject manifest a service worker build: prošly;
-- `git diff --check`: prošel.
+Na Windows byly pro úspěšný gate dočasně propojeny přesně verzované nativní bindingy esbuild, Rollup, Lightning CSS, Tailwind Oxide a canvas a root preinstall byl dočasně nahrazen Node ekvivalentem. Tracked manifesty a lockfile byly následně přesně obnoveny.
 
 ### Izolovaný PostgreSQL 18
 
-Jednorázové clustery běžely pouze na `127.0.0.1`, náhodném portu a v ověřených systémových temp adresářích. Ambientní `DATABASE_URL` byla pro autorizační sadu odstraněna. Po každém běhu byly testovací databáze, server i celý temp adresář odstraněny.
+- migration smoke: 99/99 migrací, latest `0098`, 92 tabulek proti snapshotu;
+- `object-upload-ledger.db.test.ts`: 3/3;
+- prázdný rollback `0098` prošel, po vložení evidenčního řádku se destruktivní rollback zablokoval a záznam zachoval;
+- relevantní PPE concurrency s mocked storage: public token 9/9 a admin flow 9/9.
 
-- journal a migration parity: 98/98 migrací, latest `0097`, 91/91 tabulek proti snapshotu;
-- migrace `0096` forward → down → forward: prošla;
-- migrace `0097` forward → down → forward: prošla;
-- auth/session lifecycle: 4/4;
-- vault authorization: 10/10;
-- private-object authorization: 17/17;
-- offline idempotency: 7/7;
-- použitá session generation blokuje destruktivní rollback `0096`;
-- použitý idempotency ledger blokuje destruktivní rollback `0097`.
+Pokus spustit celý historický DB test tree paralelně nad jednou DB prokázal existující cross-file kontaminaci fixture dat a několik nehermetických storage testů; relevantní sady byly proto ověřeny izolovaně/sekvenčně. Po posledním doplnění Gmail/IMAP limitů nebylo možné znovu vytvořit nový lokální PostgreSQL proces: běhové prostředí odmítlo další schválení kvůli vyčerpanému approval/usage limitu. Nebyla použita náhradní ani produkční DB a tato neprovedená matice je zbytková testovací nejasnost, nikoli skrytý úspěch.
 
-Idempotency sada prokázala jeden side effect při dvou souběžných stejných requestech, replay stejné odpovědi, odmítnutí změněného payloadu, fail-closed chování bez klíče/digestu, přerušení jako ambiguous a 12 souběžných různých operací bez vyčerpání sdíleného DB poolu. IndexedDB test prokázal jediného vítěze skutečného souběžného `Promise.all` lease race, ochranu release, expiraci a takeover.
+## 4. Nejasnosti a zbytková rizika
 
-Na Windows bylo pro release gate nutné dočasně použít Node ekvivalent kořenového Unix `sh` preinstallu a přesně verzované bindingy esbuild, Rollup, Lightning CSS a Tailwind Oxide. Po finální úspěšné bráně byly odstraněny; `package.json` a `pnpm-lock.yaml` nemají žádný diff.
+1. `UPLOAD_SCANNER_URL` je pouze lokálně otestovaný kontrakt; konkrétní scanner, jeho dostupnost, limity, DPA, aktualizace signatur a alerting musí určit provozní vlastník před produkcí. Bez něj se Office obsah fail-closed nepřijme.
+2. Nová tabulka musí být aplikována před novým API. Bez `0098` generický upload selže a nesmí pokračovat bez evidence.
+3. Legacy object paths se záměrně neclaimují v ledgeru. Je to rollout kompatibilita, nikoli potvrzení jejich původu nebo čistoty.
+4. Karanténa a stavy `pending/failed/stored` nemají v R04 automatickou retenci ani reconciler. Mazání bez inventury je zakázané; dokončí R12.
+5. S3/GCS checksum/status metadata nebyla ověřena proti skutečnému produkčnímu provideru. Kód zachovává existující Hetzner checksum workaround.
+6. Limit 60 generických uploadů za 15 minut je kompromis pro dávkové fotografie; produkční prahy je nutné měřit a odlišit oprávněný terénní batch od abuse.
+7. Historická DB sada není plně izolovaná per file. R14 má dodat opakovatelný ephemeral stack a odstranit cross-suite kontaminaci.
+8. Kompletní release gate proběhl před posledním malým rozlišením retryable scanner outage v e-mailových importérech. Toto rozlišení prošlo syntax kontrolou, ale jeho cílený DB test je výslovně odložen do prvního kroku dalšího běhu nebo R14.
 
-Zůstala známá neblokující Vite upozornění na chunky `index` přibližně 835 KiB a HEIC přibližně 1,35 MiB. Produkční smoke, DAST, vzdálené CI, skutečný browser E2E, push a deploy spuštěny nebyly.
+## 5. Jednoznačný checkpoint a doporučení
 
-## 5. Nejasnosti a zbytková rizika
+**CHECKPOINT FÁZE 8.8:** R04 je lokálně uzavřen pro nové requesty, uploady, dekompresi, podpisové obrázky, e-mailové přílohy a nové generické object-storage staging/claim workflow. Má pevné limity, fail-closed strukturální validaci, Office scanner/quarantine hook, SHA-256/status provider metadata a durable ledger `0098`. Existující objekty nebyly změněny ani smazány. Nebyl proveden push, deploy, produkční test ani produkční migrace. V tomto spuštění se nepokračuje do FÁZE 8.9 ani FÁZE 9.
 
-1. `api_idempotency_records` ukládá omezenou kopii odpovědi bez automatické retence. Produkční retenční lhůtu, cleanup a případný minimalizovaný payload je nutné schválit v R10; tabulku do té doby nemažte, protože je důkazem proti duplicitě.
-2. Plný browser E2E dvou tabů, PWA update a skutečného reconnectu není v tomto řezu spuštěn. Atomický IndexedDB kontrakt a skutečná PostgreSQL concurrency dokazují obě ochranné vrstvy, end-to-end provozní scénář ale patří do R14.
-3. Legacy v1 payload zůstává na zařízení v karanténě bez recovery/export/delete UI. Automatické přiřazení aktuálnímu uživateli zůstává zakázané.
-4. Povolený terénní dataset je stále plaintext browser storage. Partition neřeší kompromitované nebo ztracené BYOD zařízení, šifrování at rest ani vzdálený wipe.
-5. Aditivní `0097` musí být v produkci aplikována před aktivací serverového middleware. Bez tabulky scoped offline mutace záměrně končí 503; běžné online mutace bez scope zůstávají dostupné.
-6. Stale PWA klient během rollout okna dostane fail-closed chybu kvůli chybějícímu klíči. Je nutný řízený refresh/update postup a monitoring `idempotency_key_required`, `idempotency_unavailable`, `idempotency_ambiguous` a `offline_content_digest_*`.
-
-## 6. Jednoznačný checkpoint a doporučení pro další spuštění
-
-**CHECKPOINT FÁZE 8.7:** R03 a ROB-02 jsou lokálně uzavřeny. Dvě tabové instance mají scope lease, všechny offline requesty používají stabilní klíče, server má durable fail-closed ledger a raw uploady jsou svázané SHA-256. Retry je omezený a rozlišuje bezpečné, konfliktní a nejednoznačné výsledky. Typecheck, 355 hermetických aplikačních testů plus 5 environment guard testů, izolovaná PostgreSQL matice, obě migrační/rollback pojistky a production build prošly. Nebyl proveden push, deploy, produkční test ani produkční migrace. V tomto spuštění se nepokračuje do FÁZE 8.8 ani FÁZE 9.
-
-- **další fáze:** FÁZE 8.8 – izolovaný řez R04: request/upload/object-storage ochrana.
+- **další fáze:** FÁZE 8.9 – izolovaný řez R05: šifrování trezoru a provozních secretů.
 - **doporučený model:** GPT-5.6 Sol
 - **doporučený reasoning:** xhigh
-- **důvod použití této úrovně:** změna zasáhne pořadí autentizace a body parserů, streaming limity, MIME/magic validaci, checksumy a lifecycle objektů; chyba může otevřít DoS, upload škodlivého obsahu, orphaned data nebo nekompatibilní metadata.
-- **očekávané činnosti:** zmapovat všechny upload/decompression a object-storage vstupy; prokázat auth před nákladným parsingem; zavést per-route byte/time/decompression limity, MIME+magic validaci, skutečné dekódování podpisových obrázků, checksum/status metadata a quarantine/scanner hook; doplnit malformed/polyglot/ZIP-bomb/abort/orphan testy; připravit rollout a rollback bez mazání neznámých objektů.
-- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/app.ts`, `artifacts/api-server/src/routes/storage.ts`, billing/document a signature upload routy, `artifacts/api-server/src/lib/fileSignature.ts`, `artifacts/api-server/src/lib/objectStorage.ts`, upload kontrakty/testy, případně `lib/db/src/schema/*`, `lib/db/migrations/*`, reverse-proxy/Coolify konfigurace a provozní runbook.
-- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Může vyžadovat aditivní metadata migraci a řízený backfill checksumů/statusů. Quarantine, cleanup orphanů, změny limitů a proxy konfigurace jsou rizikové; žádné existující objekty se nesmí automaticky mazat ani označit za ověřené bez důkazu.
+- **důvod použití této úrovně:** práce zasáhne kryptografický formát, KMS/master-key vlastnictví, citlivá data, dual-read/write, rotaci, backup recovery a migrační backfill; chyba může nevratně znepřístupnit nebo odhalit zákaznické přístupy, SMTP/IMAP hesla a API klíče.
+- **očekávané činnosti:** nejprve uzavřít KMS/DR threat model a inventuru všech plaintext secret fields; navrhnout versioned envelope ciphertext s AAD a externím master key; zavést crypto adapter a fail-closed dual-read/write; přidat canary/tamper/rotation/rollback testy; připravit měřitelný backfill bez plaintext logů/exportu, backup key separation a provozní recovery runbook. Jako první kontrolu zopakovat odložené cílené Gmail/IMAP DB testy v izolovaném PostgreSQL.
+- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/lib/token-crypto.ts`, vault/device-credential služby a routy, `artifacts/api-server/src/lib/email.ts`, `artifacts/api-server/src/lib/email-import.ts`, email/import/OpenAI/backup settings služby, `lib/db/src/schema/device-credentials.ts`, `email-settings.ts`, `email-import-settings.ts`, `openai-settings.ts`, nové crypto/KMS adaptéry, migrace/rollbacky, bezpečnostní testy a recovery/rotation runbook.
+- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Očekává se aditivní schema migrace a následný citlivý re-encryption backfill; možné jsou dual-read cutover, key rotation a změna záloh. Žádný plaintext se nesmí logovat nebo exportovat a contract/drop starých sloupců nesmí proběhnout bez ověřené obnovy, počtů a rollbacku.
 
 Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**.

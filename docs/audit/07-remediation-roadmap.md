@@ -13,7 +13,7 @@ Teprve na tomto základě má smysl zavádět durable audit/outbox, DB invariant
 
 Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolovaných změnách s regresními testy. Každá migrace používá expand–migrate–contract, samostatný backfill, měření a předem ověřený návratový postup.
 
-### Stav realizace po FÁZI 8.6
+### Stav realizace po FÁZI 8.8
 
 | Workstream | Stav | Důkaz | Zbývající hranice |
 |---|---|---|---|
@@ -21,8 +21,9 @@ Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolo
 | R01 | Dokončeno lokálně | `da5e734`, `f5f6349`, `8ddea6d`, `b5ef912`, `bf18843`; izolovaný PostgreSQL test prokázal paralelní setup, rotaci cookie, revokaci dvou agents a odmítnutí znovuuložené staré session | před produkcí aplikovat migraci `0096`, připravit oznámení jednorázového odhlášení a sledovat 401/login chyby |
 | R02 | Dokončeno lokálně | `77422e6`, `8d3c4b9`, `96e5e96`, `cf34a09`, `fbff6fa`, `5b7dbb0`; 397 unikátních method/path registrací je generováno ze zdrojů a každá má explicitní public, authenticated-only nebo permission policy | před produkcí read-only inventura legitimních tras/objektů, měřitelný rollout a monitoring nových `route_not_authorized` odpovědí |
 | R03 | Dokončeno lokálně | `71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`; identity partition a live scope kontrolu doplňuje atomický IndexedDB lease, durable serverový ledger pro všechny offline mutace, SHA-256 raw uploadů a řízené retry/conflict/ambiguous stavy | před produkcí aplikovat `0097`, nasadit server a frontend jako jeden řízený rollout; plný browser E2E se dvěma reálnými taby zůstává v R14 |
+| R04 | Dokončeno lokálně | `63ba086`; auth před nákladným parsingem, pevné body/decompression limity, strukturální MIME validace, re-decode podpisů, scanner/quarantine hook, SHA-256 metadata a durable upload ledger `0098` | před produkcí aplikovat `0098`, ověřit scanner a nasadit API+proxy koordinovaně; inventura, retence a orphan cleanup zůstávají v R12 |
 
-FÁZE 8.1–8.7 nic nenasadily ani neposlaly na remote. Druhý řez R03 lokálně uzavřel ROB-02: dvě tabové instance jsou serializované v browser storage a server navíc deduplikuje každý scoped offline zápis i po restartu procesu. Podrobnosti, rollout hranice a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
+FÁZE 8.1–8.8 nic nenasadily ani neposlaly na remote. R04 lokálně uzavřel request/upload/object-storage ochranu bez mazání nebo backfillu existujících objektů. Podrobnosti, rollout hranice a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md) a [08-upload-protection-runbook.md](08-upload-protection-runbook.md).
 
 ## 2. Definice priorit
 
@@ -143,6 +144,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R04 – Request/upload/object-storage ochrana
 
+- **Stav:** dokončeno lokálně ve FÁZI 8.8. Autentizace a route policy předcházejí nákladným parserům; uploady i e-mailové přílohy mají pevné limity, strukturální validaci a omezené rozbalování. Podpisové obrázky se skutečně dekódují a sanitizují. Office obsah vyžaduje scanner, generický upload má karanténu, SHA-256 provider metadata a durable stav/claim v aditivní tabulce `object_uploads`. Legacy objekty zůstávají kompatibilní a beze změny; úplný lifecycle/cleanup dokončí R12.
 - **Přínos:** omezuje DoS, polyglot/ZIP útoky, falešné podpisové obrázky a orphaned soubory.
 - **Riziko neprovedení:** vyčerpání paměti/disku, škodlivý obsah, neautorizovaný objekt a nekontrolovatelný storage růst.
 - **Rozsah:** auth před velkým parsingem, streaming limity, decompression budget, MIME+magic validation, skutečné PNG ověření, quarantine/scanner hook, object checksum a upload status.
@@ -152,7 +154,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Migrace dat:** možný metadata/checksum backfill; staré objekty se nemažou bez inventury.
 - **Změna uživatelského procesu:** ano jen u odmítnutých/velkých souborů; UI musí vysvětlit limit a recovery.
 - **Doporučené pořadí:** 5.
-- **Hotovo když:** regresní sada odmítne oversized, zip bomb, spoofed MIME/signature a nedokončený upload nezůstane bez evidence.
+- **Hotovo když:** regresní sada odmítne oversized, zip bomb, spoofed MIME/signature a nedokončený upload nezůstane bez evidence. Lokálně splněno ve FÁZI 8.8; nedokončený nový generický upload zanechá ledgerový stav a objekt nelze atomicky claimnout bez správného vlastníka a stavu.
 
 ### R05 – Šifrování trezoru a provozních secretů
 
