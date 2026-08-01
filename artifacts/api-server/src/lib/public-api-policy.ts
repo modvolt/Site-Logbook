@@ -17,6 +17,7 @@ const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
   { methods: POST_ONLY, path: /^\/api\/auth\/webauthn\/login\/(?:begin|complete)$/ },
   { methods: READ_METHODS, path: /^\/api\/storage\/public-objects\/.+$/ },
   { methods: new Set(["GET", "HEAD", "POST"]), path: /^\/api\/(?:ppe\/sign|sign)\/[^/]+$/ },
+  { methods: new Set(["GET", "HEAD", "POST"]), path: /^\/api\/ppe\/confirm$/ },
   { methods: READ_METHODS, path: /^\/api\/quotes\/public\/[^/]+$/ },
   { methods: POST_ONLY, path: /^\/api\/quotes\/public\/[^/]+\/(?:accept|reject)$/ },
   { methods: READ_METHODS, path: /^\/api\/q\/board\/[^/]+$/ },

@@ -416,36 +416,6 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
   }
 });
 
-// Admin: serve stored signature image for a confirmed assignment
-router.get("/ppe/assignments/:id/signature", requireRole("admin", "master"), async (req, res): Promise<void> => {
-  const params = IdParamSchema.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: "Neplatné ID" });
-    return;
-  }
-
-  const [assignment] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
-  if (!assignment) {
-    res.status(404).json({ error: "Výdej nenalezen" });
-    return;
-  }
-
-  if (!assignment.signatureObjectPath) {
-    res.status(404).json({ error: "Podpis nebyl nalezen" });
-    return;
-  }
-
-  try {
-    const buffer = await objectStorage.getPrivateObjectBuffer(assignment.signatureObjectPath);
-    res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "private, max-age=3600");
-    res.send(buffer);
-  } catch (err) {
-    req.log?.warn({ err }, "PPE signature fetch failed — object missing or inaccessible");
-    res.status(404).json({ error: "Podpis nebyl nalezen" });
-  }
-});
-
 // ─────────── Export ───────────
 
 router.get("/ppe/assignments/export", async (req, res): Promise<void> => {
@@ -966,14 +936,15 @@ router.get("/ppe/assignments/:id/signature", async (req, res): Promise<void> => 
     .select()
     .from(ppeHandoverDocumentsTable)
     .where(eq(ppeHandoverDocumentsTable.assignmentId, params.data.id));
-  if (!doc) {
+  const signatureObjectPath = doc?.pngObjectPath ?? assignment.signatureObjectPath;
+  if (!signatureObjectPath) {
     res.status(404).json({ error: "Podpis nenalezen" });
     return;
   }
   db.insert(ppeHandoverEventsTable)
     .values({
       assignmentId: params.data.id,
-      handoverDocumentId: doc.id,
+      handoverDocumentId: doc?.id ?? null,
       eventType: "signature_viewed",
       actorUserId: req.auth?.userId ?? null,
       actorName: req.auth?.name ?? req.auth?.username ?? null,
@@ -981,9 +952,12 @@ router.get("/ppe/assignments/:id/signature", async (req, res): Promise<void> => 
     .catch(() => undefined);
 
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Content-Disposition", `inline; filename="podpis-${doc.documentNumber}.png"`);
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="podpis-${doc?.documentNumber ?? assignment.id}.png"`,
+  );
   try {
-    await objectStorage.servePrivateObject(doc.pngObjectPath, res);
+    await objectStorage.servePrivateObject(signatureObjectPath, res);
   } catch {
     if (!res.headersSent) {
       res.status(404).json({ error: "Soubor nenalezen" });
