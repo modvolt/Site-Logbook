@@ -13,15 +13,16 @@ Teprve na tomto základě má smysl zavádět durable audit/outbox, DB invariant
 
 Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolovaných změnách s regresními testy. Každá migrace používá expand–migrate–contract, samostatný backfill, měření a předem ověřený návratový postup.
 
-### Stav realizace po FÁZI 8.5
+### Stav realizace po FÁZI 8.6
 
 | Workstream | Stav | Důkaz | Zbývající hranice |
 |---|---|---|---|
 | R00 | Dokončeno lokálně | `f1bb210`, `2c660c1`; hermetický `pnpm gate:release` prošel 2026-08-01 | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14 |
 | R01 | Dokončeno lokálně | `da5e734`, `f5f6349`, `8ddea6d`, `b5ef912`, `bf18843`; izolovaný PostgreSQL test prokázal paralelní setup, rotaci cookie, revokaci dvou agents a odmítnutí znovuuložené staré session | před produkcí aplikovat migraci `0096`, připravit oznámení jednorázového odhlášení a sledovat 401/login chyby |
 | R02 | Dokončeno lokálně | `77422e6`, `8d3c4b9`, `96e5e96`, `cf34a09`, `fbff6fa`, `5b7dbb0`; 397 unikátních method/path registrací je generováno ze zdrojů a každá má explicitní public, authenticated-only nebo permission policy | před produkcí read-only inventura legitimních tras/objektů, měřitelný rollout a monitoring nových `route_not_authorized` odpovědí |
+| R03 | Částečně dokončeno lokálně | `71bf9d8`, `7e9d819`; API cache a IndexedDB jsou oddělené podle serverem odvozené identity/autorizační epochy, legacy v1 fronta je v karanténě a replay má live i atomickou serverovou scope kontrolu | doplnit cross-tab lease, jednotnou serverovou idempotenci, bounded backoff/conflict stavy a skutečné dvoutabové browser testy |
 
-FÁZE 8.1–8.5 nic nenasadily ani neposlaly na remote. R02 je lokálně uzavřeno včetně úplného default-deny manifestu; další workstreamy nebyly zahájeny. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
+FÁZE 8.1–8.6 nic nenasadily ani neposlaly na remote. První řez R03 lokálně uzavřel SEC-08, SEC-09, GDPR-07 a ROB-01; celý R03 zůstává otevřený kvůli ROB-02. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
 
 ## 2. Definice priorit
 
@@ -127,6 +128,8 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R03 – Identity-safe PWA cache a offline fronta
 
+- **Stav:** částečně dokončeno lokálně ve FÁZI 8.6 (`71bf9d8`, `7e9d819`). Server vydává neprůhledný scope identity/autorizační epochy, všechny API odpovědi mají `private, no-store`, service worker ukládá pouze explicitní same-origin field-work allowlist do cache podle scope a IndexedDB v2 ukládá operace i blob pod vlastníka. Legacy v1 stores se nečtou ani nereplayují. Před každým replayem proběhne live `/auth/me` kontrola a každá mutace nese serverem ověřený scope, takže změna účtu mezi kontrolou a zápisem selže. SEC-08, SEC-09, GDPR-07 a ROB-01 jsou tímto řezem lokálně uzavřeny. ROB-02 zůstává otevřený: chybí cross-tab lease, úplná idempotence všech typů operací a řízený backoff/conflict model.
+
 - **Přínos:** data jednoho uživatele se nezobrazí ani nepřehrají pod jiným účtem; replay je idempotentní.
 - **Riziko neprovedení:** únik lokálních dat, mutace pod cizí identitou a duplicity při dvou tabech/retry.
 - **Rozsah:** user/session scope cache i IndexedDB, logout purge/partition, idempotency key, lease mezi taby, bounded retry, session-expiry a service-worker-update testy.
@@ -136,7 +139,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Migrace dat:** ano v browser storage; staré neidentifikované fronty bezpečně karanténovat nebo odstranit, nikoli automaticky přehrát.
 - **Změna uživatelského procesu:** ano, přesnější stav sync a možné jednorázové zrušení starých lokálních položek.
 - **Doporučené pořadí:** 4.
-- **Hotovo když:** logout/user switch a dva taby nemohou replayovat cizí/duplicitní operaci.
+- **Hotovo když:** logout/user switch a dva taby nemohou replayovat cizí/duplicitní operaci. Izolace cizí identity je lokálně prokázaná; zákaz duplicit mezi dvěma taby bude dokončen v následujícím řezu R03.
 
 ### R04 – Request/upload/object-storage ochrana
 
