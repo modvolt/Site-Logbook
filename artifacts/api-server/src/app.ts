@@ -16,6 +16,10 @@ import { enforceOfflineReplayScope } from "./middlewares/offline-replay-scope";
 import { enforceOfflineIdempotency } from "./middlewares/offline-idempotency";
 import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
+import {
+  isRequestBodyTooLarge,
+  parseApiRequestBody,
+} from "./middlewares/request-body";
 
 const app: Express = express();
 
@@ -95,19 +99,8 @@ app.use(
     credentials: true,
   }),
 );
-// Request body size cap for JSON / form payloads — this is what gates CSV bulk
-// imports and base64 uploads. Tunable via MAX_REQUEST_BODY_MB (default 50). Keep
-// nginx's client_max_body_size (artifacts/stavba/nginx.conf) at/above this.
-// Binary file uploads (photos/documents) have their own, higher cap in
-// storage.ts / billing-documents.ts and do not go through this parser.
-const maxBodyMb = (() => {
-  const n = Number(process.env.MAX_REQUEST_BODY_MB);
-  return Number.isFinite(n) && n > 0 ? n : 50;
-})();
-const bodyLimit = `${maxBodyMb}mb`;
-app.use(express.json({ limit: bodyLimit }));
-app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
-
+// Session/authentication is deliberately installed before structured parsers;
+// route-specific JSON/form limits are applied below after permission checks.
 app.use(
   session({
     store: new PgStore({
@@ -164,6 +157,10 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   return enforceApiPermission(req, res, next);
 });
 
+// Authentication and permission checks run before any structured body is
+// buffered. Only named base64 workflows receive the larger authenticated cap.
+app.use("/api", parseApiRequestBody);
+
 app.use("/api", enforceOfflineIdempotency);
 
 // Record successful data mutations to the audit log (after auth so the actor is known)
@@ -190,6 +187,18 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   const requestId = (req as any).id ?? "unknown";
   const method = req.method;
   const path = req.path;
+
+  if (isRequestBodyTooLarge(err)) {
+    req.log?.warn({ requestId, method, path }, "Request body limit exceeded");
+    if (!res.headersSent) {
+      res.status(413).json({
+        error: "Požadavek je příliš velký pro tuto operaci.",
+        code: "request_body_too_large",
+        requestId,
+      });
+    }
+    return;
+  }
 
   if (err instanceof Error) {
     req.log?.error({ requestId, method, path, stack: err.stack }, "Unhandled error");

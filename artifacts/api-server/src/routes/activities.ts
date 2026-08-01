@@ -19,6 +19,7 @@ import {
   resolveWarehouseItemIdByName,
   type Actor,
 } from "../lib/warehouse-service";
+import { claimObjectUpload, ObjectUploadClaimError } from "../lib/object-upload-ledger";
 import {
   CreateActivityBody,
   GetActivityParams,
@@ -619,10 +620,33 @@ router.post("/activities/:activityId/attachments", requireAuth, async (req, res)
     res.status(404).json({ error: "Activity not found" });
     return;
   }
-  const [att] = await db
-    .insert(activityAttachmentsTable)
-    .values({ activityId: params.data.activityId, ...parsed.data })
-    .returning();
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  let att: typeof activityAttachmentsTable.$inferSelect;
+  try {
+    att = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(activityAttachmentsTable)
+        .values({ activityId: params.data.activityId, ...parsed.data })
+        .returning();
+      if (created.url) {
+        await claimObjectUpload(tx, {
+          objectPath: created.url,
+          userId: req.auth!.userId,
+          claimType: "activity_attachment",
+          claimId: created.id,
+        });
+      }
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof ObjectUploadClaimError) {
+      res.status(409).json({ error: error.message, code: "upload_claim_failed" });
+      return;
+    }
+    throw error;
+  }
   res.status(201).json(serializeAttachment(att));
 });
 

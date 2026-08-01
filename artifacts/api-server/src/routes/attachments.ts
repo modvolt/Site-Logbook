@@ -8,6 +8,7 @@ import {
   DeleteAttachmentParams,
 } from "@workspace/api-zod";
 import { isRestrictedFieldWorker, requireAssignedJobView, requireAssignedJobWork } from "../middlewares/job-work-access";
+import { claimObjectUpload, ObjectUploadClaimError } from "../lib/object-upload-ledger";
 
 const router: IRouter = Router();
 const DOCUMENT_TYPES = new Set(["document", "invoice", "receipt", "delivery_note", "credit_note"]);
@@ -120,10 +121,33 @@ router.post("/jobs/:jobId/attachments", requireAssignedJobWork, async (req, res)
     return;
   }
 
-  const [att] = await db
-    .insert(attachmentsTable)
-    .values({ jobId: params.data.jobId, ...parsed.data } as any)
-    .returning();
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  let att: typeof attachmentsTable.$inferSelect;
+  try {
+    att = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(attachmentsTable)
+        .values({ jobId: params.data.jobId, ...parsed.data } as any)
+        .returning();
+      if (created.url) {
+        await claimObjectUpload(tx, {
+          objectPath: created.url,
+          userId: req.auth!.userId,
+          claimType: "job_attachment",
+          claimId: created.id,
+        });
+      }
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof ObjectUploadClaimError) {
+      res.status(409).json({ error: error.message, code: "upload_claim_failed" });
+      return;
+    }
+    throw error;
+  }
 
   res.status(201).json(serializeAttachment(att));
 });

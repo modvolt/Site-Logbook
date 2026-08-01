@@ -8,7 +8,7 @@ import {
   HeadBucketCommand,
 } from "@aws-sdk/client-s3";
 import { Storage } from "@google-cloud/storage";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { Readable } from "stream";
 import type { Response as ExpressResponse } from "express";
 
@@ -497,12 +497,15 @@ export class ObjectStorageService {
     objectPath: string,
     body: Buffer,
     contentType: string,
+    options: { uploadStatus?: "stored" | "quarantined" } = {},
   ): Promise<void> {
     if (!objectPath.startsWith("/objects/")) {
       throw new Error("putPrivateObject requires an /objects/ path");
     }
     const entityId = trimSlashes(objectPath.slice("/objects/".length));
     if (!entityId) throw new Error("putPrivateObject requires a non-empty path");
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const uploadStatus = options.uploadStatus ?? "stored";
 
     if (s3Configured()) {
       const key = joinKey(getPrivatePrefix(), entityId);
@@ -513,6 +516,10 @@ export class ObjectStorageService {
           Body: body,
           ContentType: contentType,
           ContentLength: body.length,
+          Metadata: {
+            sha256,
+            "upload-status": uploadStatus,
+          },
         }),
       );
       return;
@@ -522,7 +529,16 @@ export class ObjectStorageService {
     await getGcsClient()
       .bucket(bucketName)
       .file(objectName)
-      .save(body, { contentType, resumable: false });
+      .save(body, {
+        contentType,
+        resumable: false,
+        metadata: {
+          metadata: {
+            sha256,
+            uploadStatus,
+          },
+        },
+      });
   }
 
   /**

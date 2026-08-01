@@ -5,7 +5,8 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { rateLimit } from "express-rate-limit";
 import { UploadObjectResponse } from "@workspace/api-zod";
 import {
   ObjectStorageService,
@@ -16,6 +17,14 @@ import { requirePermission } from "../middlewares/permissions";
 import { contentMatchesType } from "../lib/fileSignature";
 import { canAccessPrivateObject } from "../lib/private-object-access";
 import { verifyOfflineContentDigest } from "../lib/offline-content-digest";
+import { scanUploadContent } from "../lib/upload-scanner";
+import {
+  createObjectUploadIntent,
+  LEDGERED_UPLOAD_PREFIX,
+  markObjectUploadFailed,
+  markObjectUploadQuarantined,
+  markObjectUploadStored,
+} from "../lib/object-upload-ledger";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -26,7 +35,15 @@ const objectStorageService = new ObjectStorageService();
 // or large files are rejected at the proxy with an HTML 413 before reaching here.
 // Note: the body is buffered in memory, so each concurrent upload uses up to this
 // many bytes of RAM — raise with that in mind.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+const uploadRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Limit nahrávání byl dočasně vyčerpán. Zkuste to později." },
+});
 
 // Allowlist of content types the app accepts. Notably excludes text/html and
 // SVG to avoid storing active content that could be served back inline.
@@ -58,6 +75,14 @@ const ALLOWED_UPLOAD_TYPES = new Set<string>([
  */
 router.post(
   "/storage/uploads",
+  (req: Request, res: Response, next: NextFunction) => {
+    if (!req.auth) {
+      res.status(401).json({ error: "Pro nahrání souboru je nutné přihlášení." });
+      return;
+    }
+    next();
+  },
+  uploadRateLimit,
   (req: Request, res: Response, next: NextFunction) => {
     // Parse the raw body capped at MAX_UPLOAD_BYTES. A too-large payload is
     // rejected here with a clean JSON 413 instead of bubbling up as HTML.
@@ -114,9 +139,40 @@ router.post(
       return;
     }
 
-    const objectPath = `/objects/uploads/${randomUUID()}`;
+    const scan = await scanUploadContent(body, contentType, name || "soubor");
+    const sha256 = createHash("sha256").update(body).digest("hex");
+    const attemptId = randomUUID();
+    const objectPath = scan.verdict === "content_validated" || scan.verdict === "clean"
+      ? `${LEDGERED_UPLOAD_PREFIX}${attemptId}`
+      : `/objects/quarantine/${attemptId}`;
     try {
-      await objectStorageService.putPrivateObject(objectPath, body, contentType);
+      await createObjectUploadIntent({
+        objectPath,
+        uploadedByUserId: req.auth!.userId,
+        originalName: (name || "soubor").slice(0, 255),
+        contentType,
+        sizeBytes: body.length,
+        sha256,
+      });
+
+      if (scan.verdict === "malicious") {
+        await markObjectUploadFailed(objectPath, scan.reason, "malicious");
+        res.status(422).json({ error: "Soubor neprošel bezpečnostní kontrolou." });
+        return;
+      }
+
+      await objectStorageService.putPrivateObject(objectPath, body, contentType, {
+        uploadStatus: scan.verdict === "unavailable" ? "quarantined" : "stored",
+      });
+      if (scan.verdict === "unavailable") {
+        await markObjectUploadQuarantined(objectPath, scan.reason);
+        res.status(503).json({
+          error: `${scan.reason} Soubor byl bezpečně oddělen a nebyl zpřístupněn.`,
+          code: "upload_quarantined",
+        });
+        return;
+      }
+      await markObjectUploadStored(objectPath, scan.verdict);
       res.json(
         UploadObjectResponse.parse({
           objectPath,
@@ -124,6 +180,13 @@ router.post(
         }),
       );
     } catch (error) {
+      await markObjectUploadFailed(
+        objectPath,
+        error instanceof Error ? error.message : "Uložení objektu selhalo.",
+        scan.verdict === "unavailable" ? "unavailable" : "pending",
+      ).catch((ledgerError: unknown) => {
+        req.log.error({ err: ledgerError, objectPath }, "Upload ledger update failed");
+      });
       // Capture the full S3/Hetzner error detail. An InvalidAccessKeyId XML
       // body echoes back the exact key the provider received (`AWSAccessKeyId`)
       // and a human message — invaluable for telling a mangled/wrong key apart

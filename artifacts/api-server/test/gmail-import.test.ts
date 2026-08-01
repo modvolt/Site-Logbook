@@ -72,6 +72,9 @@ vi.mock("google-auth-library", () => ({
 vi.mock("../src/lib/objectStorage", () => ({
   ObjectStorageService: class {
     async putPrivateObject(): Promise<void> {}
+    async deletePrivateObject(): Promise<boolean> {
+      return true;
+    }
   },
 }));
 
@@ -96,6 +99,10 @@ const { sha256Of } = await import("../src/lib/cost-document-service");
 
 const TAG = `test-gmail-${Date.now()}`;
 const actor = { userId: 0, name: "Test Runner" };
+
+function testPdf(label: string): Buffer {
+  return Buffer.from(`%PDF-1.4\n% ${label}\n1 0 obj<<>>endobj\n%%EOF\n`);
+}
 
 let userId: number;
 const accountIds: number[] = [];
@@ -305,7 +312,7 @@ describe("importMessage SHA-256 de-duplication and document creation", () => {
 
   it("creates a source=\"email\" billing document for a new attachment", async () => {
     const accountId = await makeAccount({ labelFilter: null });
-    const content = Buffer.from(`brand-new-invoice-${TAG}`);
+    const content = testPdf(`brand-new-invoice-${TAG}`);
     const hash = sha256Of(content);
     const { messageId, attachmentId } = await seedMessageWithAttachment({
       accountId,
@@ -316,7 +323,7 @@ describe("importMessage SHA-256 de-duplication and document creation", () => {
 
     mocks.gmailRequest.mockImplementation(async ({ url }) => {
       if (/\/attachments\/att-new/.test(url)) {
-        return { data: { data: content.toString("base64"), size: content.length } };
+        return { data: { data: content.toString("base64url"), size: content.length } };
       }
       throw new Error(`unexpected Gmail call: ${url}`);
     });
@@ -342,7 +349,7 @@ describe("importMessage SHA-256 de-duplication and document creation", () => {
 
   it("de-dupes against an existing billing_document with the same SHA-256", async () => {
     const accountId = await makeAccount({ labelFilter: null });
-    const content = Buffer.from(`already-imported-${TAG}`);
+    const content = testPdf(`already-imported-${TAG}`);
     const hash = sha256Of(content);
 
     // An existing document already carries this content hash.
@@ -367,7 +374,7 @@ describe("importMessage SHA-256 de-duplication and document creation", () => {
 
     mocks.gmailRequest.mockImplementation(async ({ url }) => {
       if (/\/attachments\/att-dup/.test(url)) {
-        return { data: { data: content.toString("base64"), size: content.length } };
+        return { data: { data: content.toString("base64url"), size: content.length } };
       }
       throw new Error(`unexpected Gmail call: ${url}`);
     });
@@ -523,7 +530,7 @@ describe("importMessage label-after-import", () => {
       labelFilter: null,
       labelAfterImport: true,
     });
-    const content = Buffer.from(`label-me-${TAG}`);
+    const content = testPdf(`label-me-${TAG}`);
     const hash = sha256Of(content);
     const { messageId } = await seedMessageWithAttachment({
       accountId,
@@ -535,7 +542,7 @@ describe("importMessage label-after-import", () => {
     mocks.gmailRequest.mockImplementation(async ({ url }) => {
       if (/\/attachments\/att-label/.test(url)) {
         return {
-          data: { data: content.toString("base64"), size: content.length },
+          data: { data: content.toString("base64url"), size: content.length },
         };
       }
       // The "Modvolt – importováno" label already exists in the mailbox.
@@ -578,7 +585,7 @@ describe("importMessage label-after-import", () => {
       labelFilter: null,
       labelAfterImport: false,
     });
-    const content = Buffer.from(`no-label-${TAG}`);
+    const content = testPdf(`no-label-${TAG}`);
     const hash = sha256Of(content);
     const { messageId } = await seedMessageWithAttachment({
       accountId,
@@ -590,7 +597,7 @@ describe("importMessage label-after-import", () => {
     mocks.gmailRequest.mockImplementation(async ({ url }) => {
       if (/\/attachments\/att-nolabel/.test(url)) {
         return {
-          data: { data: content.toString("base64"), size: content.length },
+          data: { data: content.toString("base64url"), size: content.length },
         };
       }
       throw new Error(`unexpected Gmail call: ${url}`);
@@ -621,7 +628,7 @@ describe("importMessage label-after-import", () => {
       labelFilter: null,
       labelAfterImport: true,
     });
-    const content = Buffer.from(`dup-no-label-${TAG}`);
+    const content = testPdf(`dup-no-label-${TAG}`);
     const hash = sha256Of(content);
 
     // The content already exists as a billing document → the attachment dedupes.
@@ -647,7 +654,7 @@ describe("importMessage label-after-import", () => {
     mocks.gmailRequest.mockImplementation(async ({ url }) => {
       if (/\/attachments\/att-duplabel/.test(url)) {
         return {
-          data: { data: content.toString("base64"), size: content.length },
+          data: { data: content.toString("base64url"), size: content.length },
         };
       }
       throw new Error(`unexpected Gmail call: ${url}`);
@@ -951,7 +958,7 @@ describe("ensureImportLabel create-on-missing", () => {
       labelFilter: null,
       labelAfterImport: true,
     });
-    const content = Buffer.from(`make-label-${TAG}`);
+    const content = testPdf(`make-label-${TAG}`);
     const hash = sha256Of(content);
     const { messageId } = await seedMessageWithAttachment({
       accountId,
@@ -963,7 +970,7 @@ describe("ensureImportLabel create-on-missing", () => {
     mocks.gmailRequest.mockImplementation(async ({ url, method }) => {
       if (/\/attachments\/att-mklabel/.test(url)) {
         return {
-          data: { data: content.toString("base64"), size: content.length },
+          data: { data: content.toString("base64url"), size: content.length },
         };
       }
       // Creating the label: POST /labels returns the new label id.

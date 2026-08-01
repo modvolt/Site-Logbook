@@ -55,6 +55,8 @@ import {
 import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { randomUUID } from "node:crypto";
+import { decodeCanonicalBase64 } from "../lib/base64-file";
+import { contentMatchesType } from "../lib/fileSignature";
 import {
   ActiveWorkSessionConflict,
   activeWorkSessionStarts,
@@ -98,11 +100,8 @@ async function saveJobSheetPdf(
   pdfBase64: string,
   signed?: boolean | null,
 ) {
-  const buffer = Buffer.from(pdfBase64, "base64");
-  if (
-    buffer.length === 0 ||
-    buffer.subarray(0, 4).toString("latin1") !== "%PDF"
-  ) {
+  const buffer = decodeCanonicalBase64(pdfBase64, 20 * 1024 * 1024);
+  if (!contentMatchesType("application/pdf", buffer)) {
     throw new Error("Neplatná data PDF zakázkového listu.");
   }
   const objectPath = `/objects/job-sheets/${randomUUID()}`;
@@ -111,17 +110,22 @@ async function saveJobSheetPdf(
     buffer,
     "application/pdf",
   );
-  const [att] = await db
-    .insert(attachmentsTable)
-    .values({
-      jobId,
-      type: "job_sheet",
-      fileName: `zakazkovy-list-${jobId}.pdf`,
-      url: objectPath,
-      description: signed ? "Podepsaný zakázkový list" : "Zakázkový list",
-    })
-    .returning();
-  return att;
+  try {
+    const [att] = await db
+      .insert(attachmentsTable)
+      .values({
+        jobId,
+        type: "job_sheet",
+        fileName: `zakazkovy-list-${jobId}.pdf`,
+        url: objectPath,
+        description: signed ? "Podepsaný zakázkový list" : "Zakázkový list",
+      })
+      .returning();
+    return att;
+  } catch (error) {
+    await objectStorageService.deletePrivateObject(objectPath).catch(() => false);
+    throw error;
+  }
 }
 
 function serializeAttachment(att: typeof attachmentsTable.$inferSelect) {
@@ -1682,6 +1686,15 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  let verifiedPdfBase64: string;
+  try {
+    const pdf = decodeCanonicalBase64(parsed.data.pdfBase64, 20 * 1024 * 1024);
+    if (!contentMatchesType("application/pdf", pdf)) throw new Error("Neplatný PDF soubor.");
+    verifiedPdfBase64 = pdf.toString("base64");
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Neplatný PDF soubor." });
+    return;
+  }
 
   const [job] = await db
     .select()
@@ -1731,7 +1744,7 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   // Archive the signed sheet to the job first, so it is stored even if the
   // email delivery fails. A storage failure must not block sending the email.
   try {
-    await saveJobSheetPdf(job.id, parsed.data.pdfBase64, true);
+    await saveJobSheetPdf(job.id, verifiedPdfBase64, true);
   } catch (err) {
     req.log.error({ err }, "Failed to archive job sheet during email send");
   }
@@ -1741,7 +1754,7 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
       to,
       subject,
       text: message,
-      pdfBase64: parsed.data.pdfBase64,
+      pdfBase64: verifiedPdfBase64,
       filename,
     });
   } catch (err) {

@@ -40,14 +40,17 @@ import {
   decryptToken,
 } from "./token-crypto";
 import {
-  createDocumentSafe,
+  ingestFile,
   sha256Of,
   type Actor,
 } from "./cost-document-service";
-import { ObjectStorageService } from "./objectStorage";
-import { randomUUID } from "node:crypto";
-
-const objectStorage = new ObjectStorageService();
+import {
+  MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE,
+  MAX_IMPORTED_ATTACHMENT_BYTES,
+  decodeBase64UrlWithLimit,
+  inspectImportedFile,
+  resolveImportedContentType,
+} from "./imported-file-safety";
 
 // ---------------------------------------------------------------------------
 // Configuration (environment only; never throws)
@@ -796,10 +799,6 @@ function parseFrom(raw: string): { name: string | null; address: string | null }
 // Import a message's attachments → billing_documents
 // ---------------------------------------------------------------------------
 
-function base64UrlToBuffer(data: string): Buffer {
-  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-}
-
 export interface ImportResult {
   imported: number;
   skipped: number;
@@ -838,7 +837,7 @@ export async function importMessage(
   let skipped = 0;
   let duplicates = 0;
 
-  for (const att of attachments) {
+  for (const [attachmentIndex, att] of attachments.entries()) {
     if (att.skipped) {
       skipped += 1;
       continue;
@@ -849,6 +848,19 @@ export async function importMessage(
     }
     if (!att.providerAttachmentId) {
       skipped += 1;
+      continue;
+    }
+    if (attachmentIndex >= MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE) {
+      skipped += 1;
+      await markAttachmentSkipped(
+        att.id,
+        `Zpráva obsahuje více než ${MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE} podporovaných příloh`,
+      );
+      continue;
+    }
+    if (att.size != null && att.size > MAX_IMPORTED_ATTACHMENT_BYTES) {
+      skipped += 1;
+      await markAttachmentSkipped(att.id, "Příloha překračuje povolenou velikost 25 MB");
       continue;
     }
 
@@ -863,7 +875,7 @@ export async function importMessage(
         await markAttachmentSkipped(att.id, "Přílohu se nepodařilo stáhnout");
         continue;
       }
-      buffer = base64UrlToBuffer(data.data);
+      buffer = decodeBase64UrlWithLimit(data.data, data.size);
     } catch (err) {
       logger.warn({ err: sanitizeErr(err), attachmentId: att.id }, "Gmail attachment download failed");
       skipped += 1;
@@ -871,11 +883,27 @@ export async function importMessage(
       continue;
     }
 
+    const contentType = resolveImportedContentType(att.contentType, att.fileName ?? "priloha");
+    if (!contentType) {
+      skipped += 1;
+      await markAttachmentSkipped(att.id, "Nepodporovaný typ přílohy");
+      continue;
+    }
+    const inspection = await inspectImportedFile(buffer, contentType, att.fileName ?? "priloha");
+    if (!inspection.ok) {
+      if (inspection.kind === "scanner_unavailable") {
+        throw appError(503, inspection.reason);
+      }
+      skipped += 1;
+      await markAttachmentSkipped(att.id, inspection.reason);
+      continue;
+    }
+
     const hash = sha256Of(buffer);
 
     // Fast-path dedup against previously-imported attachments + existing
     // billing documents. The DB-level sha256 unique constraint (enforced via
-    // createDocumentSafe below) is what actually guarantees no duplicate row
+    // ingestFile below) is what actually guarantees no duplicate row
     // is ever created, even if this pre-check races with another ingest path.
     const [dupDoc] = await db
       .select({ id: billingDocumentsTable.id })
@@ -896,20 +924,13 @@ export async function importMessage(
       continue;
     }
 
-    const objectPath = `/objects/cost-documents/${randomUUID()}`;
-    const contentType = att.contentType ?? "application/octet-stream";
-    await objectStorage.putPrivateObject(objectPath, buffer, contentType);
-
-    const result = await createDocumentSafe(
+    const result = await ingestFile(
+      buffer,
       {
-        objectPath,
         fileName: att.fileName ?? "priloha",
         contentType,
-        fileSize: buffer.length,
-        sha256: hash,
         source: "email",
       },
-      buffer,
       actor,
     );
 
@@ -932,7 +953,7 @@ export async function importMessage(
       .update(emailImportAttachmentsTable)
       .set({
         sha256: hash,
-        objectPath,
+        objectPath: result.document.objectPath,
         billingDocumentId: result.document.id,
         updatedAt: new Date(),
       })

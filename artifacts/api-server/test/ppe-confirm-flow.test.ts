@@ -32,8 +32,7 @@ const assignmentIds: number[] = [];
 
 /** Minimal 1×1 white PNG as a base64 data URL (valid per the signatureDataUrl schema). */
 const MINIMAL_PNG_DATA_URL =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQ" +
-  "AABjkB6QAAAABJRU5ErkJggg==";
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 beforeAll(async () => {
   const [person] = await db

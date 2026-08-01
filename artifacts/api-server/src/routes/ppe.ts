@@ -17,13 +17,11 @@ import { z } from "zod/v4";
 import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pdf";
 import { ensureBillingSettings } from "../lib/invoice-service";
 import { sendPlainEmail } from "../lib/email";
+import { decodeSignatureImage } from "../lib/signature-image";
 
 const objectStorage = new ObjectStorageService();
 
 const router: IRouter = Router();
-
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const MAX_SIGNATURE_BYTES = 500 * 1024;
 
 const CONFIRMATION_TEXT_DEFAULT =
   "Svým podpisem potvrzuji, že jsem převzal/a výše uvedené ochranné pracovní pomůcky (OOPP). " +
@@ -361,8 +359,15 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  const base64Data = body.data.signatureDataUrl.replace(/^data:image\/png;base64,/, "");
-  const pngBuffer = Buffer.from(base64Data, "base64");
+  let pngBuffer: Buffer;
+  try {
+    ({ pngBuffer } = await decodeSignatureImage(body.data.signatureDataUrl));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Podpis není platný PNG obrázek.",
+    });
+    return;
+  }
 
   const objectPath = `/objects/ppe-signatures/${assignment.id}-${token}.png`;
   let uploaded = false;
@@ -664,25 +669,14 @@ router.post("/ppe/assignments/:id/sign", requireRole("admin", "master"), async (
     return;
   }
 
-  // Validate PNG data URL
-  const dataUrl = parsed.data.signatureDataUrl;
-  if (!dataUrl.startsWith("data:image/png;base64,")) {
-    res.status(400).json({ error: "Podpis musí být ve formátu PNG (data:image/png;base64,...)" });
-    return;
-  }
   let pngBuffer: Buffer;
+  let dataUrl: string;
   try {
-    pngBuffer = Buffer.from(dataUrl.slice("data:image/png;base64,".length), "base64");
-  } catch {
-    res.status(400).json({ error: "Nepodařilo se dekódovat podpis" });
-    return;
-  }
-  if (pngBuffer.length > MAX_SIGNATURE_BYTES) {
-    res.status(400).json({ error: `Podpis je příliš velký (max ${Math.round(MAX_SIGNATURE_BYTES / 1024)} kB)` });
-    return;
-  }
-  if (pngBuffer.length < 8 || !pngBuffer.slice(0, 8).equals(PNG_MAGIC)) {
-    res.status(400).json({ error: "Soubor podpisu není platný PNG" });
+    ({ pngBuffer, dataUrl } = await decodeSignatureImage(parsed.data.signatureDataUrl));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Podpis není platný PNG obrázek.",
+    });
     return;
   }
 

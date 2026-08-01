@@ -2025,24 +2025,29 @@ export async function ingestFile(
   const objectPath = `/objects/cost-documents/${randomUUID()}`;
   await objectStorage.putPrivateObject(objectPath, buffer, input.contentType);
 
-  const result = await createDocumentSafe(
-    {
-      objectPath,
-      fileName: input.fileName,
-      contentType: input.contentType,
-      fileSize: buffer.length,
-      sha256: hash,
-      source: input.source,
-      sourceRef: input.sourceRef ?? null,
-      docType: input.docType,
-      jobId: input.jobId ?? null,
-      customerId: input.customerId ?? null,
-    },
-    buffer,
-    actor,
-  );
-  if (result.status === "duplicate") await cleanupFailedDocumentUpload(objectPath);
-  return result;
+  try {
+    const result = await createDocumentSafe(
+      {
+        objectPath,
+        fileName: input.fileName,
+        contentType: input.contentType,
+        fileSize: buffer.length,
+        sha256: hash,
+        source: input.source,
+        sourceRef: input.sourceRef ?? null,
+        docType: input.docType,
+        jobId: input.jobId ?? null,
+        customerId: input.customerId ?? null,
+      },
+      buffer,
+      actor,
+    );
+    if (result.status === "duplicate") await cleanupFailedDocumentUpload(objectPath);
+    return result;
+  } catch (error) {
+    await cleanupFailedDocumentUpload(objectPath);
+    throw error;
+  }
 }
 
 export interface IngestGroupFileInput extends IngestFileInput {

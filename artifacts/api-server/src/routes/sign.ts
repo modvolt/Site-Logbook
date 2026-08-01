@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod/v4";
 import { db, jobsTable, customersTable } from "@workspace/db";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { decodeSignatureImage } from "../lib/signature-image";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -94,8 +95,15 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  const base64Data = body.data.signatureDataUrl.replace(/^data:image\/png;base64,/, "");
-  const pngBuffer = Buffer.from(base64Data, "base64");
+  let pngBuffer: Buffer;
+  try {
+    ({ pngBuffer } = await decodeSignatureImage(body.data.signatureDataUrl));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Podpis není platný PNG obrázek.",
+    });
+    return;
+  }
 
   // Use a unique key per attempt so concurrent submissions never overwrite each other.
   // The conditional DB update decides the winner; the loser's object is cleaned up.

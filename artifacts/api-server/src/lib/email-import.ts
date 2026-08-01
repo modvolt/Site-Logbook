@@ -33,6 +33,14 @@ import { ingestFile } from "./cost-document-service";
 import { logger } from "./logger";
 import { publishLiveEvent } from "./live-events-service";
 import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
+import {
+  MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE,
+  MAX_IMPORTED_ATTACHMENT_BYTES,
+  MAX_IMPORTED_MESSAGE_BYTES,
+  bufferReadableWithLimit,
+  inspectImportedFile,
+  resolveImportedContentType,
+} from "./imported-file-safety";
 
 const SINGLETON_ID = 1;
 
@@ -50,59 +58,14 @@ export type ResolvedImapConfig = {
   pollMinutes: number;
 };
 
+function extOf(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  return dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : "";
+}
+
 // ---------------------------------------------------------------------------
 // Supported attachment types
 // ---------------------------------------------------------------------------
-
-// Content types accepted for cost documents (kept in sync with the manual
-// upload route's ALLOWED_UPLOAD_TYPES). Attachments outside this set are ignored.
-const ALLOWED_TYPES = new Set<string>([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "image/heic",
-  "image/heif",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/xml",
-  "text/xml",
-  "application/zip",
-  "text/plain",
-  "text/csv",
-]);
-
-// Map a filename extension to a canonical content type. Used when a message
-// declares a generic type (application/octet-stream) for an otherwise supported
-// attachment — common for ISDOC and some scanners.
-const EXT_TO_TYPE: Record<string, string> = {
-  pdf: "application/pdf",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  webp: "image/webp",
-  gif: "image/gif",
-  heic: "image/heic",
-  heif: "image/heif",
-  xml: "application/xml",
-  isdoc: "application/xml",
-  isdocx: "application/zip",
-  zip: "application/zip",
-  doc: "application/msword",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  xls: "application/vnd.ms-excel",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  csv: "text/csv",
-  txt: "text/plain",
-};
-
-function extOf(fileName: string): string {
-  const i = fileName.lastIndexOf(".");
-  return i >= 0 ? fileName.slice(i + 1).toLowerCase() : "";
-}
 
 function stemOf(fileName: string): string {
   const i = fileName.lastIndexOf(".");
@@ -118,11 +81,7 @@ function resolveAttachmentType(
   declared: string | undefined,
   fileName: string,
 ): string | null {
-  const normalized = (declared || "").split(";")[0].trim().toLowerCase();
-  if (normalized && ALLOWED_TYPES.has(normalized)) return normalized;
-  const fromExt = EXT_TO_TYPE[extOf(fileName)];
-  if (fromExt && ALLOWED_TYPES.has(fromExt)) return fromExt;
-  return null;
+  return resolveImportedContentType(declared, fileName);
 }
 
 // ---------------------------------------------------------------------------
@@ -446,14 +405,6 @@ async function writeLog(
   await db.insert(emailImportLogTable).values(values);
 }
 
-async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
-}
-
 // ---------------------------------------------------------------------------
 // Poll
 // ---------------------------------------------------------------------------
@@ -607,6 +558,12 @@ async function pollFolder(
           messageId,
         );
 
+        if (attachments.length > MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE) {
+          throw new Error(
+            `Zpráva obsahuje více než ${MAX_IMPORTED_ATTACHMENTS_PER_MESSAGE} podporovaných příloh.`,
+          );
+        }
+
         if (!attachments.length) {
           await writeLog(existingId, {
             messageId,
@@ -629,13 +586,34 @@ async function pollFolder(
         // separate from the ingest below — stops the slow S3/DB work from
         // sitting between two commands on the busy connection.
         const downloaded: { fileName: string; contentType: string; buffer: Buffer }[] = [];
+        let downloadedBytes = 0;
         for (const att of attachments) {
           const contentType = resolveAttachmentType(att.contentType, att.fileName)!;
           const { content } = await client.download(String(msg.uid), att.part, {
             uid: true,
           });
-          const buffer = await streamToBuffer(content);
+          const remainingMessageBytes = MAX_IMPORTED_MESSAGE_BYTES - downloadedBytes;
+          if (remainingMessageBytes <= 0) {
+            throw new Error(
+              `Souhrnná velikost příloh zprávy překračuje ${Math.floor(MAX_IMPORTED_MESSAGE_BYTES / (1024 * 1024))} MB.`,
+            );
+          }
+          let buffer: Buffer;
+          try {
+            buffer = await bufferReadableWithLimit(
+              content,
+              Math.min(MAX_IMPORTED_ATTACHMENT_BYTES, remainingMessageBytes),
+            );
+          } catch (error) {
+            if (remainingMessageBytes < MAX_IMPORTED_ATTACHMENT_BYTES) {
+              throw new Error(
+                `Souhrnná velikost příloh zprávy překračuje ${Math.floor(MAX_IMPORTED_MESSAGE_BYTES / (1024 * 1024))} MB.`,
+              );
+            }
+            throw error;
+          }
           if (!buffer.length) continue;
+          downloadedBytes += buffer.length;
           downloaded.push({ fileName: att.fileName, contentType, buffer });
         }
 
@@ -643,6 +621,17 @@ async function pollFolder(
         const createdIds: number[] = [];
         let importedCount = 0;
         for (const d of downloaded) {
+          const inspection = await inspectImportedFile(d.buffer, d.contentType, d.fileName);
+          if (!inspection.ok) {
+            if (inspection.kind === "scanner_unavailable") {
+              throw new Error(inspection.reason);
+            }
+            logger.warn(
+              { fileName: d.fileName, reason: inspection.reason, messageId },
+              "Email import: attachment rejected by content policy",
+            );
+            continue;
+          }
           const ingest = await ingestFile(
             d.buffer,
             {

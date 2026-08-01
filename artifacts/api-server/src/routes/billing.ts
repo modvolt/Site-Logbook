@@ -19,6 +19,7 @@ import {
   ObjectStorageService,
 } from "../lib/objectStorage";
 import { sendEmailWithPdf } from "../lib/email";
+import { decodeCanonicalBase64 } from "../lib/base64-file";
 import {
   sendInvoiceReminder,
   composeReminder,
@@ -557,7 +558,7 @@ router.post(
     }
     let buf: Buffer;
     try {
-      buf = Buffer.from(parsed.data.contentBase64, "base64");
+      buf = decodeCanonicalBase64(parsed.data.contentBase64, 20 * 1024 * 1024);
     } catch {
       res.status(400).json({ error: "Obsah souboru se nepodařilo dekódovat." });
       return;

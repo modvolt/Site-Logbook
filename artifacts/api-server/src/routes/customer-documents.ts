@@ -18,6 +18,7 @@ import {
 import { requireRole } from "../middlewares/auth";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { contentMatchesType } from "../lib/fileSignature";
+import { scanUploadContent } from "../lib/upload-scanner";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -172,7 +173,7 @@ router.get("/customers/:customerId/documents", async (req, res): Promise<void> =
   res.json(results);
 });
 
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 const CUSTOMER_DOC_ALLOWED_MIME_TYPES = new Set<string>([
   "image/jpeg",
@@ -237,13 +238,21 @@ router.post(
       res.status(415).json({ error: "Obsah souboru neodpovídá jeho typu." });
       return;
     }
-
     const [customer] = await db
       .select({ id: customersTable.id })
       .from(customersTable)
       .where(eq(customersTable.id, customerId));
     if (!customer) {
       res.status(404).json({ error: "Customer not found" });
+      return;
+    }
+    const scan = await scanUploadContent(body, contentType, name || "soubor");
+    if (scan.verdict === "malicious") {
+      res.status(422).json({ error: "Soubor neprošel bezpečnostní kontrolou." });
+      return;
+    }
+    if (scan.verdict === "unavailable") {
+      res.status(503).json({ error: scan.reason, code: "upload_scanner_unavailable" });
       return;
     }
 
@@ -258,24 +267,35 @@ router.post(
       return;
     }
 
-    const [doc] = await db
-      .insert(customerSiteAttachmentsTable)
-      .values({
-        customerId,
-        type: docType,
-        title,
-        fileName: name || null,
-        url: objectPath,
-        description: description || null,
-        validUntil: validUntil || null,
-        mimeType: contentType,
-        fileSize: body.length,
-        sha256,
-        uploadedByUserId: req.auth?.userId ?? null,
-        uploadedByNameSnapshot: req.auth?.name ?? req.auth?.username ?? null,
-        docStatus: "current",
-      })
-      .returning();
+    let doc: typeof customerSiteAttachmentsTable.$inferSelect;
+    try {
+      [doc] = await db
+        .insert(customerSiteAttachmentsTable)
+        .values({
+          customerId,
+          type: docType,
+          title,
+          fileName: name || null,
+          url: objectPath,
+          description: description || null,
+          validUntil: validUntil || null,
+          mimeType: contentType,
+          fileSize: body.length,
+          sha256,
+          uploadedByUserId: req.auth?.userId ?? null,
+          uploadedByNameSnapshot: req.auth?.name ?? req.auth?.username ?? null,
+          docStatus: "current",
+        })
+        .returning();
+    } catch (error) {
+      await objectStorage.deletePrivateObject(objectPath).catch((cleanupError: unknown) => {
+        req.log.error(
+          { err: cleanupError, objectPath },
+          "customer-documents: orphan cleanup failed after DB insert error",
+        );
+      });
+      throw error;
+    }
 
     const today = todayIso();
     res.status(201).json(serializeDoc({ ...doc, siteName: null } as AttachmentRow & { siteName?: string | null }, today));

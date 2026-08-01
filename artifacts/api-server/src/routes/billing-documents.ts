@@ -259,7 +259,7 @@ router.put("/billing/document-linking", async (req, res): Promise<void> => {
 
 // Same hard cap as the generic upload route (see routes/storage.ts). Keep nginx's
 // client_max_body_size at/above this or large files are rejected at the proxy.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 // The accepted MIME types are defined in fileSignature.ts so that the allowlist
 // and the magic-byte validators share a single source of truth.
@@ -381,6 +381,13 @@ router.post(
     if (!Buffer.isBuffer(body) || body.length === 0 || !contentMatchesType(contentType, body)) {
       res.status(415).json({ error: "Obsah souboru neodpovídá podporovanému typu." });
       return;
+    }
+    if (contentType === "application/zip") {
+      const zipCheck = validateZipContents(body);
+      if (!zipCheck.ok) {
+        res.status(415).json({ error: zipCheck.reason ?? "Obsah archivu není podporován." });
+        return;
+      }
     }
     try {
       const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, jobId));

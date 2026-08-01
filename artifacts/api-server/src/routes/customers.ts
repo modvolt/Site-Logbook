@@ -16,6 +16,8 @@ import {
 import { sendEmailWithPdf } from "../lib/email";
 import { requireRole, requireVaultStepUp } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
+import { decodeCanonicalBase64 } from "../lib/base64-file";
+import { contentMatchesType } from "../lib/fileSignature";
 
 const router: IRouter = Router();
 
@@ -37,7 +39,6 @@ router.post("/customers", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-
   const [customer] = await db.insert(customersTable).values(parsed.data).returning();
   res.status(201).json(serializeCustomer(customer));
 });
@@ -258,6 +259,15 @@ router.post("/customers/:id/send-credentials-email", requirePermission("credenti
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  let verifiedPdfBase64: string;
+  try {
+    const pdf = decodeCanonicalBase64(parsed.data.pdfBase64, 20 * 1024 * 1024);
+    if (!contentMatchesType("application/pdf", pdf)) throw new Error("Neplatný PDF soubor.");
+    verifiedPdfBase64 = pdf.toString("base64");
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Neplatný PDF soubor." });
+    return;
+  }
 
   const [customer] = await db
     .select({ companyName: customersTable.companyName, email: customersTable.email })
@@ -302,7 +312,7 @@ router.post("/customers/:id/send-credentials-email", requirePermission("credenti
       to: rawTo,
       subject,
       text: message,
-      pdfBase64: parsed.data.pdfBase64,
+      pdfBase64: verifiedPdfBase64,
       filename,
     });
   } catch (err) {
