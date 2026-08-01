@@ -16,6 +16,7 @@ export default defineConfig({
     include: [
       "test/**/*contract.test.ts",
       "test/permission-resolution.test.ts",
+      "test/auth-session.test.ts",
       "test/work-session-math.test.ts",
       "test/live-events-domains.test.ts",
     ],

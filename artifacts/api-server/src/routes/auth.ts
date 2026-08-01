@@ -6,6 +6,7 @@ import { db, usersTable, securityQuestionsTable, USER_ROLES, resolvePermissions,
 import { LoginBody, SetupFirstAdminBody, ForgotPasswordQuestionsBody, ResetPasswordWithAnswersBody } from "@workspace/api-zod";
 import { normalizeAnswer } from "./security-questions";
 import { getPermissionOverrides } from "../lib/permissions";
+import { establishAuthenticatedSession } from "../lib/auth-session";
 
 const router: IRouter = Router();
 
@@ -82,11 +83,9 @@ router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {
     res.status(401).json({ error: "Neplatné přihlašovací údaje" });
     return;
   }
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.role = user.role as UserRole;
-  req.session.name = user.name;
-  res.json(serializeUser(user, await getPermissionOverrides(user.id)));
+  const overrides = await getPermissionOverrides(user.id);
+  await establishAuthenticatedSession(req, user);
+  res.json(serializeUser(user, overrides));
 });
 
 router.post("/auth/logout", (req, res): void => {
@@ -113,11 +112,9 @@ router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
     .insert(usersTable)
     .values({ username, passwordHash, name, email: email ?? null, role: "admin", isActive: true })
     .returning();
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.role = user.role as UserRole;
-  req.session.name = user.name;
-  res.status(201).json(serializeUser(user, await getPermissionOverrides(user.id)));
+  const overrides = await getPermissionOverrides(user.id);
+  await establishAuthenticatedSession(req, user);
+  res.status(201).json(serializeUser(user, overrides));
 });
 
 // --- Forgotten-password reset via security questions (public, admin only) ---

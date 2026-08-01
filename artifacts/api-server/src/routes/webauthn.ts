@@ -17,6 +17,7 @@ import { requireRole } from "../middlewares/auth";
 import { serializeUser } from "./auth";
 import { getPermissionOverrides } from "../lib/permissions";
 import rateLimit from "express-rate-limit";
+import { establishAuthenticatedSession } from "../lib/auth-session";
 
 const router: IRouter = Router();
 
@@ -324,12 +325,9 @@ router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): 
     .set({ counter: verification.authenticationInfo.newCounter })
     .where(eq(webauthnCredentialsTable.id, cred.id));
 
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.role = user.role as UserRole;
-  req.session.name = user.name;
-
-  res.json(serializeUser(user, await getPermissionOverrides(user.id)));
+  const overrides = await getPermissionOverrides(user.id);
+  await establishAuthenticatedSession(req, user);
+  res.json(serializeUser(user, overrides));
 });
 
 router.post("/auth/webauthn/verify/begin", async (req, res): Promise<void> => {
