@@ -43,7 +43,7 @@ describe("job billing-intent contract", () => {
     const service = read("artifacts/api-server/src/lib/invoice-service.ts");
     const route = read("artifacts/api-server/src/routes/jobs.ts");
     const permissions = read(
-      "artifacts/api-server/src/middlewares/permissions.ts",
+      "artifacts/api-server/src/lib/api-route-access-policy.ts",
     );
     const billingPage = read(
       "artifacts/stavba/src/pages/billing-unbilled-detail.tsx",

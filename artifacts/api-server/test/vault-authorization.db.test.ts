@@ -271,4 +271,34 @@ describe("internal API boundary integration", () => {
       .set("Authorization", "Bearer wrong-isolated-secret");
     expect(response.status).toBe(401);
   });
+
+  it("default-denies authenticated near-misses even under known route prefixes", async () => {
+    const responses = await Promise.all([
+      fullAccess.agent.post("/api/internal/future-admin-action"),
+      fullAccess.agent.post("/api/jobs/future-admin-action"),
+      fullAccess.agent.get("/api/auth/future-route"),
+      fullAccess.agent.get("/api/preferences/future-route"),
+    ]);
+
+    for (const response of responses) {
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({
+        error: "Forbidden",
+        code: "route_not_authorized",
+      });
+    }
+  });
+
+  it("keeps exact self-service routes available to an authenticated session", async () => {
+    const response = await fullAccess.agent.get("/api/sessions");
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body)).toBe(true);
+  });
+
+  it("keeps the documented PPE confirmation endpoint public without widening near-misses", async () => {
+    const getResponse = await request(app).get("/api/ppe/confirm");
+    const postResponse = await request(app).post("/api/ppe/confirm").send({});
+    expect(getResponse.status).toBe(400);
+    expect(postResponse.status).toBe(400);
+  });
 });

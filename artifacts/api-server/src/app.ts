@@ -148,8 +148,6 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 // per-user allow/deny overrides before this middleware runs.
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (isPublicApiRequest(req.method, req.originalUrl)) return next();
-  const url = req.originalUrl.split("?")[0];
-  if (url.startsWith("/api/preferences")) return next();
   return enforceApiPermission(req, res, next);
 });
 

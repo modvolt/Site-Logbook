@@ -7,12 +7,12 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 
 describe("field job workflow contract", () => {
   it("maps field mutations to jobs.work and leaves destructive actions managed", () => {
-    const permissions = read("artifacts/api-server/src/middlewares/permissions.ts");
+    const permissions = read("artifacts/api-server/src/lib/api-route-access-policy.ts");
 
-    expect(permissions).toContain('req.method === "POST") return "jobs.work"');
-    expect(permissions).toContain('req.method === "PATCH") return "jobs.work"');
+    expect(permissions).toContain('method === "POST") return "jobs.work"');
+    expect(permissions).toContain('method === "PATCH") return "jobs.work"');
     expect(permissions).toContain('manage: "jobs.manage"');
-    expect(permissions).not.toMatch(/req\.method === "DELETE"[^\n]+jobs\.work/);
+    expect(permissions).not.toMatch(/method === "DELETE"[^\n]+jobs\.work/);
   });
 
   it("requires assignment for field reads and writes", () => {

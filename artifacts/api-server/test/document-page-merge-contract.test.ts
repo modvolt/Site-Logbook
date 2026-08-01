@@ -17,7 +17,7 @@ describe("multi-page document contract", () => {
   });
 
   it("protects job upload and merge with both module and assignment permissions", () => {
-    const permissions = read("artifacts/api-server/src/middlewares/permissions.ts");
+    const permissions = read("artifacts/api-server/src/lib/api-route-access-policy.ts");
     const routes = read("artifacts/api-server/src/routes/billing-documents.ts");
     expect(permissions).toContain("jobs\\/\\d+\\/documents\\/(?:upload|merge-pages)");
     expect(routes).toMatch(/"\/jobs\/:id\/documents\/upload",\s*requireAssignedJobWork/);
