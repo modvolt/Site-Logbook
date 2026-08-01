@@ -66,7 +66,6 @@ function permissionForRequest(req: Request): Permission | null {
     return null;
   }
 
-  if (path.startsWith("/storage/objects/cost-documents")) return "billing.view";
   if (path === "/switchboards" && req.method === "POST") return "switchboards.create";
   if (/^\/switchboards\/\d+\/archive$/.test(path)) return "switchboards.archive";
   if (path.startsWith("/switchboards/field-registry")) return "switchboards.parser.manage";
@@ -148,7 +147,6 @@ function permissionForRequest(req: Request): Permission | null {
 }
 
 function moduleViewPermission(path: string): Permission | null {
-  if (path.startsWith("/storage/objects/cost-documents")) return "billing.view";
   if (path === "/storage/diagnose") return "diagnostics.view";
   const rule = MODULE_RULES.find((candidate) =>
     candidate.prefixes.some((prefix) => startsWithPath(path, prefix)),

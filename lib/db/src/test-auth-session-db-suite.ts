@@ -72,6 +72,7 @@ async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promi
   const testFiles = [
     "test/auth-session-generation.db.test.ts",
     "test/vault-authorization.db.test.ts",
+    "test/private-object-authorization.db.test.ts",
   ];
 
   for (const testFile of testFiles) {

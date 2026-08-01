@@ -14,6 +14,7 @@ import {
 } from "../lib/objectStorage";
 import { requirePermission } from "../middlewares/permissions";
 import { contentMatchesType } from "../lib/fileSignature";
+import { canAccessPrivateObject } from "../lib/private-object-access";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -211,46 +212,24 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
 });
 
 /**
- * Object key prefixes that must NEVER be served through the generic
- * (any authenticated user, incl. guests on GET) `/storage/objects/*` route.
- * They hold admin-only sensitive data and are reachable only via their own
- * admin-gated endpoints:
- *  - `backups/`  → full DB dumps; only via GET /api/backups/:id/download.
- *  - `invoices/` → issued invoice PDFs/ISDOC; only via the admin-gated
- *                  GET /api/billing/invoices/:id/pdf. The object path is
- *                  guessable from the invoice number, so it must be blocked here
- *                  to stop a non-admin from downloading invoices directly.
- */
-export const PROTECTED_OBJECT_PREFIXES = ["backups", "invoices", "ppe-handovers", "switchboards"] as const;
-
-/**
- * True when `wildcardPath` (the part after `/objects/`) falls under an
- * admin-only prefix that the generic object route must treat as nonexistent.
- */
-export function isProtectedObjectPath(wildcardPath: string): boolean {
-  return PROTECTED_OBJECT_PREFIXES.some(
-    (prefix) => wildcardPath === prefix || wildcardPath.startsWith(`${prefix}/`),
-  );
-}
-
-/**
  * GET /storage/objects/*
  *
- * Serve private object entities uploaded via the server-proxied upload flow
- * (POST /storage/uploads).
+ * Serve only an exact DB-linked object whose owning module permissions are all
+ * present. Typed-only and unknown prefixes, unlinked uploads and forbidden
+ * objects are all returned as the same 404 response.
  */
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
-    // Some object prefixes hold admin-only sensitive data (DB backups, issued
-    // invoice PDFs). They must NEVER be served through this generic endpoint —
-    // only via their own admin-gated routes. Treat them as nonexistent here.
-    if (isProtectedObjectPath(wildcardPath)) {
+    const objectPath = `/objects/${wildcardPath}`;
+    if (
+      !req.auth ||
+      !(await canAccessPrivateObject(objectPath, req.auth.permissions))
+    ) {
       res.status(404).json({ error: "Object not found" });
       return;
     }
-    const objectPath = `/objects/${wildcardPath}`;
     await objectStorageService.servePrivateObject(objectPath, res);
   } catch (error) {
     if (error instanceof ObjectNotFoundError) {
