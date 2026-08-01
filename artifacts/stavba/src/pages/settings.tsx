@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { formatDistanceToNow } from "date-fns";
 import { cs } from "date-fns/locale";
-import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, KeyRound, ShieldQuestion, ZoomIn, CalendarDays, Smartphone, Laptop, LogOut, FlaskConical, Clock } from "lucide-react";
+import { Moon, Sun, Monitor, Building2, Upload, X, Palette, PenLine, Mail, Send, Save, Database, Download, RefreshCw, CheckCircle2, XCircle, Loader2, RotateCcw, AlertTriangle, ZoomIn, CalendarDays, Smartphone, Laptop, LogOut, FlaskConical, Clock } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 import { FileDropZone } from "@/components/file-drop-zone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,9 +41,6 @@ import {
   type Backup,
   type BackupStatus,
   type BackupSettingsInput,
-  useGetSecurityQuestionsStatus,
-  useSetSecurityQuestions,
-  getGetSecurityQuestionsStatusQueryKey,
   useGetLeaveSettings,
   useUpdateLeaveSettings,
   getGetLeaveSettingsQueryKey,
@@ -1476,120 +1473,6 @@ function MySessionsCard() {
   );
 }
 
-function SecurityQuestionsCard() {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { data: status } = useGetSecurityQuestionsStatus({
-    query: { queryKey: getGetSecurityQuestionsStatusQueryKey() },
-  });
-  const save = useSetSecurityQuestions();
-
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [questions, setQuestions] = useState(["", "", ""]);
-  const [answers, setAnswers] = useState(["", "", ""]);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const configured = status?.configured ?? false;
-
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentPassword) {
-      setFormError("Zadejte své aktuální heslo.");
-      return;
-    }
-    if (questions.some((q) => !q.trim()) || answers.some((a) => !a.trim())) {
-      setFormError("Vyplňte všechny 3 otázky a odpovědi.");
-      return;
-    }
-    setFormError(null);
-    save.mutate(
-      {
-        data: {
-          currentPassword,
-          questions: questions.map((q, i) => ({ question: q.trim(), answer: answers[i] })),
-        },
-      },
-      {
-        onSuccess: () => {
-          toast({ title: "Bezpečnostní otázky uloženy" });
-          setCurrentPassword("");
-          setAnswers(["", "", ""]);
-          setFormError(null);
-          void queryClient.invalidateQueries({ queryKey: getGetSecurityQuestionsStatusQueryKey() });
-        },
-        onError: (err: unknown) => {
-          const msg = (err as { message?: string })?.message;
-          setFormError(msg?.includes("heslo") ? "Nesprávné aktuální heslo." : "Zkontrolujte zadané údaje a zkuste to znovu.");
-        },
-      },
-    );
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldQuestion className="h-4 w-4" /> Bezpečnostní otázky (obnova hesla)
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="flex items-center gap-2 text-sm">
-          {configured ? (
-            <span className="inline-flex items-center gap-1.5 text-emerald-600">
-              <CheckCircle2 className="h-4 w-4" /> Nastaveno
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <XCircle className="h-4 w-4" /> Zatím nenastaveno
-            </span>
-          )}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Nastavte si 3 vlastní otázky a odpovědi. Pokud zapomenete heslo, budete
-          si ho moci na přihlašovací obrazovce obnovit správným zodpovězením všech
-          tří otázek. Odpovědi se ukládají zabezpečeně (zašifrovaně) a nelze je
-          zpětně zobrazit.
-        </p>
-        <form onSubmit={handleSave} className="space-y-5">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="space-y-2 rounded-lg border p-3">
-              <Label className="text-xs font-medium text-muted-foreground">Otázka {i + 1}</Label>
-              <Input
-                value={questions[i]}
-                onChange={(e) => setQuestions((q) => q.map((v, j) => (j === i ? e.target.value : v)))}
-                placeholder="Např. Jak se jmenovalo vaše první auto?"
-              />
-              <Input
-                value={answers[i]}
-                onChange={(e) => setAnswers((a) => a.map((v, j) => (j === i ? e.target.value : v)))}
-                placeholder="Odpověď"
-                autoComplete="off"
-              />
-            </div>
-          ))}
-          <div>
-            <Label className="text-sm font-medium block mb-1">Vaše aktuální heslo *</Label>
-            <Input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => { setCurrentPassword(e.target.value); if (formError) setFormError(null); }}
-              autoComplete="current-password"
-              placeholder="Pro potvrzení změny"
-            />
-          </div>
-          {formError && (
-            <p className="text-destructive text-sm" role="alert">{formError}</p>
-          )}
-          <Button type="submit" disabled={save.isPending} className="gap-2 h-11">
-            {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-            {configured ? "Změnit otázky" : "Uložit otázky"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-
 function LeaveSettingsCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -2091,8 +1974,6 @@ export default function Settings() {
       <MySessionsCard />
 
       {can("manageUsers") && <BackupScheduleCard />}
-
-      {can("manageUsers") && <SecurityQuestionsCard />}
 
       {can("manageUsers") && <LeaveSettingsCard />}
 
