@@ -18,6 +18,13 @@ import { ObjectStorageService } from "./objectStorage";
 import { resolveEmailConfig } from "./email";
 import nodemailer from "nodemailer";
 import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
+import {
+  decryptBackupPayload,
+  encryptBackupPayload,
+  encryptionStatus,
+  BACKUP_ACTIVE_KEY_ENV,
+  BACKUP_KEYRING_ENV,
+} from "./secret-envelope";
 
 const objectStorage = new ObjectStorageService();
 
@@ -288,9 +295,12 @@ export async function createBackup(opts: {
       "Object storage is not configured; cannot store backups. Configure the S3_* variables.",
     );
   }
+  if (!encryptionStatus(BACKUP_KEYRING_ENV, BACKUP_ACTIVE_KEY_ENV).configured) {
+    throw new Error("Backup encryption keyring is not configured.");
+  }
 
   const filename = `stavba-${timestampName()}.pgcustom`;
-  const objectPath = `/objects/backups/${filename}`;
+  const objectPath = `/objects/backups/${filename}.enc`;
 
   const [row] = await db
     .insert(backupLogTable)
@@ -303,31 +313,56 @@ export async function createBackup(opts: {
     .returning();
 
   try {
-    const buffer = await runPgDump(databaseUrl);
-    await objectStorage.putPrivateObject(objectPath, buffer, "application/octet-stream");
-
-    const sha256 = createHash("sha256").update(buffer).digest("hex");
-    const [updated] = await db
-      .update(backupLogTable)
-      .set({
-        status: "success",
+    const dump = await runPgDump(databaseUrl);
+    let encrypted: ReturnType<typeof encryptBackupPayload>;
+    try {
+      encrypted = encryptBackupPayload(dump, filename);
+    } finally {
+      dump.fill(0);
+    }
+    const storedPayload = encrypted.payload;
+    const storedSize = storedPayload.length;
+    try {
+      await objectStorage.putPrivateObject(
         objectPath,
-        sizeBytes: buffer.length,
-        sha256,
-      })
-      .where(eq(backupLogTable.id, row.id))
-      .returning();
+        storedPayload,
+        "application/octet-stream",
+      );
 
-    logger.info(
-      { backupId: row.id, sizeBytes: buffer.length, sha256, trigger: opts.trigger },
-      "Database backup completed",
-    );
+      const sha256 = createHash("sha256").update(storedPayload).digest("hex");
+      const [updated] = await db
+        .update(backupLogTable)
+        .set({
+          status: "success",
+          objectPath,
+          sizeBytes: storedSize,
+          sha256,
+          encryptionFormat: encrypted.format,
+          encryptionKeyId: encrypted.keyId,
+        })
+        .where(eq(backupLogTable.id, row.id))
+        .returning();
 
-    pruneOldBackups().catch((err) =>
-      logger.warn({ err }, "Backup pruning failed"),
-    );
+      logger.info(
+        {
+          backupId: row.id,
+          sizeBytes: storedSize,
+          sha256,
+          encryptionFormat: encrypted.format,
+          encryptionKeyId: encrypted.keyId,
+          trigger: opts.trigger,
+        },
+        "Database backup completed",
+      );
 
-    return updated;
+      pruneOldBackups().catch((err) =>
+        logger.warn({ err }, "Backup pruning failed"),
+      );
+
+      return updated;
+    } finally {
+      storedPayload.fill(0);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await db
@@ -350,6 +385,28 @@ export async function createBackup(opts: {
  */
 let restoreInProgress = false;
 
+/**
+ * Load and authenticate a backup. Legacy rows without encryption metadata stay
+ * readable during the rollout; an encrypted row never falls back to raw bytes.
+ */
+export async function readBackupDump(row: BackupLog): Promise<Buffer> {
+  if (!row.objectPath) throw new Error("Backup object path is missing.");
+  const stored = await objectStorage.getPrivateObjectBuffer(row.objectPath);
+  if (row.sha256) {
+    const actual = createHash("sha256").update(stored).digest("hex");
+    if (actual !== row.sha256) throw new Error("Backup integrity verification failed.");
+  }
+  if (!row.encryptionFormat) return stored;
+  if (row.encryptionFormat !== "mve1" || !row.encryptionKeyId) {
+    throw new Error("Backup encryption metadata is invalid.");
+  }
+  try {
+    return decryptBackupPayload(stored, row.filename);
+  } finally {
+    stored.fill(0);
+  }
+}
+
 export async function restoreBackup(id: number): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL not set");
@@ -367,7 +424,7 @@ export async function restoreBackup(id: number): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "stavba-restore-"));
   const filePath = join(dir, "dump.pgcustom");
   try {
-    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath);
+    const buffer = await readBackupDump(row);
     await writeFile(filePath, buffer);
 
     await new Promise<void>((resolve, reject) => {
@@ -492,7 +549,7 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
 
   const doTest = async (): Promise<BackupLog> => {
     // 1. Download the dump from object storage.
-    const buffer = await objectStorage.getPrivateObjectBuffer(row.objectPath!);
+    const buffer = await readBackupDump(row);
     await writeFile(filePath, buffer);
 
     // 2. Create the ephemeral database.

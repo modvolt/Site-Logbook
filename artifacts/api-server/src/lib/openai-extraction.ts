@@ -22,6 +22,7 @@ import OpenAI from "openai";
 import { z } from "zod/v4";
 import { eq } from "drizzle-orm";
 import { db, openaiSettingsTable } from "@workspace/db";
+import { readStoredSecret } from "./stored-secret";
 
 // ---------------------------------------------------------------------------
 // Configuration (DB singleton with environment fallback)
@@ -89,7 +90,17 @@ export async function resolveOpenAiConfig(): Promise<ResolvedOpenAiConfig> {
     row = undefined;
   }
 
-  const dbKey = row?.apiKey?.trim() || null;
+  const dbKey = row
+    ? readStoredSecret(
+        {
+          plaintext: row.apiKey,
+          ciphertext: row.apiKeyCiphertext,
+          keyId: row.apiKeyKeyId,
+          encryptedAt: row.apiKeyEncryptedAt,
+        },
+        "openai_settings:1:api_key",
+      )?.trim() || null
+    : null;
   const envKey = process.env.OPENAI_API_KEY?.trim() || null;
   const apiKey = dbKey ?? envKey;
   const configured = Boolean(apiKey);

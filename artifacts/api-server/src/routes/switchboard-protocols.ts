@@ -158,7 +158,7 @@ router.post("/switchboards/:id/protocols/generate", requirePermission("switchboa
       return { protocol, snapshot, qrTokenCiphertext: source.qrTokenCiphertext, checklistInstanceId: source.checklistInstanceId };
     });
     let qrUrl: string | null = null;
-    if (created.qrTokenCiphertext) qrUrl = publicQrUrl(decryptQrToken(created.qrTokenCiphertext), `${req.protocol}://${req.get("host")}`);
+    if (created.qrTokenCiphertext) qrUrl = publicQrUrl(decryptQrToken(created.qrTokenCiphertext, boardId.data), `${req.protocol}://${req.get("host")}`);
     const pdf = await generateSwitchboardProtocolPdf(created.snapshot, qrUrl);
     await storage.putPrivateObject(created.protocol.pdfStoragePath, pdf, "application/pdf");
     const final = await db.transaction(async (tx) => {

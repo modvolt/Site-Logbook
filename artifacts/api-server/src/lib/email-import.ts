@@ -41,6 +41,7 @@ import {
   inspectImportedFile,
   resolveImportedContentType,
 } from "./imported-file-safety";
+import { readStoredSecret } from "./stored-secret";
 
 const SINGLETON_ID = 1;
 
@@ -120,12 +121,21 @@ export async function resolveImapConfig(): Promise<ResolvedImapConfig | null> {
 
   if (row?.enabled && row.host) {
     const user = row.username?.trim() || undefined;
+    const password = readStoredSecret(
+      {
+        plaintext: row.password,
+        ciphertext: row.passwordCiphertext,
+        keyId: row.passwordKeyId,
+        encryptedAt: row.passwordEncryptedAt,
+      },
+      "email_import_settings:1:password",
+    );
     return {
       host: row.host,
       port: row.port ?? 993,
       secure: row.secure ?? true,
       user,
-      pass: user ? row.password ?? undefined : undefined,
+      pass: user ? password ?? undefined : undefined,
       folders: parseFolders(row.folder),
       markSeen: row.markSeen ?? true,
       pollMinutes: row.pollMinutes ?? 15,

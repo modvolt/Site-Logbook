@@ -20,6 +20,13 @@ import {
 } from "@workspace/api-zod";
 import { requireVaultStepUp } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
+import {
+  clearedLegacyDeviceSecrets,
+  decryptDeviceCredentialPayload,
+  encryptDeviceCredentialPayload,
+  hydrateDeviceCredential,
+  type DeviceCredentialSecretPayload,
+} from "../lib/device-credential-secrets";
 
 const router: IRouter = Router();
 
@@ -29,9 +36,34 @@ const requireVaultView = requirePermission("credentials.view");
 const requireVaultManage = requirePermission("credentials.manage");
 
 function serializeCredential(c: typeof deviceCredentialsTable.$inferSelect) {
+  const {
+    secretCiphertext: _secretCiphertext,
+    secretKeyId: _secretKeyId,
+    secretEncryptedAt: _secretEncryptedAt,
+    ...credential
+  } = hydrateDeviceCredential(c);
   return {
-    ...c,
+    ...credential,
     createdAt: c.createdAt.toISOString(),
+  };
+}
+
+function secretPayloadFromInput(
+  input: Partial<DeviceCredentialSecretPayload>,
+  fallback?: DeviceCredentialSecretPayload,
+): DeviceCredentialSecretPayload {
+  return {
+    ipAddress: input.ipAddress !== undefined ? input.ipAddress : fallback?.ipAddress ?? null,
+    pin: input.pin !== undefined ? input.pin : fallback?.pin ?? null,
+    username: input.username !== undefined ? input.username : fallback?.username ?? null,
+    password: input.password !== undefined ? input.password : fallback?.password ?? null,
+    email: input.email !== undefined ? input.email : fallback?.email ?? null,
+    note: input.note !== undefined ? input.note : fallback?.note ?? null,
+    users: input.users !== undefined ? input.users : fallback?.users ?? [],
+    networkTopology:
+      input.networkTopology !== undefined
+        ? input.networkTopology
+        : fallback?.networkTopology ?? [],
   };
 }
 
@@ -106,10 +138,28 @@ router.post(
       return;
     }
 
-    const [credential] = await db
-      .insert(deviceCredentialsTable)
-      .values({ ...parsed.data, customerId: params.data.customerId })
-      .returning();
+    const credential = await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(deviceCredentialsTable)
+        .values({
+          customerId: params.data.customerId,
+          siteId: parsed.data.siteId ?? null,
+          type: parsed.data.type ?? null,
+          serialNumber: parsed.data.serialNumber ?? null,
+          ...clearedLegacyDeviceSecrets,
+        })
+        .returning();
+      const encrypted = encryptDeviceCredentialPayload(
+        inserted.id,
+        secretPayloadFromInput(parsed.data),
+      );
+      const [updated] = await tx
+        .update(deviceCredentialsTable)
+        .set(encrypted)
+        .where(eq(deviceCredentialsTable.id, inserted.id))
+        .returning();
+      return updated;
+    });
     res.status(201).json(serializeCredential(credential));
   },
 );
@@ -128,7 +178,7 @@ router.patch("/device-credentials/:id", requireVaultManage, requireVaultStepUp, 
   }
 
   const [existing] = await db
-    .select({ customerId: deviceCredentialsTable.customerId })
+    .select()
     .from(deviceCredentialsTable)
     .where(eq(deviceCredentialsTable.id, params.data.id));
 
@@ -145,9 +195,23 @@ router.patch("/device-credentials/:id", requireVaultManage, requireVaultStepUp, 
     return;
   }
 
+  const currentSecrets = decryptDeviceCredentialPayload(existing);
+  const encrypted = encryptDeviceCredentialPayload(
+    existing.id,
+    secretPayloadFromInput(parsed.data, currentSecrets),
+  );
+
   const [credential] = await db
     .update(deviceCredentialsTable)
-    .set(parsed.data)
+    .set({
+      ...(parsed.data.siteId !== undefined ? { siteId: parsed.data.siteId } : {}),
+      ...(parsed.data.type !== undefined ? { type: parsed.data.type } : {}),
+      ...(parsed.data.serialNumber !== undefined
+        ? { serialNumber: parsed.data.serialNumber }
+        : {}),
+      ...clearedLegacyDeviceSecrets,
+      ...encrypted,
+    })
     .where(eq(deviceCredentialsTable.id, params.data.id))
     .returning();
 

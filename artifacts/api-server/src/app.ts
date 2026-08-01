@@ -16,6 +16,7 @@ import { enforceOfflineReplayScope } from "./middlewares/offline-replay-scope";
 import { enforceOfflineIdempotency } from "./middlewares/offline-idempotency";
 import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
+import { SecretEncryptionError } from "./lib/secret-envelope";
 import {
   isRequestBodyTooLarge,
   parseApiRequestBody,
@@ -194,6 +195,21 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
       res.status(413).json({
         error: "Požadavek je příliš velký pro tuto operaci.",
         code: "request_body_too_large",
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (err instanceof SecretEncryptionError) {
+    req.log?.error(
+      { requestId, method, path, code: err.code },
+      "Secret encryption operation failed",
+    );
+    if (!res.headersSent) {
+      res.status(503).json({
+        error: "Šifrování citlivých údajů není dostupné. Kontaktujte správce systému.",
+        code: "secret_encryption_unavailable",
         requestId,
       });
     }

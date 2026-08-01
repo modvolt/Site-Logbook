@@ -694,6 +694,13 @@
       "when": 1785618959339,
       "tag": "0098_object-upload-ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1785623741083,
+      "tag": "0099_secret_envelope_encryption",
+      "breakpoints": true
     }
   ]
 }

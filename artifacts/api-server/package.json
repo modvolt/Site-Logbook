@@ -13,7 +13,8 @@
     "test:db": "node ../../scripts/run-safe-test-db.mjs",
     "test:all:isolated": "node ../../scripts/run-safe-test-db.mjs --all",
     "auth:reset-admin-password": "tsx src/scripts/reset-admin-password.ts",
-    "cleanup-materials": "tsx src/scripts/cleanup-duplicate-materials.ts"
+    "cleanup-materials": "tsx src/scripts/cleanup-duplicate-materials.ts",
+    "secrets:backfill": "tsx src/scripts/backfill-secret-envelopes.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",

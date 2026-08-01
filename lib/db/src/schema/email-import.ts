@@ -6,7 +6,9 @@ import {
   timestamp,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -18,7 +20,8 @@ import { billingDocumentsTable } from "./billing-documents";
  *
  * This whole feature is OPTIONAL and OFF by default: it only works when the
  * operator has configured their own Google OAuth app (GOOGLE_CLIENT_ID/SECRET/
- * REDIRECT_URI) and a TOKEN_ENCRYPTION_KEY. The app runs fully without it.
+ * REDIRECT_URI) and the application encryption keyring. The app runs fully
+ * without this optional feature.
  *
  * The OAuth refresh token is stored ENCRYPTED (AES-256-GCM) — never in plaintext
  * and never logged. Only the `refresh_token_encrypted` ciphertext is persisted;
@@ -39,8 +42,10 @@ export const emailImportAccountsTable = pgTable(
     status: text("status").notNull().default("connected"),
     emailAddress: text("email_address"),
 
-    // Encrypted OAuth refresh token (AES-256-GCM payload, never plaintext).
+    // Versioned AES-256-GCM envelope; TOKEN_ENCRYPTION_KEY is legacy-read only.
     refreshTokenEncrypted: text("refresh_token_encrypted"),
+    refreshTokenKeyId: text("refresh_token_key_id"),
+    refreshTokenEncryptedAt: timestamp("refresh_token_encrypted_at"),
     scope: text("scope"),
 
     // Sync scoping / behaviour (snapshot of env config at connect time).
@@ -61,7 +66,13 @@ export const emailImportAccountsTable = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("email_import_accounts_status_idx").on(t.status)],
+  (t) => [
+    index("email_import_accounts_status_idx").on(t.status),
+    check(
+      "email_import_accounts_refresh_envelope_chk",
+      sql`(${t.refreshTokenEncrypted} is null and ${t.refreshTokenKeyId} is null and ${t.refreshTokenEncryptedAt} is null) or (${t.refreshTokenEncrypted} is not null and left(${t.refreshTokenEncrypted}, 5) <> 'mve1.' and ${t.refreshTokenKeyId} is null and ${t.refreshTokenEncryptedAt} is null) or (${t.refreshTokenEncrypted} is not null and left(${t.refreshTokenEncrypted}, 5) = 'mve1.' and ${t.refreshTokenKeyId} is not null and ${t.refreshTokenEncryptedAt} is not null)`,
+    ),
+  ],
 );
 
 /**

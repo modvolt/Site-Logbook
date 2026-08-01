@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import rateLimit from "express-rate-limit";
-import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
+import { ObjectNotFoundError } from "../lib/objectStorage";
 import { secureTokenEqual } from "../lib/internal-auth";
 import { requireRole } from "../middlewares/auth";
 import {
@@ -13,11 +13,11 @@ import {
   upsertBackupSettings,
   getBackupStatus,
   triggerAutoBackupIfDue,
+  readBackupDump,
 } from "../lib/backup";
 import type { BackupLog } from "@workspace/db";
 
 const router: IRouter = Router();
-const objectStorage = new ObjectStorageService();
 const backupTriggerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -80,9 +80,13 @@ router.get("/backups/:id/download", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Záloha nenalezena." });
     return;
   }
-  res.setHeader("Content-Disposition", `attachment; filename="${row.filename}"`);
   try {
-    await objectStorage.servePrivateObject(row.objectPath, res);
+    const dump = await readBackupDump(row);
+    res.setHeader("Content-Disposition", `attachment; filename="${row.filename}"`);
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Length", String(dump.length));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(dump);
   } catch (err) {
     if (err instanceof ObjectNotFoundError) {
       res.status(404).json({ error: "Soubor zálohy nebyl nalezen v úložišti." });

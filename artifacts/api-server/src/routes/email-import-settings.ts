@@ -13,6 +13,7 @@ import {
   pollAndRecord,
   retryLogEntry,
 } from "../lib/email-import";
+import { hasStoredSecret, writeStoredSecret } from "../lib/stored-secret";
 
 const router: IRouter = Router();
 
@@ -39,7 +40,9 @@ function serialize(row: EmailImportSettings | undefined) {
     folder: row?.folder ?? "INBOX",
     markSeen: row?.markSeen ?? true,
     pollMinutes: row?.pollMinutes ?? 15,
-    passwordSet: Boolean(row?.password),
+    passwordSet: row
+      ? hasStoredSecret({ plaintext: row.password, ciphertext: row.passwordCiphertext })
+      : false,
     lastPolledAt: row?.lastPolledAt ? row.lastPolledAt.toISOString() : null,
     lastStatus: row?.lastStatus ?? null,
     lastError: row?.lastError ?? null,
@@ -78,8 +81,18 @@ router.put("/email-import-settings", async (req, res): Promise<void> => {
     .where(eq(emailImportSettingsTable.id, SINGLETON_ID));
 
   // Password is write-only: a string (incl. empty) sets/clears it; null/omitted keeps it.
-  const password =
-    typeof d.password === "string" ? d.password : existing?.password ?? null;
+  const password = writeStoredSecret(
+    d.password,
+    existing
+      ? {
+          plaintext: existing.password,
+          ciphertext: existing.passwordCiphertext,
+          keyId: existing.passwordKeyId,
+          encryptedAt: existing.passwordEncryptedAt,
+        }
+      : undefined,
+    "email_import_settings:1:password",
+  );
 
   const values = {
     id: SINGLETON_ID,
@@ -88,7 +101,10 @@ router.put("/email-import-settings", async (req, res): Promise<void> => {
     port: d.port,
     secure: d.secure,
     username: d.username?.trim() || null,
-    password,
+    password: password.plaintext,
+    passwordCiphertext: password.ciphertext,
+    passwordKeyId: password.keyId,
+    passwordEncryptedAt: password.encryptedAt,
     folder: d.folder?.trim() || "INBOX",
     markSeen: d.markSeen,
     pollMinutes: d.pollMinutes,

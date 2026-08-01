@@ -39,6 +39,7 @@ import {
   encryptToken,
   decryptToken,
 } from "./token-crypto";
+import { envelopeKeyId } from "./secret-envelope";
 import {
   ingestFile,
   sha256Of,
@@ -101,7 +102,9 @@ export function getGmailConfig(): GmailConfig {
   if (!clientId) missing.push("GOOGLE_CLIENT_ID");
   if (!clientSecret) missing.push("GOOGLE_CLIENT_SECRET");
   if (!redirectUri) missing.push("GOOGLE_REDIRECT_URI");
-  if (!hasKey) missing.push("TOKEN_ENCRYPTION_KEY");
+  if (!hasKey) {
+    missing.push("SECRET_ENCRYPTION_KEYRING/SECRET_ENCRYPTION_ACTIVE_KEY_ID");
+  }
 
   const configured = missing.length === 0;
   const labelAfterImport = process.env.GMAIL_LABEL_AFTER_IMPORT === "true";
@@ -229,7 +232,6 @@ export async function completeConnect(
     logger.warn({ err: sanitizeErr(err) }, "Gmail userinfo lookup failed");
   }
 
-  const encrypted = encryptToken(tokens.refresh_token);
   const now = new Date();
 
   const account = await db.transaction(async (tx) => {
@@ -239,19 +241,30 @@ export async function completeConnect(
       .set({ status: "disconnected", disconnectedAt: now, updatedAt: now })
       .where(eq(emailImportAccountsTable.status, "connected"));
 
-    const [row] = await tx
+    const [inserted] = await tx
       .insert(emailImportAccountsTable)
       .values({
         provider: "gmail",
         status: "connected",
         emailAddress: email,
-        refreshTokenEncrypted: encrypted,
+        refreshTokenEncrypted: null,
         scope: (tokens.scope ?? requiredScopes(cfg).join(" ")) || null,
         labelFilter: cfg.labelFilter,
         labelAfterImport: cfg.labelAfterImport ? 1 : 0,
         connectedByUserId: actor.userId,
         connectedAt: now,
       })
+      .returning();
+
+    const encrypted = encryptToken(tokens.refresh_token!, inserted.id);
+    const [row] = await tx
+      .update(emailImportAccountsTable)
+      .set({
+        refreshTokenEncrypted: encrypted,
+        refreshTokenKeyId: envelopeKeyId(encrypted),
+        refreshTokenEncryptedAt: now,
+      })
+      .where(eq(emailImportAccountsTable.id, inserted.id))
       .returning();
 
     await tx.insert(auditLogTable).values({
@@ -282,7 +295,7 @@ export async function disconnect(actor: Actor): Promise<void> {
       const cfg = getGmailConfig();
       if (cfg.configured) {
         const client = newOAuthClient(cfg);
-        await client.revokeToken(decryptToken(account.refreshTokenEncrypted));
+        await client.revokeToken(decryptToken(account.refreshTokenEncrypted, account.id));
       }
     } catch (err) {
       logger.warn({ err: sanitizeErr(err) }, "Gmail token revoke failed (continuing)");
@@ -296,6 +309,8 @@ export async function disconnect(actor: Actor): Promise<void> {
       .set({
         status: "disconnected",
         refreshTokenEncrypted: null,
+        refreshTokenKeyId: null,
+        refreshTokenEncryptedAt: null,
         disconnectedAt: now,
         updatedAt: now,
       })
@@ -335,7 +350,7 @@ async function authorizedClient(account: EmailImportAccount): Promise<OAuth2Clie
   }
   const client = newOAuthClient(cfg);
   client.setCredentials({
-    refresh_token: decryptToken(account.refreshTokenEncrypted),
+    refresh_token: decryptToken(account.refreshTokenEncrypted, account.id),
   });
   return client;
 }

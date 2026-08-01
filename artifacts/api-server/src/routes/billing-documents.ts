@@ -65,6 +65,7 @@ import {
   testConfiguration as testAiConfiguration,
   DEFAULT_SYSTEM_PROMPT,
 } from "../lib/openai-extraction";
+import { writeStoredSecret } from "../lib/stored-secret";
 import {
   db,
   openaiSettingsTable,
@@ -156,8 +157,18 @@ router.put("/billing/ai-extraction", async (req, res): Promise<void> => {
     .from(openaiSettingsTable)
     .where(eq(openaiSettingsTable.id, OPENAI_SETTINGS_ID));
 
-  const apiKey =
-    typeof d.apiKey === "string" ? d.apiKey.trim() || null : existing?.apiKey ?? null;
+  const apiKey = writeStoredSecret(
+    typeof d.apiKey === "string" ? d.apiKey.trim() : d.apiKey,
+    existing
+      ? {
+          plaintext: existing.apiKey,
+          ciphertext: existing.apiKeyCiphertext,
+          keyId: existing.apiKeyKeyId,
+          encryptedAt: existing.apiKeyEncryptedAt,
+        }
+      : undefined,
+    "openai_settings:1:api_key",
+  );
 
   const toIntOrNull = (v: number | null | undefined): number | null =>
     typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : null;
@@ -165,7 +176,10 @@ router.put("/billing/ai-extraction", async (req, res): Promise<void> => {
   const values: typeof openaiSettingsTable.$inferInsert = {
     id: OPENAI_SETTINGS_ID,
     enabled: d.enabled,
-    apiKey,
+    apiKey: apiKey.plaintext,
+    apiKeyCiphertext: apiKey.ciphertext,
+    apiKeyKeyId: apiKey.keyId,
+    apiKeyEncryptedAt: apiKey.encryptedAt,
     model: d.model?.trim() || null,
     systemPrompt: d.systemPrompt?.trim() || null,
     maxFileMb: toIntOrNull(d.maxFileMb),

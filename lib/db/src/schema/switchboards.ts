@@ -1,7 +1,9 @@
 import {
   pgTable, serial, integer, text, timestamp, date, numeric, boolean, jsonb,
   index, uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { jobsTable } from "./jobs";
 import { peopleTable } from "./people";
 import { usersTable } from "./users";
@@ -34,6 +36,8 @@ export const switchboardsTable = pgTable("switchboards", {
   measurementStatus: text("measurement_status").notNull().default("not_started"),
   qrTokenHash: text("qr_token_hash"),
   qrTokenCiphertext: text("qr_token_ciphertext"),
+  qrTokenKeyId: text("qr_token_key_id"),
+  qrTokenEncryptedAt: timestamp("qr_token_encrypted_at"),
   qrTokenPrefix: text("qr_token_prefix"),
   qrEnabled: boolean("qr_enabled").notNull().default(false),
   qrExpiresAt: timestamp("qr_expires_at"),
@@ -46,6 +50,10 @@ export const switchboardsTable = pgTable("switchboards", {
   index("switchboards_status_idx").on(t.status),
   uniqueIndex("switchboards_serial_number_unique_idx").on(t.serialNumber),
   uniqueIndex("switchboards_qr_token_hash_unique_idx").on(t.qrTokenHash),
+  check(
+    "switchboards_qr_envelope_chk",
+    sql`(${t.qrTokenCiphertext} is null and ${t.qrTokenKeyId} is null and ${t.qrTokenEncryptedAt} is null) or (left(${t.qrTokenCiphertext}, 3) = 'v1.' and ${t.qrTokenKeyId} is null and ${t.qrTokenEncryptedAt} is null) or (left(${t.qrTokenCiphertext}, 5) = 'mve1.' and ${t.qrTokenKeyId} is not null and ${t.qrTokenEncryptedAt} is not null)`,
+  ),
 ]);
 
 export const switchboardQrAccessLogsTable = pgTable("switchboard_qr_access_logs", {

@@ -5,7 +5,9 @@ import {
   boolean,
   timestamp,
   real,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
  * OpenAI document-extraction configuration. Stored as a single row (id = 1) so
@@ -16,14 +18,16 @@ import {
  * Resolution falls back to the OPENAI_* env vars when no row exists or a field
  * is empty, so existing env-based deployments keep working unchanged.
  *
- * Note: the API key is stored as plaintext, consistent with the existing
- * device-credential vault and email_settings. It is never returned by the API
- * (write-only); the status endpoint only reports whether a key is set.
+ * The API key is write-only and new values use the externally keyed versioned
+ * envelope. `api_key` remains only for migration-time legacy reads.
  */
 export const openaiSettingsTable = pgTable("openai_settings", {
   id: integer("id").primaryKey().default(1),
   enabled: boolean("enabled").notNull().default(false),
   apiKey: text("api_key"),
+  apiKeyCiphertext: text("api_key_ciphertext"),
+  apiKeyKeyId: text("api_key_key_id"),
+  apiKeyEncryptedAt: timestamp("api_key_encrypted_at"),
   model: text("model"),
   // Advanced, optional overrides. NULL on any field falls back to the OPENAI_*
   // env var (or the built-in default) so existing env-based deploys are unchanged.
@@ -32,6 +36,11 @@ export const openaiSettingsTable = pgTable("openai_settings", {
   requestTimeoutMs: integer("request_timeout_ms"),
   confidenceThreshold: real("confidence_threshold").default(0.8),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  check(
+    "openai_settings_api_key_envelope_chk",
+    sql`(${t.apiKeyCiphertext} is null and ${t.apiKeyKeyId} is null and ${t.apiKeyEncryptedAt} is null) or (${t.apiKeyCiphertext} is not null and ${t.apiKeyKeyId} is not null and ${t.apiKeyEncryptedAt} is not null and ${t.apiKey} is null)`,
+  ),
+]);
 
 export type OpenaiSettings = typeof openaiSettingsTable.$inferSelect;

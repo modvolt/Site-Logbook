@@ -72,14 +72,17 @@ export async function createSwitchboardLabelVersion(options: CreateLabelOptions)
 
   const now = new Date();
   let token: string;
-  let qrPatch: Pick<typeof switchboardsTable.$inferInsert, "qrTokenHash" | "qrTokenCiphertext" | "qrTokenPrefix" | "qrEnabled" | "qrExpiresAt"> | null = null;
+  let qrPatch: Pick<typeof switchboardsTable.$inferInsert, "qrTokenHash" | "qrTokenCiphertext" | "qrTokenKeyId" | "qrTokenEncryptedAt" | "qrTokenPrefix" | "qrEnabled" | "qrExpiresAt"> | null = null;
   if (board.qrEnabled && board.qrTokenCiphertext && (!board.qrExpiresAt || board.qrExpiresAt > now)) {
-    token = decryptQrToken(board.qrTokenCiphertext);
+    token = decryptQrToken(board.qrTokenCiphertext, board.id);
   } else if (options.mode === "automatic" && !board.qrTokenHash && !board.qrTokenCiphertext) {
     token = createQrToken();
+    const encrypted = encryptQrToken(token, board.id);
     qrPatch = {
       qrTokenHash: hashQrToken(token),
-      qrTokenCiphertext: encryptQrToken(token),
+      qrTokenCiphertext: encrypted.ciphertext,
+      qrTokenKeyId: encrypted.keyId,
+      qrTokenEncryptedAt: now,
       qrTokenPrefix: token.slice(0, 8),
       qrEnabled: true,
       qrExpiresAt: null,

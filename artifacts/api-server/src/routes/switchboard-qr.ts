@@ -42,7 +42,8 @@ router.post("/switchboards/:id/qr/rotate", requirePermission("switchboards.qr.ma
   const boardId = id.safeParse(req.params.id); if (!boardId.success) { res.status(400).json({ error: "Neplatné ID rozvaděče." }); return; }
   const token = createQrToken(); const expiresAt = z.object({ expiresAt: z.iso.datetime().nullable().optional() }).safeParse(req.body);
   if (!expiresAt.success) { res.status(400).json({ error: "Neplatná expirace QR odkazu." }); return; }
-  const [board] = await db.update(switchboardsTable).set({ qrTokenHash: hashQrToken(token), qrTokenCiphertext: encryptQrToken(token), qrTokenPrefix: token.slice(0, 8), qrEnabled: true, qrExpiresAt: expiresAt.data.expiresAt ? new Date(expiresAt.data.expiresAt) : null, updatedAt: new Date() }).where(eq(switchboardsTable.id, boardId.data)).returning();
+  const encrypted = encryptQrToken(token, boardId.data); const encryptedAt = new Date();
+  const [board] = await db.update(switchboardsTable).set({ qrTokenHash: hashQrToken(token), qrTokenCiphertext: encrypted.ciphertext, qrTokenKeyId: encrypted.keyId, qrTokenEncryptedAt: encryptedAt, qrTokenPrefix: token.slice(0, 8), qrEnabled: true, qrExpiresAt: expiresAt.data.expiresAt ? new Date(expiresAt.data.expiresAt) : null, updatedAt: encryptedAt }).where(eq(switchboardsTable.id, boardId.data)).returning();
   if (!board) { res.status(404).json({ error: "Rozvaděč nebyl nalezen." }); return; }
   const url = publicQrUrl(token, `${req.protocol}://${req.get("host")}`);
   await db.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "qr_token_rotated", entityType: "switchboard", entityId: board.id, payload: { tokenPrefix: board.qrTokenPrefix, expiresAt: board.qrExpiresAt?.toISOString() ?? null }, actorUserId: req.auth?.userId ?? null, actorName: req.auth?.name ?? req.auth?.username ?? null });
@@ -64,7 +65,7 @@ router.get("/switchboards/:id/qr/png", requirePermission("switchboards.qr.manage
     .from(switchboardsTable).where(eq(switchboardsTable.id, boardId.data));
   if (!board?.qrEnabled || !board.qrTokenCiphertext) { res.status(409).json({ error: "QR přístup není aktivní." }); return; }
   try {
-    const png = await renderQrPng(decryptQrToken(board.qrTokenCiphertext), `${req.protocol}://${req.get("host")}`);
+    const png = await renderQrPng(decryptQrToken(board.qrTokenCiphertext, boardId.data), `${req.protocol}://${req.get("host")}`);
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Content-Disposition", `attachment; filename="rozvadec-${boardId.data}-qr.png"`);
     res.setHeader("Cache-Control", "private, no-store");

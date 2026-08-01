@@ -84,6 +84,10 @@ process.env.GOOGLE_CLIENT_ID = "test-client-id";
 process.env.GOOGLE_CLIENT_SECRET = "test-client-secret";
 process.env.GOOGLE_REDIRECT_URI =
   "https://example.test/api/billing/email-import/callback";
+process.env.SECRET_ENCRYPTION_ACTIVE_KEY_ID = "gmail-test";
+process.env.SECRET_ENCRYPTION_KEYRING = JSON.stringify({
+  "gmail-test": Buffer.alloc(32, 0x61).toString("base64"),
+});
 process.env.TOKEN_ENCRYPTION_KEY = "0".repeat(64); // 64 hex chars → 32 bytes
 
 // Imported AFTER env + mocks so the module picks up the mocked deps.
@@ -95,6 +99,7 @@ const {
   updateAccountSettings,
 } = await import("../src/lib/gmail-import");
 const { encryptToken } = await import("../src/lib/token-crypto");
+const { envelopeKeyId } = await import("../src/lib/secret-envelope");
 const { sha256Of } = await import("../src/lib/cost-document-service");
 
 const TAG = `test-gmail-${Date.now()}`;
@@ -119,13 +124,13 @@ async function makeAccount(opts: {
   labelFilter?: string | null;
   labelAfterImport?: boolean;
 }): Promise<number> {
-  const [row] = await db
+  const [inserted] = await db
     .insert(emailImportAccountsTable)
     .values({
       provider: "gmail",
       status: "connected",
       emailAddress: `${TAG}@example.test`,
-      refreshTokenEncrypted: encryptToken("fake-refresh-token"),
+      refreshTokenEncrypted: null,
       scope: opts.labelAfterImport
         ? "https://www.googleapis.com/auth/gmail.modify"
         : "https://www.googleapis.com/auth/gmail.readonly",
@@ -134,6 +139,16 @@ async function makeAccount(opts: {
       connectedByUserId: userId,
       connectedAt: new Date(),
     })
+    .returning();
+  const encrypted = encryptToken("fake-refresh-token", inserted.id);
+  const [row] = await db
+    .update(emailImportAccountsTable)
+    .set({
+      refreshTokenEncrypted: encrypted,
+      refreshTokenKeyId: envelopeKeyId(encrypted),
+      refreshTokenEncryptedAt: new Date(),
+    })
+    .where(eq(emailImportAccountsTable.id, inserted.id))
     .returning();
   accountIds.push(row.id);
   return row.id;

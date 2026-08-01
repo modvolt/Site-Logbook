@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { eq } from "drizzle-orm";
 import { db, emailSettingsTable } from "@workspace/db";
+import { readStoredSecret } from "./stored-secret";
 
 export type SendEmailParams = {
   to: string | string[];
@@ -52,12 +53,21 @@ export async function resolveEmailConfig(): Promise<ResolvedEmailConfig> {
       );
     }
     const user = row.username?.trim() || undefined;
+    const password = readStoredSecret(
+      {
+        plaintext: row.password,
+        ciphertext: row.passwordCiphertext,
+        keyId: row.passwordKeyId,
+        encryptedAt: row.passwordEncryptedAt,
+      },
+      "email_settings:1:password",
+    );
     return {
       host: row.host,
       port: row.port ?? 587,
       secure: row.secure ?? row.port === 465,
       user,
-      pass: user ? row.password ?? undefined : undefined,
+      pass: user ? password ?? undefined : undefined,
       from: formatFrom(address, row.fromName),
     };
   }

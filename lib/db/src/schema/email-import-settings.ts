@@ -1,4 +1,5 @@
-import { pgTable, integer, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, integer, text, boolean, timestamp, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
  * Configuration for the incoming-mail importer (IMAP). Stored as a single row
@@ -10,9 +11,8 @@ import { pgTable, integer, text, boolean, timestamp } from "drizzle-orm/pg-core"
  * new messages, turns each supported attachment (ISDOC/XML/PDF/image) into a
  * received cost document and marks the message seen so it is not re-imported.
  *
- * Note: the password / app-password is stored as plaintext, consistent with the
- * existing outgoing e-mail settings and device-credential vault. It is never
- * returned by the API (write-only).
+ * The password is write-only at the API and new values use the externally keyed
+ * versioned envelope. `password` remains only for migration-time legacy reads.
  */
 export const emailImportSettingsTable = pgTable("email_import_settings", {
   id: integer("id").primaryKey().default(1),
@@ -24,6 +24,9 @@ export const emailImportSettingsTable = pgTable("email_import_settings", {
   secure: boolean("secure").notNull().default(true),
   username: text("username"),
   password: text("password"),
+  passwordCiphertext: text("password_ciphertext"),
+  passwordKeyId: text("password_key_id"),
+  passwordEncryptedAt: timestamp("password_encrypted_at"),
   // Mailbox/folder to read from (default INBOX).
   folder: text("folder").notNull().default("INBOX"),
   // Mark imported messages as \Seen so they are skipped on the next poll. This
@@ -38,6 +41,11 @@ export const emailImportSettingsTable = pgTable("email_import_settings", {
   lastError: text("last_error"),
 
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  check(
+    "email_import_settings_password_envelope_chk",
+    sql`(${t.passwordCiphertext} is null and ${t.passwordKeyId} is null and ${t.passwordEncryptedAt} is null) or (${t.passwordCiphertext} is not null and ${t.passwordKeyId} is not null and ${t.passwordEncryptedAt} is not null and ${t.password} is null)`,
+  ),
+]);
 
 export type EmailImportSettings = typeof emailImportSettingsTable.$inferSelect;
