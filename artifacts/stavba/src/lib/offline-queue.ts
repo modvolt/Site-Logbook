@@ -1,7 +1,7 @@
-// IndexedDB-backed offline queue for field operations. Version 2 stores every
+// IndexedDB-backed offline queue for field operations. Version 3 stores every
 // operation and blob under an immutable user + authorization scope. The v1
-// stores remain as a quarantine: legacy unowned data is counted, but no runtime
-// code reads or replays it.
+// stores remain as a quarantine, while a scope-local lease serializes replay
+// between tabs. Legacy unowned data is counted, but never read or replayed.
 
 export type OfflineOpType =
   | "add_material"
@@ -15,6 +15,12 @@ export type OfflineOpType =
   | "set_switchboard_checklist_response";
 
 export type OfflineOpStatus = "pending" | "failed";
+export type OfflineFailureKind =
+  | "auth"
+  | "conflict"
+  | "transient"
+  | "ambiguous"
+  | "permanent";
 
 export interface OfflineOwner {
   userId: number;
@@ -32,6 +38,8 @@ export interface OfflineOp {
   ownerUserId: number;
   ownerScope: string;
   errorMessage?: string;
+  failureKind?: OfflineFailureKind;
+  nextAttemptAt?: number;
 }
 
 interface StoredOfflineOp extends OfflineOp {
@@ -47,6 +55,13 @@ interface StoredOfflineBlob {
   ownerScope: string;
 }
 
+interface OfflineLeaseRecord {
+  ownerScope: string;
+  ownerUserId: number;
+  holderId: string;
+  expiresAt: number;
+}
+
 export interface OfflineIsolationSummary {
   lockedOps: number;
   lockedBlobs: number;
@@ -55,11 +70,12 @@ export interface OfflineIsolationSummary {
 }
 
 export const OFFLINE_DB_NAME = "stavba-offline-v1";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const LEGACY_STORE_OPS = "ops";
 const LEGACY_STORE_BLOBS = "blobs";
 const STORE_OPS = "scoped-ops";
 const STORE_BLOBS = "scoped-blobs";
+const STORE_LEASES = "scope-leases";
 const OWNER_SCOPE_INDEX = "ownerScope";
 
 function storageKey(owner: OfflineOwner, recordId: string): string {
@@ -92,6 +108,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_BLOBS)) {
         const store = db.createObjectStore(STORE_BLOBS, { keyPath: "storageKey" });
         store.createIndex(OWNER_SCOPE_INDEX, OWNER_SCOPE_INDEX, { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_LEASES)) {
+        db.createObjectStore(STORE_LEASES, { keyPath: "ownerScope" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -145,7 +164,17 @@ export async function getAllOps(owner: OfflineOwner): Promise<OfflineOp[]> {
 
 export async function enqueueOp(
   owner: OfflineOwner,
-  op: Omit<OfflineOp, "attempts" | "status" | "createdAt" | "ownerUserId" | "ownerScope">,
+  op: Omit<
+    OfflineOp,
+    | "attempts"
+    | "status"
+    | "createdAt"
+    | "ownerUserId"
+    | "ownerScope"
+    | "errorMessage"
+    | "failureKind"
+    | "nextAttemptAt"
+  >,
 ): Promise<OfflineOp> {
   validateOwner(owner);
   const record: StoredOfflineOp = {
@@ -291,4 +320,108 @@ export async function getOfflineIsolationSummary(
   } finally {
     db.close();
   }
+}
+
+function validateLease(holderId: string, ttlMs: number): void {
+  if (!holderId || holderId.length > 200 || !Number.isFinite(ttlMs) || ttlMs < 1_000) {
+    throw new Error("Neplatný lease offline synchronizace.");
+  }
+}
+
+function mutateLease(
+  owner: OfflineOwner,
+  holderId: string,
+  ttlMs: number,
+  now: number,
+  mode: "acquire" | "renew",
+): Promise<boolean> {
+  validateOwner(owner);
+  validateLease(holderId, ttlMs);
+  return openDb().then((db) => new Promise<boolean>((resolve, reject) => {
+    const transaction = db.transaction(STORE_LEASES, "readwrite");
+    const store = transaction.objectStore(STORE_LEASES);
+    const read = store.get(owner.scope);
+    let accepted = false;
+    read.onsuccess = () => {
+      const current = read.result as OfflineLeaseRecord | undefined;
+      const mayAcquire = mode === "acquire"
+        ? !current
+          || current.expiresAt <= now
+          || (current.holderId === holderId && current.ownerUserId === owner.userId)
+        : current?.holderId === holderId && current.ownerUserId === owner.userId;
+      if (!mayAcquire) return;
+      store.put({
+        ownerScope: owner.scope,
+        ownerUserId: owner.userId,
+        holderId,
+        expiresAt: now + ttlMs,
+      } satisfies OfflineLeaseRecord);
+      accepted = true;
+    };
+    read.onerror = () => reject(read.error);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(accepted);
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB lease transaction failed"));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB lease transaction aborted"));
+    };
+  }));
+}
+
+export function acquireOfflineLease(
+  owner: OfflineOwner,
+  holderId: string,
+  ttlMs: number,
+  now = Date.now(),
+): Promise<boolean> {
+  return mutateLease(owner, holderId, ttlMs, now, "acquire");
+}
+
+export function renewOfflineLease(
+  owner: OfflineOwner,
+  holderId: string,
+  ttlMs: number,
+  now = Date.now(),
+): Promise<boolean> {
+  return mutateLease(owner, holderId, ttlMs, now, "renew");
+}
+
+export async function releaseOfflineLease(
+  owner: OfflineOwner,
+  holderId: string,
+): Promise<boolean> {
+  validateOwner(owner);
+  validateLease(holderId, 1_000);
+  const db = await openDb();
+  return new Promise<boolean>((resolve, reject) => {
+    const transaction = db.transaction(STORE_LEASES, "readwrite");
+    const store = transaction.objectStore(STORE_LEASES);
+    const read = store.get(owner.scope);
+    let released = false;
+    read.onsuccess = () => {
+      const current = read.result as OfflineLeaseRecord | undefined;
+      if (current?.holderId !== holderId || current.ownerUserId !== owner.userId) return;
+      store.delete(owner.scope);
+      released = true;
+    };
+    read.onerror = () => reject(read.error);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(released);
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB lease release failed"));
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error ?? new Error("IndexedDB lease release aborted"));
+    };
+  });
 }

@@ -18,6 +18,9 @@ import {
   deleteBlob,
   saveBlob as saveStoredBlob,
   getOfflineIsolationSummary,
+  acquireOfflineLease,
+  renewOfflineLease,
+  releaseOfflineLease,
   type OfflineOp,
   type OfflineOwner,
   type OfflineOpType,
@@ -27,9 +30,17 @@ import { invalidateData } from "@/lib/query-invalidation";
 import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
 import { useAuth } from "@/hooks/use-auth";
-import { verifyOfflineReplayIdentity } from "@/lib/offline-replay";
+import { offlineBlobSha256, verifyOfflineReplayIdentity } from "@/lib/offline-replay";
+import {
+  OFFLINE_MAX_ATTEMPTS,
+  canManuallyRetryOfflineFailure,
+  normalizeReplayError,
+  offlineBackoffMs,
+  throwReplayResponse,
+} from "@/lib/offline-retry";
 
-const MAX_ATTEMPTS = 3;
+const LEASE_TTL_MS = 45_000;
+const LEASE_RENEW_MS = 15_000;
 
 interface EnqueueParams {
   id: string;
@@ -66,9 +77,14 @@ export function useOfflineQueue(): OfflineQueueContextValue {
 
 function replayHeaders(
   owner: OfflineOwner,
+  idempotencyKey: string,
   headers: Record<string, string> = {},
 ): Record<string, string> {
-  return { ...headers, "X-Stavba-Offline-Scope": owner.scope };
+  return {
+    ...headers,
+    "Idempotency-Key": idempotencyKey,
+    "X-Stavba-Offline-Scope": owner.scope,
+  };
 }
 
 async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
@@ -78,75 +94,57 @@ async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
     case "add_material": {
       const res = await fetch(`/api/jobs/${jobId}/materials`, {
         method: "POST",
-        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
+        headers: replayHeaders(owner, op.id, { "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Přidání materiálu selhalo");
       break;
     }
     case "start_timer": {
       const { personId } = payload as { personId: number };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}/start`, {
         method: "POST",
-        headers: replayHeaders(owner, { "Idempotency-Key": op.id }),
+        headers: replayHeaders(owner, op.id),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Spuštění časovače selhalo");
       break;
     }
     case "stop_timer": {
       const { personId } = payload as { personId: number };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}/stop`, {
         method: "POST",
-        headers: replayHeaders(owner, { "Idempotency-Key": op.id }),
+        headers: replayHeaders(owner, op.id),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Zastavení časovače selhalo");
       break;
     }
     case "set_material_consumed": {
       const { materialId, done } = payload as { materialId: number; done: boolean };
       const res = await fetch(`/api/jobs/${jobId}/materials/${materialId}`, {
         method: "PATCH",
-        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
+        headers: replayHeaders(owner, op.id, { "Content-Type": "application/json" }),
         body: JSON.stringify({ done }),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Změna spotřeby materiálu selhala");
       break;
     }
     case "add_work_session": {
       const res = await fetch(`/api/jobs/${jobId}/work-sessions`, {
         method: "POST",
-        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
+        headers: replayHeaders(owner, op.id, { "Content-Type": "application/json" }),
         body: JSON.stringify({ ...payload, idempotencyKey: op.id }),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Uložení pracovní relace selhalo");
       break;
     }
     case "set_hours": {
       const { personId, hours, reason } = payload as { personId: number; hours: number; reason: string };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}`, {
         method: "PATCH",
-        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
+        headers: replayHeaders(owner, op.id, { "Content-Type": "application/json" }),
         body: JSON.stringify({ hours, reason }),
       });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Nastavení hodin selhalo");
       break;
     }
     case "add_photo": {
@@ -157,24 +155,25 @@ async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
       };
       const blobEntry = await getBlob(owner, blobKey);
       if (!blobEntry) throw new Error("Fotka nebyla nalezena v lokálním úložišti.");
+      const contentSha256 = await offlineBlobSha256(blobEntry.blob);
 
       // Upload the blob to object storage
       const query = new URLSearchParams({ name: fileName, contentType });
       const uploadRes = await fetch(`/api/storage/uploads?${query}`, {
         method: "POST",
-        headers: replayHeaders(owner, { "Content-Type": contentType }),
+        headers: replayHeaders(owner, `${op.id}-upload`, {
+          "Content-Type": contentType,
+          "X-Stavba-Content-SHA256": contentSha256,
+        }),
         body: blobEntry.blob,
       });
-      if (!uploadRes.ok) {
-        const body = await uploadRes.text().catch(() => "");
-        throw new Error(`Nahrání fotky selhalo (HTTP ${uploadRes.status}): ${body.slice(0, 200)}`);
-      }
+      if (!uploadRes.ok) await throwReplayResponse(uploadRes, "Nahrání fotky selhalo");
       const { objectPath } = (await uploadRes.json()) as { objectPath: string };
 
       // Register attachment record
       const attachRes = await fetch(`/api/jobs/${jobId}/attachments`, {
         method: "POST",
-        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
+        headers: replayHeaders(owner, `${op.id}-attachment`, { "Content-Type": "application/json" }),
         body: JSON.stringify({
           type: "photo",
           fileName,
@@ -182,10 +181,7 @@ async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
           description: "Foto ze stavby",
         }),
       });
-      if (!attachRes.ok) {
-        const body = await attachRes.text().catch(() => "");
-        throw new Error(`Uložení fotky selhalo (HTTP ${attachRes.status}): ${body.slice(0, 200)}`);
-      }
+      if (!attachRes.ok) await throwReplayResponse(attachRes, "Uložení fotky selhalo");
 
       // Clean up the blob from IndexedDB now that it's on the server
       await deleteBlob(owner, blobKey);
@@ -199,18 +195,13 @@ async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
       };
       const blobEntry = await getBlob(owner, blobKey);
       if (!blobEntry) throw new Error("Fotografie rozvaděče nebyla nalezena v lokálním úložišti.");
+      const contentSha256 = await offlineBlobSha256(blobEntry.blob);
       const query = new URLSearchParams({ ...metadata, name: fileName, contentType });
-      const uploadRes = await fetch(`/api/switchboards/${boardId}/photos?${query}`, { method: "POST", headers: replayHeaders(owner, { "Content-Type": contentType, "Idempotency-Key": op.id }), body: blobEntry.blob });
-      if (!uploadRes.ok) {
-        const responseBody = await uploadRes.text().catch(() => "");
-        throw new Error(`Nahrání fotografie rozvaděče selhalo (HTTP ${uploadRes.status}): ${responseBody.slice(0, 200)}`);
-      }
+      const uploadRes = await fetch(`/api/switchboards/${boardId}/photos?${query}`, { method: "POST", headers: replayHeaders(owner, op.id, { "Content-Type": contentType, "X-Stavba-Content-SHA256": contentSha256 }), body: blobEntry.blob });
+      if (!uploadRes.ok) await throwReplayResponse(uploadRes, "Nahrání fotografie rozvaděče selhalo");
       if (completeChecklist) {
-        const response = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(completeChecklist.itemKey)}`, { method: "PATCH", headers: replayHeaders(owner, { "Content-Type": "application/json", "Idempotency-Key": `${op.id}-complete` }), body: JSON.stringify(completeChecklist.body) });
-        if (!response.ok) {
-          const responseBody = await response.text().catch(() => "");
-          throw new Error(`Dokončení fotografického bodu selhalo (HTTP ${response.status}): ${responseBody.slice(0, 200)}`);
-        }
+        const response = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(completeChecklist.itemKey)}`, { method: "PATCH", headers: replayHeaders(owner, `${op.id}-complete`, { "Content-Type": "application/json" }), body: JSON.stringify(completeChecklist.body) });
+        if (!response.ok) await throwReplayResponse(response, "Dokončení fotografického bodu selhalo");
       }
       await deleteBlob(owner, blobKey);
       break;
@@ -223,13 +214,10 @@ async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
       };
       const res = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(itemKey)}`, {
         method: "PATCH",
-        headers: replayHeaders(owner, { "Content-Type": "application/json", "Idempotency-Key": op.id }),
+        headers: replayHeaders(owner, op.id, { "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const responseBody = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${responseBody.slice(0, 200)}`);
-      }
+      if (!res.ok) await throwReplayResponse(res, "Uložení kontroly rozvaděče selhalo");
       break;
     }
     default:
@@ -255,6 +243,12 @@ export function opTypeLabel(type: OfflineOpType): string {
 
 // --- Provider ---
 
+function createLeaseHolderId(): string {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `stavba-tab-${suffix}`;
+}
+
 export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const isOnline = useOnlineStatus();
   const queryClient = useQueryClient();
@@ -269,6 +263,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const [legacyCount, setLegacyCount] = useState(0);
   const [isFlushing, setIsFlushing] = useState(false);
   const isFlushingRef = useRef(false);
+  const leaseHolderIdRef = useRef(createLeaseHolderId());
 
   // Load only the current identity partition. Other and legacy records remain
   // locked and are exposed only as counts, never as payloads.
@@ -333,8 +328,28 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
     if (isFlushingRef.current || !owner) return;
     isFlushingRef.current = true;
     setIsFlushing(true);
+    const leaseHolderId = leaseHolderIdRef.current;
+    let leaseHeld = false;
+    let leaseLost = false;
+    let leaseTimer: ReturnType<typeof setInterval> | null = null;
 
     try {
+      leaseHeld = await acquireOfflineLease(owner, leaseHolderId, LEASE_TTL_MS);
+      if (!leaseHeld) {
+        debugLog("offline-queue", "replay skipped: another tab owns the lease");
+        return;
+      }
+      leaseTimer = setInterval(() => {
+        void renewOfflineLease(owner, leaseHolderId, LEASE_TTL_MS)
+          .then((renewed) => {
+            if (!renewed) leaseLost = true;
+          })
+          .catch((error) => {
+            leaseLost = true;
+            debugLog("offline-queue", "lease renewal failed", error);
+          });
+      }, LEASE_RENEW_MS);
+
       const identity = await verifyOfflineReplayIdentity(owner);
       if (identity !== "verified") {
         debugLog("offline-queue", `replay paused: ${identity}`);
@@ -350,20 +365,26 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
         return;
       }
       const current = await reloadOps();
-      const pending = current.filter((o) => o.status === "pending");
+      const now = Date.now();
+      const pending = current.filter(
+        (op) => op.status === "pending" && (op.nextAttemptAt ?? 0) <= now,
+      );
       if (pending.length === 0) return;
 
       let succeeded = 0;
       let failedCount = 0;
-      const jobsAffected = new Set<number>();
+      let deferredCount = 0;
       const domainsToInvalidate = new Set<string>();
 
       for (const op of pending) {
+        if (leaseLost) {
+          debugLog("offline-queue", "replay stopped: cross-tab lease was lost");
+          break;
+        }
         try {
           await executeOp(owner, op);
           await deleteOp(owner, op.id);
           succeeded++;
-          jobsAffected.add(op.jobId);
           domainsToInvalidate.add("jobs");
           if (op.type === "add_material" || op.type === "set_material_consumed" || op.type === "add_photo") {
             domainsToInvalidate.add("warehouse");
@@ -372,17 +393,37 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
             domainsToInvalidate.add("switchboards");
           }
         } catch (err) {
-          const errorMessage =
-            err instanceof Error ? err.message : "Neznámá chyba";
+          const failure = normalizeReplayError(err);
+          if (failure.kind === "auth") {
+            setOps([]);
+            refreshAuth();
+            toast({
+              title: "Synchronizace pozastavena",
+              description: "Přihlášení nebo oprávnění se změnilo. Operace nebyla odeslána.",
+              variant: "destructive",
+            });
+            break;
+          }
+          const attempts = op.attempts + 1;
+          const retryable = failure.kind === "transient" && attempts < OFFLINE_MAX_ATTEMPTS;
           const updated: OfflineOp = {
             ...op,
-            attempts: op.attempts + 1,
-            errorMessage,
-            status: op.attempts + 1 >= MAX_ATTEMPTS ? "failed" : "pending",
+            attempts,
+            errorMessage: failure.message,
+            failureKind: failure.kind,
+            status: retryable ? "pending" : "failed",
+            nextAttemptAt: retryable
+              ? Date.now() + offlineBackoffMs(attempts, failure.retryAfterMs)
+              : undefined,
           };
           await updateOp(owner, updated);
-          failedCount++;
-          debugLog("offline-queue", `op ${op.id} (${op.type}) failed`, errorMessage);
+          if (retryable) deferredCount++;
+          else failedCount++;
+          debugLog("offline-queue", `op ${op.id} (${op.type}) failed as ${failure.kind}`, failure.message);
+          // Preserve FIFO ordering after a transient result. Conflict and
+          // permanent failures are isolated for manual resolution, so later
+          // independent operations may continue.
+          if (retryable) break;
         }
       }
 
@@ -395,7 +436,12 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
 
       await reloadOps();
 
-      if (succeeded > 0 && failedCount === 0) {
+      if (deferredCount > 0) {
+        toast({
+          title: "Synchronizace bude zopakována",
+          description: `${deferredCount} ${deferredCount === 1 ? "akce čeká" : "akcí čeká"} na automatický další pokus${succeeded > 0 ? `; ${succeeded} již odesláno` : ""}.`,
+        });
+      } else if (succeeded > 0 && failedCount === 0) {
         toast({
           title: `Synchronizace dokončena`,
           description: `${succeeded} ${succeeded === 1 ? "akce byla odeslána" : "akcí bylo odesláno"} na server.`,
@@ -414,6 +460,12 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
         });
       }
     } finally {
+      if (leaseTimer) clearInterval(leaseTimer);
+      if (leaseHeld) {
+        await releaseOfflineLease(owner, leaseHolderId).catch((error) => {
+          debugLog("offline-queue", "lease release failed", error);
+        });
+      }
       isFlushingRef.current = false;
       setIsFlushing(false);
     }
@@ -428,6 +480,24 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
     }, 800);
     return () => clearTimeout(timer);
   }, [isOnline, flushQueue]);
+
+  // A transient failure stores its next eligible attempt in IndexedDB. Only
+  // that bounded deadline schedules another flush; permanent, conflict and
+  // ambiguous outcomes remain visible for explicit user action.
+  useEffect(() => {
+    if (!isOnline || isFlushing) return;
+    const nextAttemptAt = ops
+      .filter((op) => op.status === "pending" && op.nextAttemptAt != null)
+      .reduce<number | null>(
+        (earliest, op) => earliest == null ? op.nextAttemptAt! : Math.min(earliest, op.nextAttemptAt!),
+        null,
+      );
+    if (nextAttemptAt == null) return;
+    const timer = setTimeout(() => {
+      void flushQueue();
+    }, Math.max(0, nextAttemptAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [flushQueue, isFlushing, isOnline, ops]);
 
   // SW Background Sync flush: the service worker posts OFFLINE_FLUSH when the
   // browser fires a "sync" event for the "offline-flush" tag (Chrome/Android).
@@ -446,8 +516,15 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const retryOp = useCallback(
     async (id: string) => {
       const op = ops.find((o) => o.id === id);
-      if (!op || !owner) return;
-      const updated: OfflineOp = { ...op, attempts: 0, status: "pending", errorMessage: undefined };
+      if (!op || !owner || !canManuallyRetryOfflineFailure(op.failureKind)) return;
+      const updated: OfflineOp = {
+        ...op,
+        attempts: 0,
+        status: "pending",
+        errorMessage: undefined,
+        failureKind: undefined,
+        nextAttemptAt: undefined,
+      };
       await updateOp(owner, updated);
       await reloadOps();
       if (isOnline) await flushQueue();

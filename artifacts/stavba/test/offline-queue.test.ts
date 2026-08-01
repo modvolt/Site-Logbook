@@ -2,12 +2,15 @@ import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   OFFLINE_DB_NAME,
+  acquireOfflineLease,
   deleteBlob,
   deleteOp,
   enqueueOp,
   getAllOps,
   getBlob,
   getOfflineIsolationSummary,
+  releaseOfflineLease,
+  renewOfflineLease,
   saveBlob,
   updateOp,
   type OfflineOwner,
@@ -107,5 +110,51 @@ describe.sequential("scoped offline IndexedDB", () => {
       legacyOps: 0,
       legacyBlobs: 0,
     });
+  });
+
+  it("allows only one tab to own a scope lease and protects owner release", async () => {
+    await expect(acquireOfflineLease(ownerA, "tab-a", 5_000, 10_000)).resolves.toBe(true);
+    await expect(acquireOfflineLease(ownerA, "tab-b", 5_000, 10_100)).resolves.toBe(false);
+    await expect(renewOfflineLease(ownerA, "tab-b", 5_000, 10_200)).resolves.toBe(false);
+    await expect(releaseOfflineLease(ownerA, "tab-b")).resolves.toBe(false);
+    await expect(renewOfflineLease(ownerA, "tab-a", 5_000, 10_300)).resolves.toBe(true);
+    await expect(releaseOfflineLease(ownerA, "tab-a")).resolves.toBe(true);
+    await expect(acquireOfflineLease(ownerA, "tab-b", 5_000, 10_400)).resolves.toBe(true);
+  });
+
+  it("serializes a simultaneous lease race between two tabs", async () => {
+    const results = await Promise.all([
+      acquireOfflineLease(ownerA, "tab-a", 5_000, 10_000),
+      acquireOfflineLease(ownerA, "tab-b", 5_000, 10_000),
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("permits takeover only after lease expiry and rejects the stale holder", async () => {
+    await expect(acquireOfflineLease(ownerA, "tab-a", 1_000, 1_000)).resolves.toBe(true);
+    await expect(acquireOfflineLease(ownerA, "tab-b", 1_000, 1_999)).resolves.toBe(false);
+    await expect(acquireOfflineLease(ownerA, "tab-b", 1_000, 2_000)).resolves.toBe(true);
+    await expect(renewOfflineLease(ownerA, "tab-a", 1_000, 2_001)).resolves.toBe(false);
+    await expect(releaseOfflineLease(ownerA, "tab-a")).resolves.toBe(false);
+  });
+
+  it("persists bounded retry classification with the owned operation", async () => {
+    const op = await enqueueOp(ownerA, queued);
+    await updateOp(ownerA, {
+      ...op,
+      attempts: 2,
+      failureKind: "transient",
+      errorMessage: "Dočasně nedostupné",
+      nextAttemptAt: 42_000,
+    });
+
+    await expect(getAllOps(ownerA)).resolves.toEqual([
+      expect.objectContaining({
+        attempts: 2,
+        failureKind: "transient",
+        nextAttemptAt: 42_000,
+      }),
+    ]);
   });
 });

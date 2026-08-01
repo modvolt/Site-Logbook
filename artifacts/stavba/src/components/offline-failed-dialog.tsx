@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import { cs } from "date-fns/locale";
 import { AlertTriangle, RefreshCw, Trash2 } from "lucide-react";
 import { useOfflineQueue, opTypeLabel } from "@/hooks/use-offline-queue";
+import { canManuallyRetryOfflineFailure } from "@/lib/offline-retry";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,17 @@ import { Button } from "@/components/ui/button";
 interface Props {
   open: boolean;
   onClose: () => void;
+}
+
+function failureLabel(kind: string | undefined): string | null {
+  switch (kind) {
+    case "ambiguous": return "Výsledek je nejasný – nejprve ověřte stav na serveru.";
+    case "conflict": return "Data se mezitím změnila – zkontrolujte aktuální stav.";
+    case "auth": return "Přihlášení nebo oprávnění se změnilo.";
+    case "transient": return "Automatické pokusy byly vyčerpány.";
+    case "permanent": return "Požadavek vyžaduje opravu nebo nové zadání.";
+    default: return null;
+  }
 }
 
 export function OfflineFailedDialog({ open, onClose }: Props) {
@@ -52,6 +64,11 @@ export function OfflineFailedDialog({ open, onClose }: Props) {
                         {op.errorMessage}
                       </p>
                     )}
+                    {failureLabel(op.failureKind) && (
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mt-1">
+                        {failureLabel(op.failureKind)}
+                      </p>
+                    )}
                   </div>
                 </div>
                 {op.type === "add_material" && typeof op.payload.name === "string" && op.payload.name && (
@@ -64,6 +81,7 @@ export function OfflineFailedDialog({ open, onClose }: Props) {
                     size="sm"
                     variant="outline"
                     onClick={() => retryOp(op.id)}
+                    disabled={!canManuallyRetryOfflineFailure(op.failureKind)}
                     className="h-8 text-xs"
                   >
                     <RefreshCw className="w-3 h-3 mr-1" /> Opakovat

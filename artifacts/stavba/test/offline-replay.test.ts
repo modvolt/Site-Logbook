@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { verifyOfflineReplayIdentity } from "../src/lib/offline-replay";
+import { offlineBlobSha256, verifyOfflineReplayIdentity } from "../src/lib/offline-replay";
 
 const owner = { userId: 7, scope: "a".repeat(64) };
 
@@ -11,6 +11,12 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("offline replay identity verification", () => {
+  it("creates a stable SHA-256 digest for raw offline uploads", async () => {
+    await expect(offlineBlobSha256(new Blob(["abc"]))).resolves.toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+  });
+
   it("bypasses caches and accepts only the exact live owner", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ authenticated: true, offlineScope: owner.scope, user: { id: owner.userId } }),
