@@ -13,14 +13,15 @@ Teprve na tomto základě má smysl zavádět durable audit/outbox, DB invariant
 
 Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolovaných změnách s regresními testy. Každá migrace používá expand–migrate–contract, samostatný backfill, měření a předem ověřený návratový postup.
 
-### Stav realizace po FÁZI 8.2
+### Stav realizace po FÁZI 8.3
 
 | Workstream | Stav | Důkaz | Zbývající hranice |
 |---|---|---|---|
 | R00 | Dokončeno lokálně | `f1bb210`, `2c660c1`; hermetický `pnpm gate:release` prošel 2026-08-01 | potvrdit první běh nového GitHub Actions workflow; rozšířený ephemeral DB/E2E stack patří do R14 |
 | R01 | Dokončeno lokálně | `da5e734`, `f5f6349`, `8ddea6d`, `b5ef912`, `bf18843`; izolovaný PostgreSQL test prokázal paralelní setup, rotaci cookie, revokaci dvou agents a odmítnutí znovuuložené staré session | před produkcí aplikovat migraci `0096`, připravit oznámení jednorázového odhlášení a sledovat 401/login chyby |
+| R02 | Částečně dokončeno lokálně | `77422e6`, `8d3c4b9`; explicitní public-route matice 29/29 a izolovaná DB/API autorizační sada 5/5 | SEC-06 fail-closed step-up, SEC-10 objektové vlastnictví a úplný route manifest default-deny zůstávají otevřené |
 
-FÁZE 8.1 ani 8.2 nic nenasadily ani neposlaly na remote. R02 a další workstreamy nebyly zahájeny. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
+FÁZE 8.1–8.3 nic nenasadily ani neposlaly na remote. R02 je po prvním izolovaném řezu stále otevřené; další workstreamy nebyly zahájeny. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md).
 
 ## 2. Definice priorit
 
@@ -110,6 +111,8 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Hotovo když:** testy dokazují rotaci session, administrátorem řízený recovery a revokaci všech relací. Lokálně splněno včetně generation guardu proti souběžnému znovuuložení staré session; produkční rollout ještě neproběhl.
 
 ### R02 – Fail-closed autorizace a objektové vlastnictví
+
+- **Stav:** první izolovaný řez dokončen lokálně ve FÁZI 8.3 (`77422e6`, `8d3c4b9`). SEC-22 je uzavřeno explicitní method/path public policy a SEC-05 aditivním vynucením `credentials.*` na všech cestách trezoru. SEC-06, SEC-10 a úplný default-deny route manifest zůstávají otevřené.
 
 - **Přínos:** permissions platí jednotně pro API, trezor i soubory a nelze stahovat data pouhou znalostí cesty.
 - **Riziko neprovedení:** IDOR, obejití deny override a budoucí veřejná `/api/internal/*` route.

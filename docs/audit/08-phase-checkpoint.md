@@ -1,92 +1,104 @@
-# Checkpoint FÁZE 8.2 – dokončení R01
+# Checkpoint FÁZE 8.3 – první izolovaný řez R02
 
-- **Stav:** FÁZE 8.2 dokončena; R01 je lokálně dokončeno. R02 ani FÁZE 9 nebyly zahájeny.
-- **Výchozí revize:** `ee605e6` (`main`; lokálně sedm commitů před `origin/main`).
-- **Výsledná implementační revize:** `bf18843` (`main`); dokumentační checkpoint je následný samostatný commit.
-- **Produkční zásah:** žádný. Nebyla použita produkční DB, secrets ani externí provider; nic nebylo pushnuto ani nasazeno.
+- **Stav:** FÁZE 8.3 dokončena; první řez R02 je lokálně implementován a ověřen. R02 jako celek ani FÁZE 9 dokončeny nejsou.
+- **Výchozí revize:** `2957d32` (`main`; lokálně deset commitů před `origin/main`).
+- **Výsledná implementační revize:** `8d3c4b9` (`main`); dokumentační checkpoint je následný samostatný commit.
+- **Produkční zásah:** žádný. Nebyla použita produkční DB, produkční secrets, `modvoltapp.cz` ani externí provider; nic nebylo pushnuto ani nasazeno.
+- **Migrace:** žádná.
 
-## 1. Problém, návrh a hranice změny
+## 1. Uzavřené nálezy a hranice řezu
 
-FÁZE 8.1 mazala sessions při změně hesla nebo deaktivaci. Request, který session načetl těsně před revokací, ji však mohl po smazání znovu uložit. Samotné mazání řádků proto nebylo dostatečným důkazem globálního odvolání.
+Tento řez řeší dvě samostatné autorizační chyby:
 
-Zvolené řešení přidává uživateli monotónní `session_generation`:
+1. **SEC-22:** globální prefix `/api/internal/*` obcházel autentizaci i permission middleware. Každá budoucí interní route by se tím stala veřejnou bez explicitního rozhodnutí.
+2. **SEC-05:** zákaznické cesty k plaintext trezoru byly globálně mapovány jen na `customers.*` a následně chráněny rolí. Per-user deny override `credentials.view` nebo `credentials.manage` proto nemusel platit.
 
-1. přihlášení uloží aktuální generaci do session;
-2. změna hesla, deaktivace, servisní reset a hromadná revokace zvýší generaci ve stejné transakci jako smazání sessions;
-3. `attachAuth` porovná session s aktuálním uživatelem a starou nebo bezverzní session zničí a odstraní cookie;
-4. při odvolání ostatních vlastních sessions se současné session zapíše nová generace před odpovědí.
+Záměrně nebyly řešeny zbývající části R02:
 
-Tím se po dokončení již běžícího requestu znovuuložená stará session při příštím požadavku odmítne. Request autorizovaný ještě před revokací nelze bez distribuovaného per-request locku zastavit uprostřed provádění; nová ochrana řeší jeho následnou použitelnost.
+- **SEC-06:** WebAuthn step-up nyní propouští uživatele bez registrovaného credentialu a při DB chybě selhává otevřeně;
+- **SEC-10:** generické stahování `/storage/objects/*` nemá spolehlivě doložené vlastnictví/účel objektu;
+- úplný manifest všech chráněných rout s default-deny chováním; necatalogované routy stále používají dosavadní kompatibilní fallback.
 
-## 2. Logické commity
+## 2. Výsledná autorizační architektura
+
+Po `attachAuth` rozhoduje jediná čistá policy funkce o veřejnosti requestu podle kombinace HTTP metody a normalizované cesty. Veřejný povrch tvoří pouze aktuální health/auth vstupy, public-object cesta, podpisové a quote/board tokenové cesty a přesný `POST /api/internal/backup-trigger`. Podobná cesta, jiná metoda nebo budoucí `/api/internal/*` je soukromá a projde `requireAuth`.
+
+Interní backup trigger navíc používá limit 10 pokusů za 15 minut na instanci a bearer token porovnává přes SHA-256 digesty pomocí `timingSafeEqual`. Chybějící serverový secret dál vrací `503`, chybný token `401`.
+
+Trezor skládá oprávnění ve dvou vrstvách:
+
+| Operace | Oprávnění rodičovského modulu | Dodatečné oprávnění trezoru |
+|---|---|---|
+| seznam, audit view/export, odeslání plaintext exportu | `customers.view` nebo `customers.manage` podle route | `credentials.view` |
+| vytvoření credentialu | `customers.view` + `customers.manage` | `credentials.manage` |
+| změna a smazání credentialu | globální view guard nad credential modulem | `credentials.manage` |
+
+Role už není náhradou za explicitní `credentials.*`. Allow/deny override se načítá pro každý request a deny proto platí i pro `master` uživatele.
+
+## 3. Logické commity a návrat
 
 | Commit | Změna | Návrat |
 |---|---|---|
-| `b5ef912` | aditivní migrace `0096`, session generation v login/middleware a atomické zvýšení při globální revokaci | preferovaný návrat je revert aplikace a ponechání nevyužitého sloupce; DOWN je povolen jen dokud žádná generace nepřekročila 1 |
-| `bf18843` | fail-closed izolovaný DB runner a čtyři skutečné API/session scénáře | revert testovacího commitu nemá datový dopad |
+| `77422e6` | přesná public API policy; odstranění `/api/internal/*` prefixu; rate limit a časově bezpečný token backup triggeru; 29 kontraktových testů | samostatný revert; při návratu se znovu otevře původní fail-open interní prefix, proto je vhodnější forward-fix případné chybějící legitimní public route |
+| `8d3c4b9` | explicitní `credentials.view/manage` na všech vault cestách, aktualizované OpenAPI výstupy a izolovaná DB/API negativní matice | samostatný revert; obnoví původní role-based bypass deny override, bez datové nebo migrační změny |
 
-## 3. Migrace, rollout a rollback
-
-- `0096_daffy_puppet_master.sql` pouze přidá `users.session_generation integer DEFAULT 1 NOT NULL`.
-- Neprovádí mazání ani samostatný backfill; konstanta zachová existující uživatele.
-- První nasazení nové aplikace záměrně odmítne existující sessions bez generace. Uživatelé se jednou znovu přihlásí.
-- Preferovaný rollback je vrátit aplikační commit a sloupec ponechat. Starší aplikace jej ignoruje.
-- Destruktivní DOWN je chráněn: pokud některá generace již vzrostla nad 1, skončí chybou, protože odstranění epochy by mohlo znovu připustit starou session.
-- Pro více souběžných API instancí je třeba nejprve aplikovat migraci, následně v krátkém okně vyměnit všechny instance. Smíšené staré a nové instance mohou dočasně způsobovat opakované odhlášení.
+Změny lze vracet nezávisle. Žádný rollback nemění schéma ani data. Při hlášeném `401` na legitimní veřejné cestě se má nejprve doplnit přesná method/path výjimka s kontraktovým testem, nikoli vracet široký prefix.
 
 ## 4. Provedené kontroly
 
+### Cílené kontroly
+
+- API TypeScript a následně root TypeScript typecheck: prošly;
+- explicitní public-route kontrakt: 1 soubor, 29/29 testů;
+- OpenAPI codegen pro React klienta a Zod schémata: prošel;
+- `git diff --check`: prošel.
+
 ### Izolovaný PostgreSQL 18
 
-Byl vytvořen jednorázový cluster v systémovém temp adresáři, naslouchající pouze na `127.0.0.1` na dočasném portu. Nepoužil běžící lokální službu ani projektovou/produkční DB. Po testu byla dočasná DB odstraněna, server zastaven a celý temp adresář smazán.
+Jednorázový cluster běžel pouze na `127.0.0.1` v náhodném systémovém temp adresáři a portu. Ambientní `DATABASE_URL` byla odstraněna; runner přijal pouze explicitní loopback `TEST_DATABASE_URL` s testovacím názvem. Po sadě byla náhodná DB odstraněna, server zastaven a temp adresář smazán.
 
-- fresh migration chain včetně `0096`: prošel;
-- migrace vpřed → chráněný DOWN → opět vpřed: prošla;
-- rollback po skutečném zvýšení generace: správně zablokován;
-- paralelní prvotní setup: právě jeden výsledek `201`, druhý `409`;
-- rotace anonymní cookie na přihlášenou: původní SID odstraněno, nové SID odlišné;
-- změna hesla se dvěma skutečnými supertest agents: obě staré sessions odvolány;
-- ručně znovuvložený starý session řádek: middleware jej odmítl a zničil;
-- odvolání ostatních vlastních sessions: aktuální session zůstala platná s novou generací;
-- cílená DB sada: 1 soubor, 4/4 testů.
+- migration chain a forward → DOWN → forward: prošly;
+- stávající auth/session lifecycle: 4/4;
+- nový skutečný DB/API test R02: 5/5;
+- `credentials.view` deny zablokoval seznam, oba auditní vstupy a odeslání exportu;
+- `credentials.manage` deny ponechal čtení, ale zablokoval create/patch/delete;
+- deny `customers.*` zablokoval customer-scoped vault i při povolených `credentials.*`;
+- neznámá a wrong-method interní cesta bez session vrátila `401`;
+- přesný backup trigger byl veřejně dosažitelný, ale chybný bearer vrátil `401`;
+- použitá session generation dál správně blokovala destruktivní rollback migrace `0096`.
 
 ### Hermetická release brána
 
-Závěrečný `pnpm gate:release` nad `bf18843` prošel bez DB a provider secretů:
+Závěrečný `pnpm gate:release` nad `8d3c4b9` prošel bez DB a provider secretů:
 
 - všechny TypeScript typechecky: prošly;
-- guard prostředí: 5/5;
+- guard testovacího prostředí: 5/5;
 - frontend: 78/78;
 - `live-events`: 15/15;
-- API hermetická sada: 22 souborů, 133/133;
+- API unit/contract sada: 23 souborů, 162/162;
 - API production build: prošel;
-- PWA production build a service worker: prošly;
-- zůstává známé neblokující upozornění na velké Vite chunky (`index` přibližně 824 kB, HEIC přibližně 1,35 MB).
+- frontend production build, PWA a service worker: prošly.
 
-Záměrně nebyla spuštěna produkční migrace, recovery CLI, produkční smoke, externí služby ani vzdálený GitHub Actions workflow.
+Zůstává známé neblokující Vite upozornění na velké chunky (`index` přibližně 824 kB a HEIC přibližně 1,35 MB). Produkční smoke, DAST, remote CI, migrace a nasazení záměrně spuštěny nebyly.
 
-## 5. Výsledek R01 a neuzavřené otázky
+## 5. Nejasnosti a zbytková rizika
 
-R01 je z pohledu lokální implementace a izolovaného důkazu dokončeno: otázková obnova je odstraněna, servisní recovery je administrátorem řízené, session IDs se při autentizaci rotují, prvotní setup je serializovaný a globální revoke je chráněný generací.
+1. Aktuální WebAuthn step-up nemá bezpečný password fallback pro uživatele bez biometrického credentialu. Pouhé přepnutí na fail-closed by mohlo legitimní uživatele z trezoru uzamknout.
+2. Objektové cesty nemají jednotné owner/domain metadata. Před vynucením vlastnictví je nutná inventura existujících object paths a rozhodnutí, zda stačí deterministická vazba z doménových tabulek, nebo bude potřebná aditivní metadata migrace a backfill.
+3. Globální permission middleware stále připouští kompatibilní fallback pro necatalogované routy. Úplný default-deny manifest musí nejprve prokázat pokrytí legitimních interních workflow, jinak hrozí plošné `403`.
+4. Rate limiter backup triggeru používá procesový store; při více API instancích je limit per-instance. Secret musí zůstat vysokoentropický a rotovatelný.
+5. Přísnější deny override může nově odhalit nekonzistentní produkční konfiguraci oprávnění. Před rolloutem je vhodný read-only přehled dotčených uživatelů a monitorování nových `401/403`, nikoli automatická úprava jejich oprávnění.
 
-Před produkčním rolloutem zůstává provozní rozhodnutí, nikoli další implementace R01:
+## 6. Jednoznačný checkpoint a doporučení pro další spuštění
 
-1. naplánovat jednorázové odhlášení uživatelů a oznámit odstranění self-service obnovy;
-2. ověřit serverový recovery účet/postup a organizační kontrolu operátora;
-3. připravit monitoring nárůstu 401 a neúspěšných loginů;
-4. aplikovat `0096` před spuštěním nové aplikace a nemíchat dlouhodobě staré a nové instance;
-5. po nasazení neprovádět DOWN, pokud již některá generace vzrostla; použít aplikační rollback nebo forward-fix.
+**CHECKPOINT FÁZE 8.3:** lokální implementace SEC-22 a SEC-05 je dokončena a ověřena. R02 zůstává otevřené kvůli SEC-06, SEC-10 a úplnému default-deny route manifestu. Nebyl proveden push, deploy, produkční test ani migrace. V tomto spuštění se nepokračuje do dalšího řezu ani FÁZE 9.
 
-Dormantní tabulka `security_questions` a historická data zůstávají beze změny pro pozdější retenční rozhodnutí. R02 a další P0 nálezy zůstávají neopravené.
-
-## 6. Checkpoint a doporučení pro další spuštění
-
-- **další fáze:** FÁZE 8.3 – R02, fail-closed autorizace a objektové vlastnictví; nejprve znovu ověřit negativní matici ze security auditu a rozdělit změnu na malé authorization slices.
+- **další fáze:** FÁZE 8.4 – druhý izolovaný řez R02: fail-closed vault step-up (SEC-06) a objektové vlastnictví souborů (SEC-10); pokud inventura potvrdí velký rozsah, rozdělit na 8.4a a 8.4b s checkpointem mezi nimi.
 - **doporučený model:** GPT-5.6 Sol
 - **doporučený reasoning:** xhigh
-- **důvod použití této úrovně:** R02 zasahuje centrální permission middleware, deny override, vlastnictví souborů a interní routy. Chyba může otevřít IDOR nebo naopak zablokovat oprávněné pracovní workflow.
-- **očekávané činnosti:** zmapovat všechny chráněné routy proti aktuální permission matici; doplnit fail-closed výchozí stav a negativní 401/403/wrong-owner testy; izolovaně opravit první nejrizikovější slice a vytvořit samostatný checkpoint, pokud R02 přesáhne rozumný rozsah.
-- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/app.ts`, `artifacts/api-server/src/middlewares/permissions.ts`, vybrané storage/download/internal routy, `lib/db/src/permissions.ts`, cílené authorization testy, centrální roadmapa a tento checkpoint.
-- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Fail-closed změny mohou způsobit plošné 403; objektové vlastnictví může vyžadovat aditivní owner metadata a backfill. Každá případná migrace musí mít izolovaný test, měření nevyplněných vlastníků a samostatný rollout/rollback bod.
+- **důvod použití této úrovně:** návrh musí současně zabránit fail-open při DB chybě, zachovat obnovitelný přístup bez WebAuthn a odvodit vlastnictví historických objektů bez IDOR nebo plošného uzamčení legitimních downloadů.
+- **očekávané činnosti:** zmapovat WebAuthn/password step-up stav a všechny konzumenty privátních object paths; navrhnout fail-closed recovery tok; vytvořit owner/domain inventuru a negativní wrong-owner matici; teprve poté implementovat nejmenší bezpečný řez s izolovaným DB/storage testem, rollout metrikou a rollbackem.
+- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/middlewares/auth.ts`, vybrané auth/WebAuthn a storage/download routy, `artifacts/api-server/src/lib/objectStorage.ts`, příslušné frontend vault komponenty, DB schémata/migrace pouze pokud inventura prokáže potřebu owner metadata, cílené authorization/storage testy, roadmapa a tento checkpoint.
+- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Objektové vlastnictví může vyžadovat aditivní owner/domain metadata a restartovatelný backfill; fail-closed step-up může způsobit lockout nebo nové `403`. Případná migrace musí být expand-only, mít dry-run/reconciliation, izolovaný forward test a samostatný rollout/rollback checkpoint.
 
-Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**. FÁZI 9 nezačínej, dokud nejsou dokončeny schválené implementační vlny FÁZE 8.
+Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**.
