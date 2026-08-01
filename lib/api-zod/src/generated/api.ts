@@ -3989,6 +3989,9 @@ export const VerifyVaultPasswordResponse = zod.object({
 /**
  * @summary Current authenticated user (or setup info)
  */
+export const getMeResponseOfflineScopeRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
 export const GetMeResponse = zod.object({
   "authenticated": zod.boolean(),
   "needsSetup": zod.boolean().describe('True when no users exist yet — show setup screen'),
@@ -4006,7 +4009,8 @@ export const GetMeResponse = zod.object({
   "permission": zod.string(),
   "effect": zod.enum(['allow', 'deny'])
 }))
-}).optional()
+}).optional(),
+  "offlineScope": zod.string().regex(getMeResponseOfflineScopeRegExp).optional().describe('Opaque user and authorization epoch used only to partition browser offline storage')
 })
 
 

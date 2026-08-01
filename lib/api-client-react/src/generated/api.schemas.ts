@@ -3141,6 +3141,11 @@ export interface MeResponse {
   /** True when no users exist yet — show setup screen */
   needsSetup: boolean;
   user?: AuthUser;
+  /**
+     * Opaque user and authorization epoch used only to partition browser offline storage
+     * @pattern ^[a-f0-9]{64}$
+     */
+  offlineScope?: string;
 }
 
 export interface SetupInput {

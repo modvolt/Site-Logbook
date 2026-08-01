@@ -257,6 +257,32 @@ describe("credential vault permission composition", () => {
 });
 
 describe("internal API boundary integration", () => {
+  it("returns a private authorization scope that is stable only for the same identity epoch", async () => {
+    const sameSession = await fullAccess.agent.get("/api/auth/me");
+    const nextSession = await (await loginActor(fullAccess.username)).get("/api/auth/me");
+    const otherIdentity = await cannotView.agent.get("/api/auth/me");
+
+    expect(sameSession.status).toBe(200);
+    expect(sameSession.headers["cache-control"]).toBe("private, no-store");
+    expect(sameSession.body.offlineScope).toMatch(/^[a-f0-9]{64}$/);
+    expect(nextSession.body.offlineScope).toBe(sameSession.body.offlineScope);
+    expect(otherIdentity.body.offlineScope).not.toBe(sameSession.body.offlineScope);
+
+    const accepted = await fullAccess.agent
+      .get("/api/sessions")
+      .set("X-Stavba-Offline-Scope", sameSession.body.offlineScope);
+    expect(accepted.status).toBe(200);
+
+    const rejected = await fullAccess.agent
+      .get("/api/sessions")
+      .set("X-Stavba-Offline-Scope", "f".repeat(64));
+    expect(rejected.status).toBe(409);
+    expect(rejected.body).toEqual({
+      error: "Offline identity changed",
+      code: "offline_scope_mismatch",
+    });
+  });
+
   it("keeps unknown and wrong-method internal routes behind session auth", async () => {
     const unknown = await request(app).post("/api/internal/future-admin-action");
     expect(unknown.status).toBe(401);

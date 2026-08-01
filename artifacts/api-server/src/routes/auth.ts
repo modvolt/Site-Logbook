@@ -7,6 +7,7 @@ import { LoginBody, SetupFirstAdminBody, VerifyVaultPasswordBody } from "@worksp
 import { getPermissionOverrides } from "../lib/permissions";
 import { establishAuthenticatedSession } from "../lib/auth-session";
 import { establishVaultStepUp } from "../lib/vault-step-up";
+import { createOfflineIdentityScope } from "../lib/offline-identity";
 
 const router: IRouter = Router();
 
@@ -102,7 +103,18 @@ router.get("/auth/me", async (req, res): Promise<void> => {
       return;
     }
     const overrides = await getPermissionOverrides(u.id);
-    res.json({ authenticated: true, needsSetup: false, user: serializeUser(u, overrides) });
+    const user = serializeUser(u, overrides);
+    res.json({
+      authenticated: true,
+      needsSetup: false,
+      offlineScope: createOfflineIdentityScope({
+        userId: u.id,
+        sessionGeneration: u.sessionGeneration,
+        role: u.role as UserRole,
+        permissions: user.permissions,
+      }),
+      user,
+    });
     return;
   }
   res.json({ authenticated: false, needsSetup: totalUsers === 0 });

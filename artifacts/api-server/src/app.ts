@@ -12,6 +12,7 @@ import { auditMutations } from "./middlewares/audit";
 import { rejectArchivedJobMutations } from "./middlewares/archived-job";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
+import { enforceOfflineReplayScope } from "./middlewares/offline-replay-scope";
 import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
 
@@ -136,6 +137,15 @@ app.use(
   }),
 );
 
+// API responses contain user- and permission-scoped data. Browser HTTP caches
+// must never retain them implicitly; the service worker may persist only its
+// explicit offline allowlist in a separate identity-partitioned Cache Storage
+// namespace.
+app.use("/api", (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
+
 app.use("/api", attachAuth);
 app.use("/api", trackSessionActivity);
 
@@ -143,6 +153,8 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (isPublicApiRequest(req.method, req.originalUrl)) return next();
   return requireAuth(req, res, next);
 });
+
+app.use("/api", enforceOfflineReplayScope);
 
 // Enforce module permissions on the backend. Role defaults are resolved with
 // per-user allow/deny overrides before this middleware runs.

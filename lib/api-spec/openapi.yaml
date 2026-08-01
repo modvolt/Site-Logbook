@@ -10976,6 +10976,10 @@ components:
           description: True when no users exist yet — show setup screen
         user:
           $ref: "#/components/schemas/AuthUser"
+        offlineScope:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: Opaque user and authorization epoch used only to partition browser offline storage
 
     SetupInput:
       type: object
