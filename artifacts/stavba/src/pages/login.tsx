@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { debugLog, hardRefreshApp } from "@/lib/pwa";
+import { clearApiCache, debugLog, hardRefreshApp } from "@/lib/pwa";
 
 export default function Login() {
   const { needsSetup, refresh } = useAuth();
@@ -49,6 +49,7 @@ export default function Login() {
     const trimmedUsername = username.trim();
     setBiometricLoading(true);
     try {
+      await clearApiCache();
       const options = await webauthnBegin.mutateAsync({
         data: trimmedUsername ? { username: trimmedUsername } : {},
       });
@@ -73,7 +74,7 @@ export default function Login() {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: typeof fieldErrors = {};
     if (!username.trim()) errs.username = "Zadejte uživatelské jméno.";
@@ -84,23 +85,29 @@ export default function Login() {
     }
     setFieldErrors({});
     debugLog("auth", "login attempt");
-    login.mutate({ data: { username: username.trim(), password } }, {
-      onSuccess: () => { goToApp(); toast({ title: `Vítej, ${username}` }); },
-      onError: () => {
-        setFieldErrors({ password: "Špatné uživatelské jméno nebo heslo." });
-      },
-    });
+    try {
+      await clearApiCache();
+      await login.mutateAsync({ data: { username: username.trim(), password } });
+      goToApp();
+      toast({ title: `Vítej, ${username}` });
+    } catch {
+      setFieldErrors({ password: "Špatné uživatelské jméno nebo heslo." });
+    }
   };
 
-  const handleSetup = (e: React.FormEvent) => {
+  const handleSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password || !name) return;
     if (password.length < 12) { setSetupError("Heslo musí mít aspoň 12 znaků."); return; }
     setSetupError(null);
-    setup.mutate({ data: { username, password, name, email: email || null } }, {
-      onSuccess: () => { goToApp(); toast({ title: "Admin účet vytvořen" }); },
-      onError: (err: any) => setSetupError(err?.message ?? "Nepodařilo se vytvořit účet."),
-    });
+    try {
+      await clearApiCache();
+      await setup.mutateAsync({ data: { username, password, name, email: email || null } });
+      goToApp();
+      toast({ title: "Admin účet vytvořen" });
+    } catch (error: any) {
+      setSetupError(error?.message ?? "Nepodařilo se vytvořit účet.");
+    }
   };
 
   return (

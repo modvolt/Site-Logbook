@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useCallback,
@@ -15,13 +16,18 @@ import {
   deleteOp,
   getBlob,
   deleteBlob,
+  saveBlob as saveStoredBlob,
+  getOfflineIsolationSummary,
   type OfflineOp,
+  type OfflineOwner,
   type OfflineOpType,
 } from "@/lib/offline-queue";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { invalidateData } from "@/lib/query-invalidation";
 import { useToast } from "@/hooks/use-toast";
 import { debugLog } from "@/lib/pwa";
+import { useAuth } from "@/hooks/use-auth";
+import { verifyOfflineReplayIdentity } from "@/lib/offline-replay";
 
 const MAX_ATTEMPTS = 3;
 
@@ -38,7 +44,10 @@ interface OfflineQueueContextValue {
   failedOps: OfflineOp[];
   pendingCount: number;
   failedCount: number;
+  lockedCount: number;
+  legacyCount: number;
   enqueue: (params: EnqueueParams) => Promise<void>;
+  saveBlob: (key: string, blob: Blob, fileName: string) => Promise<void>;
   retryOp: (id: string) => Promise<void>;
   discardOp: (id: string) => Promise<void>;
   discardAll: () => Promise<void>;
@@ -55,14 +64,21 @@ export function useOfflineQueue(): OfflineQueueContextValue {
 
 // --- Flush: execute a single pending op against the live API ---
 
-async function executeOp(op: OfflineOp): Promise<void> {
+function replayHeaders(
+  owner: OfflineOwner,
+  headers: Record<string, string> = {},
+): Record<string, string> {
+  return { ...headers, "X-Stavba-Offline-Scope": owner.scope };
+}
+
+async function executeOp(owner: OfflineOwner, op: OfflineOp): Promise<void> {
   const { type, jobId, payload } = op;
 
   switch (type) {
     case "add_material": {
       const res = await fetch(`/api/jobs/${jobId}/materials`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -75,7 +91,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       const { personId } = payload as { personId: number };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}/start`, {
         method: "POST",
-        headers: { "Idempotency-Key": op.id },
+        headers: replayHeaders(owner, { "Idempotency-Key": op.id }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -87,7 +103,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       const { personId } = payload as { personId: number };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}/stop`, {
         method: "POST",
-        headers: { "Idempotency-Key": op.id },
+        headers: replayHeaders(owner, { "Idempotency-Key": op.id }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
@@ -99,7 +115,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       const { materialId, done } = payload as { materialId: number; done: boolean };
       const res = await fetch(`/api/jobs/${jobId}/materials/${materialId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
         body: JSON.stringify({ done }),
       });
       if (!res.ok) {
@@ -111,7 +127,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
     case "add_work_session": {
       const res = await fetch(`/api/jobs/${jobId}/work-sessions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
         body: JSON.stringify({ ...payload, idempotencyKey: op.id }),
       });
       if (!res.ok) {
@@ -124,7 +140,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       const { personId, hours, reason } = payload as { personId: number; hours: number; reason: string };
       const res = await fetch(`/api/jobs/${jobId}/time-entries/${personId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
         body: JSON.stringify({ hours, reason }),
       });
       if (!res.ok) {
@@ -139,14 +155,14 @@ async function executeOp(op: OfflineOp): Promise<void> {
         fileName: string;
         contentType: string;
       };
-      const blobEntry = await getBlob(blobKey);
+      const blobEntry = await getBlob(owner, blobKey);
       if (!blobEntry) throw new Error("Fotka nebyla nalezena v lokálním úložišti.");
 
       // Upload the blob to object storage
       const query = new URLSearchParams({ name: fileName, contentType });
       const uploadRes = await fetch(`/api/storage/uploads?${query}`, {
         method: "POST",
-        headers: { "Content-Type": contentType },
+        headers: replayHeaders(owner, { "Content-Type": contentType }),
         body: blobEntry.blob,
       });
       if (!uploadRes.ok) {
@@ -158,7 +174,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       // Register attachment record
       const attachRes = await fetch(`/api/jobs/${jobId}/attachments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: replayHeaders(owner, { "Content-Type": "application/json" }),
         body: JSON.stringify({
           type: "photo",
           fileName,
@@ -172,7 +188,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       }
 
       // Clean up the blob from IndexedDB now that it's on the server
-      await deleteBlob(blobKey);
+      await deleteBlob(owner, blobKey);
       break;
     }
     case "add_switchboard_photo": {
@@ -181,22 +197,22 @@ async function executeOp(op: OfflineOp): Promise<void> {
         metadata: Record<string, string>;
         completeChecklist?: { itemKey: string; body: Record<string, unknown> };
       };
-      const blobEntry = await getBlob(blobKey);
+      const blobEntry = await getBlob(owner, blobKey);
       if (!blobEntry) throw new Error("Fotografie rozvaděče nebyla nalezena v lokálním úložišti.");
       const query = new URLSearchParams({ ...metadata, name: fileName, contentType });
-      const uploadRes = await fetch(`/api/switchboards/${boardId}/photos?${query}`, { method: "POST", headers: { "Content-Type": contentType, "Idempotency-Key": op.id }, body: blobEntry.blob });
+      const uploadRes = await fetch(`/api/switchboards/${boardId}/photos?${query}`, { method: "POST", headers: replayHeaders(owner, { "Content-Type": contentType, "Idempotency-Key": op.id }), body: blobEntry.blob });
       if (!uploadRes.ok) {
         const responseBody = await uploadRes.text().catch(() => "");
         throw new Error(`Nahrání fotografie rozvaděče selhalo (HTTP ${uploadRes.status}): ${responseBody.slice(0, 200)}`);
       }
       if (completeChecklist) {
-        const response = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(completeChecklist.itemKey)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "Idempotency-Key": `${op.id}-complete` }, body: JSON.stringify(completeChecklist.body) });
+        const response = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(completeChecklist.itemKey)}`, { method: "PATCH", headers: replayHeaders(owner, { "Content-Type": "application/json", "Idempotency-Key": `${op.id}-complete` }), body: JSON.stringify(completeChecklist.body) });
         if (!response.ok) {
           const responseBody = await response.text().catch(() => "");
           throw new Error(`Dokončení fotografického bodu selhalo (HTTP ${response.status}): ${responseBody.slice(0, 200)}`);
         }
       }
-      await deleteBlob(blobKey);
+      await deleteBlob(owner, blobKey);
       break;
     }
     case "set_switchboard_checklist_response": {
@@ -207,7 +223,7 @@ async function executeOp(op: OfflineOp): Promise<void> {
       };
       const res = await fetch(`/api/switchboards/${boardId}/checklist/responses/${encodeURIComponent(itemKey)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": op.id },
+        headers: replayHeaders(owner, { "Content-Type": "application/json", "Idempotency-Key": op.id }),
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -243,24 +259,50 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const isOnline = useOnlineStatus();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user, offlineScope, refresh: refreshAuth } = useAuth();
+  const owner = useMemo<OfflineOwner | null>(
+    () => user && offlineScope ? { userId: user.id, scope: offlineScope } : null,
+    [user?.id, offlineScope],
+  );
   const [ops, setOps] = useState<OfflineOp[]>([]);
+  const [lockedCount, setLockedCount] = useState(0);
+  const [legacyCount, setLegacyCount] = useState(0);
   const [isFlushing, setIsFlushing] = useState(false);
   const isFlushingRef = useRef(false);
 
-  // Load all ops from IndexedDB on mount
+  // Load only the current identity partition. Other and legacy records remain
+  // locked and are exposed only as counts, never as payloads.
   useEffect(() => {
-    getAllOps().then(setOps).catch((e) => debugLog("offline-queue", "load error", e));
-  }, []);
+    let cancelled = false;
+    setOps([]);
+    setLockedCount(0);
+    setLegacyCount(0);
+    if (!owner) return () => { cancelled = true; };
+    Promise.all([getAllOps(owner), getOfflineIsolationSummary(owner)])
+      .then(([ownedOps, summary]) => {
+        if (cancelled) return;
+        setOps(ownedOps);
+        setLockedCount(summary.lockedOps + summary.lockedBlobs);
+        setLegacyCount(summary.legacyOps + summary.legacyBlobs);
+      })
+      .catch((error) => debugLog("offline-queue", "load error", error));
+    return () => { cancelled = true; };
+  }, [owner]);
 
   const reloadOps = useCallback(async () => {
-    const fresh = await getAllOps();
+    if (!owner) {
+      setOps([]);
+      return [];
+    }
+    const fresh = await getAllOps(owner);
     setOps(fresh);
     return fresh;
-  }, []);
+  }, [owner]);
 
   const enqueue = useCallback(
     async (params: EnqueueParams) => {
-      const op = await enqueueOp(params);
+      if (!owner) throw new Error("Offline operaci nelze uložit bez ověřené identity.");
+      const op = await enqueueOp(owner, params);
       setOps((prev) => [...prev.filter((existing) => existing.id !== op.id), op]);
       // Register a Background Sync tag so the browser can trigger a flush
       // even when the tab is backgrounded and connectivity returns.
@@ -275,16 +317,38 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
           .catch(() => {});
       }
     },
-    [],
+    [owner],
+  );
+
+  const saveBlob = useCallback(
+    async (key: string, blob: Blob, fileName: string) => {
+      if (!owner) throw new Error("Offline soubor nelze uložit bez ověřené identity.");
+      await saveStoredBlob(owner, key, blob, fileName);
+    },
+    [owner],
   );
 
   // Flush all pending ops. Called when coming back online or manually.
   const flushQueue = useCallback(async () => {
-    if (isFlushingRef.current) return;
+    if (isFlushingRef.current || !owner) return;
     isFlushingRef.current = true;
     setIsFlushing(true);
 
     try {
+      const identity = await verifyOfflineReplayIdentity(owner);
+      if (identity !== "verified") {
+        debugLog("offline-queue", `replay paused: ${identity}`);
+        if (identity === "unauthenticated" || identity === "scope_mismatch") {
+          setOps([]);
+          refreshAuth();
+          toast({
+            title: "Synchronizace pozastavena",
+            description: "Lokální akce patří jiné nebo již neplatné relaci a nebyly odeslány.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
       const current = await reloadOps();
       const pending = current.filter((o) => o.status === "pending");
       if (pending.length === 0) return;
@@ -296,8 +360,8 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
 
       for (const op of pending) {
         try {
-          await executeOp(op);
-          await deleteOp(op.id);
+          await executeOp(owner, op);
+          await deleteOp(owner, op.id);
           succeeded++;
           jobsAffected.add(op.jobId);
           domainsToInvalidate.add("jobs");
@@ -316,7 +380,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
             errorMessage,
             status: op.attempts + 1 >= MAX_ATTEMPTS ? "failed" : "pending",
           };
-          await updateOp(updated);
+          await updateOp(owner, updated);
           failedCount++;
           debugLog("offline-queue", `op ${op.id} (${op.type}) failed`, errorMessage);
         }
@@ -353,7 +417,7 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
       isFlushingRef.current = false;
       setIsFlushing(false);
     }
-  }, [queryClient, reloadOps, toast]);
+  }, [owner, queryClient, refreshAuth, reloadOps, toast]);
 
   // Auto-flush when coming back online (online-event fallback, works in all browsers)
   useEffect(() => {
@@ -382,39 +446,41 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
   const retryOp = useCallback(
     async (id: string) => {
       const op = ops.find((o) => o.id === id);
-      if (!op) return;
+      if (!op || !owner) return;
       const updated: OfflineOp = { ...op, attempts: 0, status: "pending", errorMessage: undefined };
-      await updateOp(updated);
+      await updateOp(owner, updated);
       await reloadOps();
       if (isOnline) await flushQueue();
     },
-    [ops, reloadOps, isOnline, flushQueue],
+    [ops, owner, reloadOps, isOnline, flushQueue],
   );
 
   const discardOp = useCallback(
     async (id: string) => {
       const op = ops.find((o) => o.id === id);
+      if (!owner) return;
       if (op?.type === "add_photo" || op?.type === "add_switchboard_photo") {
         const blobKey = op.payload.blobKey as string | undefined;
-        if (blobKey) await deleteBlob(blobKey).catch(() => {});
+        if (blobKey) await deleteBlob(owner, blobKey).catch(() => {});
       }
-      await deleteOp(id);
+      await deleteOp(owner, id);
       await reloadOps();
     },
-    [ops, reloadOps],
+    [ops, owner, reloadOps],
   );
 
   const discardAll = useCallback(async () => {
+    if (!owner) return;
     const failed = ops.filter((o) => o.status === "failed");
     for (const op of failed) {
       if (op.type === "add_photo" || op.type === "add_switchboard_photo") {
         const blobKey = op.payload.blobKey as string | undefined;
-        if (blobKey) await deleteBlob(blobKey).catch(() => {});
+        if (blobKey) await deleteBlob(owner, blobKey).catch(() => {});
       }
-      await deleteOp(op.id);
+      await deleteOp(owner, op.id);
     }
     await reloadOps();
-  }, [ops, reloadOps]);
+  }, [ops, owner, reloadOps]);
 
   const pendingOps = ops.filter((o) => o.status === "pending");
   const failedOps = ops.filter((o) => o.status === "failed");
@@ -427,7 +493,10 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
         failedOps,
         pendingCount: pendingOps.length,
         failedCount: failedOps.length,
+        lockedCount,
+        legacyCount,
         enqueue,
+        saveBlob,
         retryOp,
         discardOp,
         discardAll,

@@ -108,7 +108,6 @@ import {
 } from "@/lib/timer-notification";
 import { invalidateData } from "@/lib/query-invalidation";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
-import { saveBlob } from "@/lib/offline-queue";
 import { DecimalInput, parseDecimal, decimalError } from "@/components/decimal-input";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -3564,7 +3563,7 @@ function AttachmentsSection({ jobId, isExpanded, onToggle }: any) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { isOnline, enqueue, pendingOps } = useOfflineQueue();
+  const { isOnline, enqueue, saveBlob, pendingOps } = useOfflineQueue();
 
   // Pending photo ops for this job — shown as optimistic placeholders
   const pendingPhotos = pendingOps.filter(

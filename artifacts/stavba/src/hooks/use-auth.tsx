@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { debugLog } from "@/lib/pwa";
+import { activateApiCacheScope, clearApiCache, debugLog } from "@/lib/pwa";
 
 export type Role = "guest" | "master" | "admin";
 export type Permission =
@@ -50,6 +50,7 @@ interface AuthCtx {
   role: Role | null;
   isAuthenticated: boolean;
   needsSetup: boolean;
+  offlineScope: string | null;
   isLoading: boolean;
   can: (action: Permission | "write" | "manageUsers") => boolean;
   refresh: () => void;
@@ -69,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const user = (data?.user as AuthUser | undefined) ?? null;
   const role = user?.role ?? null;
+  const offlineScope = data?.authenticated ? (data.offlineScope ?? null) : null;
 
   // Diagnostics: log whenever the auth state is (re)loaded from /api/auth/me, so
   // a stuck-on-login or bounced-after-reload report can be traced in the console.
@@ -79,6 +81,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       `state loaded: authenticated=${data?.authenticated ?? false} role=${role ?? "—"} needsSetup=${data?.needsSetup ?? false}`,
     );
   }, [isLoading, data?.authenticated, data?.needsSetup, role]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (data?.authenticated && offlineScope) {
+      void activateApiCacheScope(offlineScope);
+      return;
+    }
+    void clearApiCache();
+  }, [isLoading, data?.authenticated, offlineScope]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handleMessage = (event: MessageEvent<{ type?: string }>) => {
+      if (event.data?.type === "REQUEST_IDENTITY_SCOPE" && offlineScope) {
+        navigator.serviceWorker.controller?.postMessage({
+          type: "SET_IDENTITY_SCOPE",
+          scope: offlineScope,
+        });
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
+  }, [offlineScope]);
+
+  useEffect(() => {
+    const handleInvalidated = () => {
+      void clearApiCache();
+      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    };
+    window.addEventListener("stavba:auth-invalidated", handleInvalidated);
+    return () => window.removeEventListener("stavba:auth-invalidated", handleInvalidated);
+  }, [queryClient]);
 
   const can: AuthCtx["can"] = (action) => {
     if (!role) return false;
@@ -92,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role,
     isAuthenticated: data?.authenticated ?? false,
     needsSetup: data?.needsSetup ?? false,
+    offlineScope,
     isLoading,
     can,
     refresh: () => queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() }),

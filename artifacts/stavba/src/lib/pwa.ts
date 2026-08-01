@@ -1,3 +1,9 @@
+import {
+  apiCacheName,
+  isManagedApiCacheName,
+  isValidOfflineScope,
+} from "@/lib/offline-cache-policy";
+
 // Lightweight debug logger for PWA / auth diagnostics. Logs are namespaced so
 // they're easy to filter in the browser console (filter by "[stavba]"). Kept on
 // in production on purpose — they're cheap and invaluable when debugging a
@@ -8,22 +14,49 @@ export function debugLog(scope: string, message: string, ...rest: unknown[]): vo
   console.info(`[stavba:${scope}] ${message}`, ...rest);
 }
 
-// Clears the service-worker runtime cache that may hold authenticated API
-// responses ("stavba-api"). Devices are shared between crew members, so we
-// purge cached data on logout to ensure one user's data can't be served from
-// cache to the next user while offline. Best-effort and a no-op when the Cache
-// Storage API is unavailable (e.g. dev, unsupported browsers).
+// Clears every managed identity-scoped API cache. Devices are shared between
+// crew members, so logout must ensure one user's data cannot be served to the
+// next user while offline. Best-effort and a no-op when Cache Storage is
+// unavailable (e.g. dev or unsupported browsers).
 export async function clearApiCache(): Promise<void> {
-  if (typeof window === "undefined" || !("caches" in window)) return;
+  if (typeof window === "undefined") return;
   try {
-    const keys = await caches.keys();
-    await Promise.all(
-      keys
-        .filter((key) => key.includes("stavba-api"))
-        .map((key) => caches.delete(key)),
-    );
+    navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_IDENTITY_SCOPE" });
+    const registration = await navigator.serviceWorker?.getRegistration();
+    registration?.active?.postMessage({ type: "CLEAR_IDENTITY_SCOPE" });
   } catch {
-    // Ignore — cache clearing is a best-effort safeguard.
+    // Continue with direct Cache Storage cleanup.
+  }
+  try {
+    if (!("caches" in window)) return;
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(isManagedApiCacheName).map((key) => caches.delete(key)));
+  } catch {
+    // Ignore — the next identity activation repeats the purge.
+  }
+}
+
+export async function activateApiCacheScope(scope: string): Promise<void> {
+  if (typeof window === "undefined" || !isValidOfflineScope(scope)) return;
+  const keepName = apiCacheName(scope);
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => isManagedApiCacheName(key) && key !== keepName)
+          .map((key) => caches.delete(key)),
+      );
+    }
+  } catch {
+    // The service worker repeats the purge after receiving the scope.
+  }
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "SET_IDENTITY_SCOPE", scope });
+    const registration = await navigator.serviceWorker?.getRegistration();
+    registration?.active?.postMessage({ type: "SET_IDENTITY_SCOPE", scope });
+  } catch {
+    // Without a confirmed scope the service worker falls back to network-only.
   }
 }
 
