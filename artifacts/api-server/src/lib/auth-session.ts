@@ -6,6 +6,7 @@ export interface AuthenticatedSessionUser {
   username: string;
   role: string;
   name: string;
+  sessionGeneration: number;
 }
 
 function regenerateSession(req: Request): Promise<void> {
@@ -17,7 +18,7 @@ function regenerateSession(req: Request): Promise<void> {
   });
 }
 
-function saveSession(req: Request): Promise<void> {
+export function saveSession(req: Request): Promise<void> {
   return new Promise((resolve, reject) => {
     req.session.save((error) => {
       if (error) reject(error);
@@ -48,6 +49,7 @@ export async function establishAuthenticatedSession(
   req.session.username = user.username;
   req.session.role = user.role as UserRole;
   req.session.name = user.name;
+  req.session.sessionGeneration = user.sessionGeneration;
   try {
     await saveSession(req);
   } catch (error) {

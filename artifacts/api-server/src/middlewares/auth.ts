@@ -3,6 +3,7 @@ import type { Permission, UserRole } from "@workspace/db";
 import { db, webauthnCredentialsTable } from "@workspace/db";
 import { eq, count } from "drizzle-orm";
 import { getUserAuthorization } from "../lib/permissions";
+import { destroySession } from "../lib/auth-session";
 
 declare module "express-session" {
   interface SessionData {
@@ -10,6 +11,7 @@ declare module "express-session" {
     username?: string;
     role?: UserRole;
     name?: string;
+    sessionGeneration?: number;
     // Anti-CSRF state for the Gmail OAuth connect flow (set on /connect,
     // verified on /callback).
     gmailOAuthState?: string;
@@ -41,17 +43,24 @@ declare global {
   }
 }
 
-export async function attachAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function attachAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const s = req.session;
   if (s?.userId && s.role && s.username && s.name) {
     try {
       const authorization = await getUserAuthorization(s.userId);
       if (!authorization) {
-        req.session.destroy(() => undefined);
+        await destroySession(req).catch(() => undefined);
+        res.clearCookie("stavba.sid");
         next();
         return;
       }
       const { user, permissions } = authorization;
+      if (s.sessionGeneration !== user.sessionGeneration) {
+        await destroySession(req).catch(() => undefined);
+        res.clearCookie("stavba.sid");
+        next();
+        return;
+      }
       s.username = user.username;
       s.role = user.role as UserRole;
       s.name = user.name;

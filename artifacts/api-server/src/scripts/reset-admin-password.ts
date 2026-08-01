@@ -80,7 +80,13 @@ async function main(): Promise<void> {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const revokedCount = await db.transaction(async (tx) => {
-    await tx.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, target.id));
+    await tx
+      .update(usersTable)
+      .set({
+        passwordHash,
+        sessionGeneration: sql`${usersTable.sessionGeneration} + 1`,
+      })
+      .where(eq(usersTable.id, target.id));
     const revoked = await tx
       .delete(userSessionsTable)
       .where(

@@ -24,6 +24,21 @@ describe("account lifecycle security contracts", () => {
     expect(users).toMatch(/tx\s*\.\s*delete\(userSessionsTable\)/);
     expect(users).toContain("userSessionsTable.sess");
     expect(users).toContain("await destroySession(req)");
+    expect(users).toContain("updates.sessionGeneration");
+  });
+
+  it("stores and checks a credential generation so deleted sessions cannot be resurrected", () => {
+    const session = read("artifacts/api-server/src/lib/auth-session.ts");
+    const middleware = read("artifacts/api-server/src/middlewares/auth.ts");
+    const recovery = read("artifacts/api-server/src/scripts/reset-admin-password.ts");
+    const sessions = read("artifacts/api-server/src/routes/sessions.ts");
+
+    expect(session).toContain("req.session.sessionGeneration = user.sessionGeneration");
+    expect(middleware).toContain("s.sessionGeneration !== user.sessionGeneration");
+    expect(middleware).toContain('res.clearCookie("stavba.sid")');
+    expect(recovery).toContain("sessionGeneration: sql");
+    expect(sessions).toContain("sessionGeneration: sql");
+    expect(sessions).toContain("await saveSession(req)");
   });
 
   it("requires twelve characters for newly assigned passwords while leaving login compatible", () => {

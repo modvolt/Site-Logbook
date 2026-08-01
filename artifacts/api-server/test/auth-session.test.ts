@@ -35,6 +35,7 @@ describe("establishAuthenticatedSession", () => {
       username: "admin",
       role: "admin",
       name: "Admin",
+      sessionGeneration: 3,
     });
 
     expect(events).toEqual(["regenerate", "save"]);
@@ -44,6 +45,7 @@ describe("establishAuthenticatedSession", () => {
       username: "admin",
       role: "admin",
       name: "Admin",
+      sessionGeneration: 3,
     });
   });
 
@@ -57,6 +59,7 @@ describe("establishAuthenticatedSession", () => {
         username: "worker",
         role: "guest",
         name: "Worker",
+        sessionGeneration: 4,
       }),
     ).rejects.toBe(saveError);
 
@@ -76,6 +79,7 @@ describe("establishAuthenticatedSession", () => {
         username: "admin",
         role: "admin",
         name: "Admin",
+        sessionGeneration: 1,
       }),
     ).rejects.toBe(failure);
 

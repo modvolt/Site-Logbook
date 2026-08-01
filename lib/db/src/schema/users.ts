@@ -16,6 +16,7 @@ export const usersTable = pgTable("users", {
   email: text("email"),
   role: text("role").notNull().default("guest"),
   isActive: boolean("is_active").notNull().default(true),
+  sessionGeneration: integer("session_generation").notNull().default(1),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("users_person_id_uq").on(table.personId).where(sql`${table.personId} is not null`),

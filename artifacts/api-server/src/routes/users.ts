@@ -148,6 +148,9 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
   }
 
   const revokeAllSessions = Boolean(password) || updates.isActive === false;
+  if (revokeAllSessions) {
+    updates.sessionGeneration = sql`${usersTable.sessionGeneration} + 1`;
+  }
   const user = await db.transaction(async (tx) => {
     const [updatedUser] = await tx
       .update(usersTable)

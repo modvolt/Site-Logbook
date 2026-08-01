@@ -3,6 +3,7 @@ import { eq, and, gt, ne, isNull, or, lt, sql } from "drizzle-orm";
 import { db, userSessionsTable, usersTable, auditLogTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
+import { saveSession } from "../lib/auth-session";
 
 const router: IRouter = Router();
 
@@ -188,14 +189,35 @@ router.delete("/users/:id/sessions", requirePermission("users.manage"), async (r
     return;
   }
 
-  await db
-    .delete(userSessionsTable)
-    .where(
-      and(
-        eq(userSessionsTable.userId, userId),
-        ne(userSessionsTable.sid, req.sessionID as string),
-      ),
-    );
+  const keepCurrentSession = req.auth!.userId === userId;
+  const nextGeneration = await db.transaction(async (tx) => {
+    const [target] = await tx
+      .update(usersTable)
+      .set({ sessionGeneration: sql`${usersTable.sessionGeneration} + 1` })
+      .where(eq(usersTable.id, userId))
+      .returning({ sessionGeneration: usersTable.sessionGeneration });
+
+    if (!target) return null;
+
+    await tx
+      .delete(userSessionsTable)
+      .where(
+        and(
+          or(
+            eq(userSessionsTable.userId, userId),
+            sql`${userSessionsTable.sess}->>'userId' = ${String(userId)}`,
+          ),
+          ne(userSessionsTable.sid, req.sessionID as string),
+        ),
+      );
+
+    return target.sessionGeneration;
+  });
+
+  if (keepCurrentSession && nextGeneration !== null) {
+    req.session.sessionGeneration = nextGeneration;
+    await saveSession(req);
+  }
 
   await writeAudit(
     req.auth!.userId,
