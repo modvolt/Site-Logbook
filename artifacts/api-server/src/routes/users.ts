@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import {
   db,
   peopleTable,
   usersTable,
   userPermissionOverridesTable,
+  userSessionsTable,
   USER_ROLES,
   isPermission,
   resolvePermissions,
@@ -16,6 +17,7 @@ import { CreateUserBody, UpdateUserBody, UpdateUserParams, DeleteUserParams } fr
 import { requirePermission } from "../middlewares/permissions";
 import { serializeUser } from "./auth";
 import { getPermissionOverrides } from "../lib/permissions";
+import { destroySession } from "../lib/auth-session";
 
 const router: IRouter = Router();
 
@@ -77,7 +79,7 @@ router.post("/users", async (req, res): Promise<void> => {
     res.status(409).json({ error: personLinkError });
     return;
   }
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordHash = await bcrypt.hash(password, 12);
   const [user] = await db
     .insert(usersTable)
     .values({
@@ -126,7 +128,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     updates.role = role;
   }
   if (isActive !== undefined) updates.isActive = isActive;
-  if (password) updates.passwordHash = await bcrypt.hash(password, 10);
+  if (password) updates.passwordHash = await bcrypt.hash(password, 12);
 
   // Prevent locking yourself out
   if (req.auth?.userId === params.data.id) {
@@ -145,12 +147,30 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [user] = await db
-    .update(usersTable)
-    .set(updates)
-    .where(eq(usersTable.id, params.data.id))
-    .returning();
+  const revokeAllSessions = Boolean(password) || updates.isActive === false;
+  const user = await db.transaction(async (tx) => {
+    const [updatedUser] = await tx
+      .update(usersTable)
+      .set(updates)
+      .where(eq(usersTable.id, params.data.id))
+      .returning();
+    if (updatedUser && revokeAllSessions) {
+      await tx
+        .delete(userSessionsTable)
+        .where(
+          or(
+            eq(userSessionsTable.userId, params.data.id),
+            sql`${userSessionsTable.sess}->>'userId' = ${String(params.data.id)}`,
+          ),
+        );
+    }
+    return updatedUser;
+  });
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (revokeAllSessions && req.auth?.userId === user.id) {
+    await destroySession(req);
+    res.clearCookie("stavba.sid");
+  }
   res.json(serializeUser(user, await getPermissionOverrides(user.id)));
 });
 

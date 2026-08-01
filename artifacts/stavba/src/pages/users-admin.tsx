@@ -53,7 +53,7 @@ export default function UsersAdmin() {
       setCreateError("Vyplňte jméno, uživatelské jméno a heslo.");
       return;
     }
-    if (newUser.password.length < 6) { setCreateError("Heslo musí mít aspoň 6 znaků."); return; }
+    if (newUser.password.length < 12) { setCreateError("Heslo musí mít aspoň 12 znaků."); return; }
     setCreateError(null);
     createUser.mutate({
       data: {
@@ -84,7 +84,7 @@ export default function UsersAdmin() {
 
   const saveEdit = () => {
     if (editingId == null) return;
-    if (editDraft.password && editDraft.password.length < 6) { setEditError("Heslo musí mít aspoň 6 znaků."); return; }
+    if (editDraft.password && editDraft.password.length < 12) { setEditError("Heslo musí mít aspoň 12 znaků."); return; }
     setEditError(null);
     const data: any = {
       name: editDraft.name,
@@ -172,8 +172,8 @@ export default function UsersAdmin() {
                 <Input value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} placeholder="jnovak" minLength={3} />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Heslo * (min. 6 znaků)</label>
-                <Input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Heslo * (min. 12 znaků)</label>
+                <Input type="password" minLength={12} value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
@@ -280,7 +280,7 @@ export default function UsersAdmin() {
                           </label>
                           <div className="mt-2 flex items-center gap-1">
                             <Key className="w-3 h-3 text-muted-foreground" />
-                            <Input type="password" placeholder="Nové heslo (volitelně)" value={editDraft.password} onChange={e => setEditDraft({ ...editDraft, password: e.target.value })} className="h-7 text-xs" />
+                            <Input type="password" minLength={12} placeholder="Nové heslo (volitelně, min. 12 znaků)" value={editDraft.password} onChange={e => setEditDraft({ ...editDraft, password: e.target.value })} className="h-7 text-xs" />
                           </div>
                         </td>
                         <td className="px-2 py-2">

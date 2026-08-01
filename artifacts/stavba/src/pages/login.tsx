@@ -95,7 +95,7 @@ export default function Login() {
   const handleSetup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password || !name) return;
-    if (password.length < 6) { setSetupError("Heslo musí mít aspoň 6 znaků."); return; }
+    if (password.length < 12) { setSetupError("Heslo musí mít aspoň 12 znaků."); return; }
     setSetupError(null);
     setup.mutate({ data: { username, password, name, email: email || null } }, {
       onSuccess: () => { goToApp(); toast({ title: "Admin účet vytvořen" }); },
@@ -134,8 +134,8 @@ export default function Login() {
               <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="admin" minLength={3} required autoComplete="username" />
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1">Heslo * <span className="text-xs text-muted-foreground">(min. 6 znaků)</span></label>
-              <Input type="password" value={password} onChange={e => { setPassword(e.target.value); if (setupError) setSetupError(null); }} minLength={6} required autoComplete="new-password" />
+              <label className="text-sm font-medium block mb-1">Heslo * <span className="text-xs text-muted-foreground">(min. 12 znaků)</span></label>
+              <Input type="password" value={password} onChange={e => { setPassword(e.target.value); if (setupError) setSetupError(null); }} minLength={12} required autoComplete="new-password" />
             </div>
             {setupError && (
               <p className="text-destructive text-sm" role="alert">{setupError}</p>

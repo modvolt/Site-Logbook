@@ -3124,7 +3124,7 @@ export interface MeResponse {
 export interface SetupInput {
   /** @minLength 3 */
   username: string;
-  /** @minLength 6 */
+  /** @minLength 12 */
   password: string;
   /** @minLength 1 */
   name: string;
@@ -3358,7 +3358,7 @@ export interface EmailImportLogEntry {
 export interface UserInput {
   /** @minLength 3 */
   username: string;
-  /** @minLength 6 */
+  /** @minLength 12 */
   password: string;
   /** @minLength 1 */
   name: string;
@@ -3382,7 +3382,7 @@ export interface UserUpdate {
   isActive?: boolean;
   /**
      * Only set when changing the password
-     * @minLength 6
+     * @minLength 12
      */
   password?: string;
 }

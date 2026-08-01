@@ -1,6 +1,6 @@
 import { stdin, stdout } from "node:process";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { auditLogTable, db, pool, usersTable, userSessionsTable } from "@workspace/db";
 
 const MIN_PASSWORD_LENGTH = 12;
@@ -83,7 +83,12 @@ async function main(): Promise<void> {
     await tx.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, target.id));
     const revoked = await tx
       .delete(userSessionsTable)
-      .where(eq(userSessionsTable.userId, target.id))
+      .where(
+        or(
+          eq(userSessionsTable.userId, target.id),
+          sql`${userSessionsTable.sess}->>'userId' = ${String(target.id)}`,
+        ),
+      )
       .returning({ sid: userSessionsTable.sid });
     await tx.insert(auditLogTable).values({
       actorUserId: null,

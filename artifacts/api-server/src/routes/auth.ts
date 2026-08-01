@@ -49,6 +49,36 @@ async function countUsers(): Promise<number> {
   return row?.c ?? 0;
 }
 
+const FIRST_ADMIN_SETUP_LOCK = 1_297_040_470;
+
+async function createFirstAdmin(input: {
+  username: string;
+  passwordHash: string;
+  name: string;
+  email?: string | null;
+}) {
+  return db.transaction(async (tx) => {
+    // Serialize first-run setup across all API instances. The count and insert
+    // must share this transaction; otherwise two different usernames can both
+    // become administrators during the initial deployment window.
+    await tx.execute(sql`select pg_advisory_xact_lock(${FIRST_ADMIN_SETUP_LOCK})`);
+    const [row] = await tx.select({ c: sql<number>`count(*)::int` }).from(usersTable);
+    if ((row?.c ?? 0) > 0) return null;
+    const [user] = await tx
+      .insert(usersTable)
+      .values({
+        username: input.username,
+        passwordHash: input.passwordHash,
+        name: input.name,
+        email: input.email ?? null,
+        role: "admin",
+        isActive: true,
+      })
+      .returning();
+    return user;
+  });
+}
+
 router.get("/auth/me", async (req, res): Promise<void> => {
   const totalUsers = await countUsers();
   if (req.auth) {
@@ -95,22 +125,18 @@ router.post("/auth/logout", (req, res): void => {
 });
 
 router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
-  const total = await countUsers();
-  if (total > 0) {
-    res.status(409).json({ error: "Setup již proběhl" });
-    return;
-  }
   const parsed = SetupFirstAdminBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const { username, password, name, email } = parsed.data;
-  const passwordHash = await bcrypt.hash(password, 10);
-  const [user] = await db
-    .insert(usersTable)
-    .values({ username, passwordHash, name, email: email ?? null, role: "admin", isActive: true })
-    .returning();
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await createFirstAdmin({ username, passwordHash, name, email });
+  if (!user) {
+    res.status(409).json({ error: "Setup již proběhl" });
+    return;
+  }
   const overrides = await getPermissionOverrides(user.id);
   await establishAuthenticatedSession(req, user);
   res.status(201).json(serializeUser(user, overrides));

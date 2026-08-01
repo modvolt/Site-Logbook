@@ -3997,7 +3997,7 @@ export const GetMeResponse = zod.object({
  */
 export const setupFirstAdminBodyUsernameMin = 3;
 
-export const setupFirstAdminBodyPasswordMin = 6;
+export const setupFirstAdminBodyPasswordMin = 12;
 
 
 
@@ -4313,7 +4313,7 @@ export const ListUsersResponse = zod.array(ListUsersResponseItem)
  */
 export const createUserBodyUsernameMin = 3;
 
-export const createUserBodyPasswordMin = 6;
+export const createUserBodyPasswordMin = 12;
 
 
 
@@ -4337,7 +4337,7 @@ export const UpdateUserParams = zod.object({
 })
 
 
-export const updateUserBodyPasswordMin = 6;
+export const updateUserBodyPasswordMin = 12;
 
 
 

@@ -10946,7 +10946,7 @@ components:
           minLength: 3
         password:
           type: string
-          minLength: 6
+          minLength: 12
         name:
           type: string
           minLength: 1
@@ -10962,7 +10962,7 @@ components:
           minLength: 3
         password:
           type: string
-          minLength: 6
+          minLength: 12
         name:
           type: string
           minLength: 1
@@ -10992,7 +10992,7 @@ components:
           type: boolean
         password:
           type: string
-          minLength: 6
+          minLength: 12
           description: Only set when changing the password
 
     UserPreferences:
