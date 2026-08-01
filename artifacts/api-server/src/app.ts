@@ -18,6 +18,10 @@ import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
 import { SecretEncryptionError } from "./lib/secret-envelope";
 import {
+  PublicOriginConfigError,
+  publicAppOrigin,
+} from "./lib/public-origin";
+import {
   isRequestBodyTooLarge,
   parseApiRequestBody,
 } from "./middlewares/request-body";
@@ -36,6 +40,11 @@ if (!sessionSecret) {
 }
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL env var is required");
+}
+if (process.env.NODE_ENV === "production") {
+  // A production process must never become healthy while external bearer URLs
+  // would be derived from an absent or insecure origin.
+  publicAppOrigin();
 }
 
 app.use(
@@ -210,6 +219,21 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
       res.status(503).json({
         error: "Šifrování citlivých údajů není dostupné. Kontaktujte správce systému.",
         code: "secret_encryption_unavailable",
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (err instanceof PublicOriginConfigError) {
+    req.log?.error(
+      { requestId, method, path, code: err.code },
+      "Trusted public application origin is unavailable",
+    );
+    if (!res.headersSent) {
+      res.status(503).json({
+        error: "Veřejný odkaz nyní nelze bezpečně vytvořit. Kontaktujte správce systému.",
+        code: "public_origin_unavailable",
         requestId,
       });
     }

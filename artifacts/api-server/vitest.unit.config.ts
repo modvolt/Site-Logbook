@@ -21,6 +21,7 @@ export default defineConfig({
       "test/isdoc-parser.test.ts",
       "test/imported-file-safety.test.ts",
       "test/request-body-security.test.ts",
+      "test/public-origin.test.ts",
       "test/signature-image-security.test.ts",
       "test/secret-envelope.test.ts",
       "test/switchboard-qr.test.ts",

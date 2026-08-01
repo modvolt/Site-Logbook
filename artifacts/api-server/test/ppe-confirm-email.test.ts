@@ -34,6 +34,7 @@ const { default: app } = await import("../src/app");
 
 const TAG = `test-ppe-email-${Date.now()}`;
 const PASSWORD = "ppe-email-test-pw";
+const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
 let adminAgent: Agent;
 let adminUserId: number;
@@ -44,6 +45,7 @@ const itemIds: number[] = [];
 const assignmentIds: number[] = [];
 
 beforeAll(async () => {
+  process.env.PUBLIC_APP_URL = "https://ppe.test";
   const [admin] = await db
     .insert(usersTable)
     .values({
@@ -66,6 +68,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
+  else process.env.PUBLIC_APP_URL = originalPublicUrl;
   if (assignmentIds.length > 0)
     await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
   if (itemIds.length > 0)
@@ -112,11 +116,15 @@ describe("request-confirm: person WITH email", () => {
   });
 
   it("returns 200 with emailSent=true", async () => {
-    const res = await adminAgent.post(`/api/ppe/assignments/${assignmentId}/request-confirm`);
+    const res = await adminAgent
+      .post(`/api/ppe/assignments/${assignmentId}/request-confirm`)
+      .set("Host", "attacker.example");
     expect(res.status).toBe(200);
     expect(res.body.emailSent).toBe(true);
     expect(typeof res.body.confirmUrl).toBe("string");
     expect(res.body.confirmUrl.length).toBeGreaterThan(0);
+    expect(res.body.confirmUrl).toMatch(/^https:\/\/ppe\.test\//);
+    expect(res.body.confirmUrl).not.toContain("attacker.example");
   });
 
   it("calls sendPlainEmail once with the person's email address", async () => {
@@ -125,6 +133,7 @@ describe("request-confirm: person WITH email", () => {
     expect(call.to).toBe("worker@example.com");
     expect(call.subject).toMatch(/OOPP/i);
     expect(call.text).toMatch(/http/);
+    expect(call.text).toContain("https://ppe.test/");
   });
 
   it("sets confirmEmailSentAt in the DB", async () => {

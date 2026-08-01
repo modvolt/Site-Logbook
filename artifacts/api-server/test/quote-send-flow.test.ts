@@ -55,6 +55,7 @@ const { createQuote, sendQuote, generateAndStorePdf } = await import(
 // ---------------------------------------------------------------------------
 
 const TAG = `test-quote-send-${Date.now()}`;
+const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
 let customerId: number;
 const quoteIds: number[] = [];
@@ -64,6 +65,7 @@ const quoteIds: number[] = [];
 let putSpy: ReturnType<typeof vi.spyOn>;
 
 beforeAll(async () => {
+  process.env.PUBLIC_APP_URL = "https://quotes.test";
   putSpy = vi
     .spyOn(ObjectStorageService.prototype, "putPrivateObject")
     .mockResolvedValue(undefined);
@@ -82,6 +84,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
+  else process.env.PUBLIC_APP_URL = originalPublicUrl;
   vi.restoreAllMocks();
   if (quoteIds.length > 0) {
     await db
@@ -251,6 +255,7 @@ describe("sendQuote", () => {
     };
     expect(emailCall.to).toBe("zakaznik@example.com");
     expect(emailCall.subject).toContain("Cenová nabídka");
+    expect(emailCall.text).toContain("https://quotes.test/quote-share/");
     expect(emailCall.pdfBase64.length).toBeGreaterThan(100);
     expect(emailCall.filename).toMatch(/^nabidka-.*\.pdf$/);
 

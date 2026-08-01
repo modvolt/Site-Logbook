@@ -18,6 +18,7 @@ import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pd
 import { ensureBillingSettings } from "../lib/invoice-service";
 import { sendPlainEmail } from "../lib/email";
 import { decodeSignatureImage } from "../lib/signature-image";
+import { publicAppOrigin } from "../lib/public-origin";
 
 const objectStorage = new ObjectStorageService();
 
@@ -1001,6 +1002,10 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     return;
   }
 
+  // Resolve the external origin before persisting a token. Never derive a
+  // bearer link from Host / X-Forwarded-Host supplied by the request.
+  const baseUrl = publicAppOrigin();
+
   const expiryDays = parseInt(process.env.PPE_CONFIRM_EXPIRY_DAYS ?? "30", 10);
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + expiryDays);
@@ -1011,7 +1016,6 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     .set({ confirmToken: token, confirmTokenExpiresAt: expiresAt })
     .where(eq(ppeAssignmentsTable.id, params.data.id));
 
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
   const confirmUrl = `${baseUrl}/oopp/potvrdit?token=${token}`;
 
   const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, existing.personId));

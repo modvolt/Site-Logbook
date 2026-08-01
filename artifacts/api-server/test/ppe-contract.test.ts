@@ -20,6 +20,7 @@ import app from "../src/app";
 
 const TAG = `test-ppe-${Date.now()}`;
 const PASSWORD = "test-ppe-pw-123";
+const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
 let adminUserId: number;
 let guestUserId: number;
@@ -36,6 +37,7 @@ const itemIds: number[] = [];
 const assignmentIds: number[] = [];
 
 beforeAll(async () => {
+  process.env.PUBLIC_APP_URL = "https://ppe-contract.test";
   const [admin] = await db
     .insert(usersTable)
     .values({
@@ -79,6 +81,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
+  else process.env.PUBLIC_APP_URL = originalPublicUrl;
   if (assignmentIds.length > 0)
     await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
   if (itemIds.length > 0)

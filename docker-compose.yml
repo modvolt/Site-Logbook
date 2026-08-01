@@ -129,6 +129,9 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      # Canonical origin for every externally shared bearer link. The API
+      # refuses to derive links from request Host / X-Forwarded-Host headers.
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL}
 
   web:
     build:
@@ -143,6 +146,9 @@ services:
     environment:
       NGINX_PORT: 80
       API_UPSTREAM: http://api:5000
+      # Space-separated nginx server_name values. Unknown external Host values
+      # are handled by the default server and closed with status 444.
+      NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-localhost}
     ports:
       - "${WEB_PORT:-18080}:80"
 

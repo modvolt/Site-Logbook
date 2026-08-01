@@ -52,6 +52,7 @@ import {
   UpdateJobAssigneesParams,
   UpdateJobAssigneesBody,
 } from "@workspace/api-zod";
+import { publicAppUrl } from "../lib/public-origin";
 import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { randomUUID } from "node:crypto";
@@ -1797,6 +1798,7 @@ router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
     isDev && (req.body as Record<string, unknown>)?.expiredForTesting === true;
 
   const token = randomUUID();
+  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
   const expiresAt = expiredForTesting
     ? new Date(Date.now() - 1000)
     : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1810,9 +1812,6 @@ router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
       signatureRequestedAt: requestedAt,
     })
     .where(eq(jobsTable.id, id));
-
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-  const signUrl = `${baseUrl}/sign/${token}`;
 
   res.json({ token, signUrl, expiresAt: expiresAt.toISOString() });
 });
@@ -1864,6 +1863,7 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
   }
 
   const token = randomUUID();
+  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   const requestedAt = new Date();
 
@@ -1876,8 +1876,6 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
     })
     .where(eq(jobsTable.id, id));
 
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-  const signUrl = `${baseUrl}/sign/${token}`;
   const jobLabel = job.title ?? `Zakázka #${job.id}`;
 
   const emailText =

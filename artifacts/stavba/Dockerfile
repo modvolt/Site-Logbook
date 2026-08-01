@@ -42,9 +42,11 @@ RUN pnpm --filter @workspace/stavba run build
 # ---------- Runtime ----------
 FROM nginx:1.27-alpine AS runtime
 
-# nginx substitutes ${NGINX_PORT}/${API_UPSTREAM} into the config at startup.
+# nginx substitutes the listen port, upstream and explicit host allowlist into
+# the config at startup. Production must override NGINX_SERVER_NAME.
 ENV NGINX_PORT=80
 ENV API_UPSTREAM=http://api:5000
+ENV NGINX_SERVER_NAME=localhost
 
 COPY artifacts/stavba/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=builder /repo/artifacts/stavba/dist/public /usr/share/nginx/html

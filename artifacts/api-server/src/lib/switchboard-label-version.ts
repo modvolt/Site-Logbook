@@ -25,7 +25,6 @@ type CreateLabelOptions = {
   sourceDocumentId?: number | null;
   mode: "manual" | "automatic";
   actor: LabelActor;
-  requestBaseUrl?: string;
 };
 
 export function buildSwitchboardLabelSnapshot(
@@ -99,7 +98,7 @@ export async function createSwitchboardLabelVersion(options: CreateLabelOptions)
     throw Object.assign(workflowError("Typový štítek nelze vytvořit, chybí povinné potvrzené údaje.", "label_fields_missing"), { missingFields: missing });
   }
 
-  const output = await generateSwitchboardLabel(snapshot, publicQrUrl(token, options.requestBaseUrl));
+  const output = await generateSwitchboardLabel(snapshot, publicQrUrl(token));
   const nonce = randomUUID();
   const pdfPath = `/objects/switchboards/${board.id}/labels/${nonce}.pdf`;
   const pngPath = `/objects/switchboards/${board.id}/labels/${nonce}.png`;

@@ -14,6 +14,7 @@ describe("opaque switchboard QR tokens", () => {
   const originalKeyring = process.env.SECRET_ENCRYPTION_KEYRING;
   const originalActive = process.env.SECRET_ENCRYPTION_ACTIVE_KEY_ID;
   const originalSalt = process.env.QR_AUDIT_SALT;
+  const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
   beforeEach(() => {
     process.env.SECRET_ENCRYPTION_ACTIVE_KEY_ID = "test-qr";
@@ -21,6 +22,7 @@ describe("opaque switchboard QR tokens", () => {
       "test-qr": Buffer.alloc(32, 0x51).toString("base64"),
     });
     process.env.QR_AUDIT_SALT = "test-audit-salt";
+    process.env.PUBLIC_APP_URL = "https://example.test";
   });
 
   afterEach(() => {
@@ -30,6 +32,8 @@ describe("opaque switchboard QR tokens", () => {
     else process.env.SECRET_ENCRYPTION_ACTIVE_KEY_ID = originalActive;
     if (originalSalt == null) delete process.env.QR_AUDIT_SALT;
     else process.env.QR_AUDIT_SALT = originalSalt;
+    if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
+    else process.env.PUBLIC_APP_URL = originalPublicUrl;
   });
 
   it("creates a non-ID opaque token and stores only hash plus row-bound ciphertext", () => {
@@ -74,7 +78,7 @@ describe("opaque switchboard QR tokens", () => {
 
   it("builds only the opaque public path and hashes audit IPs deterministically", () => {
     const token = createQrToken();
-    expect(publicQrUrl(token, "https://example.test/")).toBe(
+    expect(publicQrUrl(token)).toBe(
       `https://example.test/q/board/${token}`,
     );
     expect(hashAuditIp("192.0.2.1")).toBe(hashAuditIp("192.0.2.1"));
@@ -82,7 +86,7 @@ describe("opaque switchboard QR tokens", () => {
   });
 
   it("renders a high-resolution standalone QR PNG", async () => {
-    const png = await renderQrPng(createQrToken(), "https://modvoltapp.cz");
+    const png = await renderQrPng(createQrToken());
     expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(png.length).toBeGreaterThan(5_000);
   });

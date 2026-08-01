@@ -7,6 +7,7 @@ import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage"
 import { validateLabelSnapshot, type SwitchboardLabelSnapshot } from "../lib/switchboard-label";
 import { compareSnapshotRecords } from "../lib/switchboard-admin";
 import { createSwitchboardLabelVersion, latestCompletedDboDocumentId } from "../lib/switchboard-label-version";
+import { PublicOriginConfigError } from "../lib/public-origin";
 
 const router: IRouter = Router(); const storage = new ObjectStorageService(); const id = z.coerce.number().int().positive();
 const serialize = (row: typeof switchboardLabelVersionsTable.$inferSelect) => {
@@ -45,10 +46,13 @@ router.post("/switchboards/:id/labels/generate", requirePermission("switchboards
       sourceDocumentId,
       mode: "manual",
       actor: { userId: req.auth?.userId ?? null, name: req.auth?.name ?? req.auth?.username ?? null },
-      requestBaseUrl: `${req.protocol}://${req.get("host")}`,
     });
     res.status(201).json(serialize(label));
   } catch (error) {
+    if (error instanceof PublicOriginConfigError) {
+      res.status(503).json({ error: "Štítek nyní nelze bezpečně vytvořit.", code: "public_origin_unavailable" });
+      return;
+    }
     const typed = error as Error & { statusCode?: number; missingFields?: string[] };
     res.status(typed.statusCode ?? 500).json({ error: typed.message || "Generování štítku selhalo.", ...(typed.missingFields ? { missingFields: typed.missingFields } : {}) });
   }

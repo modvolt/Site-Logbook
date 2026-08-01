@@ -1,6 +1,7 @@
 import { createDecipheriv, createHash, randomBytes } from "node:crypto";
 import QRCode from "qrcode";
 import { decryptSecretValue, encryptSecretValue } from "./secret-envelope";
+import { publicAppUrl } from "./public-origin";
 
 function legacyEncryptionKey(): Buffer {
   const secret = process.env.TOKEN_ENCRYPTION_KEY;
@@ -55,13 +56,12 @@ export function decryptQrToken(payload: string, switchboardId: number): string {
   }
 }
 
-export function publicQrUrl(token: string, requestBaseUrl?: string): string {
-  const base = (process.env.PUBLIC_APP_URL || requestBaseUrl || "https://modvoltapp.cz").replace(/\/$/, "");
-  return `${base}/q/board/${token}`;
+export function publicQrUrl(token: string): string {
+  return publicAppUrl(`/q/board/${encodeURIComponent(token)}`);
 }
 
-export async function renderQrPng(token: string, requestBaseUrl?: string): Promise<Buffer> {
-  return QRCode.toBuffer(publicQrUrl(token, requestBaseUrl), {
+export async function renderQrPng(token: string): Promise<Buffer> {
+  return QRCode.toBuffer(publicQrUrl(token), {
     type: "png",
     width: 1200,
     margin: 4,

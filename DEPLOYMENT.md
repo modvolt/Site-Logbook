@@ -71,7 +71,10 @@ This repo's `docker-compose.yml` is Coolify-ready.
    `S3_SECRET_ACCESS_KEY` (`openssl rand -hex 32`).
 3. **Domains / TLS** — Coolify's reverse proxy (Traefik) terminates TLS. Map
    your domain to the **`web`** service (container port `80`). TLS and
-   certificates are handled by Coolify; nothing to configure in the app.
+   certificates are handled by Coolify. Set `PUBLIC_APP_URL` to the canonical
+   HTTPS origin and `NGINX_SERVER_NAME` to the exact accepted hostname(s), for
+   example `modvoltapp.cz www.modvoltapp.cz`. Unknown Host values are rejected
+   by nginx and the API never derives bearer links from request headers.
 4. **Object storage** — the API reaches MinIO over the internal
    `http://minio:9000`; no public storage subdomain or bucket CORS is needed,
    since uploads are proxied through the API. Alternatively, point all the
@@ -103,6 +106,8 @@ This repo's `docker-compose.yml` is Coolify-ready.
 | `POSTGRES_USER/PASSWORD/DB` | yes\*  | —             | Used by the bundled `postgres` service to build `DATABASE_URL`.  |
 | `SESSION_SECRET`          | yes      | —             | Secret signing session cookies.                                  |
 | `PORT`                    | no       | `5000`        | API listen port (inside the container).                          |
+| `PUBLIC_APP_URL`          | yes      | —             | Canonical external origin used for all emailed/shared links; HTTPS is mandatory in production and no path/query is accepted. |
+| `NGINX_SERVER_NAME`       | yes in production | `localhost` | Space-separated public hostnames accepted by nginx. Loopback names are added internally for healthchecks. |
 | `S3_BUCKET`               | yes      | —             | Bucket for uploads.                                              |
 | `S3_ACCESS_KEY_ID`        | yes      | —             | Access key. Single credential pair for both the API and bundled MinIO; set to the provider's key for external S3. |
 | `S3_SECRET_ACCESS_KEY`    | yes      | —             | Secret key (>= 8 chars for MinIO). Set to the provider's secret for external S3. |

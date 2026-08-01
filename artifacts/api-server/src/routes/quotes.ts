@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-zod";
 import { requirePermission } from "../middlewares/permissions";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { PublicOriginConfigError } from "../lib/public-origin";
 import {
   listQuotes,
   getQuoteDetail,
@@ -39,6 +40,13 @@ function isAppError(err: unknown): err is ReturnType<typeof appError> {
 }
 
 function handleError(err: unknown, fallback: string, res: import("express").Response): void {
+  if (err instanceof PublicOriginConfigError) {
+    res.status(503).json({
+      error: "Veřejný odkaz nyní nelze bezpečně vytvořit.",
+      code: "public_origin_unavailable",
+    });
+    return;
+  }
   if (isAppError(err)) {
     res.status(err.statusCode).json({ error: err.message });
     return;
@@ -248,13 +256,11 @@ router.post("/quotes/:id/send", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
   try {
     const result = await sendQuote(id, {
       to: parsed.data.to ?? null,
       subject: parsed.data.subject ?? null,
       message: parsed.data.message ?? null,
-      shareBaseUrl: baseUrl,
     });
     res.json(result);
   } catch (err) {
