@@ -1,88 +1,83 @@
-# Checkpoint FÁZE 8.8 – dokončení R04
+# Checkpoint FÁZE 8.9 – dokončení R05
 
-- **Stav:** FÁZE 8.8 dokončena lokálně. Request/upload/object-storage řez R04 je implementovaný; FÁZE 8.9 ani FÁZE 9 nebyly zahájeny.
-- **Výchozí revize:** `1ed61f4` (`main`; lokálně dvacet pět commitů před `origin/main`).
-- **Implementační revize:** `63ba086` (`main`; lokálně dvacet šest commitů před `origin/main`). Dokumentační checkpoint následuje jako samostatný commit.
+- **Stav:** FÁZE 8.9 dokončena lokálně. Aplikační šifrování uložených secretů, měřený backfill a šifrování nových DB záloh jsou implementované; FÁZE 9 nebyla zahájena.
+- **Výchozí revize:** `c7cd420` (`main`; lokální checkpoint FÁZE 8.8).
+- **Implementační revize:** `5d1b041` (`security: encrypt stored secrets and database backups`). Dokumentační checkpoint následuje jako samostatný commit.
 - **Produkční zásah:** žádný. Nebyla použita produkční DB, produkční secrets, `modvoltapp.cz`, vzdálený Git, push ani deploy.
-- **Databázová změna:** aditivní migrace `0098_object-upload-ledger`; nebyla aplikována do produkce ani do existující sdílené databáze.
-- **Provozní dokument:** [08-upload-protection-runbook.md](08-upload-protection-runbook.md).
+- **Databázová změna:** expand-only migrace `0099_secret_envelope_encryption`; nebyla aplikována do produkce ani do existující sdílené databáze.
+- **Provozní dokument:** [08-secret-encryption-runbook.md](08-secret-encryption-runbook.md).
 
-## 1. Uzavřená architektura R04
+## 1. Uzavřená lokální architektura R05
 
-### Request hranice
+### Versioned envelope a key custody hranice
 
-Globální 50MB JSON parser před autentizací byl odstraněn. Pořadí je nyní autentizace → route permission → přesná body policy/parser → offline idempotency → handler. Běžné public i authenticated JSON má 1 MiB, URL-encoded body 256 KiB a pouze přesně vyjmenované POST routy pro base64 PDF/bankovní parse mají 32 MiB. Raw uploady si ponechávají route-local parser, ale autentizace běží před rate limiterem i načtením těla. Nginx pro `/api` používá 30s body timeout a neposílá celý request do proxy bufferu.
+Nový formát `mve1` používá pro každou hodnotu náhodný 256bitový datový klíč, AES-256-GCM s 12bytovým IV a AAD svázané s tabulkou, ID řádku a polem. Datový klíč se samostatně zabalí aktivním externím KEK. Envelope nese verzi a key ID, takže podporuje současné čtení více klíčů a měřenou rotaci. Parser omezuje velikost hlavičky, odmítá neplatné key ID, neznámý klíč, zkrácený/tampered payload i neplatný autentizační tag.
 
-### Strukturální validace a decompression budget
+Keyring je načítán pouze z `SECRET_ENCRYPTION_KEYRING` a `SECRET_ENCRYPTION_ACTIVE_KEY_ID`; přijímá jen kanonické Base64 hodnoty přesně 32 bajtů. Heslový/hash fallback byl odstraněn. Chybějící nebo chybný keyring blokuje nové zápisy a aplikační vrstva vrací bezpečnou 503 bez zveřejnění kryptografického detailu. Tato implementace vytváří přísnou externí secret-provider hranici, ale sama není KMS/HSM: konkrétní produkční provider, custody a disaster-recovery vlastník zůstávají provozním rozhodnutím.
 
-PNG, JPEG, GIF, WebP, PDF a ZIP mají kanonické strukturální kontroly včetně platného konce bez trailing polyglot dat. Neznámý MIME typ selže uzavřeně. OLE/OOXML mají vlastní validátory; OOXML odmítá macros, ActiveX, embeddings a XML signatures. Běžný ZIP má předalokovací budget 25 MiB vstup, 50 entries, 25 MiB/entry, 64 MiB celkem a poměr 100:1. Office povoluje nejvýše 2000 entries při stejných byte limitech. ISDOCX má přísnější 10/10/20 MiB budget. Vnitřní ZIP soubory se znovu typově ověřují; traversal, nested ZIP a nepovolené typy jsou odmítnuty.
+### Pokryté hodnoty a kompatibilita
 
-Podpisové data URL/base64 mají limit 500 KiB, musí být skutečný PNG, dekódují se přes canvas, mají limit 2048 × 2048 a 2 miliony pixelů a před uložením se sanitizovaně znovu kódují. Job/customer/bank base64 vstupy používají kanonický bounded decoder a PDF se strukturálně ověří.
-
-Gmail a IMAP byly zahrnuty jako samostatné ne-HTTP vstupy: 25 MiB/příloha, kanonické Gmail Base64URL a shoda deklarované velikosti, IMAP nejvýše 20 podporovaných příloh a 64 MiB na zprávu, strukturální/ZIP validace a stejný Office scanner. Přechodná nedostupnost scanneru se nepřepíše na trvalé „skipped“; zůstává retryable/fail-closed.
-
-### Scanner, provider metadata a durable staging
-
-Nový scanner adapter používá `UPLOAD_SCANNER_URL`, volitelný `UPLOAD_SCANNER_TOKEN`, produkční HTTPS, timeout 10 s a nejvýše 8 KiB odpovědi. Pasivní strukturálně validované formáty mohou pokračovat jako `content_validated`. Office vyžaduje verdict `clean`; malicious je odmítnut a unavailable selže uzavřeně. Generický unavailable Office upload je uložen pouze do nepřístupné karantény a klient nedostane použitelný object path.
-
-Každý provider put počítá SHA-256 a zapisuje checksum i upload status do S3/GCS metadat. Hetzner kompatibilita zůstává zachována; nebyl vynucen S3 checksum režim, který tento provider dříve vyžadoval vypnout.
-
-Migrace `0098` přidává `object_uploads` se stavem uploadu, scanneru, checksumem, vlastníkem, claim referencí, chybou a timestamps. Nové generické uploady používají `/objects/uploads/v2/…`. Job, activity a customer-site registrace atomicky claimnou jen `stored` objekt stejného uživatele ve stejné DB transakci. Frontendová inventura potvrdila, že všechny současné `useUpload` konzumenty končí v jedné z těchto tří claim rout. Legacy `/objects/uploads/…` zůstávají kompatibilní bez backfillu; nelze zpětně tvrdit, že byly ledgerem ověřeny.
-
-Cost-document ingest a přímé customer/job PDF cesty odstraňují nově uložený objekt, pokud následný DB zápis selže. Pokud selže ledger update po provider putu, durable záznam zůstane `pending/failed` s chybou namísto bezevidence orphanu. Úplný reconciler, retence a mazání patří do R12.
-
-## 2. Stav nálezů a hranice
-
-| Nález | Stav po FÁZI 8.8 | Důkaz / hranice |
+| Oblast | Nový stav | Legacy přechod |
 |---|---|---|
-| SEC-11 | uzavřen lokálně pro nové vstupy | auth před parserem, pevné body/time/decompression limity, abort/413 kontrakty |
-| SEC-13 | uzavřen lokálně pro nové vstupy | strukturální MIME/ZIP/OOXML validace, skutečné dekódování podpisu, scanner/quarantine |
-| SEC-21 | částečně uzavřen R04, lifecycle pokračuje v R12 | SHA-256/status metadata, durable staging/claim; staré objekty, backup SSE/KMS, retence a cleanup se nemění |
+| `device_credentials` | jeden row-bound encrypted payload pro přístupové údaje, uživatele a topologii | čtení původních sloupců; backfill je po zašifrování nulová/čistí |
+| SMTP / IMAP | encrypted password + key ID + timestamp | plaintext čten pouze pokud envelope chybí |
+| OpenAI | encrypted API key + key ID + timestamp | plaintext čten pouze pokud envelope chybí |
+| Gmail OAuth | `mve1` refresh token svázaný s ID účtu | starý AES-GCM formát přes `TOKEN_ENCRYPTION_KEY` pouze pro čtení |
+| QR rozvaděče | `mve1` token svázaný s ID rozvaděče | starý `v1` formát pouze pro čtení |
+| DB zálohy | celý `pg_dump -Fc` se šifruje před object storage; hash se počítá z ciphertextu | staré řádky bez encryption metadata zůstávají čitelné |
 
-R04 je tímto **lokálně dokončen**. R12 musí nad ledgerem doplnit inventuru, bezpečný reconciler, retenci, delete retry a orphan cleanup. V této fázi se žádný starý objekt nemaže, nemění ani neoznačuje zpětně za ověřený.
+Nové secret zápisy jsou encrypted-only. Vynechaná write-only hodnota zachová existující secret, prázdný řetězec jej explicitně smaže. Device create nejprve získá ID řádku a ve stejné transakci uloží AAD-bound envelope. Serializéry nevracejí ciphertext ani nová metadata klientovi.
 
-## 3. Provedené kontroly
+Zálohy mají oddělený `BACKUP_ENCRYPTION_KEYRING`; aplikační a backup klíče se nesmějí znovu použít. Pokud backup keyring chybí, záloha selže ještě před `pg_dump` a vytvořením běžícího DB záznamu. Restore, restore-test a download nejprve ověří hash uložených bajtů a u `mve1` autentizovaně dešifrují. Legacy nešifrovaná záloha se během rollout okna stále načte, ale encrypted záznam nikdy nespadne zpět na raw bytes.
+
+### Backfill, rotace a rollback
+
+`secrets:backfill` je ve výchozím stavu dry-run a vypisuje pouze názvy kategorií a počty. Zápis vyžaduje současně `--execute`, `--confirm=ENCRYPT_SECRETS` a přesnou shodu `--database` s názvem v `DATABASE_URL`. Legacy hodnoty i envelopes se starým key ID přešifruje v jedné DB transakci; při chybě nezůstane poloviční cutover. Počet řádků musí provoz předem posoudit, protože současný nástroj není dávkovaný.
+
+Rollback `0099` je možný pouze před prvním encrypted zápisem. Jakmile encrypted data existují, down migrace se úmyslně zablokuje; bezpečný postup je obnova správného keyringu a roll-forward, nikoli export do plaintextu. Staré klíče se smějí odstranit až po nulových počtech odkazů a ověřené obnově. Staré backup klíče musí zůstat po celou podporovanou retenci odpovídajících záloh.
+
+## 2. Provedené kontroly
 
 ### Hermetická a statická brána
 
-- po hlavní implementaci prošel celý release gate: API/stavba/mockup/scripts typecheck, pět environment guardů, frontend 127/127, live-events 15/15, API 241/241 a API/PWA production build; celkem 383 aplikačních testů plus 5 guardů;
-- po rozšíření ochrany na Gmail/IMAP prošel API typecheck a rozšířená hermetická sada 35 souborů, 245/245;
-- bezpečnostní cílená sada pokrývá spoof/polyglot, trailing payload, ZIP bomb/entry/ratio budget, OOXML active content, oversized/aborted request, podpis decode/re-encode, scanner verdicty a upload ledger;
-- `git diff --check` prošel; `package.json`, `pnpm-lock.yaml` a `pnpm-workspace.yaml` nemají diff po odstranění dočasných Windows bindingů;
-- po posledním rozlišení retryable `scanner_unavailable` proběhla ještě syntax/transpile kontrola změněných importérů a diff kontrola. Opakovaný Vitest běh bez vyšších oprávnění zastavilo výhradně sandboxové čtení pnpm junction cest.
-
-Na Windows byly pro úspěšný gate dočasně propojeny přesně verzované nativní bindingy esbuild, Rollup, Lightning CSS, Tailwind Oxide a canvas a root preinstall byl dočasně nahrazen Node ekvivalentem. Tracked manifesty a lockfile byly následně přesně obnoveny.
+- v čistém izolovaném klonu prošel API typecheck a production build;
+- finální hermetický API unit gate bez `DATABASE_URL` a `TEST_DATABASE_URL`: **37/37 souborů, 257/257 testů**;
+- kryptografické testy pokrývají round-trip, row/field AAD, tamper, zkrácenou hlavičku, neznámý/odebraný klíč, rotaci, přísnou validaci keyringu, oddělenou binary backup envelope a legacy Gmail čtení;
+- QR sada pokrývá row-bound AAD, tamper a legacy `v1` čtení;
+- `git diff --check` prošel pro celý logický R05 commit;
+- tracked manifesty ani lockfile nebyly testovacími Windows bindingy změněny. Lokální preexistující external-store junction byl po nedokončeném pnpm relinku obnoven a `tsc`/`vitest` entrypointy jsou znovu dostupné.
 
 ### Izolovaný PostgreSQL 18
 
-- migration smoke: 99/99 migrací, latest `0098`, 92 tabulek proti snapshotu;
-- `object-upload-ledger.db.test.ts`: 3/3;
-- prázdný rollback `0098` prošel, po vložení evidenčního řádku se destruktivní rollback zablokoval a záznam zachoval;
-- relevantní PPE concurrency s mocked storage: public token 9/9 a admin flow 9/9.
+- migration smoke prošel přes celý dostupný řetězec **101/101** migrací, včetně `0099`; snapshot ověřil nové sloupce a constraints R05;
+- prázdný rollback `0099` odstranil secret sloupce; rollback nad řádkem s encrypted hodnotou skončil očekávaně nenulově a ciphertext zachoval;
+- `secret-persistence.db.test.ts`: **3/3** – zařízení, SMTP, IMAP a OpenAI se ukládají bez legacy plaintextu, tamper selže uzavřeně;
+- Gmail import se mocked Google/storage: **18/18**;
+- vault authorization/regrese s test-only backup trigger secretem: **10/10**;
+- backfill canary: dry-run naplánoval SMTP 1, IMAP 1, OpenAI 1; potvrzený běh aktualizoval 1/1/1, SQL ověřilo legacy `NULL` a prefix `mve1`, následný dry-run vrátil 0/0/0.
 
-Pokus spustit celý historický DB test tree paralelně nad jednou DB prokázal existující cross-file kontaminaci fixture dat a několik nehermetických storage testů; relevantní sady byly proto ověřeny izolovaně/sekvenčně. Po posledním doplnění Gmail/IMAP limitů nebylo možné znovu vytvořit nový lokální PostgreSQL proces: běhové prostředí odmítlo další schválení kvůli vyčerpanému approval/usage limitu. Nebyla použita náhradní ani produkční DB a tato neprovedená matice je zbytková testovací nejasnost, nikoli skrytý úspěch.
+Do migration smoke se kvůli souběžné práci propsala také uživatelská lokální migrace `0100_user_ui_preferences`; není součástí commitu R05. Journal byl ve stagingu rozdělen přesně: commit `5d1b041` obsahuje pouze záznam `0099`, zatímco `0100` a redesign změny zůstaly nedotčené v pracovním stromu.
 
-## 4. Nejasnosti a zbytková rizika
+## 3. Nejasnosti a zbytková rizika
 
-1. `UPLOAD_SCANNER_URL` je pouze lokálně otestovaný kontrakt; konkrétní scanner, jeho dostupnost, limity, DPA, aktualizace signatur a alerting musí určit provozní vlastník před produkcí. Bez něj se Office obsah fail-closed nepřijme.
-2. Nová tabulka musí být aplikována před novým API. Bez `0098` generický upload selže a nesmí pokračovat bez evidence.
-3. Legacy object paths se záměrně neclaimují v ledgeru. Je to rollout kompatibilita, nikoli potvrzení jejich původu nebo čistoty.
-4. Karanténa a stavy `pending/failed/stored` nemají v R04 automatickou retenci ani reconciler. Mazání bez inventury je zakázané; dokončí R12.
-5. S3/GCS checksum/status metadata nebyla ověřena proti skutečnému produkčnímu provideru. Kód zachovává existující Hetzner checksum workaround.
-6. Limit 60 generických uploadů za 15 minut je kompromis pro dávkové fotografie; produkční prahy je nutné měřit a odlišit oprávněný terénní batch od abuse.
-7. Historická DB sada není plně izolovaná per file. R14 má dodat opakovatelný ephemeral stack a odstranit cross-suite kontaminaci.
-8. Kompletní release gate proběhl před posledním malým rozlišením retryable scanner outage v e-mailových importérech. Toto rozlišení prošlo syntax kontrolou, ale jeho cílený DB test je výslovně odložen do prvního kroku dalšího běhu nebo R14.
+1. Repozitář nevolí konkrétní KMS/HSM/secret-manager provider. Environment keyring chrání samotný DB dump, ale kompromitovaný API host nebo účet, který čte jeho prostředí, může secrets stále získat. Před produkcí je nutné schválit custody, emergency access, audit a DR.
+2. Produkční počty a velikost backfillu nejsou známy, protože produkční DB nebyla čtena. Nástroj používá jednu transakci; při neočekávaném objemu se rollout musí zastavit a rozdělit na bezpečné dávky v samostatném řezu.
+3. Lokálně byl otestován crypto backup payload a všechny read/write větve typecheckem/buildem, nikoli úplný skutečný `pg_dump → object storage → pg_restore` drill. Ten patří do FÁZE 9 a musí běžet pouze v izolovaném prostředí.
+4. Produkční rotace, ztráta klíče a emergency recovery nebyly simulovány se zvoleným providerem. Odebrání klíče bez nulového počtu odkazů by data znepřístupnilo.
+5. Legacy sloupce a legacy reader zůstávají záměrně přítomné. `TOKEN_ENCRYPTION_KEY` se nesmí odstranit před úspěšným backfillem a funkčními canary testy; contract/drop migrace není součástí této fáze.
+6. Nové backup objekty jsou aplikací šifrované, ale provider-side verze, off-site kopie, účetní izolace, object manifest a kompletní RPO/RTO stále náleží R08.
+7. Kompletní lint, frontend/PWA, offline, upload/download, podpis, testovací e-mail a integrovaný restore gate nebyly v R05 opakovány; jsou explicitním rozsahem FÁZE 9.
 
-## 5. Jednoznačný checkpoint a doporučení
+## 4. Jednoznačný checkpoint a doporučení
 
-**CHECKPOINT FÁZE 8.8:** R04 je lokálně uzavřen pro nové requesty, uploady, dekompresi, podpisové obrázky, e-mailové přílohy a nové generické object-storage staging/claim workflow. Má pevné limity, fail-closed strukturální validaci, Office scanner/quarantine hook, SHA-256/status provider metadata a durable ledger `0098`. Existující objekty nebyly změněny ani smazány. Nebyl proveden push, deploy, produkční test ani produkční migrace. V tomto spuštění se nepokračuje do FÁZE 8.9 ani FÁZE 9.
+**CHECKPOINT FÁZE 8.9:** R05 je lokálně implementačně uzavřen pro trezor zařízení, SMTP, IMAP, OpenAI, Gmail refresh tokeny, QR tokeny a nové databázové zálohy. Nové zápisy používají versioned authenticated envelope s row/field AAD a externím keyringem; legacy data lze bezpečně přečíst a měřeně přešifrovat. Produkční KMS/custody rozhodnutí, migrace, backfill, rotace, backup restore drill, push a deploy nebyly provedeny. Souběžné redesign změny včetně migrace `0100` nebyly zahrnuty do R05 commitu. V tomto spuštění se nepokračuje do FÁZE 9.
 
-- **další fáze:** FÁZE 8.9 – izolovaný řez R05: šifrování trezoru a provozních secretů.
+- **další fáze:** FÁZE 9 – závěrečné integrované ověření a dokument `docs/audit/08-final-verification.md`.
 - **doporučený model:** GPT-5.6 Sol
 - **doporučený reasoning:** xhigh
-- **důvod použití této úrovně:** práce zasáhne kryptografický formát, KMS/master-key vlastnictví, citlivá data, dual-read/write, rotaci, backup recovery a migrační backfill; chyba může nevratně znepřístupnit nebo odhalit zákaznické přístupy, SMTP/IMAP hesla a API klíče.
-- **očekávané činnosti:** nejprve uzavřít KMS/DR threat model a inventuru všech plaintext secret fields; navrhnout versioned envelope ciphertext s AAD a externím master key; zavést crypto adapter a fail-closed dual-read/write; přidat canary/tamper/rotation/rollback testy; připravit měřitelný backfill bez plaintext logů/exportu, backup key separation a provozní recovery runbook. Jako první kontrolu zopakovat odložené cílené Gmail/IMAP DB testy v izolovaném PostgreSQL.
-- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/lib/token-crypto.ts`, vault/device-credential služby a routy, `artifacts/api-server/src/lib/email.ts`, `artifacts/api-server/src/lib/email-import.ts`, email/import/OpenAI/backup settings služby, `lib/db/src/schema/device-credentials.ts`, `email-settings.ts`, `email-import-settings.ts`, `openai-settings.ts`, nové crypto/KMS adaptéry, migrace/rollbacky, bezpečnostní testy a recovery/rotation runbook.
-- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Očekává se aditivní schema migrace a následný citlivý re-encryption backfill; možné jsou dual-read cutover, key rotation a změna záloh. Žádný plaintext se nesmí logovat nebo exportovat a contract/drop starých sloupců nesmí proběhnout bez ověřené obnovy, počtů a rollbacku.
+- **důvod použití této úrovně:** finální gate musí propojit bezpečnost, autorizaci, migrace, souběh, PWA/offline, dokumenty, podpis, e-mail a skutečný backup/restore bez zaměnění izolovaného testu za produkční důkaz; selhání může odhalit regresi napříč dosavadními řezy.
+- **očekávané činnosti:** spustit typecheck, lint, unit, integrační a bezpečnostní testy, build, celý migration/rollback smoke, základní workflow, PWA offline, upload/download, podpis, testovací e-mail a izolovaný `pg_dump → encrypted object → pg_restore`; každou neproveditelnou kontrolu zdokumentovat s důvodem, rizikem a ručním postupem; vytvořit evidence-based finální skóre a manažerské shrnutí.
+- **soubory, které budou pravděpodobně změněny:** primárně nový `docs/audit/08-final-verification.md` a aktualizace checkpointu/centrálního registru. Produkční kód se nemá měnit, pokud gate neodhalí konkrétní blocker; případná oprava musí být cílená, otestovaná a v samostatném logickém commitu.
+- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano, ale pouze jako izolované testování již připravených migrací a destruktivního restore v dočasném prostředí. Produkční migrace, backfill, rotace, práce s reálnými secrets, push a deploy nejsou automaticky autorizovány. Nová opravná migrace je možná jen při prokázaném blockeru a musí mít vlastní rollback a checkpoint.
 
 Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**.

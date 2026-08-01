@@ -158,6 +158,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R05 – Šifrování trezoru a provozních secretů
 
+- **Stav:** dokončeno lokálně ve FÁZI 8.9 pro nové zápisy, čtení legacy dat, bezpečný re-encryption backfill a šifrované DB zálohy. Produkční klíče, migrace, backfill, deploy ani restore nebyly provedeny. Provozní přechod zůstává podmíněn schváleným key custody/DR postupem a ověřením na produkční kopii.
 - **Přínos:** kompromitace DB/dumpu sama neodhalí zákaznické přístupy, SMTP/IMAP ani API klíče.
 - **Riziko neprovedení:** jeden dump poskytne přímý přístup k dalším systémům a zákaznickým zařízením.
 - **Rozsah:** envelope encryption, externí master key/KMS, versioned ciphertext, dual-read migrace, key rotation, redakce logů a oddělené backup keys.
@@ -167,7 +168,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Migrace dat:** ano, citlivý re-encryption backfill s počty a rollbackem bez plaintext exportu.
 - **Změna uživatelského procesu:** minimální; administrátor musí spravovat recovery/rotation runbook.
 - **Doporučené pořadí:** 6; rozdělit na KMS, aplikační dual-read, backfill, cutover a rotaci.
-- **Hotovo když:** DB dump bez KMS klíče neobsahuje použitelný secret a obnova/rotace je otestovaná.
+- **Hotovo když:** DB dump bez externího klíče neobsahuje použitelný secret a obnova/rotace je otestovaná. Lokální implementační část je splněna ve FÁZI 8.9; produkční uzavření vyžaduje nakonfigurovat oddělené keyringy, aplikovat `0099`, provést měřený backfill, vytvořit novou šifrovanou zálohu a úspěšně ji obnovit v izolovaném prostředí.
 
 ### R06 – Veřejné tokeny a neměnné podepisované snapshoty
 
