@@ -18,17 +18,15 @@ import {
   AuditCredentialAccessBody,
   AuditCredentialExportParams,
 } from "@workspace/api-zod";
-import { requireRole, requireBiometricVerified } from "../middlewares/auth";
+import { requireBiometricVerified } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 
 const router: IRouter = Router();
 
-// Device credentials are a sensitive credential vault (plaintext passwords).
-// Restrict all access to elevated roles; guests/read-only users must not read them.
-// NOTE: requireRole is applied per-route (not via a pathless router.use), because
-// this router is mounted pathlessly in routes/index.ts — a pathless middleware here
-// would run for every request flowing through the router chain, not just device
-// credential routes, and would 401 unauthenticated requests (e.g. login) downstream.
-const requireVaultAccess = requireRole("master", "admin");
+// Customer permissions control access to the parent entity; credentials.* is
+// always required in addition because this is a plaintext credential vault.
+const requireVaultView = requirePermission("credentials.view");
+const requireVaultManage = requirePermission("credentials.manage");
 
 function serializeCredential(c: typeof deviceCredentialsTable.$inferSelect) {
   return {
@@ -56,7 +54,7 @@ async function siteBelongsToCustomer(
 
 router.get(
   "/customers/:customerId/device-credentials",
-  requireVaultAccess,
+  requireVaultView,
   requireBiometricVerified,
   async (req, res): Promise<void> => {
     const params = ListDeviceCredentialsParams.safeParse(req.params);
@@ -76,7 +74,7 @@ router.get(
 
 router.post(
   "/customers/:customerId/device-credentials",
-  requireVaultAccess,
+  requireVaultManage,
   async (req, res): Promise<void> => {
     const params = CreateDeviceCredentialParams.safeParse(req.params);
     if (!params.success) {
@@ -115,7 +113,7 @@ router.post(
   },
 );
 
-router.patch("/device-credentials/:id", requireVaultAccess, async (req, res): Promise<void> => {
+router.patch("/device-credentials/:id", requireVaultManage, async (req, res): Promise<void> => {
   const params = UpdateDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -155,7 +153,7 @@ router.patch("/device-credentials/:id", requireVaultAccess, async (req, res): Pr
   res.json(serializeCredential(credential));
 });
 
-router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): Promise<void> => {
+router.delete("/device-credentials/:id", requireVaultManage, async (req, res): Promise<void> => {
   const params = DeleteDeviceCredentialParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -178,7 +176,7 @@ router.delete("/device-credentials/:id", requireVaultAccess, async (req, res): P
 // Audit event for the customer credential export/handover PDF page being opened.
 router.post(
   "/customers/:customerId/device-credentials/audit-export",
-  requireVaultAccess,
+  requireVaultView,
   async (req, res): Promise<void> => {
     const params = AuditCredentialExportParams.safeParse(req.params);
     if (!params.success) {
@@ -223,7 +221,7 @@ const FIELD_LABELS: Record<string, string> = {
 // Excluded from the generic auditMutations middleware via SKIP_SUFFIXES.
 router.post(
   "/device-credentials/:id/audit-access",
-  requireVaultAccess,
+  requireVaultView,
   async (req, res): Promise<void> => {
     const params = AuditCredentialAccessParams.safeParse(req.params);
     if (!params.success) {

@@ -1,5 +1,5 @@
 /**
- * Runs the R01 auth/session DB proof in a generated temporary database.
+ * Runs the isolated authorization DB proofs in a generated temporary database.
  * TEST_DATABASE_URL supplies only an explicitly enabled local PostgreSQL server.
  * The named source database is never migrated or passed to Vitest.
  */
@@ -66,48 +66,57 @@ async function assertColumn(pool: pg.Pool, expected: boolean): Promise<void> {
   }
 }
 
-async function runAuthTests(repoRoot: string, testDbUrl: string): Promise<void> {
+async function runAuthorizationTests(repoRoot: string, testDbUrl: string): Promise<void> {
   const apiDir = path.join(repoRoot, "artifacts", "api-server");
   const vitestEntrypoint = path.join(apiDir, "node_modules", "vitest", "vitest.mjs");
-  const args = [
-    vitestEntrypoint,
-    "run",
+  const testFiles = [
     "test/auth-session-generation.db.test.ts",
-    "--maxWorkers=1",
-    "--no-file-parallelism",
-    "--testTimeout=30000",
-    "--hookTimeout=30000",
+    "test/vault-authorization.db.test.ts",
   ];
-  const childEnv: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
-    Path: process.env.Path,
-    SystemRoot: process.env.SystemRoot,
-    WINDIR: process.env.WINDIR,
-    ComSpec: process.env.ComSpec,
-    TEMP: process.env.TEMP,
-    TMP: process.env.TMP,
-    CI: process.env.CI,
-    NODE_ENV: "test",
-    DATABASE_URL: testDbUrl,
-    SESSION_SECRET: "isolated-auth-db-suite-secret-not-for-production",
-    AUTH_DB_TEST_ENABLED: "true",
-    BACKUP_ENABLED: "false",
-    OPENAI_DOCUMENT_EXTRACTION_ENABLED: "false",
-  };
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(process.execPath, args, {
-      cwd: apiDir,
-      stdio: "inherit",
-      windowsHide: true,
-      env: childEnv,
+  for (const testFile of testFiles) {
+    const args = [
+      vitestEntrypoint,
+      "run",
+      testFile,
+      "--maxWorkers=1",
+      "--no-file-parallelism",
+      "--testTimeout=30000",
+      "--hookTimeout=30000",
+    ];
+    const childEnv: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      Path: process.env.Path,
+      SystemRoot: process.env.SystemRoot,
+      WINDIR: process.env.WINDIR,
+      ComSpec: process.env.ComSpec,
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      CI: process.env.CI,
+      NODE_ENV: "test",
+      DATABASE_URL: testDbUrl,
+      SESSION_SECRET: "isolated-auth-db-suite-secret-not-for-production",
+      BACKUP_TRIGGER_SECRET: "isolated-backup-trigger-secret-not-for-production",
+      AUTH_DB_TEST_ENABLED: "true",
+      AUTHORIZATION_DB_TEST_ENABLED: "true",
+      BACKUP_ENABLED: "false",
+      OPENAI_DOCUMENT_EXTRACTION_ENABLED: "false",
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(process.execPath, args, {
+        cwd: apiDir,
+        stdio: "inherit",
+        windowsHide: true,
+        env: childEnv,
+      });
+      child.once("error", reject);
+      child.once("exit", (code, signal) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Authorization DB test child failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`));
+      });
     });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Auth DB test child failed with ${signal ? `signal ${signal}` : `exit code ${code}`}.`));
-    });
-  });
+  }
 }
 
 async function main(): Promise<void> {
@@ -166,8 +175,8 @@ async function main(): Promise<void> {
     }
     console.log("[test:auth-db] Migration forward/down/forward cycle passed.");
 
-    await runAuthTests(repoRoot, testDbUrl);
-    console.log("[test:auth-db] All isolated auth/session DB tests passed.");
+    await runAuthorizationTests(repoRoot, testDbUrl);
+    console.log("[test:auth-db] All isolated authorization DB tests passed.");
 
     const rollbackGuardPool = new Pool({ connectionString: testDbUrl });
     try {

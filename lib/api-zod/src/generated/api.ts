@@ -2612,7 +2612,7 @@ export const CreateDeviceCredentialBody = zod.object({
 
 /**
  * Writes a `security` audit log entry when the export/handover PDF page is
-opened for a customer. Restricted to roles with vault access (master/admin).
+opened for a customer. Requires both customer access and `credentials.view`.
 
  * @summary Record a security audit event for opening the credential export page
  */
@@ -2623,8 +2623,8 @@ export const AuditCredentialExportParams = zod.object({
 
 /**
  * Writes a `security` audit log entry without the secret value. Must be
-called when the UI reveals or copies a PIN/password/card. Restricted to
-roles with vault access (master/admin).
+called when the UI reveals or copies a PIN/password/card. Requires
+`credentials.view`.
 
  * @summary Record a security audit event for viewing or copying a credential field
  */

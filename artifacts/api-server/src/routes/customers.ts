@@ -15,6 +15,7 @@ import {
 } from "@workspace/api-zod";
 import { sendEmailWithPdf } from "../lib/email";
 import { requireRole } from "../middlewares/auth";
+import { requirePermission } from "../middlewares/permissions";
 
 const router: IRouter = Router();
 
@@ -243,9 +244,9 @@ router.get("/customers/:id/financial-summary", requireRole("admin", "master"), a
   });
 });
 
-// Distributes the sensitive credential-vault PDF; restrict to elevated roles
-// to match the device-credentials access boundary.
-router.post("/customers/:id/send-credentials-email", requireRole("master", "admin"), async (req, res): Promise<void> => {
+// customers.manage is enforced globally; credentials.view is additionally
+// required because this operation distributes a plaintext vault export.
+router.post("/customers/:id/send-credentials-email", requirePermission("credentials.view"), async (req, res): Promise<void> => {
   const params = SendCredentialsEmailParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
