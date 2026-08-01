@@ -1,63 +1,92 @@
-# Checkpoint FÁZE 8.1 – R00 a první implementační vlna R01
+# Checkpoint FÁZE 8.2 – dokončení R01
 
-- **Stav:** FÁZE 8.1 dokončena; R00 je lokálně dokončen, R01 zůstává řízeně rozpracovaný. R02 ani FÁZE 9 nebyly zahájeny.
-- **Výchozí revize:** `a25c3128e317c7efe6feaa3a6a8a40eecd6cdc0f` (`main`).
-- **Výsledná implementační revize:** `2c660c1` (`main`); checkpoint je následný dokumentační commit. Vše zůstává pouze lokálně, nic nebylo pushnuto ani nasazeno.
-- **Produkční zásah:** žádný. Nebyla načtena ani změněna produkční data, sessions, secrets, databáze, objekty ani konfigurace.
+- **Stav:** FÁZE 8.2 dokončena; R01 je lokálně dokončeno. R02 ani FÁZE 9 nebyly zahájeny.
+- **Výchozí revize:** `ee605e6` (`main`; lokálně sedm commitů před `origin/main`).
+- **Výsledná implementační revize:** `bf18843` (`main`); dokumentační checkpoint je následný samostatný commit.
+- **Produkční zásah:** žádný. Nebyla použita produkční DB, secrets ani externí provider; nic nebylo pushnuto ani nasazeno.
 
-## 1. Implementované logické celky
+## 1. Problém, návrh a hranice změny
 
-| Commit | Workstream | Změna | Návrat |
-|---|---|---|---|
-| `f1bb210` | R00 | hermetický root release gate, explicitní API unit/DB příkazy, lokální DB target guard a GitHub Actions quality gate | revert commitu; bez datového dopadu |
-| `da5e734` | R01 / SEC-02 | společný `regenerate → identita → save` helper pro heslový login, prvotní setup a WebAuthn login | revert commitu; existující sessions se nemění |
-| `f5f6349` | R01 / SEC-01 | odstranění otázkové obnovy z API, UI, OpenAPI a klientů; lokální servisní reset admina přes stdin s audit eventem a revokací | revert commitu obnoví starý endpoint; nedoporučeno bez náhradního omezení |
-| `8ddea6d` | R01 / SEC-03/04 | transakční advisory lock prvního admin setupu, atomická revokace sessions při změně hesla/deaktivaci a minimum 12 znaků pro nově nastavovaná hesla | revert commitu; žádná schema migrace ani backfill |
-| `2c660c1` | R00 | rozšíření hermetického scrubování na obecné auth/token/password/key secrets | revert commitu; bez datového dopadu |
+FÁZE 8.1 mazala sessions při změně hesla nebo deaktivaci. Request, který session načetl těsně před revokací, ji však mohl po smazání znovu uložit. Samotné mazání řádků proto nebylo dostatečným důkazem globálního odvolání.
 
-Servisní příkaz `auth:reset-admin-password` nebyl spuštěn, protože by měnil reálný účet a sessions. Heslo nepřijímá v argumentu příkazové řádky a nikdy je neloguje.
+Zvolené řešení přidává uživateli monotónní `session_generation`:
 
-## 2. Bezpečnostní a provozní výsledek
+1. přihlášení uloží aktuální generaci do session;
+2. změna hesla, deaktivace, servisní reset a hromadná revokace zvýší generaci ve stejné transakci jako smazání sessions;
+3. `attachAuth` porovná session s aktuálním uživatelem a starou nebo bezverzní session zničí a odstraní cookie;
+4. při odvolání ostatních vlastních sessions se současné session zapíše nová generace před odpovědí.
 
-- Výchozí API `test` už nepřebírá ambientní databázi; hermetický gate odmítá DB/provider secrets.
-- DB test runner odmítá `DATABASE_URL`, produkční režim, vzdálený host a databázi bez samostatného `test`/`ci` segmentu. Vyžaduje explicitní `TEST_DATABASE_URL`.
-- Veřejné endpointy bezpečnostních otázek, jejich UI a kontrakty již neexistují. Tabulka a historické řádky nebyly mazány.
-- Heslový login, WebAuthn login i prvotní setup regenerují session před připojením identity a odpoví až po uložení nové session.
-- První admin je vytvářen pod transakčním PostgreSQL advisory lockem; count a insert jsou v jedné transakci.
-- Změna hesla nebo deaktivace maže cílové sessions podle `user_id` i `sess.userId`; vlastní měněná session je explicitně zničena a cookie vyčištěna.
-- Nová hesla při setupu, vytvoření uživatele, administrátorské změně a servisním resetu vyžadují nejméně 12 znaků. Login zůstává kompatibilní se stávajícími kratšími hesly.
+Tím se po dokončení již běžícího requestu znovuuložená stará session při příštím požadavku odmítne. Request autorizovaný ještě před revokací nelze bez distribuovaného per-request locku zastavit uprostřed provádění; nová ochrana řeší jeho následnou použitelnost.
 
-## 3. Provedené kontroly
+## 2. Logické commity
 
-Závěrečný `pnpm gate:release` nad `2c660c1` prošel bez DB, auth, token, password, key a provider secrets:
+| Commit | Změna | Návrat |
+|---|---|---|
+| `b5ef912` | aditivní migrace `0096`, session generation v login/middleware a atomické zvýšení při globální revokaci | preferovaný návrat je revert aplikace a ponechání nevyužitého sloupce; DOWN je povolen jen dokud žádná generace nepřekročila 1 |
+| `bf18843` | fail-closed izolovaný DB runner a čtyři skutečné API/session scénáře | revert testovacího commitu nemá datový dopad |
 
-- root/library/API/PWA TypeScript typecheck: prošel;
-- test guardu prostředí: 5/5;
-- frontend Vitest: 4 soubory, 78/78;
-- `live-events` Vitest: 1 soubor, 15/15;
-- hermetický API Vitest: 22 souborů, 132/132;
+## 3. Migrace, rollout a rollback
+
+- `0096_daffy_puppet_master.sql` pouze přidá `users.session_generation integer DEFAULT 1 NOT NULL`.
+- Neprovádí mazání ani samostatný backfill; konstanta zachová existující uživatele.
+- První nasazení nové aplikace záměrně odmítne existující sessions bez generace. Uživatelé se jednou znovu přihlásí.
+- Preferovaný rollback je vrátit aplikační commit a sloupec ponechat. Starší aplikace jej ignoruje.
+- Destruktivní DOWN je chráněn: pokud některá generace již vzrostla nad 1, skončí chybou, protože odstranění epochy by mohlo znovu připustit starou session.
+- Pro více souběžných API instancí je třeba nejprve aplikovat migraci, následně v krátkém okně vyměnit všechny instance. Smíšené staré a nové instance mohou dočasně způsobovat opakované odhlášení.
+
+## 4. Provedené kontroly
+
+### Izolovaný PostgreSQL 18
+
+Byl vytvořen jednorázový cluster v systémovém temp adresáři, naslouchající pouze na `127.0.0.1` na dočasném portu. Nepoužil běžící lokální službu ani projektovou/produkční DB. Po testu byla dočasná DB odstraněna, server zastaven a celý temp adresář smazán.
+
+- fresh migration chain včetně `0096`: prošel;
+- migrace vpřed → chráněný DOWN → opět vpřed: prošla;
+- rollback po skutečném zvýšení generace: správně zablokován;
+- paralelní prvotní setup: právě jeden výsledek `201`, druhý `409`;
+- rotace anonymní cookie na přihlášenou: původní SID odstraněno, nové SID odlišné;
+- změna hesla se dvěma skutečnými supertest agents: obě staré sessions odvolány;
+- ručně znovuvložený starý session řádek: middleware jej odmítl a zničil;
+- odvolání ostatních vlastních sessions: aktuální session zůstala platná s novou generací;
+- cílená DB sada: 1 soubor, 4/4 testů.
+
+### Hermetická release brána
+
+Závěrečný `pnpm gate:release` nad `bf18843` prošel bez DB a provider secretů:
+
+- všechny TypeScript typechecky: prošly;
+- guard prostředí: 5/5;
+- frontend: 78/78;
+- `live-events`: 15/15;
+- API hermetická sada: 22 souborů, 133/133;
 - API production build: prošel;
-- PWA production build a service worker: prošel; zůstává pouze známé upozornění na velké chunks.
+- PWA production build a service worker: prošly;
+- zůstává známé neblokující upozornění na velké Vite chunky (`index` přibližně 824 kB, HEIC přibližně 1,35 MB).
 
-Záměrně nebyly spuštěny DB-backed API testy, migrace, hlavní E2E, externí služby ani produkční smoke. Nebyla poskytnuta explicitní izolovaná `TEST_DATABASE_URL`; použití sdílené/produkční DB guard odmítá.
+Záměrně nebyla spuštěna produkční migrace, recovery CLI, produkční smoke, externí služby ani vzdálený GitHub Actions workflow.
 
-## 4. Neuzavřené otázky a rizika
+## 5. Výsledek R01 a neuzavřené otázky
 
-1. R01 není uzavřen bez funkčního izolovaného PostgreSQL testu, který prokáže jediného prvního admina při souběhu a revokaci dvou skutečných session agents.
-2. Souběžný request, který načetl session těsně před revokací, ji může teoreticky znovu uložit. Robustní řešení je session/credential generation kontrolovaná v `attachAuth`; vyžaduje aditivní migraci a izolovaný migrační test.
-3. Nový GitHub Actions workflow je pouze lokálně validovaný; první vzdálený běh nebyl proveden.
-4. Dormantní `security_questions` tabulka a historická data potřebují pozdější retenční/migrační rozhodnutí. Automatické mazání nebylo provedeno.
-5. Servisní recovery vyžaduje dokumentovaný přístup oprávněného serverového operátora a dvouosobní nebo jinou organizační kontrolu; technické CLI samo právní/provozní proces nenahrazuje.
-6. Produkční rollout musí předem oznámit odstranění self-service obnovy a možné záměrné odhlášení po změně hesla či deaktivaci.
+R01 je z pohledu lokální implementace a izolovaného důkazu dokončeno: otázková obnova je odstraněna, servisní recovery je administrátorem řízené, session IDs se při autentizaci rotují, prvotní setup je serializovaný a globální revoke je chráněný generací.
 
-## 5. Checkpoint a doporučení pro další spuštění
+Před produkčním rolloutem zůstává provozní rozhodnutí, nikoli další implementace R01:
 
-- **další fáze:** FÁZE 8.2 – dokončení R01; nejprve izolovaný DB důkaz, potom samostatné rozhodnutí o session-generation migraci. R02 zatím nezahajovat.
+1. naplánovat jednorázové odhlášení uživatelů a oznámit odstranění self-service obnovy;
+2. ověřit serverový recovery účet/postup a organizační kontrolu operátora;
+3. připravit monitoring nárůstu 401 a neúspěšných loginů;
+4. aplikovat `0096` před spuštěním nové aplikace a nemíchat dlouhodobě staré a nové instance;
+5. po nasazení neprovádět DOWN, pokud již některá generace vzrostla; použít aplikační rollback nebo forward-fix.
+
+Dormantní tabulka `security_questions` a historická data zůstávají beze změny pro pozdější retenční rozhodnutí. R02 a další P0 nálezy zůstávají neopravené.
+
+## 6. Checkpoint a doporučení pro další spuštění
+
+- **další fáze:** FÁZE 8.3 – R02, fail-closed autorizace a objektové vlastnictví; nejprve znovu ověřit negativní matici ze security auditu a rozdělit změnu na malé authorization slices.
 - **doporučený model:** GPT-5.6 Sol
 - **doporučený reasoning:** xhigh
-- **důvod použití této úrovně:** práce zasáhne session invariant při souběhu, PostgreSQL migraci, autentizační middleware a rollout, který může odhlásit všechny uživatele. Chyba může ponechat kompromitovanou session nebo naopak zablokovat přístup.
-- **očekávané činnosti:** připravit ephemeral PostgreSQL pro cílené auth testy; otestovat paralelní setup, rotaci cookie a revokaci dvou agents; navrhnout `sessionVersion`/credential epoch expand migraci; ověřit upgrade i návrat/forward-fix; teprve po důkazu označit R01 dokončeno.
-- **soubory, které budou pravděpodobně změněny:** `lib/db/src/schema/users.ts`, nová migrace a Drizzle metadata, `artifacts/api-server/src/middlewares/auth.ts`, `artifacts/api-server/src/lib/auth-session.ts`, auth/users routy, izolovaný DB runner a cílené auth DB testy, tento checkpoint a centrální roadmapa.
-- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Předpokládaná migrace je aditivní, ale mění platnost všech sessions a rollout může záměrně odhlásit uživatele. Vyžaduje test na izolované DB, předem připravený recovery účet/postup, monitorování 401/login chyb a samostatný checkpoint před produkčním nasazením.
+- **důvod použití této úrovně:** R02 zasahuje centrální permission middleware, deny override, vlastnictví souborů a interní routy. Chyba může otevřít IDOR nebo naopak zablokovat oprávněné pracovní workflow.
+- **očekávané činnosti:** zmapovat všechny chráněné routy proti aktuální permission matici; doplnit fail-closed výchozí stav a negativní 401/403/wrong-owner testy; izolovaně opravit první nejrizikovější slice a vytvořit samostatný checkpoint, pokud R02 přesáhne rozumný rozsah.
+- **soubory, které budou pravděpodobně změněny:** `artifacts/api-server/src/app.ts`, `artifacts/api-server/src/middlewares/permissions.ts`, vybrané storage/download/internal routy, `lib/db/src/permissions.ts`, cílené authorization testy, centrální roadmapa a tento checkpoint.
+- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** ano. Fail-closed změny mohou způsobit plošné 403; objektové vlastnictví může vyžadovat aditivní owner metadata a backfill. Každá případná migrace musí mít izolovaný test, měření nevyplněných vlastníků a samostatný rollout/rollback bod.
 
 Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**. FÁZI 9 nezačínej, dokud nejsou dokončeny schválené implementační vlny FÁZE 8.
