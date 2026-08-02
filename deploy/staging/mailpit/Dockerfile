@@ -20,4 +20,3 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=10 \
   CMD ["/mailpit", "readyz"]
 
 ENTRYPOINT ["/usr/local/bin/staging-mailpit-entrypoint"]
-
