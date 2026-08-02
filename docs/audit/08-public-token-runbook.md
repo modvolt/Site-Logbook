@@ -40,10 +40,15 @@ Nejdřív na izolované anonymizované kopii spusť read-only age gate s maximá
 ```powershell
 $env:NODE_ENV = "test"
 $env:PUBLIC_TOKEN_PREFLIGHT_CONFIRM_ISOLATED = "true"
-pnpm --filter @workspace/api-server public-tokens:preflight -- --database=<PRESNY_NAZEV_IZOLOVANE_DB> --max-age-days=<SCHVALENE_MAXIMUM>
+pnpm --filter @workspace/api-server public-tokens:preflight -- --database=<PRESNY_NAZEV_IZOLOVANE_DB> --max-age-days=ppe_signature:<SCHVALENE_MAXIMUM_PODPISU> --max-age-days=ppe_confirmation:<SCHVALENE_MAXIMUM_POTVRZENI>
 ```
 
-`decision: BLOCK` a exit code 2 znamenají, že existuje aktivní legacy PPE odkaz starší než schválený limit. Rollout zastav, odkazy revokuj nebo znovu bezpečně vydej a preflight opakuj. `created_at` je pro PPE signature konzervativní horní odhad stáří, protože legacy schema nemá samostatný čas vydání signature tokenu.
+Oba typy jsou povinné, každý právě jednou a v rozsahu 1–3650 dní. Jediný
+netypovaný limit, neznámý/duplicitní typ nebo chybějící typ skončí fail-closed.
+`decision: BLOCK` a exit code 2 znamenají, že existuje aktivní legacy PPE odkaz
+starší než limit schválený pro jeho typ. Rollout zastav, odkazy revokuj nebo znovu
+bezpečně vydej a preflight opakuj. `created_at` je pro PPE signature konzervativní
+horní odhad stáří, protože legacy schema nemá samostatný čas vydání signature tokenu.
 
 Poté proveď stávající dry-run cleanup plánu:
 

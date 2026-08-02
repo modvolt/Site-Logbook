@@ -1,6 +1,6 @@
 {
   "_templateStatus": "PENDING - copy, replace every placeholder, then run pnpm gate:staging-evidence -- --file <path>",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "run": {
     "id": "PENDING",
     "environmentId": "modvolt-staging-PENDING",
@@ -66,9 +66,16 @@
     "freshnessAlertDelivery": "pending"
   },
   "approvals": {
+    "mode": "solo_maintainer",
     "operator": "PENDING",
-    "reviewer": "PENDING",
+    "reviewer": null,
     "serviceOwner": "PENDING",
+    "soloMaintainerRiskAccepted": false,
+    "compensatingControls": {
+      "mainBranchProtected": false,
+      "exactShaQualityGateRequired": false,
+      "environmentBranchRestricted": false
+    },
     "approvedAt": "PENDING"
   }
 }

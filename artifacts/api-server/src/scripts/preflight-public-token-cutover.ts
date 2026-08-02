@@ -1,5 +1,9 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import {
+  parseLegacyPpeMaxAgeDays,
+  type LegacyPpeMaxAgeDays,
+} from "./public-token-preflight-policy";
 
 type TokenAgeRisk = {
   active: number;
@@ -30,14 +34,6 @@ function databaseIdentity(): { database: string; hostname: string } {
   const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
   if (!database) throw new Error("DATABASE_URL must name a database.");
   return { database, hostname: url.hostname.toLowerCase() };
-}
-
-function positiveInteger(raw: string | undefined, label: string): number {
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 1 || value > 3_650) {
-    throw new Error(`${label} must be an integer from 1 to 3650.`);
-  }
-  return value;
 }
 
 function count(value: unknown, label: string): number {
@@ -74,7 +70,7 @@ function assertIsolatedTarget(database: string, hostname: string): void {
   }
 }
 
-async function loadRisk(maxAgeDays: number): Promise<{
+async function loadRisk(maxAgeDays: LegacyPpeMaxAgeDays): Promise<{
   signature: TokenAgeRisk;
   confirmation: TokenAgeRisk;
 }> {
@@ -87,7 +83,7 @@ async function loadRisk(maxAgeDays: number): Promise<{
       count(*) filter (
         where signature_token is not null
           and employee_confirmed_at is null
-          and created_at < now() - (${maxAgeDays} * interval '1 day')
+          and created_at < now() - (${maxAgeDays.ppe_signature} * interval '1 day')
       ) as signature_over_age,
       coalesce(max(greatest(0, floor(extract(epoch from (now() - created_at)) / 86400))) filter (
         where signature_token is not null
@@ -102,7 +98,7 @@ async function loadRisk(maxAgeDays: number): Promise<{
         where confirm_token is not null
           and employee_confirmed_at is null
           and (confirm_token_expires_at is null or confirm_token_expires_at > now())
-          and coalesce(confirm_email_sent_at, created_at) < now() - (${maxAgeDays} * interval '1 day')
+          and coalesce(confirm_email_sent_at, created_at) < now() - (${maxAgeDays.ppe_confirmation} * interval '1 day')
       ) as confirmation_over_age,
       coalesce(max(greatest(0, floor(extract(epoch from (
         now() - coalesce(confirm_email_sent_at, created_at)
@@ -150,10 +146,7 @@ async function main(): Promise<void> {
     );
   }
   assertIsolatedTarget(database, hostname);
-  const maxAgeDays = positiveInteger(
-    argument("max-age-days"),
-    "--max-age-days",
-  );
+  const maxAgeDays = parseLegacyPpeMaxAgeDays(args);
   const ppe = await loadRisk(maxAgeDays);
   const blocked =
     ppe.signature.olderThanPolicy + ppe.confirmation.olderThanPolicy > 0;

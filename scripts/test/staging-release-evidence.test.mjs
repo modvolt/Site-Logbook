@@ -7,7 +7,7 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 
 function validEvidence() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     run: {
       id: "phase13-20260802-001",
       environmentId: "modvolt-staging-eu1",
@@ -69,6 +69,7 @@ function validEvidence() {
     mail: { sandboxDelivery: "pass" },
     alerts: { freshnessAlertDelivery: "pass" },
     approvals: {
+      mode: "dual_control",
       operator: "operator-a",
       reviewer: "reviewer-b",
       serviceOwner: "owner-c",
@@ -82,6 +83,7 @@ test("accepts complete, fresh, dual-controlled staging evidence", () => {
   assert.equal(summary.decision, "PASS");
   assert.equal(summary.commitSha, SHA);
   assert.equal(summary.objectCount, 13);
+  assert.equal(summary.approvalMode, "dual_control");
 });
 
 test("rejects production targets and credential-bearing evidence", () => {
@@ -166,5 +168,54 @@ test("rejects missing release gates and self-approval", () => {
   assert.throws(
     () => validateStagingReleaseEvidence(selfApproved, { now: NOW }),
     /EVIDENCE_DUAL_CONTROL_MISSING/,
+  );
+});
+
+test("accepts an explicit solo-maintainer waiver with compensating controls", () => {
+  const solo = validEvidence();
+  solo.approvals = {
+    mode: "solo_maintainer",
+    operator: "owner-a",
+    reviewer: null,
+    serviceOwner: "owner-a",
+    soloMaintainerRiskAccepted: true,
+    compensatingControls: {
+      mainBranchProtected: true,
+      exactShaQualityGateRequired: true,
+      environmentBranchRestricted: true,
+    },
+    approvedAt: "2026-08-02T12:10:00.000Z",
+  };
+
+  const summary = validateStagingReleaseEvidence(solo, { now: NOW });
+  assert.equal(summary.approvalMode, "solo_maintainer");
+  assert.equal(summary.decision, "PASS");
+});
+
+test("rejects a fake reviewer or missing control in solo-maintainer mode", () => {
+  const solo = validEvidence();
+  solo.approvals = {
+    mode: "solo_maintainer",
+    operator: "owner-a",
+    reviewer: "codex-is-not-an-independent-person",
+    serviceOwner: "owner-a",
+    soloMaintainerRiskAccepted: true,
+    compensatingControls: {
+      mainBranchProtected: true,
+      exactShaQualityGateRequired: true,
+      environmentBranchRestricted: true,
+    },
+    approvedAt: "2026-08-02T12:10:00.000Z",
+  };
+  assert.throws(
+    () => validateStagingReleaseEvidence(solo, { now: NOW }),
+    /EVIDENCE_SOLO_MAINTAINER_INVALID/,
+  );
+
+  solo.approvals.reviewer = null;
+  solo.approvals.compensatingControls.mainBranchProtected = false;
+  assert.throws(
+    () => validateStagingReleaseEvidence(solo, { now: NOW }),
+    /mainBranchProtected/,
   );
 });

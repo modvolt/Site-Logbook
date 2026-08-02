@@ -162,7 +162,7 @@ function validateWorkflowUrl(raw) {
 export function validateStagingReleaseEvidence(evidence, options = {}) {
   scanForSecrets(evidence);
   const root = objectAt(evidence, "evidence");
-  requireValue(root.schemaVersion, 1, "schemaVersion");
+  requireValue(root.schemaVersion, 2, "schemaVersion");
 
   const run = objectAt(root.run, "run");
   const isolation = objectAt(root.isolation, "isolation");
@@ -417,15 +417,53 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
     "alerts.freshnessAlertDelivery",
   );
 
+  const approvalMode = stringAt(approvals.mode, "approvals.mode");
   const operator = stringAt(approvals.operator, "approvals.operator");
-  const reviewer = stringAt(approvals.reviewer, "approvals.reviewer");
-  if (operator.toLowerCase() === reviewer.toLowerCase()) {
+  stringAt(approvals.serviceOwner, "approvals.serviceOwner");
+  if (approvalMode === "dual_control") {
+    const reviewer = stringAt(approvals.reviewer, "approvals.reviewer");
+    if (operator.toLowerCase() === reviewer.toLowerCase()) {
+      fail(
+        "EVIDENCE_DUAL_CONTROL_MISSING",
+        "Operator and reviewer must be different people.",
+      );
+    }
+  } else if (approvalMode === "solo_maintainer") {
+    if (approvals.reviewer !== null) {
+      fail(
+        "EVIDENCE_SOLO_MAINTAINER_INVALID",
+        "approvals.reviewer must be null in solo_maintainer mode.",
+      );
+    }
+    requireValue(
+      booleanAt(
+        approvals.soloMaintainerRiskAccepted,
+        "approvals.soloMaintainerRiskAccepted",
+      ),
+      true,
+      "approvals.soloMaintainerRiskAccepted",
+    );
+    const controls = objectAt(
+      approvals.compensatingControls,
+      "approvals.compensatingControls",
+    );
+    for (const key of [
+      "mainBranchProtected",
+      "exactShaQualityGateRequired",
+      "environmentBranchRestricted",
+    ]) {
+      requireValue(
+        booleanAt(controls[key], `approvals.compensatingControls.${key}`),
+        true,
+        `approvals.compensatingControls.${key}`,
+      );
+    }
+  } else {
     fail(
-      "EVIDENCE_DUAL_CONTROL_MISSING",
-      "Operator and reviewer must be different people.",
+      "EVIDENCE_APPROVAL_MODE_INVALID",
+      "approvals.mode must be dual_control or solo_maintainer.",
     );
   }
-  stringAt(approvals.serviceOwner, "approvals.serviceOwner");
   const approvedAt = dateAt(approvals.approvedAt, "approvals.approvedAt");
   if (approvedAt < runCompletedAt || approvedAt > now + 5 * 60_000) {
     fail(
@@ -435,7 +473,7 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
   }
 
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId,
     environmentId,
     baseUrl,
@@ -448,6 +486,7 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
     approvedRpoMinutes,
     rtoMinutes,
     approvedRtoMinutes,
+    approvalMode,
     decision: "PASS",
   });
 }

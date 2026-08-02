@@ -6,8 +6,12 @@ zastaví se, pokud health endpoint vrátí jiný SHA.
 
 ## 1. Povinné vstupy a vlastnictví
 
-V GitHub Environment `staging` nastavte protection reviewers a následující
-hodnoty. Hodnoty secretů se nesmí zapisovat do repozitáře ani evidence JSON.
+V GitHub Environment `staging` nastavte branch restriction a následující hodnoty.
+V běžném `dual_control` režimu přidejte protection reviewera. Pokud projekt nemá
+druhého člověka, je povolen pouze explicitní `solo_maintainer` režim: reviewer je
+`null`, vlastník přijme riziko a evidence doloží chráněný `main`, povinný exact-SHA
+Quality gate a branch-restricted Environment. AI kontrola se neeviduje jako nezávislý
+lidský reviewer. Hodnoty secretů se nesmí zapisovat do repozitáře ani evidence JSON.
 
 | Typ | Název | Kontrakt |
 | --- | --- | --- |
@@ -22,7 +26,8 @@ Dále musí být známé, ale neukládají se do GitHub workflow:
 - oddělená staging DB a prázdný recovery bucket s ověřeným fingerprintem;
 - source/off-site storage profily a vlastníci recovery klíčů;
 - mail sandbox inbox a příjemce;
-- schválené RPO/RTO a jmenovaní service owner, operator a nezávislý reviewer;
+- schválené RPO/RTO a jmenovaní service owner a operator; v `dual_control` režimu
+  také nezávislý reviewer, v `solo_maintainer` režimu explicitní owner waiver;
 - anonymizovaný společný recovery point DB + objektů.
 
 ## 2. Abort hranice před nasazením
@@ -35,7 +40,8 @@ Okamžitě zastavte běh, pokud platí alespoň jedno:
 - target bucket není prázdný/oddělený nebo jeho fingerprint není schválený;
 - nelze potvrdit versioning, immutable retention a read-only policy preflight;
 - nasazené `/api/healthz.version` není přesně commit testovaného workflow;
-- chybí druhý člověk pro review nebo schválené RPO/RTO.
+- chybí druhý člověk v `dual_control` režimu nebo povinné kompenzační kontroly a
+  owner waiver v `solo_maintainer` režimu; případně chybí schválené RPO/RTO.
 
 ## 3. Publikace a nasazení přesného commitu
 
@@ -103,9 +109,11 @@ bez schválení vlastníka nákladů a lifecycle.
    pnpm gate:staging-evidence -- --file <absolute-path-to-evidence.json>
    ```
 
-Gate přijme pouze čerstvý (výchozí limit 48 hodin), plně zelený, dvoučlenně
-schválený záznam. `decision: PASS` je nutná, nikoli sama dostačující podmínka
-produkčního release. Produkce vyžaduje nový samostatný souhlas.
+Gate přijme pouze čerstvý (výchozí limit 48 hodin) a plně zelený záznam. Výchozí
+`dual_control` vyžaduje rozdílného operatora a reviewera. Výslovně zvolený
+`solo_maintainer` místo toho vyžaduje `reviewer: null`, přijetí rizika vlastníkem a
+všechny tři kompenzační kontroly. `decision: PASS` je nutná, nikoli sama dostačující
+podmínka produkčního release. Produkce vyžaduje nový samostatný souhlas.
 
 ## 8. Rollback a cleanup
 

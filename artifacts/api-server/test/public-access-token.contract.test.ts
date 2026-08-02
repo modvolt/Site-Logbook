@@ -61,7 +61,9 @@ describe("public access token migration contract", () => {
 
     expect(preflight).toContain("PUBLIC_TOKEN_PREFLIGHT_CONFIRM_ISOLATED");
     expect(preflight).toContain("--database=<exact DATABASE_URL database name>");
-    expect(preflight).toContain("--max-age-days");
+    expect(preflight).toContain("parseLegacyPpeMaxAgeDays(args)");
+    expect(preflight).toContain("maxAgeDays.ppe_signature");
+    expect(preflight).toContain("maxAgeDays.ppe_confirmation");
     expect(preflight).toContain('mode: "read-only"');
     expect(preflight).toContain('decision: blocked ? "BLOCK" : "PASS"');
     expect(statements).toHaveLength(1);
