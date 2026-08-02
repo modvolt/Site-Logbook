@@ -188,6 +188,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R07 – Perimetr: CSP, dependencies, TLS a interní routy
 
+- **Stav:** lokálně dokončeno ve FÁZI 8.13. Webový nginx i API mají fail-closed CSP/anti-framing hlavičky, SMTP a IMAP vyžadují ověřené TLS 1.2+ a STARTTLS tam, kde nejde o implicitní TLS, CSV exporty neutralizují formule i po počátečních whitespace/control znacích a produkční dependency audit nemá žádný High nález. Přesná veřejná výjimka, vlastní limiter a timing-safe bearer kontrola interní backup routy byly již pokryté dřívější opravou R02 a byly znovu ověřeny.
 - **Přínos:** zmenšení snadno zneužitelného povrchu bez velkého doménového redesignu.
 - **Riziko neprovedení:** framing/XSS dopad, známé zranitelnosti, downgrade SMTP/IMAP a fail-open budoucí routy.
 - **Rozsah:** CSP/frame-ancestors/security headers, dependency aktualizace po balíčcích, STARTTLS/CA fail-closed, explicitní interní router auth, CSV formula neutralizace.
@@ -197,7 +198,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Migrace dat:** ne.
 - **Změna uživatelského procesu:** ne; může vyžadovat aktualizaci starého mail serveru/prohlížeče.
 - **Doporučené pořadí:** 8, ale izolované dependency/security-header opravy lze vydat dříve po R00.
-- **Hotovo když:** produkční headers, dependency scan, TLS contract a CSV testy procházejí.
+- **Hotovo když:** produkční headers, dependency scan, TLS contract a CSV testy procházejí. Lokálně prokázáno čistou instalací opravených verzí, auditem bez High, 67/67 API security/XML kontrakty, 6/6 frontend CSV testy, oběma typechecky a produkčními API + Vite/PWA buildy ve FÁZI 8.13; produkční rollout zůstává mimo auditní běh.
 
 ## 6. P1 – před dalším významným produkčním rozvojem
 

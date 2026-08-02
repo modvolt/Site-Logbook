@@ -1,66 +1,61 @@
-# Checkpoint FÁZE 8.12 – R06c: neměnné job/quote verze
+# Checkpoint FÁZE 8.13 – dokončení kritických oprav
 
-- **Stav:** FÁZE 8.12 dokončena lokálně v commitu `fefc67e`.
-- **Rozsah:** R06 je lokálně implementačně dokončen; R07 nebyl v této podfázi zahájen a celá FÁZE 8 proto ještě není dokončena.
+- **Stav:** FÁZE 8 je lokálně dokončena; poslední R07 je implementován v commitu `7510a9c`.
+- **Rozsah:** uzavřené jsou R00–R07 podle prioritizační roadmapy. Tento běh provedl pouze R07 a závěrečné ověření jeho návazností.
 - **Produkce:** žádný přístup k produkční DB, secrets ani `modvoltapp.cz`; žádný push ani deploy.
+- **Migrace:** R07 nepřidal databázovou migraci.
 - **Souběžná práce:** UI preference, redesign, migrace `0100` a jejich generované výstupy nebyly zahrnuty do commitu.
 
-## Co je nyní uzavřeno
+## Co uzavřel R07
 
-1. Každý nový podpisový job token je svázán s jednou `job_document_versions` verzí a každý quote token s jednou `quote_versions` verzí.
-2. Veřejný GET čte uložený snapshot; pozdější změna parent tabulky nemění obsah ani snapshot hash, který zákazník vidí.
-3. Job podpis vyžaduje jméno podepisujícího, ukládá neměnný confirmation text, serverový čas, omezený hash User-Agentu, PNG hash a serverem vytvořené finální PDF + PDF hash.
-4. Quote accept/reject vyžaduje jméno respondenta a v jedné transakci spotřebuje token, změní stav a zapíše event ke konkrétní verzi.
-5. DB triggery blokují UPDATE/DELETE verzí a eventů. Povolen je pouze jednorázový job přechod `pending_signature → signed` a úzké odpojení zaniklého interního user ID při account erasure; ostatní důkazní pole zůstávají zmrazená.
-6. Opětovné vydání odkazu zapisuje `cancelled`/`superseded` událost a revokuje předchozí token.
-7. Oprava podepsaného protokolu nebo vydané nabídky zachová starou verzi a otevře parent pro novou verzi s povinným důvodem. Převedenou nabídku API bez samostatného storna navazujícího dokladu znovu neotevře.
-8. Klientský `job-sheet` upload už nemůže příznakem `signed` vytvořit falešně označený důkaz.
-9. Legacy job/quote odkazy bez verze jsou označené `legacy_unbound` a fail-closed. Historickým dokumentům se zpětně nepřisuzuje neměnnost.
+1. Webový nginx načítá jednotný CSP a bezpečnostní hlavičky pro SPA, statické assety, service worker i proxované API. CSP blokuje framing a objekty, omezuje zdroje na skutečně používané originy a zachovává blob/data workflow pro dokumenty, obrázky a workery.
+2. API Helmet už CSP nevypíná; JSON a objektové odpovědi dostávají deny-all aktivní obsah a `frame-ancestors 'none'`.
+3. SMTP s `secure=false` povinně vyžaduje STARTTLS; SMTP i IMAP ověřují CA, odmítají neplatný certifikát a vyžadují TLS 1.2+. IMAP na neimplicitním TLS portu už nesmí pokračovat v plaintextu.
+4. Nodemailer navíc blokuje dereferenci lokálních souborů a URL v generovaných zprávách.
+5. Sdílené CSV encodery na backendu a frontendu neutralizují `=`, `+`, `-` a `@` i po počátečních whitespace/control znacích. Skutečná číselná data zůstávají číselná.
+6. Opraveny byly exporty dovolených, OOPP, statistik a rozvaděčů. Testovací korpus pokrývá `=WEBSERVICE`, leading space, tab i CR varianty.
+7. Přímé závislosti byly cíleně aktualizovány: `nodemailer 9.0.3`, `fast-xml-parser 5.10.1`, `@google-cloud/storage 7.21.0` a oficiální SheetJS tarball `0.20.3`. Patch overrides opravují zranitelné `body-parser`, `dompurify`, `form-data`, `qs` a vnořený `fast-xml-parser`.
+8. Produkční dependency audit je bez High/Critical. Zůstává jeden Moderate advisory `uuid` hluboko pod Google Storage; postižené v3/v5/v6 API s caller-supplied bufferem není v mapovaném storage workflow používáno. Major override by byl rizikovější než evidovaný reachability stav a patří do následné správy závislostí.
+9. Interní backup trigger už před R07 používal přesnou method/path veřejnou výjimku, vlastní limiter a timing-safe bearer porovnání. R07 znovu ověřil, že neznámá nebo metodou odlišná `/api/internal/*` cesta zůstává za session autentizací.
 
-Tím jsou lokálně uzavřeny `SEC-14`, `COMP-02`, `COMP-07` a korekční část `UX-09`. Společně s FÁZEMI 8.10–8.11 je lokálně dokončen R06.
-
-## Migrační a návratový model
-
-- `0102_immutable_job_quote_versions.sql` je aditivní migrace: čtyři nové tabulky, tři binding sloupce tokenů, indexy, constraints a neměnnostní triggery.
-- `0102_snapshot.json` vznikl z čistého exportu `HEAD` bez migrace `0100_user_ui_preferences`.
-- Čistý journal commitu obsahuje `0101` a `0102`, nikoli souběžnou `0100`; hlavní pracovní strom nadále obsahuje uživatelskou kombinaci.
-- Guarded down migrace se odmítne, jakmile existuje verze, event nebo bound token. Po prvním vydání nového odkazu je správný návrat roll-forward.
-- Produkční pořadí musí být migrace `0101` → `0102` → koordinované API/frontend nasazení → měřený cutover a znovuodeslání aktivních legacy odkazů.
+Tím jsou lokálně uzavřeny `SEC-16`, `SEC-17`, `SEC-19`, `SEC-20` a `SEC-22`. Spolu s předchozími checkpointy je FÁZE 8 implementačně dokončena.
 
 ## Provedené kontroly
 
 | Kontrola | Výsledek |
 |---|---:|
-| Čistý migrační řetězec v izolovaném PostgreSQL 18.4 | 102/102 migrací, 97 tabulek ověřeno proti snapshotu |
-| Finální cílené DB/API testy | 4 soubory, 14/14 testů |
-| Relevantní hermetické kontrakty v hlavním stromu | 4 soubory, 53/53 testů |
-| Stejné kontrakty nad čistým exportem commitu | 4 soubory, 53/53 testů |
-| DB/API/frontend a generované klienty – TypeScript | bez chyb |
-| OpenAPI/Orval + route manifest | úspěšně regenerováno; čistý manifest 402 tras |
-| Produkční Vite/PWA build | úspěšný, 4002 modulů |
-| `git diff --check` a izolace indexu | bez chyb; preference/redesign/`0100` nenalezeny ve staged obsahu |
+| Supply-chain politika lockfile | prošla, 1028 produkčních/dev záznamů před testovacími platformními doplňky |
+| `pnpm audit --prod --audit-level high` | prošel; 0 Critical, 0 High, 1 Moderate |
+| Čistá fyzická instalace opravených verzí | potvrzeno: Nodemailer 9.0.3, fast-xml-parser 5.10.1, SheetJS 0.20.3, body-parser 2.3.0, DOMPurify 3.4.12 |
+| API security, CSP, interní route, CSV, TLS a XML kontrakty v čistém stromu | 5 souborů, 67/67 testů |
+| Frontend CSV kontrakt v čistém stromu | 1 soubor, 6/6 testů |
+| API a frontend TypeScript v hlavním i čistém stromu | bez chyb |
+| Produkční API build v hlavním i čistém stromu | úspěšný |
+| Produkční Vite/PWA build v hlavním i čistém stromu | úspěšný; čistý build 4001 modulů, 222 precache položek |
+| Úplný API unit/contract gate v hlavním stromu | 285/286; jediný cizí pád popsán níže |
+| `git diff --check` a staged izolace | bez chyb; v commitu pouze 21 R07 souborů |
 
-Celý hermetický API gate skončil **273/274**. Jediný neúspěch `field-job-workflow-contract.test.ts` očekává starou field navigaci `[/, /calendar, /jobs, /me]`, zatímco souběžný nezahrnutý redesign přidal další cesty. Relevantní R06c kontrakty prošly a cizí navigace nebyla opravována ani commitována.
+Úplný API gate má jediný nesouvisející neúspěch `field-job-workflow-contract.test.ts`: kontrakt očekává starou field navigaci `[/, /calendar, /jobs, /me]`, zatímco souběžný necommitovaný redesign přidal další cesty. R07 kontrakty i čistý strom prošly; cizí navigace nebyla opravována ani commitována.
 
-## Nevyřešené otázky a rizika
+## Nevyřešené otázky a provozní rizika
 
-1. R07 zůstává celý otevřený: CSP/frame-ancestors/security headers, dependency scan/aktualizace, SMTP/IMAP TLS fail-closed, interní router auth a CSV formula neutralizace.
-2. Produkční migrace, object-storage ověření, zneplatnění legacy odkazů a monitoring 409/410 nebyly provedeny; tento běh byl auditní a lokální.
-3. Staré job/quote odkazy nelze bezpečně backfillovat na přesný historický obsah. Je nutné je znovu vydat, nikoli „doplnit“ falešnou verzi.
-4. Legacy plaintext sloupce zůstávají pro kompatibilní expand/cutover krok; jejich odstranění vyžaduje pozdější inventuru a samostatný contract release.
-5. Obecná retence evidence a privacy logy patří do R10/R12; širší dokumentový lifecycle do R13.
-6. Produkční build stále hlásí existující velké chunky nad 500 kB; nejde o regresi R06c ani blokátor důkazní integrity.
+1. Změny nejsou nasazené. CSP je nutné při rollout sledovat zejména na PDF/blob náhledech, QR/kameře, geolokaci, PWA instalaci/offline režimu a volání Nominatim.
+2. Starý mail server bez STARTTLS nebo s nedůvěryhodným certifikátem po správně fail-closed změně přestane fungovat; před rolloutem je nutný test SMTP i IMAP proti produkční konfiguraci bez zveřejnění secrets.
+3. Jeden Moderate `uuid` advisory zůstává evidovaný. Přechod celé Google Storage větve na kompatibilní major musí být samostatně otestován, nikoli vynucen slepým override.
+4. Lokální OneDrive `node_modules` obsahoval uzamčené staré junctions, proto úplné fyzické ověření proběhlo v čistém temp stromu. Zdrojový lockfile je konzistentní a čistá instalace balíčky stáhla; temp strom byl po ověření bezpečně odstraněn.
+5. Produkční migrace `0101`/`0102`, legacy token cutover, object-storage integrace, monitoring a restore drill z předchozích R položek nebyly v R07 provedeny. Patří do řízeného rollout plánu a závěrečného ověření.
+6. Existující chunk warningy nad 500 kB přetrvávají; nejde o regresi R07, ale mají být uvedeny v závěrečném hodnocení výkonu a PWA.
 
 ## Jednoznačný checkpoint
 
-**CHECKPOINT FÁZE 8.12:** R06 je lokálně dokončen. Nový podpis zakázky i rozhodnutí o nabídce jsou svázané s neměnnou verzí, canonical snapshotem, ověřitelnými hashi a append-only eventem; korekce nepřepisuje původní důkaz. Izolovaná migrace, DB triggery, závody, kontrakty, typecheck i build prošly. Produkce, remote a secrets zůstaly nedotčené. FÁZE 8 jako celek pokračuje jedině R07; FÁZI 9 ani její nový cíl zatím nelze založit.
+**CHECKPOINT FÁZE 8.13 / KONEC FÁZE 8:** Kritické opravy R00–R07 jsou lokálně implementované. Poslední R07 uzavírá web/API security headers, fail-closed TLS pošty, CSV formula injection, High dependency advisories a explicitní interní route perimetr. Nové závislosti byly ověřeny v čisté instalaci, cílené kontrakty, typechecky a produkční buildy prošly. Produkce, remote, DB a secrets zůstaly nedotčené. Další práce musí být samostatná FÁZE 9 – závěrečné ověření; v tomto checkpointu nebyla zahájena.
 
-- **další fáze:** FÁZE 8.13 – R07: perimetr, CSP/security headers, dependency/TLS kontrakty, interní routy a CSV formula neutralizace.
+- **další fáze:** FÁZE 9 – závěrečné ověření a dokument `docs/audit/08-final-verification.md`.
 - **doporučený model:** GPT-5.6 Sol.
 - **doporučený reasoning:** xhigh.
-- **důvod použití této úrovně:** R07 kombinuje veřejný HTTP perimetr, build/dependency dopady, transportní bezpečnost a fail-closed klasifikaci tras; chybná změna může zablokovat legitimní produkční provoz nebo ponechat obcházení ochrany.
-- **očekávané činnosti:** znovu zmapovat aktuální headers/CSP, dependency advisories a lockfile, SMTP/IMAP TLS volby, interní routery a CSV exporty; implementovat malé izolované opravy, přidat kontrakty a otestovat produkční build bez deploye.
-- **soubory, které budou pravděpodobně změněny:** API bootstrap/middleware a security-header konfigurace, e-mailové/importní TLS klienty, interní routy/policy manifest, CSV export helpery a jejich testy, případně `package.json`/`pnpm-lock.yaml`, `docs/audit/07-remediation-roadmap.md` a `docs/audit/08-phase-checkpoint.md`.
-- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** databázová migrace se nepředpokládá; možné jsou rizikové dependency/lockfile změny, CSP kompatibilita, TLS cutover a fail-closed změny přístupu k trasám. Žádný produkční zásah bez samostatného schválení.
+- **důvod použití této úrovně:** fáze musí spojit bezpečnostní, databázové, offline/PWA, podpisové, e-mailové, upload/download a backup/restore důkazy, rozlišit skutečný regresní problém od omezení prostředí a vytvořit obhajitelné skóre 0–100 bez dojmového hodnocení.
+- **očekávané činnosti:** úplný typecheck/lint/unit/integration/security/build gate; čistý test migračního řetězce; izolované workflow pro PWA offline, upload/download, podpis, testovací e-mail a backup/restore; evidence neproveditelných kontrol; finální manažerské shrnutí, skóre a plán 30/90/180 dní.
+- **soubory, které budou pravděpodobně změněny:** primárně nový `docs/audit/08-final-verification.md` a tento checkpoint; případně pouze testovací konfigurace nebo izolované testy, pokud chybí potřebný ověřovací harness. Produkční kód se ve verifikační fázi nemá měnit bez nového nálezu a samostatného rozhodnutí.
+- **zda další fáze může obsahovat migrace nebo jiné rizikové změny:** nemá vytvářet novou produkční migraci, ale musí v izolovaném prostředí spustit celý migrační řetězec a restore workflow. Rizikové jsou testy obnovy, e-mailu, offline cache a podpisů; musí používat testovací DB/storage/účty, nikdy produkční secrets ani `modvoltapp.cz`.
 
-Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**. Teprve checkpoint s dokončeným R07 může uzavřít FÁZI 8; následně bude možné označit současný cíl za splněný a založit uživatelem požadovaný cíl FÁZE 9.
+Před pokračováním nastav doporučený model/reasoning v rozhraní a výslovně napiš **„Pokračuj další fází“**. Teprve nový běh smí založit cíl dokončení FÁZE 9 a zahájit její kontroly.
