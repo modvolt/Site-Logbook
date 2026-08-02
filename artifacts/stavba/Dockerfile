@@ -36,6 +36,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ARG BASE_PATH=/
 ENV BASE_PATH=$BASE_PATH
+ARG VITE_BUILD_SHA=dev
+ENV VITE_BUILD_SHA=$VITE_BUILD_SHA
 
 RUN pnpm --filter @workspace/stavba run build
 

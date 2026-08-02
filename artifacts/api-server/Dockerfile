@@ -44,8 +44,10 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # ---------- Runtime ----------
 FROM node:24-slim AS runtime
 WORKDIR /app
+ARG BUILD_SHA=dev
 ENV NODE_ENV=production
 ENV PORT=5000
+ENV BUILD_SHA=$BUILD_SHA
 # Location of the committed SQL migrations applied on startup.
 ENV MIGRATIONS_DIR=/app/migrations
 
