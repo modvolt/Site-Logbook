@@ -1,0 +1,74 @@
+{
+  "_templateStatus": "PENDING - copy, replace every placeholder, then run pnpm gate:staging-evidence -- --file <path>",
+  "schemaVersion": 1,
+  "run": {
+    "id": "PENDING",
+    "environmentId": "modvolt-staging-PENDING",
+    "baseUrl": "https://replace-me.invalid",
+    "commitSha": "0000000000000000000000000000000000000000",
+    "startedAt": "PENDING",
+    "completedAt": "PENDING"
+  },
+  "isolation": {
+    "confirmed": false,
+    "productionTargetsTouched": false,
+    "rawProductionDataExposed": false,
+    "mailSandbox": false
+  },
+  "ci": {
+    "conclusion": "pending",
+    "commitSha": "0000000000000000000000000000000000000000",
+    "workflowUrl": "https://github.com/OWNER/REPOSITORY/actions/runs/0"
+  },
+  "deployment": {
+    "healthStatus": "pending",
+    "healthVersion": "0000000000000000000000000000000000000000",
+    "migrationParity": false,
+    "expectedMigrations": 0,
+    "appliedMigrations": 0,
+    "missingMigrationTags": ["PENDING"]
+  },
+  "storage": {
+    "policyPreflight": "pending",
+    "distinctTarget": false,
+    "versioning": "pending",
+    "immutableRetention": "pending",
+    "targetFingerprint": "PENDING"
+  },
+  "recovery": {
+    "performed": false,
+    "dataClassification": "pending",
+    "databaseRestore": false,
+    "objectRestore": false,
+    "objectHashesVerified": false,
+    "businessSmoke": false,
+    "objectCountExpected": 0,
+    "objectCountRestored": 0,
+    "sourceCreatedAt": "PENDING",
+    "startedAt": "PENDING",
+    "completedAt": "PENDING",
+    "rpoMinutes": 0,
+    "approvedRpoMinutes": 0,
+    "rtoMinutes": 0,
+    "approvedRtoMinutes": 0
+  },
+  "browser": {
+    "authSmoke": "pending",
+    "adminHealth": "pending",
+    "pwaAssets": "pending",
+    "desktopSmoke": "pending",
+    "mobileSmoke": "pending"
+  },
+  "mail": {
+    "sandboxDelivery": "pending"
+  },
+  "alerts": {
+    "freshnessAlertDelivery": "pending"
+  },
+  "approvals": {
+    "operator": "PENDING",
+    "reviewer": "PENDING",
+    "serviceOwner": "PENDING",
+    "approvedAt": "PENDING"
+  }
+}

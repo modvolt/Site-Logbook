@@ -1,0 +1,72 @@
+name: Staging smoke (manual, no deploy)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_isolated_target:
+        description: Confirm that the configured GitHub staging environment cannot reach production targets
+        required: true
+        type: boolean
+      confirm_deep_storage_probe:
+        description: Allow the admin health endpoint to create and delete its diagnostic object in staging
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-smoke
+  cancel-in-progress: false
+
+jobs:
+  authenticated-staging-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    env:
+      CI: "true"
+      NODE_ENV: test
+      STAGING_RELEASE_CONFIRM_ISOLATED: ${{ inputs.confirm_isolated_target }}
+      STAGING_DEEP_STORAGE_PROBE_CONFIRMED: ${{ inputs.confirm_deep_storage_probe }}
+      STAGING_MAIL_SANDBOX_CONFIRMED: ${{ vars.STAGING_MAIL_SANDBOX_CONFIRMED }}
+      STAGING_ENVIRONMENT_ID: ${{ vars.STAGING_ENVIRONMENT_ID }}
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+      STAGING_EXPECTED_BUILD_SHA: ${{ github.sha }}
+      STAGING_ADMIN_USERNAME: ${{ secrets.STAGING_ADMIN_USERNAME }}
+      STAGING_ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_PASSWORD }}
+    steps:
+      - name: Require both manual safety confirmations
+        shell: bash
+        run: |
+          if [[ "$STAGING_RELEASE_CONFIRM_ISOLATED" != "true" || "$STAGING_DEEP_STORAGE_PROBE_CONFIRMED" != "true" ]]; then
+            echo "Both isolated-target and deep-storage-probe confirmations are required."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate staging contract without printing secrets
+        run: pnpm gate:staging-config
+      - name: Test staging guard and evidence contract
+        run: pnpm test:staging-contract
+      - name: Type-check the isolated staging suite
+        run: pnpm typecheck:e2e:staging
+      - name: Install the pinned Playwright Chromium runtime
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run authenticated API, desktop, mobile, and PWA smoke
+        run: pnpm test:e2e:staging
+      - name: Upload secret-free bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-bootstrap-${{ github.run_id }}
+          path: e2e/test-results/staging-bootstrap-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
