@@ -76,4 +76,30 @@ describe("trusted public application origin", () => {
       "NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-localhost}",
     );
   });
+
+  it("ships the production web security-header contract on every response class", () => {
+    const nginx = readFileSync(
+      new URL("../../stavba/nginx.conf", import.meta.url),
+      "utf8",
+    );
+    const headers = readFileSync(
+      new URL("../../stavba/security-headers.conf", import.meta.url),
+      "utf8",
+    );
+    const dockerfile = readFileSync(
+      new URL("../../stavba/Dockerfile", import.meta.url),
+      "utf8",
+    );
+
+    expect(nginx.match(/include \/etc\/nginx\/security-headers\.conf;/g)).toHaveLength(3);
+    expect(dockerfile).toContain("COPY artifacts/stavba/security-headers.conf /etc/nginx/security-headers.conf");
+    expect(headers).toContain("Content-Security-Policy");
+    expect(headers).toContain("frame-ancestors 'none'");
+    expect(headers).toContain("object-src 'none'");
+    expect(headers).toContain("base-uri 'self'");
+    expect(headers).toContain("Strict-Transport-Security");
+    expect(headers).toContain("Referrer-Policy");
+    expect(headers).toContain("Permissions-Policy");
+    expect(headers).toContain("X-Frame-Options \"DENY\"");
+  });
 });

@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import robotoRegular from "../assets/fonts/Roboto-Regular.ttf";
 import robotoBold from "../assets/fonts/Roboto-Bold.ttf";
+import { encodeCsvCell } from "./csv-security";
 
 const PDF_FONT = "Roboto";
 
@@ -86,16 +87,11 @@ export function generateLeavesSummaryPdf(rows: LeaveSummaryRow[], year: number):
 }
 
 export function generateLeavesSummaryCsv(rows: LeaveSummaryRow[], year: number): string {
-  const escape = (v: string | number) => {
-    const s = String(v);
-    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-
   const lines: string[] = [
     `# Přehled dovolených – ${year}`,
-    ["Pracovník", "Rok", "Dovolená (dny)", "Nemoc (dny)", "Jiné (dny)", "Celkem (dny)"].map(escape).join(","),
+    ["Pracovník", "Rok", "Dovolená (dny)", "Nemoc (dny)", "Jiné (dny)", "Celkem (dny)"].map((value) => encodeCsvCell(value)).join(","),
     ...rows.map((r) =>
-      [r.personName, r.year, r.vacationDays, r.sickDays, r.otherDays, r.totalDays].map(escape).join(","),
+      [r.personName, r.year, r.vacationDays, r.sickDays, r.otherDays, r.totalDays].map((value) => encodeCsvCell(value)).join(","),
     ),
   ];
 

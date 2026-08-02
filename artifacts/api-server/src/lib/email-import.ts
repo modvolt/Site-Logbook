@@ -42,6 +42,7 @@ import {
   resolveImportedContentType,
 } from "./imported-file-safety";
 import { readStoredSecret } from "./stored-secret";
+import { buildImapClientOptions } from "./mail-transport-security";
 
 const SINGLETON_ID = 1;
 
@@ -165,23 +166,7 @@ export async function resolveImapConfig(): Promise<ResolvedImapConfig | null> {
 }
 
 function newClient(cfg: ResolvedImapConfig): ImapFlow {
-  const client = new ImapFlow({
-    host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
-    auth: cfg.user ? { user: cfg.user, pass: cfg.pass ?? "" } : { user: "", pass: "" },
-    // Silence imapflow's own pino logger; we log outcomes ourselves.
-    logger: false,
-    // We poll explicitly and never rely on server-pushed updates, so there is no
-    // reason to let ImapFlow auto-enter IDLE in the gaps between our commands.
-    // With IDLE running, the per-message slow work below (S3 upload + DB
-    // transaction in `ingestFile`) can outlast the server's IDLE window; the
-    // next command then has to break a connection the server already dropped and
-    // fails with "Connection not available". Disabling auto-idle keeps the
-    // connection quietly usable across that slow work (socketTimeout still
-    // guards a truly dead socket).
-    disableAutoIdle: true,
-  });
+  const client = new ImapFlow(buildImapClientOptions(cfg));
   // ImapFlow is an EventEmitter that emits an 'error' event on socket-level
   // failures (e.g. "Socket timeout" / ETIMEOUT) which can fire AFTER connect()
   // resolved — during idle or while streaming. An EventEmitter 'error' with no

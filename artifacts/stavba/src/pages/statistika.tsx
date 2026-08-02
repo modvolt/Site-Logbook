@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { encodeCsvCell } from "@/lib/csv-security";
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addWeeks, addMonths, addYears } from "date-fns";
 import { cs } from "date-fns/locale";
 import {
@@ -1189,7 +1190,9 @@ function ProfitItemsTable({
         ];
       }),
     ];
-    const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    const csv = rows
+      .map((r) => r.map((cell) => encodeCsvCell(cell, { delimiter: ";", alwaysQuote: true })).join(";"))
+      .join("\r\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

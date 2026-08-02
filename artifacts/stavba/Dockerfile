@@ -49,6 +49,7 @@ ENV API_UPSTREAM=http://api:5000
 ENV NGINX_SERVER_NAME=localhost
 
 COPY artifacts/stavba/nginx.conf /etc/nginx/templates/default.conf.template
+COPY artifacts/stavba/security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=builder /repo/artifacts/stavba/dist/public /usr/share/nginx/html
 
 EXPOSE 80

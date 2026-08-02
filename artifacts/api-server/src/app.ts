@@ -85,12 +85,19 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   });
   next();
 });
-// Security headers. CSP is left off because this service only serves JSON and
-// proxied object streams (the SPA is served by nginx, which owns its own CSP);
-// CORP is relaxed so the browser can load object/image streams from /api.
+// API responses are JSON or object streams, so their own CSP can deny every
+// active-content source. The SPA receives its more specific CSP from nginx.
+// CORP stays relaxed so explicitly public object/image streams remain usable.
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false,
   }),
