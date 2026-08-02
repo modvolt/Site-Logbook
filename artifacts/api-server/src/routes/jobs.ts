@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Response } from "express";
+import { z } from "zod/v4";
 import {
   eq,
   and,
@@ -53,11 +54,14 @@ import {
   UpdateJobAssigneesBody,
 } from "@workspace/api-zod";
 import { publicAppUrl } from "../lib/public-origin";
+import { publicTokenExpiry, revokePublicAccessTokens } from "../lib/public-access-token";
 import {
-  issuePublicAccessToken,
-  publicTokenExpiry,
-  revokePublicAccessTokens,
-} from "../lib/public-access-token";
+  issueJobSignatureVersion,
+  JobDocumentStateError,
+  latestSignedJobDocument,
+  listJobSignatureEvidence,
+  reopenJobForSignatureCorrection,
+} from "../lib/job-document-service";
 import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { randomUUID } from "node:crypto";
@@ -104,7 +108,6 @@ const objectStorageService = new ObjectStorageService();
 async function saveJobSheetPdf(
   jobId: number,
   pdfBase64: string,
-  signed?: boolean | null,
 ) {
   const buffer = decodeCanonicalBase64(pdfBase64, 20 * 1024 * 1024);
   if (!contentMatchesType("application/pdf", buffer)) {
@@ -124,7 +127,9 @@ async function saveJobSheetPdf(
         type: "job_sheet",
         fileName: `zakazkovy-list-${jobId}.pdf`,
         url: objectPath,
-        description: signed ? "Podepsaný zakázkový list" : "Zakázkový list",
+        // This endpoint accepts a client-rendered convenience export. It must
+        // never claim evidentiary "signed" status from a client-controlled flag.
+        description: "Zakázkový list (uživatelský export)",
       })
       .returning();
     return att;
@@ -1750,7 +1755,7 @@ router.post("/jobs/:id/send-email", async (req, res): Promise<void> => {
   // Archive the signed sheet to the job first, so it is stored even if the
   // email delivery fails. A storage failure must not block sending the email.
   try {
-    await saveJobSheetPdf(job.id, verifiedPdfBase64, true);
+    await saveJobSheetPdf(job.id, verifiedPdfBase64);
   } catch (err) {
     req.log.error({ err }, "Failed to archive job sheet during email send");
   }
@@ -1811,25 +1816,31 @@ router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
     ? new Date(Date.now() - 1000)
     : publicTokenExpiry("JOB_SIGNATURE_EXPIRY_DAYS", 7);
   const requestedAt = new Date();
-  const { token } = await issuePublicAccessToken({
-    purpose: "job_signature",
-    resourceId: id,
-    expiresAt,
-    createdByUserId: req.auth?.userId ?? null,
-    onIssue: async (tx) => {
-      await tx
-        .update(jobsTable)
-        .set({
-          signatureToken: null,
-          signatureTokenExpiresAt: expiresAt,
-          signatureRequestedAt: requestedAt,
-        })
-        .where(eq(jobsTable.id, id));
-    },
-  });
+  let token: string;
+  let version: number;
+  let snapshotSha256: string;
+  try {
+    const issued = await issueJobSignatureVersion({
+      jobId: id,
+      expiresAt,
+      requestedAt,
+      createdByUserId: req.auth?.userId ?? null,
+    });
+    token = issued.token;
+    version = issued.version.version;
+    snapshotSha256 = issued.version.snapshotSha256;
+  } catch (error) {
+    if (error instanceof JobDocumentStateError) {
+      res.status(error.code === "job_not_found" ? 404 : 409).json({
+        error: error.code === "job_not_found" ? "Zakázka nenalezena" : "Zakázka již byla podepsána",
+      });
+      return;
+    }
+    throw error;
+  }
   const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
 
-  res.json({ signUrl, expiresAt: expiresAt.toISOString() });
+  res.json({ signUrl, expiresAt: expiresAt.toISOString(), documentVersion: version, snapshotSha256 });
 });
 
 router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
@@ -1885,22 +1896,28 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
 
   const expiresAt = publicTokenExpiry("JOB_SIGNATURE_EXPIRY_DAYS", 7);
   const requestedAt = new Date();
-  const { token } = await issuePublicAccessToken({
-    purpose: "job_signature",
-    resourceId: id,
-    expiresAt,
-    createdByUserId: req.auth?.userId ?? null,
-    onIssue: async (tx) => {
-      await tx
-        .update(jobsTable)
-        .set({
-          signatureToken: null,
-          signatureTokenExpiresAt: expiresAt,
-          signatureRequestedAt: requestedAt,
-        })
-        .where(eq(jobsTable.id, id));
-    },
-  });
+  let token: string;
+  let documentVersion: number;
+  let snapshotSha256: string;
+  try {
+    const issued = await issueJobSignatureVersion({
+      jobId: id,
+      expiresAt,
+      requestedAt,
+      createdByUserId: req.auth?.userId ?? null,
+    });
+    token = issued.token;
+    documentVersion = issued.version.version;
+    snapshotSha256 = issued.version.snapshotSha256;
+  } catch (error) {
+    if (error instanceof JobDocumentStateError) {
+      res.status(error.code === "job_not_found" ? 404 : 409).json({
+        error: error.code === "job_not_found" ? "Zakázka nenalezena" : "Zakázka již byla podepsána",
+      });
+      return;
+    }
+    throw error;
+  }
   const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
 
   const jobLabel = job.title ?? `Zakázka #${job.id}`;
@@ -1936,8 +1953,104 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json({ sent: true, to, signUrl });
+  res.json({ sent: true, to, signUrl, documentVersion, snapshotSha256 });
 });
+
+router.get(
+  "/jobs/:id/signature-evidence",
+  requirePermission("jobs.manage"),
+  async (req, res): Promise<void> => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Neplatné ID zakázky" });
+      return;
+    }
+    const [job] = await db.select({ id: jobsTable.id }).from(jobsTable).where(eq(jobsTable.id, id));
+    if (!job) {
+      res.status(404).json({ error: "Zakázka nenalezena" });
+      return;
+    }
+    const evidence = await listJobSignatureEvidence(id);
+    res.json({
+      versions: evidence.versions.map((version) => ({
+        ...version,
+        signedAt: version.signedAt?.toISOString() ?? null,
+        createdAt: version.createdAt.toISOString(),
+      })),
+      events: evidence.events.map((event) => ({
+        ...event,
+        createdAt: event.createdAt.toISOString(),
+      })),
+    });
+  },
+);
+
+router.get(
+  "/jobs/:id/signed-document",
+  requirePermission("jobs.manage"),
+  async (req, res): Promise<void> => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Neplatné ID zakázky" });
+      return;
+    }
+    const version = await latestSignedJobDocument(id);
+    if (!version?.pdfObjectPath) {
+      res.status(404).json({ error: "Podepsaný protokol nebyl nalezen." });
+      return;
+    }
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="predavaci-protokol-${id}-v${version.version}.pdf"`,
+    );
+    try {
+      await objectStorageService.servePrivateObject(version.pdfObjectPath, res);
+    } catch (error) {
+      req.log.error({ err: error, jobId: id, versionId: version.id }, "Signed job document download failed");
+      if (!res.headersSent) res.status(404).json({ error: "Podepsaný protokol není v úložišti dostupný." });
+    }
+  },
+);
+
+router.post(
+  "/jobs/:id/signature-revision",
+  requirePermission("jobs.manage"),
+  async (req, res): Promise<void> => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Neplatné ID zakázky" });
+      return;
+    }
+    const body = z.object({ reason: z.string().trim().min(3).max(500) }).safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: "Důvod opravy musí mít alespoň 3 znaky." });
+      return;
+    }
+    try {
+      const previous = await reopenJobForSignatureCorrection({
+        jobId: id,
+        reason: body.data.reason,
+        actor: { userId: req.auth!.userId, name: req.auth!.name },
+      });
+      res.json({
+        reopened: true,
+        supersededVersion: previous.version,
+        snapshotSha256: previous.snapshotSha256,
+      });
+    } catch (error) {
+      if (error instanceof JobDocumentStateError) {
+        const notFound = error.code === "job_not_found" || error.code === "version_not_found";
+        res.status(notFound ? 404 : 409).json({
+          error: notFound
+            ? "Zakázka nebo její podepsaná verze nebyla nalezena."
+            : "Zakázka není v podepsaném stavu.",
+        });
+        return;
+      }
+      throw error;
+    }
+  },
+);
 
 router.post("/jobs/:id/job-sheet", async (req, res): Promise<void> => {
   const params = SaveJobSheetParams.safeParse(req.params);
@@ -1962,11 +2075,7 @@ router.post("/jobs/:id/job-sheet", async (req, res): Promise<void> => {
   }
 
   try {
-    const att = await saveJobSheetPdf(
-      job.id,
-      parsed.data.pdfBase64,
-      parsed.data.signed,
-    );
+    const att = await saveJobSheetPdf(job.id, parsed.data.pdfBase64);
     res.status(201).json(serializeAttachment(att));
   } catch (err) {
     req.log.error({ err }, "Failed to save job sheet");

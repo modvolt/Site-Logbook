@@ -52,4 +52,26 @@ describe("public access token migration contract", () => {
     expect(cleanup).toContain("unmatched");
     expect(cleanup).not.toMatch(/console\.(?:log|error)\([^\n]*(?:rawToken|signatureToken|confirmToken|shareToken)/);
   });
+
+  it("binds job and quote tokens to immutable versions without inventing legacy history", () => {
+    const migration = read(
+      "lib/db/migrations/0102_immutable_job_quote_versions.sql",
+    );
+    const rollback = read(
+      "lib/db/rollbacks/0102_immutable_job_quote_versions.down.sql",
+    );
+
+    expect(migration).toContain('CREATE TABLE "job_document_versions"');
+    expect(migration).toContain('CREATE TABLE "quote_versions"');
+    expect(migration).toContain('CREATE TABLE "job_signature_events"');
+    expect(migration).toContain('CREATE TABLE "quote_decision_events"');
+    expect(migration).toContain('"artifact_binding_status"');
+    expect(migration).toContain("'legacy_unbound'");
+    expect(migration).toContain("deny_immutable_evidence_mutation");
+    expect(migration).toContain("guard_job_document_version_transition");
+    expect(migration).not.toMatch(/INSERT INTO\s+"(?:job_document_versions|quote_versions)"/i);
+    expect(rollback).toContain("0102 rollback blocked");
+    expect(rollback).toContain("artifact_binding_status = 'bound'");
+    expect(rollback).toContain("created_at = 1785639600000");
+  });
 });

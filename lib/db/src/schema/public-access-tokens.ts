@@ -10,6 +10,10 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { usersTable } from "./users";
+import {
+  jobDocumentVersionsTable,
+  quoteVersionsTable,
+} from "./document-versions";
 
 export const PUBLIC_ACCESS_TOKEN_PURPOSES = [
   "job_signature",
@@ -46,6 +50,15 @@ export const publicAccessTokensTable = pgTable(
     purpose: text("purpose").notNull(),
     resourceType: text("resource_type").notNull(),
     resourceId: integer("resource_id").notNull(),
+    artifactBindingStatus: text("artifact_binding_status").notNull(),
+    jobDocumentVersionId: integer("job_document_version_id").references(
+      () => jobDocumentVersionsTable.id,
+      { onDelete: "restrict" },
+    ),
+    quoteVersionId: integer("quote_version_id").references(
+      () => quoteVersionsTable.id,
+      { onDelete: "restrict" },
+    ),
     tokenHash: text("token_hash").notNull(),
     tokenPrefix: text("token_prefix").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
@@ -78,6 +91,12 @@ export const publicAccessTokensTable = pgTable(
       table.purpose,
       table.expiresAt,
     ),
+    index("public_access_tokens_job_version_idx").on(
+      table.jobDocumentVersionId,
+    ),
+    index("public_access_tokens_quote_version_idx").on(
+      table.quoteVersionId,
+    ),
     check(
       "public_access_tokens_purpose_resource_chk",
       sql`(
@@ -89,6 +108,24 @@ export const publicAccessTokensTable = pgTable(
     check(
       "public_access_tokens_hash_chk",
       sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "public_access_tokens_artifact_binding_chk",
+      sql`(
+        ${table.purpose} in ('ppe_signature', 'ppe_confirmation') and
+        ${table.artifactBindingStatus} = 'not_applicable' and
+        ${table.jobDocumentVersionId} is null and ${table.quoteVersionId} is null
+      ) or (
+        ${table.purpose} = 'job_signature' and (
+          (${table.artifactBindingStatus} = 'bound' and ${table.jobDocumentVersionId} is not null and ${table.quoteVersionId} is null) or
+          (${table.artifactBindingStatus} = 'legacy_unbound' and ${table.jobDocumentVersionId} is null and ${table.quoteVersionId} is null)
+        )
+      ) or (
+        ${table.purpose} = 'quote_decision' and (
+          (${table.artifactBindingStatus} = 'bound' and ${table.quoteVersionId} is not null and ${table.jobDocumentVersionId} is null) or
+          (${table.artifactBindingStatus} = 'legacy_unbound' and ${table.quoteVersionId} is null and ${table.jobDocumentVersionId} is null)
+        )
+      )`,
     ),
     check(
       "public_access_tokens_prefix_chk",

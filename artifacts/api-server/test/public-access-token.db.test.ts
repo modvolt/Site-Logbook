@@ -3,7 +3,10 @@ import { inArray } from "drizzle-orm";
 import {
   db,
   publicAccessTokensTable,
+  quoteDecisionEventsTable,
   quotesTable,
+  quoteVersionsTable,
+  type QuoteVersionSnapshot,
 } from "@workspace/db";
 import {
   consumePublicAccessToken,
@@ -37,15 +40,12 @@ afterAll(async () => {
   await db
     .delete(publicAccessTokensTable)
     .where(inArray(publicAccessTokensTable.resourceId, ids));
-  if (quoteIds.length > 0) {
-    await db.delete(quotesTable).where(inArray(quotesTable.id, quoteIds));
-  }
 });
 
 describe("hash-only public access token lifecycle", () => {
   it("stores only a SHA-256 hash and atomically revokes the previous issuance", async () => {
     const first = await issuePublicAccessToken({
-      purpose: "job_signature",
+      purpose: "ppe_confirmation",
       resourceId: resourceIds[0]!,
       expiresAt: future(),
     });
@@ -54,21 +54,21 @@ describe("hash-only public access token lifecycle", () => {
     expect(JSON.stringify(first.record)).not.toContain(first.token);
 
     const resolved = await resolvePublicAccessToken(
-      "job_signature",
+      "ppe_confirmation",
       first.token,
     );
     expect(resolved.resourceId).toBe(resourceIds[0]);
 
     const second = await issuePublicAccessToken({
-      purpose: "job_signature",
+      purpose: "ppe_confirmation",
       resourceId: resourceIds[0]!,
       expiresAt: future(),
     });
     await expect(
-      resolvePublicAccessToken("job_signature", first.token),
+      resolvePublicAccessToken("ppe_confirmation", first.token),
     ).rejects.toMatchObject({ code: "revoked" });
     await expect(
-      resolvePublicAccessToken("job_signature", second.token),
+      resolvePublicAccessToken("ppe_confirmation", second.token),
     ).resolves.toMatchObject({ resourceId: resourceIds[0] });
   });
 
@@ -136,17 +136,21 @@ describe("hash-only public access token lifecycle", () => {
       .returning();
     quoteIds.push(quote!.id);
 
-    const resolved = await resolvePublicAccessToken(
+    await expect(resolvePublicAccessToken(
       "quote_decision",
       legacyToken,
-    );
-    expect(resolved.resourceId).toBe(quote!.id);
-    expect(resolved.legacyImportedAt).toBeInstanceOf(Date);
+    )).rejects.toMatchObject({ code: "revoked" });
     const [stored] = await db
       .select({ shareToken: quotesTable.shareToken })
       .from(quotesTable)
       .where(inArray(quotesTable.id, [quote!.id]));
     expect(stored?.shareToken).toBeNull();
+    const [imported] = await db
+      .select()
+      .from(publicAccessTokensTable)
+      .where(inArray(publicAccessTokensTable.resourceId, [quote!.id]));
+    expect(imported?.artifactBindingStatus).toBe("legacy_unbound");
+    expect(imported?.legacyImportedAt).toBeInstanceOf(Date);
   });
 
   it("makes public quote accept/reject a single atomic decision", async () => {
@@ -155,15 +159,44 @@ describe("hash-only public access token lifecycle", () => {
       .values({ title: `Decision race ${RESOURCE_BASE}`, status: "sent" })
       .returning();
     quoteIds.push(quote!.id);
+    const snapshot: QuoteVersionSnapshot = {
+      schemaVersion: 1,
+      quote: {
+        id: quote!.id,
+        quoteNumber: null,
+        title: quote!.title,
+        validUntil: null,
+        notes: null,
+        createdAt: quote!.createdAt.toISOString(),
+      },
+      customer: { companyName: null, ic: null, dic: null, address: null, email: null },
+      supplier: {
+        name: "Modvolt s.r.o.", ic: null, dic: null, address: null,
+        email: null, phone: null, footerNote: null, vatPayer: true,
+      },
+      items: [],
+      totals: { subtotalWithoutVat: 0, totalVat: 0, totalWithVat: 0, currency: "Kč" },
+      confirmationText: "Testovací potvrzení konkrétní verze nabídky.",
+    };
+    const [version] = await db.insert(quoteVersionsTable).values({
+      quoteId: quote!.id,
+      version: 1,
+      dataSnapshot: snapshot,
+      snapshotSha256: "a".repeat(64),
+      pdfObjectPath: `/objects/quotes/test-${quote!.id}.pdf`,
+      pdfSha256: "b".repeat(64),
+      rendererVersion: "test-v1",
+    }).returning();
     const issued = await issuePublicAccessToken({
       purpose: "quote_decision",
       resourceId: quote!.id,
+      quoteVersionId: version!.id,
       expiresAt: future(),
     });
 
     const decisions = await Promise.allSettled([
-      acceptQuoteByToken(issued.token),
-      rejectQuoteByToken(issued.token),
+      acceptQuoteByToken(issued.token, { respondentName: "Test Accept" }),
+      rejectQuoteByToken(issued.token, { respondentName: "Test Reject" }),
     ]);
     expect(decisions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(decisions.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -177,5 +210,11 @@ describe("hash-only public access token lifecycle", () => {
       .from(publicAccessTokensTable)
       .where(inArray(publicAccessTokensTable.id, [issued.record.id]));
     expect(tokenRow?.consumeAction).toBe(finalQuote?.status);
+    const events = await db
+      .select()
+      .from(quoteDecisionEventsTable)
+      .where(inArray(quoteDecisionEventsTable.quoteId, [quote!.id]));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.quoteVersionId).toBe(version!.id);
   });
 });

@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import {
   db,
+  jobDocumentVersionsTable,
+  jobSignatureEventsTable,
   jobsTable,
   publicAccessTokensTable,
   usersTable,
@@ -58,7 +60,6 @@ afterAll(async () => {
         eq(publicAccessTokensTable.purpose, "job_signature"),
         inArray(publicAccessTokensTable.resourceId, jobIds),
       ));
-    await db.delete(jobsTable).where(inArray(jobsTable.id, jobIds));
   }
   if (userId) await db.delete(usersTable).where(eq(usersTable.id, userId));
   if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
@@ -86,6 +87,8 @@ describe("job public signature token lifecycle", () => {
     const first = await admin.post(`/api/jobs/${job.id}/signature-token`).send({});
     expect(first.status).toBe(200);
     expect(first.body.token).toBeUndefined();
+    expect(first.body.documentVersion).toBe(1);
+    expect(first.body.snapshotSha256).toMatch(/^[0-9a-f]{64}$/);
     const firstToken = tokenFromSignUrl(first.body.signUrl);
     expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
@@ -103,6 +106,17 @@ describe("job public signature token lifecycle", () => {
       ));
     expect(firstRow?.tokenHash).toBe(hashPublicAccessToken(firstToken));
     expect(JSON.stringify(firstRow)).not.toContain(firstToken);
+    expect(firstRow?.artifactBindingStatus).toBe("bound");
+    expect(firstRow?.jobDocumentVersionId).toEqual(expect.any(Number));
+
+    const beforeMutation = await request(app).get(`/api/sign/${firstToken}`);
+    expect(beforeMutation.status).toBe(200);
+    const signedTitle = beforeMutation.body.title;
+    await db.update(jobsTable).set({ title: `${TAG}-changed-live-parent` }).where(eq(jobsTable.id, job.id));
+    const afterMutation = await request(app).get(`/api/sign/${firstToken}`);
+    expect(afterMutation.status).toBe(200);
+    expect(afterMutation.body.title).toBe(signedTitle);
+    expect(afterMutation.body.snapshotSha256).toBe(beforeMutation.body.snapshotSha256);
 
     const second = await admin.post(`/api/jobs/${job.id}/signature-token`).send({});
     expect(second.status).toBe(200);
@@ -110,6 +124,18 @@ describe("job public signature token lifecycle", () => {
     expect(secondToken).not.toBe(firstToken);
     expect((await request(app).get(`/api/sign/${firstToken}`)).status).toBe(410);
     expect((await request(app).get(`/api/sign/${secondToken}`)).status).toBe(200);
+    const replacementEvents = await db
+      .select()
+      .from(jobSignatureEventsTable)
+      .where(eq(jobSignatureEventsTable.jobId, job.id));
+    expect(replacementEvents).toEqual([
+      expect.objectContaining({
+        documentVersionId: firstRow?.jobDocumentVersionId,
+        eventType: "cancelled",
+        actorType: "system",
+        reason: "signature_link_replaced",
+      }),
+    ]);
   });
 
   it("accepts exactly one concurrent signature and rejects replay", async () => {
@@ -118,8 +144,8 @@ describe("job public signature token lifecycle", () => {
     const token = tokenFromSignUrl(issued.body.signUrl);
 
     const results = await Promise.all([
-      request(app).post(`/api/sign/${token}`).send({ signatureDataUrl: PNG }),
-      request(app).post(`/api/sign/${token}`).send({ signatureDataUrl: PNG }),
+      request(app).post(`/api/sign/${token}`).send({ signatoryName: "Jan Testovací", signatureDataUrl: PNG }),
+      request(app).post(`/api/sign/${token}`).send({ signatoryName: "Jan Testovací", signatureDataUrl: PNG }),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
 
@@ -144,9 +170,31 @@ describe("job public signature token lifecycle", () => {
         eq(publicAccessTokensTable.resourceId, job.id),
       ));
     expect(tokenRow?.consumeAction).toBe("signed");
+    const [version] = await db
+      .select()
+      .from(jobDocumentVersionsTable)
+      .where(eq(jobDocumentVersionsTable.jobId, job.id));
+    expect(version).toMatchObject({
+      status: "signed",
+      signatoryName: "Jan Testovací",
+      identityAssurance: "self_declared_name",
+    });
+    expect(version?.snapshotSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(version?.signatureSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(version?.pdfSha256).toMatch(/^[0-9a-f]{64}$/);
+    const events = await db
+      .select()
+      .from(jobSignatureEventsTable)
+      .where(eq(jobSignatureEventsTable.jobId, job.id));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      documentVersionId: version?.id,
+      eventType: "signed",
+      actorName: "Jan Testovací",
+    });
     const replay = await request(app)
       .post(`/api/sign/${token}`)
-      .send({ signatureDataUrl: PNG });
+      .send({ signatoryName: "Jan Testovací", signatureDataUrl: PNG });
     expect(replay.status).toBe(409);
     expect(replay.body.code).toBe("public_token_consumed");
 

@@ -773,7 +773,8 @@ export interface SaveJobSheetInput {
   /** Base64-encoded PDF of the job sheet */
   pdfBase64: string;
   /**
-     * Whether the customer signature is included in the PDF
+     * Ignored legacy field; client-generated PDFs never constitute signature evidence
+     * @deprecated
      * @nullable
      */
   signed?: boolean | null;
@@ -809,11 +810,137 @@ export interface RequestJobSignatureInput {
   to?: string | null;
 }
 
+/**
+ * @pattern ^[0-9a-f]{64}$
+ */
+export type Sha256Hex = string;
+
 export interface RequestJobSignatureResult {
   sent: boolean;
   to: string;
   /** The full sign URL that was emailed (for reference/logging) */
   signUrl: string;
+  /** @minimum 1 */
+  documentVersion: number;
+  snapshotSha256: Sha256Hex;
+}
+
+export interface JobSignatureTokenResult {
+  signUrl: string;
+  expiresAt: string;
+  /** @minimum 1 */
+  documentVersion: number;
+  snapshotSha256: Sha256Hex;
+}
+
+export type JobDocumentVersionEvidenceStatus = typeof JobDocumentVersionEvidenceStatus[keyof typeof JobDocumentVersionEvidenceStatus];
+
+
+export const JobDocumentVersionEvidenceStatus = {
+  pending_signature: 'pending_signature',
+  signed: 'signed',
+} as const;
+
+export type JobDocumentSnapshotJob = {
+  id: number;
+  title: string;
+  date: string;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  notes?: string | null;
+};
+
+export interface JobDocumentSnapshot {
+  schemaVersion: 1;
+  job: JobDocumentSnapshotJob;
+  confirmationText: string;
+}
+
+export interface JobDocumentVersionEvidence {
+  id: number;
+  jobId: number;
+  version: number;
+  status: JobDocumentVersionEvidenceStatus;
+  /** @nullable */
+  supersedesVersionId?: number | null;
+  dataSnapshot: JobDocumentSnapshot;
+  snapshotSha256: Sha256Hex;
+  rendererVersion: string;
+  confirmationText: string;
+  /** @nullable */
+  signatoryName?: string | null;
+  /** @nullable */
+  identityAssurance?: string | null;
+  /** @nullable */
+  signatureObjectPath?: string | null;
+  signatureSha256?: Sha256Hex | null;
+  /** @nullable */
+  pdfObjectPath?: string | null;
+  pdfSha256?: Sha256Hex | null;
+  /** @nullable */
+  signedAt?: string | null;
+  /** @nullable */
+  createdByUserId?: number | null;
+  createdAt: string;
+}
+
+export type JobSignatureEventEvidenceEventType = typeof JobSignatureEventEvidenceEventType[keyof typeof JobSignatureEventEvidenceEventType];
+
+
+export const JobSignatureEventEvidenceEventType = {
+  signed: 'signed',
+  superseded: 'superseded',
+  cancelled: 'cancelled',
+} as const;
+
+export type JobSignatureEventEvidenceActorType = typeof JobSignatureEventEvidenceActorType[keyof typeof JobSignatureEventEvidenceActorType];
+
+
+export const JobSignatureEventEvidenceActorType = {
+  public_signer: 'public_signer',
+  admin: 'admin',
+  system: 'system',
+} as const;
+
+export interface JobSignatureEventEvidence {
+  id: number;
+  jobId: number;
+  documentVersionId: number;
+  eventType: JobSignatureEventEvidenceEventType;
+  actorType: JobSignatureEventEvidenceActorType;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorName?: string | null;
+  /** @nullable */
+  identityAssurance?: string | null;
+  /** @nullable */
+  confirmationText?: string | null;
+  /** @nullable */
+  reason?: string | null;
+  userAgentSha256?: Sha256Hex | null;
+  createdAt: string;
+}
+
+export interface JobSignatureEvidence {
+  versions: JobDocumentVersionEvidence[];
+  events: JobSignatureEventEvidence[];
+}
+
+export interface DocumentRevisionInput {
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export interface DocumentRevisionResult {
+  reopened: true;
+  /** @minimum 1 */
+  supersededVersion: number;
+  snapshotSha256: Sha256Hex;
 }
 
 export interface Task {
@@ -5327,10 +5454,14 @@ export interface SendInvoiceEmailInput {
   message?: string | null;
 }
 
-export interface SendInvoiceEmailResult {
+export interface SendQuoteEmailResult {
   sent: boolean;
-  /** @nullable */
-  to?: string | null;
+  to: string;
+  expiresAt: string;
+  /** @minimum 1 */
+  quoteVersion: number;
+  snapshotSha256: Sha256Hex;
+  pdfSha256: Sha256Hex;
 }
 
 export interface SendInvoiceReminderInput {
@@ -6324,6 +6455,78 @@ export interface SendQuoteEmailInput {
   message?: string | null;
 }
 
+export interface SendInvoiceEmailResult {
+  sent: boolean;
+  /** @nullable */
+  to?: string | null;
+}
+
+/**
+ * Canonical immutable quote, parties, line items, totals, terms, and confirmation text
+ */
+export type QuoteVersionEvidenceDataSnapshot = { [key: string]: unknown };
+
+export interface QuoteVersionEvidence {
+  id: number;
+  quoteId: number;
+  version: number;
+  /** @nullable */
+  supersedesVersionId?: number | null;
+  /** Canonical immutable quote, parties, line items, totals, terms, and confirmation text */
+  dataSnapshot: QuoteVersionEvidenceDataSnapshot;
+  snapshotSha256: Sha256Hex;
+  pdfObjectPath: string;
+  pdfSha256: Sha256Hex;
+  rendererVersion: string;
+  /** @nullable */
+  createdByUserId?: number | null;
+  createdAt: string;
+}
+
+export type QuoteDecisionEventEvidenceAction = typeof QuoteDecisionEventEvidenceAction[keyof typeof QuoteDecisionEventEvidenceAction];
+
+
+export const QuoteDecisionEventEvidenceAction = {
+  accepted: 'accepted',
+  rejected: 'rejected',
+  expired: 'expired',
+  superseded: 'superseded',
+} as const;
+
+export type QuoteDecisionEventEvidenceActorType = typeof QuoteDecisionEventEvidenceActorType[keyof typeof QuoteDecisionEventEvidenceActorType];
+
+
+export const QuoteDecisionEventEvidenceActorType = {
+  public_recipient: 'public_recipient',
+  admin: 'admin',
+  system: 'system',
+} as const;
+
+export interface QuoteDecisionEventEvidence {
+  id: number;
+  quoteId: number;
+  quoteVersionId: number;
+  action: QuoteDecisionEventEvidenceAction;
+  actorType: QuoteDecisionEventEvidenceActorType;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  actorName?: string | null;
+  /** @nullable */
+  identityAssurance?: string | null;
+  /** @nullable */
+  confirmationText?: string | null;
+  /** @nullable */
+  reason?: string | null;
+  userAgentSha256?: Sha256Hex | null;
+  createdAt: string;
+}
+
+export interface QuoteEvidence {
+  versions: QuoteVersionEvidence[];
+  events: QuoteDecisionEventEvidence[];
+}
+
 export interface ConvertQuoteToJobInput {
   /** @nullable */
   plannedDate?: string | null;
@@ -6363,6 +6566,11 @@ export interface PublicQuoteItem {
 export interface PublicQuoteDetail {
   /** @nullable */
   quoteNumber?: string | null;
+  /** @minimum 1 */
+  quoteVersion: number;
+  snapshotSha256: Sha256Hex;
+  pdfSha256: Sha256Hex;
+  confirmationText: string;
   title: string;
   status: PublicQuoteDetailStatus;
   /** @nullable */
@@ -6387,9 +6595,58 @@ export interface PublicQuoteDetail {
   createdAt: string;
 }
 
+export interface PublicQuoteDecisionInput {
+  /**
+     * Self-declared identity of the person accepting or rejecting this exact version
+     * @minLength 2
+     * @maxLength 120
+     */
+  respondentName: string;
+}
+
 export interface QuotePublicActionResult {
   accepted?: boolean;
   rejected?: boolean;
+  /** @minimum 1 */
+  quoteVersion: number;
+  snapshotSha256: Sha256Hex;
+}
+
+export interface PublicJobDocument {
+  jobId: number;
+  /** @minimum 1 */
+  documentVersion: number;
+  snapshotSha256: Sha256Hex;
+  title: string;
+  date: string;
+  /** @nullable */
+  customerCompanyName?: string | null;
+  /** @nullable */
+  notes?: string | null;
+  confirmationText: string;
+  alreadySigned: boolean;
+  /** @nullable */
+  signedAt?: string | null;
+  expired: boolean;
+}
+
+export interface PublicJobSignatureInput {
+  /**
+     * Self-declared identity of the person signing the immutable version
+     * @minLength 2
+     * @maxLength 120
+     */
+  signatoryName: string;
+  /** @pattern ^data:image/png;base64, */
+  signatureDataUrl: string;
+}
+
+export interface PublicJobSignatureResult {
+  signedAt: string;
+  /** @minimum 1 */
+  documentVersion: number;
+  snapshotSha256: Sha256Hex;
+  pdfSha256: Sha256Hex;
 }
 
 export type ListJobsParams = {

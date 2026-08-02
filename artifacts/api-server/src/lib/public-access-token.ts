@@ -74,6 +74,14 @@ function assertTokenInput(token: string): void {
 function assertUsable(record: PublicAccessToken, now = new Date()): void {
   if (record.revokedAt) throw new PublicAccessTokenError("revoked");
   if (record.consumedAt) throw new PublicAccessTokenError("consumed");
+  if (
+    (record.purpose === "job_signature" || record.purpose === "quote_decision") &&
+    record.artifactBindingStatus !== "bound"
+  ) {
+    // A legacy token cannot prove which document the visitor originally saw.
+    // Re-issue it against a new immutable version instead of inventing history.
+    throw new PublicAccessTokenError("revoked");
+  }
   if (record.expiresAt.getTime() <= now.getTime()) {
     throw new PublicAccessTokenError("expired");
   }
@@ -144,6 +152,9 @@ async function readLegacyToken(
       purpose,
       resourceType: RESOURCE_TYPE[purpose],
       resourceId: row.id,
+      artifactBindingStatus: "legacy_unbound",
+      jobDocumentVersionId: null,
+      quoteVersionId: null,
       expiresAt:
         row.expiresAt ??
         (row.requestedAt
@@ -174,6 +185,9 @@ async function readLegacyToken(
       purpose,
       resourceType: RESOURCE_TYPE[purpose],
       resourceId: row.id,
+      artifactBindingStatus: "not_applicable",
+      jobDocumentVersionId: null,
+      quoteVersionId: null,
       expiresAt: publicTokenExpiry("PPE_SIGNATURE_EXPIRY_DAYS", 30, now),
       createdAt: now,
       createdByUserId: null,
@@ -201,6 +215,9 @@ async function readLegacyToken(
       purpose,
       resourceType: RESOURCE_TYPE[purpose],
       resourceId: row.id,
+      artifactBindingStatus: "not_applicable",
+      jobDocumentVersionId: null,
+      quoteVersionId: null,
       expiresAt:
         row.expiresAt ??
         publicTokenExpiry("PPE_CONFIRM_EXPIRY_DAYS", 30, now),
@@ -231,6 +248,9 @@ async function readLegacyToken(
     purpose,
     resourceType: RESOURCE_TYPE[purpose],
     resourceId: row.id,
+    artifactBindingStatus: "legacy_unbound",
+    jobDocumentVersionId: null,
+    quoteVersionId: null,
     expiresAt: publicTokenExpiry("QUOTE_SHARE_EXPIRY_DAYS", 30, now),
     createdAt: now,
     createdByUserId: null,
@@ -363,59 +383,110 @@ export async function resolvePublicAccessToken(
   return record;
 }
 
-export async function issuePublicAccessToken(input: {
+export interface IssuePublicAccessTokenInput {
   purpose: PublicAccessTokenPurpose;
   resourceId: number;
   expiresAt: Date;
   createdByUserId?: number | null;
+  jobDocumentVersionId?: number | null;
+  quoteVersionId?: number | null;
   onIssue?: (tx: DbTransaction) => Promise<void>;
-}): Promise<{ token: string; record: PublicAccessToken }> {
+}
+
+function validateArtifactBinding(input: IssuePublicAccessTokenInput): {
+  artifactBindingStatus: "bound" | "not_applicable";
+  jobDocumentVersionId: number | null;
+  quoteVersionId: number | null;
+} {
+  const jobDocumentVersionId = input.jobDocumentVersionId ?? null;
+  const quoteVersionId = input.quoteVersionId ?? null;
+  if (input.purpose === "job_signature") {
+    if (!Number.isInteger(jobDocumentVersionId) || jobDocumentVersionId! <= 0 || quoteVersionId !== null) {
+      throw new Error("Job signature token requires one job document version.");
+    }
+    return { artifactBindingStatus: "bound", jobDocumentVersionId, quoteVersionId: null };
+  }
+  if (input.purpose === "quote_decision") {
+    if (!Number.isInteger(quoteVersionId) || quoteVersionId! <= 0 || jobDocumentVersionId !== null) {
+      throw new Error("Quote decision token requires one quote version.");
+    }
+    return { artifactBindingStatus: "bound", jobDocumentVersionId: null, quoteVersionId };
+  }
+  if (jobDocumentVersionId !== null || quoteVersionId !== null) {
+    throw new Error("PPE public tokens cannot bind a job or quote version.");
+  }
+  return {
+    artifactBindingStatus: "not_applicable",
+    jobDocumentVersionId: null,
+    quoteVersionId: null,
+  };
+}
+
+async function issueWithTransaction(
+  tx: DbTransaction,
+  input: IssuePublicAccessTokenInput,
+  token: string,
+  tokenHash: string,
+  now: Date,
+  binding: ReturnType<typeof validateArtifactBinding>,
+): Promise<PublicAccessToken> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`${input.purpose}:${input.resourceId}`}))`,
+  );
+  await tx
+    .update(publicAccessTokensTable)
+    .set({
+      revokedAt: now,
+      revokedByUserId: input.createdByUserId ?? null,
+      revokeReason: "replaced",
+    })
+    .where(
+      and(
+        eq(publicAccessTokensTable.purpose, input.purpose),
+        eq(publicAccessTokensTable.resourceType, RESOURCE_TYPE[input.purpose]),
+        eq(publicAccessTokensTable.resourceId, input.resourceId),
+        isNull(publicAccessTokensTable.revokedAt),
+        isNull(publicAccessTokensTable.consumedAt),
+      ),
+    );
+  const [inserted] = await tx
+    .insert(publicAccessTokensTable)
+    .values({
+      purpose: input.purpose,
+      resourceType: RESOURCE_TYPE[input.purpose],
+      resourceId: input.resourceId,
+      ...binding,
+      tokenHash,
+      tokenPrefix: token.slice(0, 8),
+      expiresAt: input.expiresAt,
+      createdAt: now,
+      createdByUserId: input.createdByUserId ?? null,
+    })
+    .returning();
+  if (!inserted) throw new Error("Public token insert returned no row.");
+  await input.onIssue?.(tx);
+  return inserted;
+}
+
+export async function issuePublicAccessToken(
+  input: IssuePublicAccessTokenInput,
+  tx?: DbTransaction,
+): Promise<{ token: string; record: PublicAccessToken }> {
   if (!Number.isInteger(input.resourceId) || input.resourceId <= 0) {
     throw new Error("Public token resource ID must be a positive integer.");
   }
   if (!Number.isFinite(input.expiresAt.getTime())) {
     throw new Error("Public token expiry is invalid.");
   }
+  const binding = validateArtifactBinding(input);
   const token = newRawToken();
   const tokenHash = hashPublicAccessToken(token);
   const now = new Date();
-  const record = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`${input.purpose}:${input.resourceId}`}))`,
-    );
-    await tx
-      .update(publicAccessTokensTable)
-      .set({
-        revokedAt: now,
-        revokedByUserId: input.createdByUserId ?? null,
-        revokeReason: "replaced",
-      })
-      .where(
-        and(
-          eq(publicAccessTokensTable.purpose, input.purpose),
-          eq(publicAccessTokensTable.resourceType, RESOURCE_TYPE[input.purpose]),
-          eq(publicAccessTokensTable.resourceId, input.resourceId),
-          isNull(publicAccessTokensTable.revokedAt),
-          isNull(publicAccessTokensTable.consumedAt),
-        ),
+  const record = tx
+    ? await issueWithTransaction(tx, input, token, tokenHash, now, binding)
+    : await db.transaction((inner) =>
+        issueWithTransaction(inner, input, token, tokenHash, now, binding),
       );
-    const [inserted] = await tx
-      .insert(publicAccessTokensTable)
-      .values({
-        purpose: input.purpose,
-        resourceType: RESOURCE_TYPE[input.purpose],
-        resourceId: input.resourceId,
-        tokenHash,
-        tokenPrefix: token.slice(0, 8),
-        expiresAt: input.expiresAt,
-        createdAt: now,
-        createdByUserId: input.createdByUserId ?? null,
-      })
-      .returning();
-    if (!inserted) throw new Error("Public token insert returned no row.");
-    await input.onIssue?.(tx);
-    return inserted;
-  });
   return { token, record };
 }
 

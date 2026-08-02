@@ -7,6 +7,8 @@ import {
   customersTable,
   billingSettingsTable,
   publicAccessTokensTable,
+  quoteDecisionEventsTable,
+  quoteVersionsTable,
 } from "@workspace/db";
 import { ObjectStorageService } from "../src/lib/objectStorage";
 import { hashPublicAccessToken } from "../src/lib/public-access-token";
@@ -49,7 +51,7 @@ vi.mock("../src/lib/email", () => ({
 
 // Import service AFTER vi.mock so the hoisted mock is applied when the
 // module resolves its own `import { sendEmailWithPdf } from "./email"`.
-const { createQuote, sendQuote, generateAndStorePdf } = await import(
+const { createQuote, sendQuote, generateAndStorePdf, getQuoteByShareToken } = await import(
   "../src/lib/quote-service"
 );
 
@@ -98,10 +100,6 @@ afterAll(async () => {
     await db
       .delete(publicAccessTokensTable)
       .where(inArray(publicAccessTokensTable.resourceId, quoteIds));
-    await db
-      .delete(quoteItemsTable)
-      .where(inArray(quoteItemsTable.quoteId, quoteIds));
-    await db.delete(quotesTable).where(inArray(quotesTable.id, quoteIds));
   }
   if (customerId) {
     await db.delete(customersTable).where(eq(customersTable.id, customerId));
@@ -237,6 +235,9 @@ describe("sendQuote", () => {
     // Return value
     expect(result.sent).toBe(true);
     expect(result.to).toBe("zakaznik@example.com");
+    expect(result.quoteVersion).toBe(1);
+    expect(result.snapshotSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.pdfSha256).toMatch(/^[0-9a-f]{64}$/);
 
     // DB: status → sent, pdfObjectPath set
     const [row] = await db
@@ -271,7 +272,11 @@ describe("sendQuote", () => {
     const emailedToken = /quote-share\/([A-Za-z0-9_-]{43})/.exec(emailCall.text)?.[1];
     expect(emailedToken).toBeTruthy();
     const [tokenRow] = await db
-      .select({ tokenHash: publicAccessTokensTable.tokenHash })
+      .select({
+        tokenHash: publicAccessTokensTable.tokenHash,
+        binding: publicAccessTokensTable.artifactBindingStatus,
+        quoteVersionId: publicAccessTokensTable.quoteVersionId,
+      })
       .from(publicAccessTokensTable)
       .where(and(
         eq(publicAccessTokensTable.purpose, "quote_decision"),
@@ -279,6 +284,8 @@ describe("sendQuote", () => {
         isNull(publicAccessTokensTable.revokedAt),
       ));
     expect(tokenRow?.tokenHash).toBe(hashPublicAccessToken(emailedToken!));
+    expect(tokenRow?.binding).toBe("bound");
+    expect(tokenRow?.quoteVersionId).toEqual(expect.any(Number));
     expect(JSON.stringify(tokenRow)).not.toContain(emailedToken!);
     expect(emailCall.pdfBase64.length).toBeGreaterThan(100);
     expect(emailCall.filename).toMatch(/^nabidka-.*\.pdf$/);
@@ -286,6 +293,24 @@ describe("sendQuote", () => {
     // Sanity: the base64 decodes to a real PDF
     const decoded = Buffer.from(emailCall.pdfBase64, "base64");
     expect(decoded.slice(0, 4).toString()).toBe("%PDF");
+
+    const [version] = await db
+      .select()
+      .from(quoteVersionsTable)
+      .where(eq(quoteVersionsTable.quoteId, quote!.id));
+    expect(version).toMatchObject({
+      version: 1,
+      snapshotSha256: result.snapshotSha256,
+      pdfSha256: result.pdfSha256,
+    });
+
+    const publicBefore = await getQuoteByShareToken(emailedToken!);
+    await db.update(quotesTable).set({ title: `${TAG}-tampered-live-title` }).where(eq(quotesTable.id, quote!.id));
+    await db.update(quoteItemsTable).set({ description: `${TAG}-tampered-live-item` }).where(eq(quoteItemsTable.quoteId, quote!.id));
+    const publicAfter = await getQuoteByShareToken(emailedToken!);
+    expect(publicAfter?.title).toBe(publicBefore?.title);
+    expect(publicAfter?.items).toEqual(publicBefore?.items);
+    expect(publicAfter?.snapshotSha256).toBe(publicBefore?.snapshotSha256);
   });
 
   it("rejects send when the recipient email is missing or invalid", async () => {
@@ -335,7 +360,19 @@ describe("sendQuote", () => {
     });
     expect(result.sent).toBe(true);
     expect(result.to).toBe("b@example.com");
+    expect(result.quoteVersion).toBe(2);
     expect(sendEmailWithPdfMock).toHaveBeenCalledOnce();
+    const supersededEvents = await db
+      .select()
+      .from(quoteDecisionEventsTable)
+      .where(eq(quoteDecisionEventsTable.quoteId, quote!.id));
+    expect(supersededEvents).toEqual([
+      expect.objectContaining({
+        action: "superseded",
+        actorType: "system",
+        reason: "quote_reissued",
+      }),
+    ]);
     const emailCall = sendEmailWithPdfMock.mock.calls[0][0] as {
       subject: string;
     };

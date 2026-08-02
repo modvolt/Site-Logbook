@@ -522,7 +522,7 @@ paths:
     post:
       operationId: saveJobSheet
       tags: [jobs]
-      summary: Save the (signed) job sheet PDF as an attachment of the job
+      summary: Save a client-generated job sheet PDF as a regular job attachment
       parameters:
         - name: id
           in: path
@@ -573,6 +573,101 @@ paths:
           description: Job not found
         "502":
           description: Email delivery failed
+
+  /jobs/{id}/signature-token:
+    post:
+      operationId: createJobSignatureToken
+      tags: [jobs]
+      summary: Create a one-time link bound to a new immutable job-document version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bound signature link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobSignatureTokenResult"
+        "404":
+          description: Job not found
+        "409":
+          description: Job is already signed
+
+  /jobs/{id}/signature-evidence:
+    get:
+      operationId: getJobSignatureEvidence
+      tags: [jobs]
+      summary: List immutable job-document versions and signature events
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Signature evidence history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobSignatureEvidence"
+        "404":
+          description: Job not found
+
+  /jobs/{id}/signed-document:
+    get:
+      operationId: downloadSignedJobDocument
+      tags: [jobs]
+      summary: Download the current immutable signed job-document PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Signed PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Signed document not found
+
+  /jobs/{id}/signature-revision:
+    post:
+      operationId: reopenJobSignatureRevision
+      tags: [jobs]
+      summary: Preserve the signed version and reopen the job for a corrected version
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentRevisionInput"
+      responses:
+        "200":
+          description: Job reopened without changing prior evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRevisionResult"
+        "404":
+          description: Job or signed version not found
+        "409":
+          description: Job is not currently signed
 
   /jobs/{jobId}/tasks:
     get:
@@ -3677,6 +3772,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+
     put:
       operationId: updateMyPreferences
       tags: [auth]
@@ -6463,7 +6559,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SendInvoiceEmailResult"
+                $ref: "#/components/schemas/SendQuoteEmailResult"
         "400":
           description: Invalid input
           content:
@@ -8672,6 +8768,56 @@ paths:
         "409":
           description: Cannot expire in current status
 
+  /quotes/{id}/revision:
+    post:
+      operationId: reopenQuoteRevision
+      tags: [quotes]
+      summary: Preserve the issued version and reopen the quote as a corrected draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentRevisionInput"
+      responses:
+        "200":
+          description: Quote reopened without changing prior evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRevisionResult"
+        "404":
+          description: Quote or issued version not found
+        "409":
+          description: Quote cannot be reopened in its current state
+
+  /quotes/{id}/evidence:
+    get:
+      operationId: getQuoteEvidence
+      tags: [quotes]
+      summary: List immutable quote versions and decision events
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quote evidence history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteEvidence"
+        "404":
+          description: Quote not found
+
   /quotes/{id}/convert-to-job:
     post:
       operationId: convertQuoteToJob
@@ -8731,6 +8877,12 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicQuoteDecisionInput"
       responses:
         "200":
           description: Quote accepted
@@ -8754,6 +8906,12 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicQuoteDecisionInput"
       responses:
         "200":
           description: Quote rejected
@@ -8787,6 +8945,60 @@ paths:
                 format: binary
         "404":
           description: Not found
+
+  /sign/{token}:
+    get:
+      operationId: getPublicJobDocumentForSignature
+      tags: [jobs]
+      summary: Read the exact immutable job-document version bound to a one-time token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Immutable job-document snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicJobDocument"
+        "404":
+          description: Token or bound version not found
+        "410":
+          description: Token expired, revoked, or consumed
+    post:
+      operationId: signPublicJobDocument
+      tags: [jobs]
+      summary: Sign the exact immutable job-document version bound to a one-time token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicJobSignatureInput"
+      responses:
+        "200":
+          description: Signed immutable version and evidence hashes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicJobSignatureResult"
+        "400":
+          description: Invalid self-declared identity or signature PNG
+        "404":
+          description: Token or bound version not found
+        "409":
+          description: Version already signed or concurrent signature won
+        "410":
+          description: Token expired, revoked, or consumed
 
 components:
   schemas:
@@ -9195,7 +9407,7 @@ components:
 
     RequestJobSignatureResult:
       type: object
-      required: [sent, to, signUrl]
+      required: [sent, to, signUrl, documentVersion, snapshotSha256]
       properties:
         sent:
           type: boolean
@@ -9204,6 +9416,193 @@ components:
         signUrl:
           type: string
           description: The full sign URL that was emailed (for reference/logging)
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    JobSignatureTokenResult:
+      type: object
+      required: [signUrl, expiresAt, documentVersion, snapshotSha256]
+      properties:
+        signUrl:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    PublicJobDocument:
+      type: object
+      required: [jobId, documentVersion, snapshotSha256, title, date, confirmationText, alreadySigned, expired]
+      properties:
+        jobId:
+          type: integer
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        title:
+          type: string
+        date:
+          type: string
+        customerCompanyName:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        confirmationText:
+          type: string
+        alreadySigned:
+          type: boolean
+        signedAt:
+          type: ["string", "null"]
+          format: date-time
+        expired:
+          type: boolean
+
+    PublicJobSignatureInput:
+      type: object
+      additionalProperties: false
+      required: [signatoryName, signatureDataUrl]
+      properties:
+        signatoryName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Self-declared identity of the person signing the immutable version
+        signatureDataUrl:
+          type: string
+          pattern: "^data:image/png;base64,"
+
+    PublicJobSignatureResult:
+      type: object
+      required: [signedAt, documentVersion, snapshotSha256, pdfSha256]
+      properties:
+        signedAt:
+          type: string
+          format: date-time
+        documentVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    DocumentRevisionInput:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+
+    DocumentRevisionResult:
+      type: object
+      required: [reopened, supersededVersion, snapshotSha256]
+      properties:
+        reopened:
+          type: boolean
+          const: true
+        supersededVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    JobSignatureEvidence:
+      type: object
+      required: [versions, events]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobDocumentVersionEvidence"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobSignatureEventEvidence"
+
+    JobDocumentVersionEvidence:
+      type: object
+      required: [id, jobId, version, status, dataSnapshot, snapshotSha256, rendererVersion, confirmationText, createdAt]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        version: { type: integer }
+        status:
+          type: string
+          enum: [pending_signature, signed]
+        supersedesVersionId: { type: ["integer", "null"] }
+        dataSnapshot:
+          $ref: "#/components/schemas/JobDocumentSnapshot"
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        rendererVersion: { type: string }
+        confirmationText: { type: string }
+        signatoryName: { type: ["string", "null"] }
+        identityAssurance: { type: ["string", "null"] }
+        signatureObjectPath: { type: ["string", "null"] }
+        signatureSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        pdfObjectPath: { type: ["string", "null"] }
+        pdfSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        signedAt: { type: ["string", "null"], format: date-time }
+        createdByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    JobDocumentSnapshot:
+      type: object
+      required: [schemaVersion, job, confirmationText]
+      properties:
+        schemaVersion: { type: integer, const: 1 }
+        job:
+          type: object
+          required: [id, title, date]
+          properties:
+            id: { type: integer }
+            title: { type: string }
+            date: { type: string }
+            customerCompanyName: { type: ["string", "null"] }
+            notes: { type: ["string", "null"] }
+        confirmationText: { type: string }
+
+    JobSignatureEventEvidence:
+      type: object
+      required: [id, jobId, documentVersionId, eventType, actorType, createdAt]
+      properties:
+        id: { type: integer }
+        jobId: { type: integer }
+        documentVersionId: { type: integer }
+        eventType:
+          type: string
+          enum: [signed, superseded, cancelled]
+        actorType:
+          type: string
+          enum: [public_signer, admin, system]
+        actorUserId: { type: ["integer", "null"] }
+        actorName: { type: ["string", "null"] }
+        identityAssurance: { type: ["string", "null"] }
+        confirmationText: { type: ["string", "null"] }
+        reason: { type: ["string", "null"] }
+        userAgentSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
 
     SendJobEmailInput:
       type: object
@@ -9229,7 +9628,8 @@ components:
           description: Base64-encoded PDF of the job sheet
         signed:
           type: ["boolean", "null"]
-          description: Whether the customer signature is included in the PDF
+          deprecated: true
+          description: Ignored legacy field; client-generated PDFs never constitute signature evidence
 
     SendCredentialsEmailInput:
       type: object
@@ -16043,10 +16443,19 @@ components:
 
     PublicQuoteDetail:
       type: object
-      required: [title, status, items, subtotalWithoutVat, totalVat, totalWithVat, vatPayer, createdAt]
+      required: [quoteVersion, snapshotSha256, pdfSha256, confirmationText, title, status, items, subtotalWithoutVat, totalVat, totalWithVat, vatPayer, createdAt]
       properties:
         quoteNumber:
           type: ["string", "null"]
+        quoteVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        confirmationText:
+          type: string
         title:
           type: string
         status:
@@ -16108,11 +16517,28 @@ components:
 
     QuotePublicActionResult:
       type: object
+      required: [quoteVersion, snapshotSha256]
       properties:
         accepted:
           type: boolean
         rejected:
           type: boolean
+        quoteVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    PublicQuoteDecisionInput:
+      type: object
+      additionalProperties: false
+      required: [respondentName]
+      properties:
+        respondentName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Self-declared identity of the person accepting or rejecting this exact version
 
     CreateQuoteInput:
       type: object
@@ -16157,6 +16583,82 @@ components:
           type: ["string", "null"]
         message:
           type: ["string", "null"]
+
+    SendQuoteEmailResult:
+      type: object
+      required: [sent, to, expiresAt, quoteVersion, snapshotSha256, pdfSha256]
+      properties:
+        sent: { type: boolean }
+        to: { type: string }
+        expiresAt: { type: string, format: date-time }
+        quoteVersion:
+          type: integer
+          minimum: 1
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+
+    QuoteEvidence:
+      type: object
+      required: [versions, events]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteVersionEvidence"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteDecisionEventEvidence"
+
+    QuoteVersionEvidence:
+      type: object
+      required: [id, quoteId, version, dataSnapshot, snapshotSha256, pdfObjectPath, pdfSha256, rendererVersion, createdAt]
+      properties:
+        id: { type: integer }
+        quoteId: { type: integer }
+        version: { type: integer }
+        supersedesVersionId: { type: ["integer", "null"] }
+        dataSnapshot:
+          type: object
+          description: Canonical immutable quote, parties, line items, totals, terms, and confirmation text
+        snapshotSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        pdfObjectPath: { type: string }
+        pdfSha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        rendererVersion: { type: string }
+        createdByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string, format: date-time }
+
+    QuoteDecisionEventEvidence:
+      type: object
+      required: [id, quoteId, quoteVersionId, action, actorType, createdAt]
+      properties:
+        id: { type: integer }
+        quoteId: { type: integer }
+        quoteVersionId: { type: integer }
+        action:
+          type: string
+          enum: [accepted, rejected, expired, superseded]
+        actorType:
+          type: string
+          enum: [public_recipient, admin, system]
+        actorUserId: { type: ["integer", "null"] }
+        actorName: { type: ["string", "null"] }
+        identityAssurance: { type: ["string", "null"] }
+        confirmationText: { type: ["string", "null"] }
+        reason: { type: ["string", "null"] }
+        userAgentSha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256Hex"
+            - type: "null"
+        createdAt: { type: string, format: date-time }
+
+    Sha256Hex:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
 
     ConvertQuoteToJobInput:
       type: object

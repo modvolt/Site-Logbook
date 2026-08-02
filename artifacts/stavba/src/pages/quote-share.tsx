@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -28,6 +30,10 @@ interface PublicQuoteItem {
 
 interface PublicQuoteDetail {
   quoteNumber: string | null;
+  quoteVersion: number;
+  snapshotSha256: string;
+  pdfSha256: string;
+  confirmationText: string;
   title: string;
   status: "draft" | "sent" | "accepted" | "rejected" | "expired";
   validUntil: string | null;
@@ -83,6 +89,7 @@ export default function QuoteShare() {
   const [quote, setQuote] = useState<PublicQuoteDetail | null>(null);
   const [error, setError] = useState<string>("");
   const [actionPending, setActionPending] = useState(false);
+  const [respondentName, setRespondentName] = useState("");
   const [fetchDone, setFetchDone] = useState(false);
 
   if (!fetchDone) {
@@ -112,7 +119,11 @@ export default function QuoteShare() {
   async function handleAccept() {
     setActionPending(true);
     try {
-      const r = await fetch(`/api/quotes/public/${encodeURIComponent(token)}/accept`, { method: "POST" });
+      const r = await fetch(`/api/quotes/public/${encodeURIComponent(token)}/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ respondentName: respondentName.trim() }),
+      });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
         setError(body.error ?? "Přijetí nabídky selhalo.");
@@ -131,7 +142,11 @@ export default function QuoteShare() {
   async function handleReject() {
     setActionPending(true);
     try {
-      const r = await fetch(`/api/quotes/public/${encodeURIComponent(token)}/reject`, { method: "POST" });
+      const r = await fetch(`/api/quotes/public/${encodeURIComponent(token)}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ respondentName: respondentName.trim() }),
+      });
       if (!r.ok) {
         const body = await r.json().catch(() => ({}));
         setError(body.error ?? "Odmítnutí nabídky selhalo.");
@@ -209,7 +224,9 @@ export default function QuoteShare() {
           )}
           <h1 className="text-2xl font-bold">{quote.title}</h1>
           {quote.quoteNumber && (
-            <p className="text-sm text-muted-foreground font-mono">{quote.quoteNumber}</p>
+            <p className="text-sm text-muted-foreground font-mono">
+              {quote.quoteNumber} · verze {quote.quoteVersion}
+            </p>
           )}
         </div>
 
@@ -312,15 +329,31 @@ export default function QuoteShare() {
         {canRespond && (
           <Card className="border-primary/20 bg-primary/5">
             <CardContent className="py-5 px-4">
-              <p className="text-sm text-center text-muted-foreground mb-4">
-                Přejete si tuto nabídku přijmout nebo odmítnout?
-              </p>
+              <div className="max-w-md mx-auto space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="quote-respondent-name">Jméno rozhodující osoby</Label>
+                  <Input
+                    id="quote-respondent-name"
+                    value={respondentName}
+                    onChange={(event) => setRespondentName(event.target.value)}
+                    maxLength={120}
+                    autoComplete="name"
+                    placeholder="Jméno a příjmení"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground border rounded-md bg-background p-3">
+                  {quote.confirmationText}
+                </p>
+                <p className="text-xs text-center text-muted-foreground">
+                  Rozhodnutí se uloží k verzi {quote.quoteVersion}; kontrolní otisk snapshotu začíná {quote.snapshotSha256.slice(0, 12)}.
+                </p>
+              </div>
               <div className="flex gap-3 justify-center flex-wrap">
                 <Button
                   size="lg"
                   className="bg-green-600 hover:bg-green-700 text-white min-w-[140px]"
                   onClick={handleAccept}
-                  disabled={actionPending}
+                  disabled={actionPending || respondentName.trim().length < 2}
                 >
                   {actionPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                   Přijímám nabídku
@@ -330,7 +363,7 @@ export default function QuoteShare() {
                   variant="outline"
                   className="min-w-[140px]"
                   onClick={handleReject}
-                  disabled={actionPending}
+                  disabled={actionPending || respondentName.trim().length < 2}
                 >
                   {actionPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <XCircle className="h-4 w-4 mr-2" />}
                   Odmítám nabídku

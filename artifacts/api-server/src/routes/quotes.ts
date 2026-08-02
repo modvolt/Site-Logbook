@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { z } from "zod/v4";
 import {
   CreateQuoteBody,
   ConvertQuoteToJobBody,
@@ -30,6 +31,10 @@ import {
   isValidToken,
   appError,
 } from "../lib/quote-service";
+import {
+  listQuoteEvidence,
+  reopenQuoteRevision,
+} from "../lib/quote-version-service";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -97,8 +102,16 @@ router.post("/quotes/public/:token/accept", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Neplatný token nabídky." });
     return;
   }
+  const body = z.object({ respondentName: z.string().trim().min(2).max(120) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
+    return;
+  }
   try {
-    const result = await acceptQuoteByToken(token);
+    const result = await acceptQuoteByToken(token, {
+      respondentName: body.data.respondentName,
+      userAgent: req.get("user-agent"),
+    });
     res.json(result);
   } catch (err) {
     handleError(err, "Přijetí nabídky selhalo.", res);
@@ -111,8 +124,16 @@ router.post("/quotes/public/:token/reject", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Neplatný token nabídky." });
     return;
   }
+  const body = z.object({ respondentName: z.string().trim().min(2).max(120) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
+    return;
+  }
   try {
-    const result = await rejectQuoteByToken(token);
+    const result = await rejectQuoteByToken(token, {
+      respondentName: body.data.respondentName,
+      userAgent: req.get("user-agent"),
+    });
     res.json(result);
   } catch (err) {
     handleError(err, "Odmítnutí nabídky selhalo.", res);
@@ -299,7 +320,7 @@ router.post("/quotes/:id/accept", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await acceptQuote(id));
+    res.json(await acceptQuote(id, { userId: req.auth!.userId, name: req.auth!.name }));
   } catch (err) {
     handleError(err, "Přijetí nabídky selhalo.", res);
   }
@@ -312,7 +333,7 @@ router.post("/quotes/:id/reject", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await rejectQuote(id));
+    res.json(await rejectQuote(id, { userId: req.auth!.userId, name: req.auth!.name }));
   } catch (err) {
     handleError(err, "Odmítnutí nabídky selhalo.", res);
   }
@@ -325,10 +346,61 @@ router.post("/quotes/:id/expire", async (req, res): Promise<void> => {
     return;
   }
   try {
-    res.json(await expireQuote(id));
+    res.json(await expireQuote(id, { userId: req.auth!.userId, name: req.auth!.name }));
   } catch (err) {
     handleError(err, "Označení nabídky jako expirované selhalo.", res);
   }
+});
+
+router.post("/quotes/:id/revision", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID nabídky." });
+    return;
+  }
+  const body = z.object({ reason: z.string().trim().min(3).max(500) }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Důvod opravy musí mít alespoň 3 znaky." });
+    return;
+  }
+  try {
+    const version = await reopenQuoteRevision({
+      quoteId: id,
+      reason: body.data.reason,
+      actor: { userId: req.auth!.userId, name: req.auth!.name },
+    });
+    res.json({
+      reopened: true,
+      supersededVersion: version.version,
+      snapshotSha256: version.snapshotSha256,
+    });
+  } catch (err) {
+    handleError(err, "Založení opravené verze nabídky selhalo.", res);
+  }
+});
+
+router.get("/quotes/:id/evidence", async (req, res): Promise<void> => {
+  const id = parseId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: "Neplatné ID nabídky." });
+    return;
+  }
+  const quote = await getQuoteDetail(id);
+  if (!quote) {
+    res.status(404).json({ error: "Nabídka nenalezena." });
+    return;
+  }
+  const evidence = await listQuoteEvidence(id);
+  res.json({
+    versions: evidence.versions.map((version) => ({
+      ...version,
+      createdAt: version.createdAt.toISOString(),
+    })),
+    events: evidence.events.map((event) => ({
+      ...event,
+      createdAt: event.createdAt.toISOString(),
+    })),
+  });
 });
 
 // ---------------------------------------------------------------------------

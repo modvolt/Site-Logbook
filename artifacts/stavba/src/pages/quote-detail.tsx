@@ -9,6 +9,7 @@ import {
   useAcceptQuote,
   useRejectQuote,
   useExpireQuote,
+  useReopenQuoteRevision,
   useConvertQuoteToJob,
   useListCustomers,
   getGetQuoteQueryKey,
@@ -71,6 +72,7 @@ import {
   Building2,
   Download,
   Briefcase,
+  RotateCcw,
 } from "lucide-react";
 
 interface ItemForm {
@@ -147,6 +149,8 @@ export default function QuoteDetail() {
   const [sendMessage, setSendMessage] = useState("");
   const [convertDialogOpen, setConvertDialogOpen] = useState(false);
   const [plannedDate, setPlannedDate] = useState(todayLocalIso);
+  const [revisionDialogOpen, setRevisionDialogOpen] = useState(false);
+  const [revisionReason, setRevisionReason] = useState("");
 
   const { data: quote, isLoading: loadingQuote } = useGetQuote(id!, {
     query: { queryKey: getGetQuoteQueryKey(id!), enabled: id != null && id > 0 },
@@ -161,6 +165,7 @@ export default function QuoteDetail() {
   const acceptQuote = useAcceptQuote();
   const rejectQuote = useRejectQuote();
   const expireQuote = useExpireQuote();
+  const reopenRevision = useReopenQuoteRevision();
   const convertToJob = useConvertQuoteToJob();
 
   useEffect(() => {
@@ -300,6 +305,30 @@ export default function QuoteDetail() {
       },
     );
 
+  const handleReopenRevision = () => {
+    const reason = revisionReason.trim();
+    if (reason.length < 3) {
+      toast({ title: "Uveďte důvod opravy (alespoň 3 znaky).", variant: "destructive" });
+      return;
+    }
+    reopenRevision.mutate(
+      { id: id!, data: { reason } },
+      {
+        onSuccess: (result) => {
+          setRevisionDialogOpen(false);
+          setRevisionReason("");
+          setEditing(true);
+          invalidate();
+          toast({
+            title: `Původní verze ${result.supersededVersion} byla zachována.`,
+            description: "Nabídka je znovu koncept a lze vytvořit opravenou verzi.",
+          });
+        },
+        onError: (err) => toast({ title: extractError(err), variant: "destructive" }),
+      },
+    );
+  };
+
   const handleConvertToJob = () =>
     convertToJob.mutate(
       { id: id!, data: { plannedDate } },
@@ -342,11 +371,12 @@ export default function QuoteDetail() {
 
   const isDraft = !quote || quote.status === "draft";
   const canSend = quote && ["draft", "sent"].includes(quote.status);
-  const canAccept = quote && ["sent", "draft"].includes(quote.status);
-  const canReject = quote && ["sent", "draft"].includes(quote.status);
-  const canExpire = quote && ["sent", "draft"].includes(quote.status);
+  const canAccept = quote?.status === "sent";
+  const canReject = quote?.status === "sent";
+  const canExpire = quote?.status === "sent";
+  const canReopenRevision = quote && quote.status !== "draft" && !quote.convertedToJobId && !quote.convertedToInvoiceId;
   const canConvert = quote && quote.status === "accepted" && !quote.convertedToJobId && !quote.convertedToJobGroupId;
-  const canDelete = quote && ["draft", "rejected", "expired"].includes(quote.status);
+  const canDelete = quote?.status === "draft";
   const canEdit = !quote || quote.status === "draft";
 
   return (
@@ -417,6 +447,19 @@ export default function QuoteDetail() {
           {!isNew && canExpire && (
             <Button variant="ghost" size="sm" onClick={handleExpire} disabled={expireQuote.isPending}>
               <AlertCircle className="h-4 w-4 mr-1" /> Expirovat
+            </Button>
+          )}
+          {!isNew && canReopenRevision && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRevisionReason("");
+                setRevisionDialogOpen(true);
+              }}
+              disabled={reopenRevision.isPending}
+            >
+              <RotateCcw className="h-4 w-4 mr-1" /> Opravit verzí
             </Button>
           )}
           {!isNew && canConvert && (
@@ -773,6 +816,40 @@ export default function QuoteDetail() {
             >
               <Briefcase className="h-4 w-4 mr-1" />
               {convertToJob.isPending ? "Vytvářím…" : "Vytvořit akci"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={revisionDialogOpen} onOpenChange={setRevisionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Vytvořit opravenou verzi</DialogTitle>
+            <DialogDescription>
+              Odeslaná verze, její PDF, otisky a historie rozhodnutí zůstanou beze změny. Nabídka se otevře jako nový koncept.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="quote-revision-reason">Důvod opravy *</Label>
+            <Textarea
+              id="quote-revision-reason"
+              value={revisionReason}
+              onChange={(event) => setRevisionReason(event.target.value)}
+              maxLength={500}
+              rows={3}
+              placeholder="Např. změna rozsahu prací po dohodě se zákazníkem"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevisionDialogOpen(false)}>
+              Zrušit
+            </Button>
+            <Button
+              onClick={handleReopenRevision}
+              disabled={reopenRevision.isPending || revisionReason.trim().length < 3}
+            >
+              <RotateCcw className="h-4 w-4 mr-1" />
+              {reopenRevision.isPending ? "Otevírám…" : "Zachovat a otevřít opravu"}
             </Button>
           </DialogFooter>
         </DialogContent>

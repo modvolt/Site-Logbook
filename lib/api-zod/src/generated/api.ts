@@ -835,7 +835,7 @@ export const SendJobEmailResponse = zod.object({
 
 
 /**
- * @summary Save the (signed) job sheet PDF as an attachment of the job
+ * @summary Save a client-generated job sheet PDF as a regular job attachment
  */
 export const SaveJobSheetParams = zod.object({
   "id": zod.coerce.number()
@@ -843,7 +843,7 @@ export const SaveJobSheetParams = zod.object({
 
 export const SaveJobSheetBody = zod.object({
   "pdfBase64": zod.string().describe('Base64-encoded PDF of the job sheet'),
-  "signed": zod.boolean().nullish().describe('Whether the customer signature is included in the PDF')
+  "signed": zod.boolean().nullish().describe('Ignored legacy field; client-generated PDFs never constitute signature evidence')
 })
 
 
@@ -858,10 +858,131 @@ export const RequestJobSignatureBody = zod.object({
   "to": zod.string().nullish().describe('Optional override recipient email; defaults to the customer\'s stored email')
 })
 
+
+export const requestJobSignatureResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
 export const RequestJobSignatureResponse = zod.object({
   "sent": zod.boolean(),
   "to": zod.string(),
-  "signUrl": zod.string().describe('The full sign URL that was emailed (for reference\/logging)')
+  "signUrl": zod.string().describe('The full sign URL that was emailed (for reference\/logging)'),
+  "documentVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(requestJobSignatureResponseSnapshotSha256RegExp)
+})
+
+
+/**
+ * @summary Create a one-time link bound to a new immutable job-document version
+ */
+export const CreateJobSignatureTokenParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+export const createJobSignatureTokenResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const CreateJobSignatureTokenResponse = zod.object({
+  "signUrl": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "documentVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(createJobSignatureTokenResponseSnapshotSha256RegExp)
+})
+
+
+/**
+ * @summary List immutable job-document versions and signature events
+ */
+export const GetJobSignatureEvidenceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getJobSignatureEvidenceResponseVersionsItemSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const getJobSignatureEvidenceResponseVersionsItemSignatureSha256OneRegExp = new RegExp('^[0-9a-f]{64}$');
+export const getJobSignatureEvidenceResponseVersionsItemPdfSha256OneRegExp = new RegExp('^[0-9a-f]{64}$');
+export const getJobSignatureEvidenceResponseEventsItemUserAgentSha256OneRegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetJobSignatureEvidenceResponse = zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "version": zod.number(),
+  "status": zod.enum(['pending_signature', 'signed']),
+  "supersedesVersionId": zod.number().nullish(),
+  "dataSnapshot": zod.object({
+  "schemaVersion": zod.number(),
+  "job": zod.object({
+  "id": zod.number(),
+  "title": zod.string(),
+  "date": zod.string(),
+  "customerCompanyName": zod.string().nullish(),
+  "notes": zod.string().nullish()
+}),
+  "confirmationText": zod.string()
+}),
+  "snapshotSha256": zod.string().regex(getJobSignatureEvidenceResponseVersionsItemSnapshotSha256RegExp),
+  "rendererVersion": zod.string(),
+  "confirmationText": zod.string(),
+  "signatoryName": zod.string().nullish(),
+  "identityAssurance": zod.string().nullish(),
+  "signatureObjectPath": zod.string().nullish(),
+  "signatureSha256": zod.union([zod.string().regex(getJobSignatureEvidenceResponseVersionsItemSignatureSha256OneRegExp),zod.null()]).optional(),
+  "pdfObjectPath": zod.string().nullish(),
+  "pdfSha256": zod.union([zod.string().regex(getJobSignatureEvidenceResponseVersionsItemPdfSha256OneRegExp),zod.null()]).optional(),
+  "signedAt": zod.coerce.date().nullish(),
+  "createdByUserId": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "events": zod.array(zod.object({
+  "id": zod.number(),
+  "jobId": zod.number(),
+  "documentVersionId": zod.number(),
+  "eventType": zod.enum(['signed', 'superseded', 'cancelled']),
+  "actorType": zod.enum(['public_signer', 'admin', 'system']),
+  "actorUserId": zod.number().nullish(),
+  "actorName": zod.string().nullish(),
+  "identityAssurance": zod.string().nullish(),
+  "confirmationText": zod.string().nullish(),
+  "reason": zod.string().nullish(),
+  "userAgentSha256": zod.union([zod.string().regex(getJobSignatureEvidenceResponseEventsItemUserAgentSha256OneRegExp),zod.null()]).optional(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Download the current immutable signed job-document PDF
+ */
+export const DownloadSignedJobDocumentParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Preserve the signed version and reopen the job for a corrected version
+ */
+export const ReopenJobSignatureRevisionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const reopenJobSignatureRevisionBodyReasonMin = 3;
+export const reopenJobSignatureRevisionBodyReasonMax = 500;
+
+
+
+export const ReopenJobSignatureRevisionBody = zod.object({
+  "reason": zod.string().min(reopenJobSignatureRevisionBodyReasonMin).max(reopenJobSignatureRevisionBodyReasonMax)
+})
+
+
+export const reopenJobSignatureRevisionResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const ReopenJobSignatureRevisionResponse = zod.object({
+  "reopened": zod.boolean(),
+  "supersededVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(reopenJobSignatureRevisionResponseSnapshotSha256RegExp)
 })
 
 
@@ -7063,9 +7184,18 @@ export const SendInvoiceEmailBody = zod.object({
   "message": zod.string().nullish()
 })
 
+
+export const sendInvoiceEmailResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const sendInvoiceEmailResponsePdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
 export const SendInvoiceEmailResponse = zod.object({
   "sent": zod.boolean(),
-  "to": zod.string().nullish()
+  "to": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(sendInvoiceEmailResponseSnapshotSha256RegExp),
+  "pdfSha256": zod.string().regex(sendInvoiceEmailResponsePdfSha256RegExp)
 })
 
 
@@ -12499,6 +12629,78 @@ export const ExpireQuoteResponse = zod.object({
 
 
 /**
+ * @summary Preserve the issued version and reopen the quote as a corrected draft
+ */
+export const ReopenQuoteRevisionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const reopenQuoteRevisionBodyReasonMin = 3;
+export const reopenQuoteRevisionBodyReasonMax = 500;
+
+
+
+export const ReopenQuoteRevisionBody = zod.object({
+  "reason": zod.string().min(reopenQuoteRevisionBodyReasonMin).max(reopenQuoteRevisionBodyReasonMax)
+})
+
+
+export const reopenQuoteRevisionResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const ReopenQuoteRevisionResponse = zod.object({
+  "reopened": zod.boolean(),
+  "supersededVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(reopenQuoteRevisionResponseSnapshotSha256RegExp)
+})
+
+
+/**
+ * @summary List immutable quote versions and decision events
+ */
+export const GetQuoteEvidenceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const getQuoteEvidenceResponseVersionsItemSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const getQuoteEvidenceResponseVersionsItemPdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const getQuoteEvidenceResponseEventsItemUserAgentSha256OneRegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetQuoteEvidenceResponse = zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "version": zod.number(),
+  "supersedesVersionId": zod.number().nullish(),
+  "dataSnapshot": zod.object({
+
+}).passthrough().describe('Canonical immutable quote, parties, line items, totals, terms, and confirmation text'),
+  "snapshotSha256": zod.string().regex(getQuoteEvidenceResponseVersionsItemSnapshotSha256RegExp),
+  "pdfObjectPath": zod.string(),
+  "pdfSha256": zod.string().regex(getQuoteEvidenceResponseVersionsItemPdfSha256RegExp),
+  "rendererVersion": zod.string(),
+  "createdByUserId": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+})),
+  "events": zod.array(zod.object({
+  "id": zod.number(),
+  "quoteId": zod.number(),
+  "quoteVersionId": zod.number(),
+  "action": zod.enum(['accepted', 'rejected', 'expired', 'superseded']),
+  "actorType": zod.enum(['public_recipient', 'admin', 'system']),
+  "actorUserId": zod.number().nullish(),
+  "actorName": zod.string().nullish(),
+  "identityAssurance": zod.string().nullish(),
+  "confirmationText": zod.string().nullish(),
+  "reason": zod.string().nullish(),
+  "userAgentSha256": zod.union([zod.string().regex(getQuoteEvidenceResponseEventsItemUserAgentSha256OneRegExp),zod.null()]).optional(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
  * @summary Convert an accepted quote to a job group and its first job
  */
 export const ConvertQuoteToJobParams = zod.object({
@@ -12522,8 +12724,17 @@ export const GetPublicQuoteParams = zod.object({
   "token": zod.coerce.string()
 })
 
+
+export const getPublicQuoteResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const getPublicQuoteResponsePdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
 export const GetPublicQuoteResponse = zod.object({
   "quoteNumber": zod.string().nullish(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(getPublicQuoteResponseSnapshotSha256RegExp),
+  "pdfSha256": zod.string().regex(getPublicQuoteResponsePdfSha256RegExp),
+  "confirmationText": zod.string(),
   "title": zod.string(),
   "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
   "validUntil": zod.string().nullish(),
@@ -12560,9 +12771,24 @@ export const AcceptPublicQuoteParams = zod.object({
   "token": zod.coerce.string()
 })
 
+export const acceptPublicQuoteBodyRespondentNameMin = 2;
+export const acceptPublicQuoteBodyRespondentNameMax = 120;
+
+
+
+export const AcceptPublicQuoteBody = zod.object({
+  "respondentName": zod.string().min(acceptPublicQuoteBodyRespondentNameMin).max(acceptPublicQuoteBodyRespondentNameMax).describe('Self-declared identity of the person accepting or rejecting this exact version')
+})
+
+
+export const acceptPublicQuoteResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
 export const AcceptPublicQuoteResponse = zod.object({
   "accepted": zod.boolean().optional(),
-  "rejected": zod.boolean().optional()
+  "rejected": zod.boolean().optional(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(acceptPublicQuoteResponseSnapshotSha256RegExp)
 })
 
 
@@ -12573,9 +12799,24 @@ export const RejectPublicQuoteParams = zod.object({
   "token": zod.coerce.string()
 })
 
+export const rejectPublicQuoteBodyRespondentNameMin = 2;
+export const rejectPublicQuoteBodyRespondentNameMax = 120;
+
+
+
+export const RejectPublicQuoteBody = zod.object({
+  "respondentName": zod.string().min(rejectPublicQuoteBodyRespondentNameMin).max(rejectPublicQuoteBodyRespondentNameMax).describe('Self-declared identity of the person accepting or rejecting this exact version')
+})
+
+
+export const rejectPublicQuoteResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
 export const RejectPublicQuoteResponse = zod.object({
   "accepted": zod.boolean().optional(),
-  "rejected": zod.boolean().optional()
+  "rejected": zod.boolean().optional(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(rejectPublicQuoteResponseSnapshotSha256RegExp)
 })
 
 
@@ -12584,6 +12825,63 @@ export const RejectPublicQuoteResponse = zod.object({
  */
 export const DownloadQuotePdfParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Read the exact immutable job-document version bound to a one-time token
+ */
+export const GetPublicJobDocumentForSignatureParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+
+export const getPublicJobDocumentForSignatureResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetPublicJobDocumentForSignatureResponse = zod.object({
+  "jobId": zod.number(),
+  "documentVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(getPublicJobDocumentForSignatureResponseSnapshotSha256RegExp),
+  "title": zod.string(),
+  "date": zod.string(),
+  "customerCompanyName": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "confirmationText": zod.string(),
+  "alreadySigned": zod.boolean(),
+  "signedAt": zod.coerce.date().nullish(),
+  "expired": zod.boolean()
+})
+
+
+/**
+ * @summary Sign the exact immutable job-document version bound to a one-time token
+ */
+export const SignPublicJobDocumentParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const signPublicJobDocumentBodySignatoryNameMin = 2;
+export const signPublicJobDocumentBodySignatoryNameMax = 120;
+
+export const signPublicJobDocumentBodySignatureDataUrlRegExp = new RegExp('^data:image\/png;base64,');
+
+
+export const SignPublicJobDocumentBody = zod.object({
+  "signatoryName": zod.string().min(signPublicJobDocumentBodySignatoryNameMin).max(signPublicJobDocumentBodySignatoryNameMax).describe('Self-declared identity of the person signing the immutable version'),
+  "signatureDataUrl": zod.string().regex(signPublicJobDocumentBodySignatureDataUrlRegExp)
+})
+
+
+export const signPublicJobDocumentResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const signPublicJobDocumentResponsePdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const SignPublicJobDocumentResponse = zod.object({
+  "signedAt": zod.coerce.date(),
+  "documentVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(signPublicJobDocumentResponseSnapshotSha256RegExp),
+  "pdfSha256": zod.string().regex(signPublicJobDocumentResponsePdfSha256RegExp)
 })
 
 

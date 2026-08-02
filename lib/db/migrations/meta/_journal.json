@@ -708,6 +708,13 @@
       "when": 1785636000000,
       "tag": "0101_public_access_token_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1785639600000,
+      "tag": "0102_immutable_job_quote_versions",
+      "breakpoints": true
     }
   ]
 }

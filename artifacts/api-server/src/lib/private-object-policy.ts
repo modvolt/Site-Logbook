@@ -3,6 +3,7 @@ export const DB_BACKED_PRIVATE_OBJECT_PREFIXES = [
   "customer-documents",
   "job-sheets",
   "job-signatures",
+  "job-signed-documents",
   "ppe-signatures",
   "quotes",
   "uploads",

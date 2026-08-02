@@ -7,9 +7,11 @@ import {
   customerSiteAttachmentsTable,
   db,
   emailImportAttachmentsTable,
+  jobDocumentVersionsTable,
   jobsTable,
   ppeAssignmentsTable,
   quotesTable,
+  quoteVersionsTable,
   type Permission,
 } from "@workspace/db";
 import { classifyPrivateObjectPath } from "./private-object-policy";
@@ -63,19 +65,42 @@ async function hasCostDocumentReference(objectPath: string): Promise<boolean> {
 }
 
 async function hasQuoteReference(objectPath: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: quotesTable.id })
-    .from(quotesTable)
-    .where(eq(quotesTable.pdfObjectPath, objectPath))
-    .limit(1);
-  return rows.length > 0;
+  const [current, version] = await Promise.all([
+    db
+      .select({ id: quotesTable.id })
+      .from(quotesTable)
+      .where(eq(quotesTable.pdfObjectPath, objectPath))
+      .limit(1),
+    db
+      .select({ id: quoteVersionsTable.id })
+      .from(quoteVersionsTable)
+      .where(eq(quoteVersionsTable.pdfObjectPath, objectPath))
+      .limit(1),
+  ]);
+  return current.length > 0 || version.length > 0;
 }
 
 async function hasJobSignatureReference(objectPath: string): Promise<boolean> {
+  const [current, version] = await Promise.all([
+    db
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(eq(jobsTable.signatureObjectPath, objectPath))
+      .limit(1),
+    db
+      .select({ id: jobDocumentVersionsTable.id })
+      .from(jobDocumentVersionsTable)
+      .where(eq(jobDocumentVersionsTable.signatureObjectPath, objectPath))
+      .limit(1),
+  ]);
+  return current.length > 0 || version.length > 0;
+}
+
+async function hasJobSignedDocumentReference(objectPath: string): Promise<boolean> {
   const rows = await db
-    .select({ id: jobsTable.id })
-    .from(jobsTable)
-    .where(eq(jobsTable.signatureObjectPath, objectPath))
+    .select({ id: jobDocumentVersionsTable.id })
+    .from(jobDocumentVersionsTable)
+    .where(eq(jobDocumentVersionsTable.pdfObjectPath, objectPath))
     .limit(1);
   return rows.length > 0;
 }
@@ -109,6 +134,8 @@ export async function resolvePrivateObjectPermissions(
       return (await hasJobAttachment(objectPath)) ? ["jobs.view"] : null;
     case "job-signatures":
       return (await hasJobSignatureReference(objectPath)) ? ["jobs.view"] : null;
+    case "job-signed-documents":
+      return (await hasJobSignedDocumentReference(objectPath)) ? ["jobs.view"] : null;
     case "ppe-signatures":
       return (await hasPpeSignatureReference(objectPath)) ? ["people.view"] : null;
     case "quotes":

@@ -24,6 +24,7 @@ export default defineConfig({
       "test/public-origin.test.ts",
       "test/signature-image-security.test.ts",
       "test/secret-envelope.test.ts",
+      "test/evidence-hash.test.ts",
       "test/switchboard-qr.test.ts",
       "test/upload-scanner.test.ts",
       "test/upload-abort.test.ts",

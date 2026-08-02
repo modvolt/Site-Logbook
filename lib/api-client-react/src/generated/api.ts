@@ -109,6 +109,8 @@ import type {
   DocumentLinkingInput,
   DocumentLinkingStatus,
   DocumentPageMergeResult,
+  DocumentRevisionInput,
+  DocumentRevisionResult,
   EmailImportAccount,
   EmailImportImportResult,
   EmailImportLabelList,
@@ -164,6 +166,8 @@ import type {
   JobDocumentSummary,
   JobInput,
   JobReorderInput,
+  JobSignatureEvidence,
+  JobSignatureTokenResult,
   JobStatusTransitionError,
   JobStatusUpdate,
   JobUpdate,
@@ -236,11 +240,16 @@ import type {
   PpeSignHandoverInput,
   PpeSignLinkResponse,
   PublicHoliday,
+  PublicJobDocument,
+  PublicJobSignatureInput,
+  PublicJobSignatureResult,
+  PublicQuoteDecisionInput,
   PublicQuoteDetail,
   PurgeClientErrorsParams,
   PurgeExpiredSessions200,
   Quote,
   QuoteDetail,
+  QuoteEvidence,
   QuoteJobGroupInvoiceDraftInput,
   QuotePublicActionResult,
   ReanalyzeJobAttachmentDocumentsResult,
@@ -267,6 +276,7 @@ import type {
   SendJobEmailInput,
   SendJobEmailResult,
   SendQuoteEmailInput,
+  SendQuoteEmailResult,
   SessionEntry,
   SetupInput,
   StatsOverview,
@@ -1684,7 +1694,7 @@ export const getSaveJobSheetUrl = (id: number,) => {
 }
 
 /**
- * @summary Save the (signed) job sheet PDF as an attachment of the job
+ * @summary Save a client-generated job sheet PDF as a regular job attachment
  */
 export const saveJobSheet = async (id: number,
     saveJobSheetInput: SaveJobSheetInput, options?: RequestInit): Promise<Attachment> => {
@@ -1734,7 +1744,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SaveJobSheetMutationError = ErrorType<unknown>
 
     /**
- * @summary Save the (signed) job sheet PDF as an attachment of the job
+ * @summary Save a client-generated job sheet PDF as a regular job attachment
  */
 export const useSaveJobSheet = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveJobSheet>>, TError,{id: number;data: BodyType<SaveJobSheetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -1817,6 +1827,302 @@ export const useRequestJobSignature = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getRequestJobSignatureMutationOptions(options));
+    }
+
+export const getCreateJobSignatureTokenUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/signature-token`
+}
+
+/**
+ * @summary Create a one-time link bound to a new immutable job-document version
+ */
+export const createJobSignatureToken = async (id: number, options?: RequestInit): Promise<JobSignatureTokenResult> => {
+
+  return customFetch<JobSignatureTokenResult>(getCreateJobSignatureTokenUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getCreateJobSignatureTokenMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJobSignatureToken>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createJobSignatureToken>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['createJobSignatureToken'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createJobSignatureToken>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  createJobSignatureToken(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateJobSignatureTokenMutationResult = NonNullable<Awaited<ReturnType<typeof createJobSignatureToken>>>
+
+    export type CreateJobSignatureTokenMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a one-time link bound to a new immutable job-document version
+ */
+export const useCreateJobSignatureToken = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJobSignatureToken>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createJobSignatureToken>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getCreateJobSignatureTokenMutationOptions(options));
+    }
+
+export const getGetJobSignatureEvidenceUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/signature-evidence`
+}
+
+/**
+ * @summary List immutable job-document versions and signature events
+ */
+export const getJobSignatureEvidence = async (id: number, options?: RequestInit): Promise<JobSignatureEvidence> => {
+
+  return customFetch<JobSignatureEvidence>(getGetJobSignatureEvidenceUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetJobSignatureEvidenceQueryKey = (id: number,) => {
+    return [
+    `/api/jobs/${id}/signature-evidence`
+    ] as const;
+    }
+
+
+export const getGetJobSignatureEvidenceQueryOptions = <TData = Awaited<ReturnType<typeof getJobSignatureEvidence>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobSignatureEvidence>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetJobSignatureEvidenceQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJobSignatureEvidence>>> = ({ signal }) => getJobSignatureEvidence(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getJobSignatureEvidence>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetJobSignatureEvidenceQueryResult = NonNullable<Awaited<ReturnType<typeof getJobSignatureEvidence>>>
+export type GetJobSignatureEvidenceQueryError = ErrorType<void>
+
+
+/**
+ * @summary List immutable job-document versions and signature events
+ */
+
+export function useGetJobSignatureEvidence<TData = Awaited<ReturnType<typeof getJobSignatureEvidence>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJobSignatureEvidence>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetJobSignatureEvidenceQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getDownloadSignedJobDocumentUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/signed-document`
+}
+
+/**
+ * @summary Download the current immutable signed job-document PDF
+ */
+export const downloadSignedJobDocument = async (id: number, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getDownloadSignedJobDocumentUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadSignedJobDocumentQueryKey = (id: number,) => {
+    return [
+    `/api/jobs/${id}/signed-document`
+    ] as const;
+    }
+
+
+export const getDownloadSignedJobDocumentQueryOptions = <TData = Awaited<ReturnType<typeof downloadSignedJobDocument>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadSignedJobDocument>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadSignedJobDocumentQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadSignedJobDocument>>> = ({ signal }) => downloadSignedJobDocument(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadSignedJobDocument>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadSignedJobDocumentQueryResult = NonNullable<Awaited<ReturnType<typeof downloadSignedJobDocument>>>
+export type DownloadSignedJobDocumentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download the current immutable signed job-document PDF
+ */
+
+export function useDownloadSignedJobDocument<TData = Awaited<ReturnType<typeof downloadSignedJobDocument>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadSignedJobDocument>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadSignedJobDocumentQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getReopenJobSignatureRevisionUrl = (id: number,) => {
+
+
+
+
+  return `/api/jobs/${id}/signature-revision`
+}
+
+/**
+ * @summary Preserve the signed version and reopen the job for a corrected version
+ */
+export const reopenJobSignatureRevision = async (id: number,
+    documentRevisionInput: DocumentRevisionInput, options?: RequestInit): Promise<DocumentRevisionResult> => {
+
+  return customFetch<DocumentRevisionResult>(getReopenJobSignatureRevisionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      documentRevisionInput,)
+  }
+);}
+
+
+
+
+export const getReopenJobSignatureRevisionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reopenJobSignatureRevision>>, TError,{id: number;data: BodyType<DocumentRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reopenJobSignatureRevision>>, TError,{id: number;data: BodyType<DocumentRevisionInput>}, TContext> => {
+
+const mutationKey = ['reopenJobSignatureRevision'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reopenJobSignatureRevision>>, {id: number;data: BodyType<DocumentRevisionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  reopenJobSignatureRevision(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReopenJobSignatureRevisionMutationResult = NonNullable<Awaited<ReturnType<typeof reopenJobSignatureRevision>>>
+    export type ReopenJobSignatureRevisionMutationBody = BodyType<DocumentRevisionInput>
+    export type ReopenJobSignatureRevisionMutationError = ErrorType<void>
+
+    /**
+ * @summary Preserve the signed version and reopen the job for a corrected version
+ */
+export const useReopenJobSignatureRevision = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reopenJobSignatureRevision>>, TError,{id: number;data: BodyType<DocumentRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reopenJobSignatureRevision>>,
+        TError,
+        {id: number;data: BodyType<DocumentRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getReopenJobSignatureRevisionMutationOptions(options));
     }
 
 export const getListTasksUrl = (jobId: number,) => {
@@ -19506,9 +19812,9 @@ export const getSendInvoiceEmailUrl = (id: number,) => {
  * @summary Email the invoice PDF to the customer (admin only)
  */
 export const sendInvoiceEmail = async (id: number,
-    sendInvoiceEmailInput: SendInvoiceEmailInput, options?: RequestInit): Promise<SendInvoiceEmailResult> => {
+    sendInvoiceEmailInput: SendInvoiceEmailInput, options?: RequestInit): Promise<SendQuoteEmailResult> => {
 
-  return customFetch<SendInvoiceEmailResult>(getSendInvoiceEmailUrl(id),
+  return customFetch<SendQuoteEmailResult>(getSendInvoiceEmailUrl(id),
   {
     ...options,
     method: 'POST',
@@ -24240,6 +24546,155 @@ export const useExpireQuote = <TError = ErrorType<void>,
       return useMutation(getExpireQuoteMutationOptions(options));
     }
 
+export const getReopenQuoteRevisionUrl = (id: number,) => {
+
+
+
+
+  return `/api/quotes/${id}/revision`
+}
+
+/**
+ * @summary Preserve the issued version and reopen the quote as a corrected draft
+ */
+export const reopenQuoteRevision = async (id: number,
+    documentRevisionInput: DocumentRevisionInput, options?: RequestInit): Promise<DocumentRevisionResult> => {
+
+  return customFetch<DocumentRevisionResult>(getReopenQuoteRevisionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      documentRevisionInput,)
+  }
+);}
+
+
+
+
+export const getReopenQuoteRevisionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reopenQuoteRevision>>, TError,{id: number;data: BodyType<DocumentRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reopenQuoteRevision>>, TError,{id: number;data: BodyType<DocumentRevisionInput>}, TContext> => {
+
+const mutationKey = ['reopenQuoteRevision'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reopenQuoteRevision>>, {id: number;data: BodyType<DocumentRevisionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  reopenQuoteRevision(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReopenQuoteRevisionMutationResult = NonNullable<Awaited<ReturnType<typeof reopenQuoteRevision>>>
+    export type ReopenQuoteRevisionMutationBody = BodyType<DocumentRevisionInput>
+    export type ReopenQuoteRevisionMutationError = ErrorType<void>
+
+    /**
+ * @summary Preserve the issued version and reopen the quote as a corrected draft
+ */
+export const useReopenQuoteRevision = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reopenQuoteRevision>>, TError,{id: number;data: BodyType<DocumentRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reopenQuoteRevision>>,
+        TError,
+        {id: number;data: BodyType<DocumentRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getReopenQuoteRevisionMutationOptions(options));
+    }
+
+export const getGetQuoteEvidenceUrl = (id: number,) => {
+
+
+
+
+  return `/api/quotes/${id}/evidence`
+}
+
+/**
+ * @summary List immutable quote versions and decision events
+ */
+export const getQuoteEvidence = async (id: number, options?: RequestInit): Promise<QuoteEvidence> => {
+
+  return customFetch<QuoteEvidence>(getGetQuoteEvidenceUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetQuoteEvidenceQueryKey = (id: number,) => {
+    return [
+    `/api/quotes/${id}/evidence`
+    ] as const;
+    }
+
+
+export const getGetQuoteEvidenceQueryOptions = <TData = Awaited<ReturnType<typeof getQuoteEvidence>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuoteEvidence>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetQuoteEvidenceQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getQuoteEvidence>>> = ({ signal }) => getQuoteEvidence(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getQuoteEvidence>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetQuoteEvidenceQueryResult = NonNullable<Awaited<ReturnType<typeof getQuoteEvidence>>>
+export type GetQuoteEvidenceQueryError = ErrorType<void>
+
+
+/**
+ * @summary List immutable quote versions and decision events
+ */
+
+export function useGetQuoteEvidence<TData = Awaited<ReturnType<typeof getQuoteEvidence>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuoteEvidence>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetQuoteEvidenceQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
 export const getConvertQuoteToJobUrl = (id: number,) => {
 
 
@@ -24400,14 +24855,16 @@ export const getAcceptPublicQuoteUrl = (token: string,) => {
 /**
  * @summary Customer accepts a quote via share token (no auth required)
  */
-export const acceptPublicQuote = async (token: string, options?: RequestInit): Promise<QuotePublicActionResult> => {
+export const acceptPublicQuote = async (token: string,
+    publicQuoteDecisionInput: PublicQuoteDecisionInput, options?: RequestInit): Promise<QuotePublicActionResult> => {
 
   return customFetch<QuotePublicActionResult>(getAcceptPublicQuoteUrl(token),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      publicQuoteDecisionInput,)
   }
 );}
 
@@ -24415,8 +24872,8 @@ export const acceptPublicQuote = async (token: string, options?: RequestInit): P
 
 
 export const getAcceptPublicQuoteMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string;data: BodyType<PublicQuoteDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string;data: BodyType<PublicQuoteDecisionInput>}, TContext> => {
 
 const mutationKey = ['acceptPublicQuote'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -24428,10 +24885,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptPublicQuote>>, {token: string}> = (props) => {
-          const {token} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptPublicQuote>>, {token: string;data: BodyType<PublicQuoteDecisionInput>}> = (props) => {
+          const {token,data} = props ?? {};
 
-          return  acceptPublicQuote(token,requestOptions)
+          return  acceptPublicQuote(token,data,requestOptions)
         }
 
 
@@ -24442,18 +24899,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type AcceptPublicQuoteMutationResult = NonNullable<Awaited<ReturnType<typeof acceptPublicQuote>>>
-
+    export type AcceptPublicQuoteMutationBody = BodyType<PublicQuoteDecisionInput>
     export type AcceptPublicQuoteMutationError = ErrorType<void>
 
     /**
  * @summary Customer accepts a quote via share token (no auth required)
  */
 export const useAcceptPublicQuote = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptPublicQuote>>, TError,{token: string;data: BodyType<PublicQuoteDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof acceptPublicQuote>>,
         TError,
-        {token: string},
+        {token: string;data: BodyType<PublicQuoteDecisionInput>},
         TContext
       > => {
       return useMutation(getAcceptPublicQuoteMutationOptions(options));
@@ -24470,14 +24927,16 @@ export const getRejectPublicQuoteUrl = (token: string,) => {
 /**
  * @summary Customer rejects a quote via share token (no auth required)
  */
-export const rejectPublicQuote = async (token: string, options?: RequestInit): Promise<QuotePublicActionResult> => {
+export const rejectPublicQuote = async (token: string,
+    publicQuoteDecisionInput: PublicQuoteDecisionInput, options?: RequestInit): Promise<QuotePublicActionResult> => {
 
   return customFetch<QuotePublicActionResult>(getRejectPublicQuoteUrl(token),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      publicQuoteDecisionInput,)
   }
 );}
 
@@ -24485,8 +24944,8 @@ export const rejectPublicQuote = async (token: string, options?: RequestInit): P
 
 
 export const getRejectPublicQuoteMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string;data: BodyType<PublicQuoteDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string;data: BodyType<PublicQuoteDecisionInput>}, TContext> => {
 
 const mutationKey = ['rejectPublicQuote'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -24498,10 +24957,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectPublicQuote>>, {token: string}> = (props) => {
-          const {token} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectPublicQuote>>, {token: string;data: BodyType<PublicQuoteDecisionInput>}> = (props) => {
+          const {token,data} = props ?? {};
 
-          return  rejectPublicQuote(token,requestOptions)
+          return  rejectPublicQuote(token,data,requestOptions)
         }
 
 
@@ -24512,18 +24971,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type RejectPublicQuoteMutationResult = NonNullable<Awaited<ReturnType<typeof rejectPublicQuote>>>
-
+    export type RejectPublicQuoteMutationBody = BodyType<PublicQuoteDecisionInput>
     export type RejectPublicQuoteMutationError = ErrorType<void>
 
     /**
  * @summary Customer rejects a quote via share token (no auth required)
  */
 export const useRejectPublicQuote = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectPublicQuote>>, TError,{token: string;data: BodyType<PublicQuoteDecisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof rejectPublicQuote>>,
         TError,
-        {token: string},
+        {token: string;data: BodyType<PublicQuoteDecisionInput>},
         TContext
       > => {
       return useMutation(getRejectPublicQuoteMutationOptions(options));
@@ -24605,4 +25064,153 @@ export function useDownloadQuotePdf<TData = Awaited<ReturnType<typeof downloadQu
 
 
 
+
+export const getGetPublicJobDocumentForSignatureUrl = (token: string,) => {
+
+
+
+
+  return `/api/sign/${token}`
+}
+
+/**
+ * @summary Read the exact immutable job-document version bound to a one-time token
+ */
+export const getPublicJobDocumentForSignature = async (token: string, options?: RequestInit): Promise<PublicJobDocument> => {
+
+  return customFetch<PublicJobDocument>(getGetPublicJobDocumentForSignatureUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicJobDocumentForSignatureQueryKey = (token: string,) => {
+    return [
+    `/api/sign/${token}`
+    ] as const;
+    }
+
+
+export const getGetPublicJobDocumentForSignatureQueryOptions = <TData = Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>, TError = ErrorType<void>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicJobDocumentForSignatureQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>> = ({ signal }) => getPublicJobDocumentForSignature(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(token), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicJobDocumentForSignatureQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>>
+export type GetPublicJobDocumentForSignatureQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read the exact immutable job-document version bound to a one-time token
+ */
+
+export function useGetPublicJobDocumentForSignature<TData = Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>, TError = ErrorType<void>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicJobDocumentForSignature>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicJobDocumentForSignatureQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getSignPublicJobDocumentUrl = (token: string,) => {
+
+
+
+
+  return `/api/sign/${token}`
+}
+
+/**
+ * @summary Sign the exact immutable job-document version bound to a one-time token
+ */
+export const signPublicJobDocument = async (token: string,
+    publicJobSignatureInput: PublicJobSignatureInput, options?: RequestInit): Promise<PublicJobSignatureResult> => {
+
+  return customFetch<PublicJobSignatureResult>(getSignPublicJobDocumentUrl(token),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      publicJobSignatureInput,)
+  }
+);}
+
+
+
+
+export const getSignPublicJobDocumentMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signPublicJobDocument>>, TError,{token: string;data: BodyType<PublicJobSignatureInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof signPublicJobDocument>>, TError,{token: string;data: BodyType<PublicJobSignatureInput>}, TContext> => {
+
+const mutationKey = ['signPublicJobDocument'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof signPublicJobDocument>>, {token: string;data: BodyType<PublicJobSignatureInput>}> = (props) => {
+          const {token,data} = props ?? {};
+
+          return  signPublicJobDocument(token,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SignPublicJobDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof signPublicJobDocument>>>
+    export type SignPublicJobDocumentMutationBody = BodyType<PublicJobSignatureInput>
+    export type SignPublicJobDocumentMutationError = ErrorType<void>
+
+    /**
+ * @summary Sign the exact immutable job-document version bound to a one-time token
+ */
+export const useSignPublicJobDocument = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signPublicJobDocument>>, TError,{token: string;data: BodyType<PublicJobSignatureInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof signPublicJobDocument>>,
+        TError,
+        {token: string;data: BodyType<PublicJobSignatureInput>},
+        TContext
+      > => {
+      return useMutation(getSignPublicJobDocumentMutationOptions(options));
+    }
 
