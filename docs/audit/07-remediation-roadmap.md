@@ -23,9 +23,9 @@ Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolo
 | R03 | Dokončeno lokálně | `71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`; identity partition a live scope kontrolu doplňuje atomický IndexedDB lease, durable serverový ledger pro všechny offline mutace, SHA-256 raw uploadů a řízené retry/conflict/ambiguous stavy | před produkcí aplikovat `0097`, nasadit server a frontend jako jeden řízený rollout; plný browser E2E se dvěma reálnými taby zůstává v R14 |
 | R04 | Dokončeno lokálně | `63ba086`; auth před nákladným parsingem, pevné body/decompression limity, strukturální MIME validace, re-decode podpisů, scanner/quarantine hook, SHA-256 metadata a durable upload ledger `0098` | před produkcí aplikovat `0098`, ověřit scanner a nasadit API+proxy koordinovaně; inventura, retence a orphan cleanup zůstávají v R12 |
 | R05 | Dokončeno lokálně | `5d1b041`; versioned authenticated envelope, dual-read, měřený backfill a šifrování nových DB záloh přes oddělený keyring | před produkcí schválit key custody/DR, aplikovat `0099`, provést backfill, rotaci a úplný restore drill |
-| R06 | Rozpracováno, SEC-12 a SEC-18 uzavřeny lokálně | `b620014`, `a749475`; důvěryhodný veřejný origin a jednotné hash-only job/PPE/quote tokeny s účelem, expirací, revokací a atomickým one-time consume | stále chybí neměnné job/quote snapshoty, verze/hash podepisovaného artefaktu, korekční model a produkční cutover/odstranění legacy plaintextu |
+| R06 | Dokončeno lokálně | `b620014`, `a749475`, `fefc67e`; důvěryhodný veřejný origin, hash-only one-time tokeny, neměnné job/quote snapshoty a PDF hashe, atomické decision/signature eventy a korekční verze | před produkcí aplikovat `0101` a `0102`, oznámit zneplatnění legacy job/quote odkazů, ověřit object storage a provést řízený cutover; starým dokumentům nelze zpětně přisoudit neměnnost |
 
-FÁZE 8.1–8.11 nic nenasadily ani neposlaly na remote. R05 je lokálně implementačně uzavřen. FÁZE 8.10 uzavřela hranici důvěryhodného veřejného originu a FÁZE 8.11 doplnila jednotný lifecycle veřejných job/PPE/quote credentialů. R06 jako celek ani R07 dokončeny nejsou. Podrobnosti, rollout hranice a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md), [08-secret-encryption-runbook.md](08-secret-encryption-runbook.md), [08-public-origin-runbook.md](08-public-origin-runbook.md) a [08-public-token-runbook.md](08-public-token-runbook.md).
+FÁZE 8.1–8.12 nic nenasadily ani neposlaly na remote. R05 a R06 jsou lokálně implementačně uzavřené. FÁZE 8.10 uzavřela hranici důvěryhodného veřejného originu, FÁZE 8.11 sjednotila lifecycle veřejných credentialů a FÁZE 8.12 svázala podpis zakázky i rozhodnutí o nabídce s neměnnou verzí, snapshotem a PDF hashem. R07 zůstává otevřený, proto celá FÁZE 8 ještě není dokončena. Podrobnosti a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md), [08-document-version-design.md](08-document-version-design.md), [08-secret-encryption-runbook.md](08-secret-encryption-runbook.md), [08-public-origin-runbook.md](08-public-origin-runbook.md) a [08-public-token-runbook.md](08-public-token-runbook.md).
 
 ## 2. Definice priorit
 
@@ -174,7 +174,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R06 – Veřejné tokeny a neměnné podepisované snapshoty
 
-- **Stav:** rozpracováno ve FÁZÍCH 8.10–8.11. SEC-18 je lokálně uzavřen důvěryhodným originem. SEC-12 je lokálně uzavřen jednotným hash-only úložištěm, purpose/resource bindingem, expirací, revokací, rotací a atomickým one-time consume pro podpis zakázky, podpis/potvrzení OOPP a accept/reject nabídky. GDPR-11 je splněn pouze v části minimalizace credentialů; retence metadat a privacy logy zůstávají otevřené. SEC-14, COMP-02, COMP-07 a korekční část UX-09 zůstávají otevřené, takže R06 není dokončeno.
+- **Stav:** lokálně dokončeno ve FÁZÍCH 8.10–8.12. SEC-12 a SEC-18 kryje důvěryhodný origin a jednotný hash-only lifecycle. SEC-14, COMP-02 a COMP-07 kryjí neměnné job/quote verze, canonical snapshot SHA-256, hash skutečných PDF bytů, DB append-only eventy a atomický consume. UX-09 má explicitní opravu novou verzí bez přepsání původního důkazu. GDPR-11 je splněn v minimalizaci credentialů; obecná retence metadat a privacy logy zůstávají samostatně v R10/R12.
 - **Přínos:** veřejné odkazy jsou revokovatelné a podpis dokládá přesnou verzi dokumentu.
 - **Riziko neprovedení:** dlouhodobě použitelný bearer link, Host-header poisoning, accept/reject race a změna obsahu po podpisu.
 - **Rozsah:** jednotný token service (hash, účel, expirace, one-time transition, revoke), trusted public base URL, immutable document version/hash/PDF a korekční verze/storno.
@@ -184,7 +184,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 - **Migrace dat:** ano; token metadata, snapshoty/verze a bezpečné označení legacy záznamů bez zpětného tvrzení neměnnosti.
 - **Změna uživatelského procesu:** ano, znovuodeslání/revokace odkazu a explicitní nová verze po opravě.
 - **Doporučené pořadí:** 7.
-- **Hotovo když:** podpis/quote transition je atomický, link lze revokovat a hash podepsaného artefaktu je ověřitelný.
+- **Hotovo když:** podpis/quote transition je atomický, link lze revokovat a hash podepsaného artefaktu je ověřitelný. Lokálně prokázáno migrací 102/102 na čistém PostgreSQL, trigger tamper testy, job/quote integračními závody a kontrakty ve FÁZI 8.12; produkční rollout je vědomě mimo auditní běh.
 
 ### R07 – Perimetr: CSP, dependencies, TLS a interní routy
 
