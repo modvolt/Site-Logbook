@@ -48,6 +48,25 @@ function isAppError(err: unknown): err is ReturnType<typeof appError> {
   return err instanceof Error && typeof (err as any).statusCode === "number";
 }
 
+function requestCorrelationId(req: import("express").Request): string {
+  return String((req as import("express").Request & { id?: string | number }).id ?? "unknown");
+}
+
+function safeErrorMetadata(err: unknown): { errorName: string; errorCode?: string } {
+  if (!err || typeof err !== "object") {
+    return { errorName: typeof err };
+  }
+  const error = err as { name?: unknown; code?: unknown; Code?: unknown };
+  const rawCode = error.code ?? error.Code;
+  return {
+    errorName: typeof error.name === "string" ? error.name : "UnknownError",
+    errorCode:
+      typeof rawCode === "string" || typeof rawCode === "number"
+        ? String(rawCode)
+        : undefined,
+  };
+}
+
 function handleError(err: unknown, fallback: string, res: import("express").Response): void {
   if (err instanceof PublicAccessTokenError) {
     const status = publicAccessTokenHttpStatus(err);
@@ -70,7 +89,12 @@ function handleError(err: unknown, fallback: string, res: import("express").Resp
     res.status(err.statusCode).json({ error: err.message });
     return;
   }
-  res.status(500).json({ error: fallback, code: "unexpected_error" });
+  const requestId = requestCorrelationId(res.req);
+  res.req.log.error(
+    { requestId, ...safeErrorMetadata(err) },
+    "Unexpected quote route error",
+  );
+  res.status(500).json({ error: fallback, code: "unexpected_error", requestId });
 }
 
 // ---------------------------------------------------------------------------

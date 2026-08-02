@@ -37,6 +37,10 @@ const objectStorageService = new ObjectStorageService();
 // many bytes of RAM — raise with that in mind.
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
+function requestCorrelationId(req: Request): string {
+  return String((req as Request & { id?: string | number }).id ?? "unknown");
+}
+
 const uploadRateLimit = rateLimit({
   windowMs: 15 * 60 * 1_000,
   limit: 60,
@@ -180,6 +184,7 @@ router.post(
         }),
       );
     } catch (error) {
+      const requestId = requestCorrelationId(req);
       await markObjectUploadFailed(
         objectPath,
         "Storage provider request failed.",
@@ -188,6 +193,7 @@ router.post(
         const ledgerFailure = ledgerError as { name?: string; code?: string };
         req.log.error(
           {
+            requestId,
             objectPath,
             errorName: ledgerFailure?.name,
             errorCode: ledgerFailure?.code,
@@ -202,14 +208,14 @@ router.post(
       };
       req.log.error(
         {
+          requestId,
           objectPath,
           storageError: {
             name: providerError?.name,
             code: providerError?.Code,
-            endpoint: providerError?.["Endpoint"],
             bucketRegion: providerError?.["Region"] ?? providerError?.["region"],
             httpStatusCode: providerError?.$metadata?.httpStatusCode,
-            requestId: providerError?.$metadata?.requestId,
+            providerRequestId: providerError?.$metadata?.requestId,
           },
         },
         "Error uploading object",
@@ -217,6 +223,7 @@ router.post(
       res.status(500).json({
         error: "Nepodařilo se uložit soubor do úložiště.",
         code: "storage_upload_failed",
+        requestId,
       });
     }
   },
