@@ -44,3 +44,33 @@ jobs:
         run: pnpm --filter @workspace/api-server test:db
         env:
           TEST_DATABASE_URL: postgresql://site_logbook_ci:site-logbook-ci-only@127.0.0.1:5432/site_logbook_ci_test
+      - name: Start isolated MinIO recovery target
+        run: >-
+          docker run --rm -d --name modvolt-phase12-minio
+          -p 127.0.0.1:19000:9000
+          -e MINIO_ROOT_USER=phase12-ci-access
+          -e MINIO_ROOT_PASSWORD=phase12-ci-secret-only
+          minio/minio:RELEASE.2025-09-07T16-13-09Z
+          server /data
+      - name: Wait for isolated MinIO
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:19000/minio/health/ready > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs modvolt-phase12-minio
+          exit 1
+      - name: Encrypted streaming object recovery drill
+        run: pnpm --filter @workspace/api-server objects:recovery:drill
+        env:
+          NODE_ENV: test
+          OBJECT_RECOVERY_DRILL_CONFIRM_ISOLATED: "true"
+          OBJECT_RECOVERY_DRILL_ENDPOINT: http://127.0.0.1:19000
+          OBJECT_RECOVERY_DRILL_ACCESS_KEY: phase12-ci-access
+          OBJECT_RECOVERY_DRILL_SECRET_KEY: phase12-ci-secret-only
+      - name: Stop isolated MinIO
+        if: always()
+        continue-on-error: true
+        run: docker rm --force modvolt-phase12-minio

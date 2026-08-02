@@ -7,11 +7,39 @@ import {
   ListObjectsV2Command,
   ListBucketsCommand,
   HeadBucketCommand,
+  GetBucketEncryptionCommand,
+  GetBucketVersioningCommand,
+  GetObjectLockConfigurationCommand,
+  GetPublicAccessBlockCommand,
 } from "@aws-sdk/client-s3";
 import { Storage } from "@google-cloud/storage";
 import { createHash, randomUUID } from "crypto";
 import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import type { Response as ExpressResponse } from "express";
+
+export type RecoveryReadinessStatus = "pass" | "fail" | "unknown";
+
+export type RecoveryReadinessCheck = {
+  status: RecoveryReadinessStatus;
+  detail: string;
+  value?: boolean | number | string | null;
+};
+
+export type RecoveryStorageReadinessInspection = {
+  identity: Record<string, string>;
+  checks: {
+    bucketAccess: RecoveryReadinessCheck;
+    transportSecurity: RecoveryReadinessCheck;
+    versioning: RecoveryReadinessCheck;
+    objectLock: RecoveryReadinessCheck & {
+      defaultRetentionDays?: number | null;
+      mode?: string | null;
+    };
+    encryption: RecoveryReadinessCheck;
+    publicAccessBlock: RecoveryReadinessCheck;
+  };
+};
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -32,8 +60,8 @@ export class ObjectNotFoundError extends Error {
 function s3Configured(): boolean {
   return Boolean(
     process.env.S3_BUCKET &&
-      process.env.S3_ACCESS_KEY_ID &&
-      process.env.S3_SECRET_ACCESS_KEY,
+    process.env.S3_ACCESS_KEY_ID &&
+    process.env.S3_SECRET_ACCESS_KEY,
   );
 }
 
@@ -42,7 +70,10 @@ function trimSlashes(value: string): string {
 }
 
 function joinKey(...parts: Array<string>): string {
-  return parts.map((p) => trimSlashes(p)).filter((p) => p.length > 0).join("/");
+  return parts
+    .map((p) => trimSlashes(p))
+    .filter((p) => p.length > 0)
+    .join("/");
 }
 
 // ---------------------------------------------------------------------------
@@ -71,8 +102,16 @@ function normalizeEndpoint(endpoint: string | undefined): string | undefined {
   if (!endpoint) return undefined;
   const trimmed = endpoint.trim();
   if (!trimmed) return undefined;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  const normalized = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  const parsed = new URL(normalized);
+  if (parsed.username || parsed.password) {
+    throw new Error(
+      "S3_ENDPOINT must not contain embedded credentials; use the dedicated S3 credential variables.",
+    );
+  }
+  return normalized;
 }
 
 // Startup diagnostic: a safe, secret-free summary of the active S3 backend
@@ -156,9 +195,12 @@ export async function diagnoseS3(): Promise<Record<string, unknown>> {
     };
   }
 
-  const configuredKeyTail = (process.env.S3_ACCESS_KEY_ID || "").trim().slice(-4);
+  const configuredKeyTail = (process.env.S3_ACCESS_KEY_ID || "")
+    .trim()
+    .slice(-4);
   const region = process.env.S3_REGION || "us-east-1";
-  const endpoint = normalizeEndpoint(process.env.S3_ENDPOINT) || "(aws default)";
+  const endpoint =
+    normalizeEndpoint(process.env.S3_ENDPOINT) || "(aws default)";
   const bucket = process.env.S3_BUCKET;
   const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
   const client = buildClient(process.env.S3_ENDPOINT);
@@ -204,7 +246,9 @@ export async function diagnoseS3(): Promise<Record<string, unknown>> {
     putObjectOk = true;
     probes.putObject = { ok: true };
     try {
-      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: testKey }));
+      await client.send(
+        new DeleteObjectCommand({ Bucket: bucket, Key: testKey }),
+      );
     } catch {
       // Cleanup best-effort; leaving a 26-byte diag file is harmless.
     }
@@ -215,7 +259,8 @@ export async function diagnoseS3(): Promise<Record<string, unknown>> {
   // Build a human Czech verdict from the probe outcomes.
   let verdict: string;
   if (putObjectOk) {
-    verdict = "OK – přihlašovací údaje i bucket fungují, nahrávání by mělo jít.";
+    verdict =
+      "OK – přihlašovací údaje i bucket fungují, nahrávání by mělo jít.";
   } else if (!listBucketsOk) {
     const d = probes.listBuckets as { code?: string; rejectedKeyTail?: string };
     if (d.code === "InvalidAccessKeyId") {
@@ -229,8 +274,7 @@ export async function diagnoseS3(): Promise<Record<string, unknown>> {
         "nebo (b) bucket je v jiné lokalitě než endpoint (S3_REGION/S3_ENDPOINT). " +
         "Vygeneruj nové S3 credentials v Hetzner konzoli ve STEJNÉM projektu, kde je bucket, a ověř lokalitu bucketu.";
     } else {
-      verdict =
-        `Selhalo ověření přihlašovacích údajů: ${d.code ?? "neznámá chyba"}. Zkontroluj S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY.`;
+      verdict = `Selhalo ověření přihlašovacích údajů: ${d.code ?? "neznámá chyba"}. Zkontroluj S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY.`;
     }
   } else if (!headBucketOk) {
     const d = probes.headBucket as {
@@ -244,8 +288,7 @@ export async function diagnoseS3(): Promise<Record<string, unknown>> {
         (d.regionHint ? ` (Hetzner hlásí region: ${d.regionHint})` : "") +
         `. Uprav S3_REGION a S3_ENDPOINT na správnou lokalitu bucketu.`;
     } else {
-      verdict =
-        `Klíč je platný, ale bucket "${bucket}" není dostupný: ${d.code ?? "neznámá chyba"} (HTTP ${d.httpStatusCode ?? "?"}). Zkontroluj název bucketu.`;
+      verdict = `Klíč je platný, ale bucket "${bucket}" není dostupný: ${d.code ?? "neznámá chyba"} (HTTP ${d.httpStatusCode ?? "?"}). Zkontroluj název bucketu.`;
     }
   } else {
     const d = probes.putObject as {
@@ -319,6 +362,72 @@ function getPrivatePrefix(): string {
   return trimSlashes(process.env.S3_PRIVATE_PREFIX || "private");
 }
 
+function recoveryProbeFailure(error: unknown): RecoveryReadinessCheck {
+  const candidate = error as {
+    name?: string;
+    Code?: string;
+    code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const code = candidate.name || candidate.Code || candidate.code || "unknown";
+  const status = candidate.$metadata?.httpStatusCode;
+  return {
+    status: "unknown",
+    detail: status ? `${code} (HTTP ${status})` : code,
+  };
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "0:0:0:0:0:0:0:1" ||
+    normalized.startsWith("127.")
+  );
+}
+
+function transportReadiness(
+  endpoint: string | undefined,
+): RecoveryReadinessCheck {
+  const normalized = normalizeEndpoint(endpoint);
+  if (!normalized) {
+    return {
+      status: "pass",
+      detail: "AWS default endpoint uses TLS.",
+      value: true,
+    };
+  }
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol === "https:") {
+      return {
+        status: "pass",
+        detail: "Storage endpoint uses HTTPS.",
+        value: true,
+      };
+    }
+    if (parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname)) {
+      return {
+        status: "unknown",
+        detail: "Loopback HTTP is suitable only for an isolated local drill.",
+        value: false,
+      };
+    }
+    return {
+      status: "fail",
+      detail: "Non-loopback storage endpoint does not use HTTPS.",
+      value: false,
+    };
+  } catch {
+    return {
+      status: "fail",
+      detail: "Storage endpoint URL is invalid.",
+      value: false,
+    };
+  }
+}
+
 // Comma-separated key prefixes searched when serving public assets.
 function getPublicPrefixes(): Array<string> {
   const raw = process.env.S3_PUBLIC_PREFIX || "public";
@@ -334,11 +443,13 @@ function getPublicPrefixes(): Array<string> {
 
 async function s3ObjectExists(key: string): Promise<boolean> {
   try {
-    await getClient().send(new HeadObjectCommand({ Bucket: getBucket(), Key: key }));
+    await getClient().send(
+      new HeadObjectCommand({ Bucket: getBucket(), Key: key }),
+    );
     return true;
   } catch (err) {
-    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
-      ?.httpStatusCode;
+    const status = (err as { $metadata?: { httpStatusCode?: number } })
+      ?.$metadata?.httpStatusCode;
     const name = (err as { name?: string })?.name;
     if (status === 404 || name === "NotFound" || name === "NoSuchKey") {
       return false;
@@ -358,8 +469,8 @@ async function s3StreamToResponse(
       new GetObjectCommand({ Bucket: getBucket(), Key: key }),
     );
   } catch (err) {
-    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata
-      ?.httpStatusCode;
+    const status = (err as { $metadata?: { httpStatusCode?: number } })
+      ?.$metadata?.httpStatusCode;
     const name = (err as { name?: string })?.name;
     if (status === 404 || name === "NoSuchKey" || name === "NotFound") {
       throw new ObjectNotFoundError();
@@ -367,7 +478,10 @@ async function s3StreamToResponse(
     throw err;
   }
 
-  res.setHeader("Content-Type", result.ContentType || "application/octet-stream");
+  res.setHeader(
+    "Content-Type",
+    result.ContentType || "application/octet-stream",
+  );
   res.setHeader(
     "Cache-Control",
     `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
@@ -428,11 +542,19 @@ function gcsPrivateDir(): string {
 function gcsPublicSearchPaths(): Array<string> {
   const raw = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
   return Array.from(
-    new Set(raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0)),
+    new Set(
+      raw
+        .split(",")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0),
+    ),
   );
 }
 
-function parseGcsPath(path: string): { bucketName: string; objectName: string } {
+function parseGcsPath(path: string): {
+  bucketName: string;
+  objectName: string;
+} {
   let p = path;
   if (!p.startsWith("/")) p = `/${p}`;
   const parts = p.split("/");
@@ -475,11 +597,7 @@ async function gcsStreamToResponse(
     res.setHeader("Content-Length", String(metadata.size));
   }
   await new Promise<void>((resolve, reject) => {
-    file
-      .createReadStream()
-      .on("error", reject)
-      .on("end", resolve)
-      .pipe(res);
+    file.createReadStream().on("error", reject).on("end", resolve).pipe(res);
   });
 }
 
@@ -508,6 +626,233 @@ export class ObjectStorageService {
     };
   }
 
+  /**
+   * Read-only provider-policy inspection for recovery release gates. The
+   * result intentionally contains no credentials and never mutates bucket
+   * policy, retention, encryption, or versioning.
+   */
+  async inspectRecoveryStorageReadiness(): Promise<RecoveryStorageReadinessInspection> {
+    const identity = this.getRecoveryStorageIdentity();
+    if (s3Configured()) {
+      let bucketAccess: RecoveryReadinessCheck;
+      let versioning: RecoveryReadinessCheck;
+      let objectLock: RecoveryStorageReadinessInspection["checks"]["objectLock"];
+      let encryption: RecoveryReadinessCheck;
+      let publicAccessBlock: RecoveryReadinessCheck;
+
+      try {
+        await getClient().send(new HeadBucketCommand({ Bucket: getBucket() }));
+        bucketAccess = {
+          status: "pass",
+          detail: "Bucket is reachable.",
+          value: true,
+        };
+      } catch (error) {
+        bucketAccess = { ...recoveryProbeFailure(error), status: "fail" };
+      }
+
+      try {
+        const result = await getClient().send(
+          new GetBucketVersioningCommand({ Bucket: getBucket() }),
+        );
+        const enabled = result.Status === "Enabled";
+        versioning = {
+          status: enabled ? "pass" : "fail",
+          detail: enabled
+            ? "Bucket versioning is enabled."
+            : "Bucket versioning is not enabled.",
+          value: result.Status ?? "Disabled",
+        };
+      } catch (error) {
+        versioning = recoveryProbeFailure(error);
+      }
+
+      try {
+        const result = await getClient().send(
+          new GetObjectLockConfigurationCommand({ Bucket: getBucket() }),
+        );
+        const retention =
+          result.ObjectLockConfiguration?.Rule?.DefaultRetention;
+        const defaultRetentionDays =
+          typeof retention?.Days === "number"
+            ? retention.Days
+            : typeof retention?.Years === "number"
+              ? retention.Years * 365
+              : null;
+        const enabled =
+          result.ObjectLockConfiguration?.ObjectLockEnabled === "Enabled";
+        objectLock = {
+          status: enabled ? "pass" : "fail",
+          detail: enabled
+            ? "S3 Object Lock capability is enabled."
+            : "S3 Object Lock capability is not enabled.",
+          value: enabled,
+          defaultRetentionDays,
+          mode: retention?.Mode ?? null,
+        };
+      } catch (error) {
+        objectLock = {
+          ...recoveryProbeFailure(error),
+          defaultRetentionDays: null,
+          mode: null,
+        };
+      }
+
+      try {
+        const result = await getClient().send(
+          new GetBucketEncryptionCommand({ Bucket: getBucket() }),
+        );
+        const algorithms = (
+          result.ServerSideEncryptionConfiguration?.Rules ?? []
+        )
+          .map((rule) => rule.ApplyServerSideEncryptionByDefault?.SSEAlgorithm)
+          .filter((value) => Boolean(value))
+          .map((value) => String(value));
+        encryption = {
+          status: algorithms.length > 0 ? "pass" : "unknown",
+          detail:
+            algorithms.length > 0
+              ? "Default server-side encryption is configured."
+              : "No explicit default encryption rule was returned.",
+          value: algorithms.join(",") || null,
+        };
+      } catch (error) {
+        encryption = recoveryProbeFailure(error);
+      }
+
+      try {
+        const result = await getClient().send(
+          new GetPublicAccessBlockCommand({ Bucket: getBucket() }),
+        );
+        const config = result.PublicAccessBlockConfiguration;
+        const blocked = Boolean(
+          config?.BlockPublicAcls &&
+          config.IgnorePublicAcls &&
+          config.BlockPublicPolicy &&
+          config.RestrictPublicBuckets,
+        );
+        publicAccessBlock = {
+          status: blocked ? "pass" : "fail",
+          detail: blocked
+            ? "All S3 public-access-block controls are enabled."
+            : "S3 public-access-block controls are incomplete.",
+          value: blocked,
+        };
+      } catch (error) {
+        publicAccessBlock = recoveryProbeFailure(error);
+      }
+
+      return {
+        identity,
+        checks: {
+          bucketAccess,
+          transportSecurity: transportReadiness(process.env.S3_ENDPOINT),
+          versioning,
+          objectLock,
+          encryption,
+          publicAccessBlock,
+        },
+      };
+    }
+
+    const { bucketName } = parseGcsPath(gcsPrivateDir());
+    try {
+      const [rawMetadata] = await getGcsClient()
+        .bucket(bucketName)
+        .getMetadata();
+      const metadata = rawMetadata as unknown as Record<string, unknown>;
+      const versioningMetadata = metadata.versioning as
+        | { enabled?: boolean }
+        | undefined;
+      const retention = metadata.retentionPolicy as
+        | { isLocked?: boolean; retentionPeriod?: number | string }
+        | undefined;
+      const iam = metadata.iamConfiguration as
+        | { publicAccessPrevention?: string }
+        | undefined;
+      const encryptionMetadata = metadata.encryption as
+        | { defaultKmsKeyName?: string }
+        | undefined;
+      const retentionSeconds = Number(retention?.retentionPeriod ?? 0);
+      const retentionDays = Number.isFinite(retentionSeconds)
+        ? retentionSeconds / 86_400
+        : null;
+      const retentionLocked = retention?.isLocked === true;
+      const versioningEnabled = versioningMetadata?.enabled === true;
+      const publicAccessPrevented = iam?.publicAccessPrevention === "enforced";
+      const kmsKey = encryptionMetadata?.defaultKmsKeyName;
+      return {
+        identity,
+        checks: {
+          bucketAccess: {
+            status: "pass",
+            detail: "Bucket metadata is readable.",
+            value: true,
+          },
+          transportSecurity: {
+            status: "pass",
+            detail: "GCS API access uses the provider TLS endpoint.",
+            value: true,
+          },
+          versioning: {
+            status: versioningEnabled ? "pass" : "fail",
+            detail: versioningEnabled
+              ? "GCS object versioning is enabled."
+              : "GCS object versioning is not enabled.",
+            value: versioningEnabled,
+          },
+          objectLock: {
+            status: retentionLocked ? "pass" : "fail",
+            detail: retentionLocked
+              ? "GCS bucket retention policy is locked."
+              : "GCS bucket retention policy is not locked.",
+            value: retentionLocked,
+            defaultRetentionDays: retentionDays,
+            mode: retentionLocked ? "LOCKED" : null,
+          },
+          encryption: {
+            status: kmsKey ? "pass" : "unknown",
+            detail: kmsKey
+              ? "A default customer-managed encryption key is configured."
+              : "No default customer-managed encryption key is visible in bucket metadata.",
+            value: kmsKey ? "customer-managed" : null,
+          },
+          publicAccessBlock: {
+            status: publicAccessPrevented ? "pass" : "fail",
+            detail: publicAccessPrevented
+              ? "GCS public access prevention is enforced."
+              : "GCS public access prevention is not enforced.",
+            value: publicAccessPrevented,
+          },
+        },
+      };
+    } catch (error) {
+      const failed = {
+        ...recoveryProbeFailure(error),
+        status: "fail" as const,
+      };
+      return {
+        identity,
+        checks: {
+          bucketAccess: failed,
+          transportSecurity: {
+            status: "pass",
+            detail: "GCS API access uses the provider TLS endpoint.",
+            value: true,
+          },
+          versioning: recoveryProbeFailure(error),
+          objectLock: {
+            ...recoveryProbeFailure(error),
+            defaultRetentionDays: null,
+            mode: null,
+          },
+          encryption: recoveryProbeFailure(error),
+          publicAccessBlock: recoveryProbeFailure(error),
+        },
+      };
+    }
+  }
+
   /** List every object below the configured private prefix for recovery. */
   async listPrivateObjectsForRecovery(): Promise<
     Array<{ objectPath: string; size: number; lastModified: string | null }>
@@ -518,6 +863,7 @@ export class ObjectStorageService {
         objectPath: string;
         size: number;
         lastModified: string | null;
+        snapshotToken?: string;
       }> = [];
       let continuationToken: string | undefined;
       do {
@@ -536,11 +882,16 @@ export class ObjectStorageService {
             objectPath: `/objects/${entityId}`,
             size: Number(item.Size ?? 0),
             lastModified: item.LastModified?.toISOString() ?? null,
+            snapshotToken: item.ETag,
           });
         }
-        continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+        continuationToken = page.IsTruncated
+          ? page.NextContinuationToken
+          : undefined;
         if (page.IsTruncated && !continuationToken) {
-          throw new Error("Object inventory pagination ended without a continuation token.");
+          throw new Error(
+            "Object inventory pagination ended without a continuation token.",
+          );
         }
       } while (continuationToken);
       return objects.sort((a, b) => a.objectPath.localeCompare(b.objectPath));
@@ -549,14 +900,23 @@ export class ObjectStorageService {
     const { bucketName, objectName } = parseGcsPath(gcsPrivateDir());
     const prefix = trimSlashes(objectName);
     const keyPrefix = prefix ? `${prefix}/` : "";
-    const [files] = await getGcsClient().bucket(bucketName).getFiles({ prefix: keyPrefix });
+    const [files] = await getGcsClient()
+      .bucket(bucketName)
+      .getFiles({ prefix: keyPrefix });
     const objects = files
       .filter((file) => file.name !== keyPrefix)
       .map((file) => ({
         objectPath: `/objects/${file.name.slice(keyPrefix.length)}`,
         size: Number(file.metadata.size ?? 0),
         lastModified:
-          typeof file.metadata.updated === "string" ? file.metadata.updated : null,
+          typeof file.metadata.updated === "string"
+            ? file.metadata.updated
+            : null,
+        snapshotToken:
+          typeof file.metadata.generation === "string" ||
+          typeof file.metadata.generation === "number"
+            ? String(file.metadata.generation)
+            : undefined,
       }))
       .filter((item) => item.objectPath !== "/objects/");
     return objects.sort((a, b) => a.objectPath.localeCompare(b.objectPath));
@@ -567,43 +927,136 @@ export class ObjectStorageService {
     if (!objectPath.startsWith("/objects/")) return false;
     const entityId = trimSlashes(objectPath.slice("/objects/".length));
     if (!entityId) return false;
-    if (s3Configured()) return s3ObjectExists(joinKey(getPrivatePrefix(), entityId));
+    if (s3Configured())
+      return s3ObjectExists(joinKey(getPrivatePrefix(), entityId));
 
     const { bucketName, objectName } = gcsResolvePrivate(objectPath);
-    const [exists] = await getGcsClient().bucket(bucketName).file(objectName).exists();
+    const [exists] = await getGcsClient()
+      .bucket(bucketName)
+      .file(objectName)
+      .exists();
     return exists;
+  }
+
+  /** Open a bounded-memory recovery read, pinned when the provider exposes a token. */
+  async openPrivateObjectRecoveryStream(
+    objectPath: string,
+    snapshotToken?: string,
+  ): Promise<{ body: Readable; contentType: string }> {
+    if (!objectPath.startsWith("/objects/")) throw new ObjectNotFoundError();
+    if (s3Configured()) {
+      const entityId = trimSlashes(objectPath.slice("/objects/".length));
+      if (!entityId) throw new ObjectNotFoundError();
+      const out = await getClient().send(
+        new GetObjectCommand({
+          Bucket: getBucket(),
+          Key: joinKey(getPrivatePrefix(), entityId),
+          IfMatch: snapshotToken,
+        }),
+      );
+      if (!out.Body || !(out.Body instanceof Readable)) {
+        throw new ObjectNotFoundError();
+      }
+      return {
+        body: out.Body,
+        contentType: out.ContentType || "application/octet-stream",
+      };
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    if (snapshotToken && !/^[1-9][0-9]*$/.test(snapshotToken)) {
+      throw new Error(`Invalid GCS recovery generation for ${objectPath}.`);
+    }
+    const file = getGcsClient()
+      .bucket(bucketName)
+      .file(
+        objectName,
+        snapshotToken ? { generation: snapshotToken } : undefined,
+      );
+    const [metadata] = await file.getMetadata();
+    return {
+      body: file.createReadStream(),
+      contentType:
+        (metadata.contentType as string) || "application/octet-stream",
+    };
+  }
+
+  /** Upload a recovery object without buffering it in the API process. */
+  async putPrivateObjectRecoveryStream(
+    objectPath: string,
+    body: Readable,
+    contentLength: number,
+    contentType: string,
+    plaintextSha256: string,
+  ): Promise<void> {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new Error(
+        "putPrivateObjectRecoveryStream requires an /objects/ path",
+      );
+    }
+    const entityId = trimSlashes(objectPath.slice("/objects/".length));
+    if (!entityId) {
+      throw new Error(
+        "putPrivateObjectRecoveryStream requires a non-empty path",
+      );
+    }
+    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+      throw new Error(
+        "putPrivateObjectRecoveryStream requires a valid content length",
+      );
+    }
+    if (!/^[a-f0-9]{64}$/.test(plaintextSha256)) {
+      throw new Error(
+        "putPrivateObjectRecoveryStream requires a valid SHA-256",
+      );
+    }
+
+    if (s3Configured()) {
+      await getClient().send(
+        new PutObjectCommand({
+          Bucket: getBucket(),
+          Key: joinKey(getPrivatePrefix(), entityId),
+          Body: body,
+          ContentType: contentType,
+          ContentLength: contentLength,
+          Metadata: {
+            sha256: plaintextSha256,
+            "upload-status": "stored",
+          },
+        }),
+      );
+      return;
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    const output = getGcsClient()
+      .bucket(bucketName)
+      .file(objectName)
+      .createWriteStream({
+        contentType,
+        resumable: true,
+        metadata: {
+          metadata: {
+            sha256: plaintextSha256,
+            uploadStatus: "stored",
+          },
+        },
+      });
+    await pipeline(body, output);
   }
 
   /** Read bytes plus content type so a recovery copy preserves object metadata. */
   async readPrivateObjectForRecovery(
     objectPath: string,
   ): Promise<{ body: Buffer; contentType: string }> {
-    if (!objectPath.startsWith("/objects/")) throw new ObjectNotFoundError();
-    if (s3Configured()) {
-      const entityId = trimSlashes(objectPath.slice("/objects/".length));
-      if (!entityId) throw new ObjectNotFoundError();
-      const out = await getClient().send(
-        new GetObjectCommand({ Bucket: getBucket(), Key: joinKey(getPrivatePrefix(), entityId) }),
+    const opened = await this.openPrivateObjectRecoveryStream(objectPath);
+    const chunks: Buffer[] = [];
+    for await (const value of opened.body) {
+      chunks.push(
+        Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array),
       );
-      if (!out.Body) throw new ObjectNotFoundError();
-      return {
-        body: Buffer.from(await out.Body.transformToByteArray()),
-        contentType: out.ContentType || "application/octet-stream",
-      };
     }
-
-    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
-    const file = getGcsClient().bucket(bucketName).file(objectName);
-    const [exists] = await file.exists();
-    if (!exists) throw new ObjectNotFoundError();
-    const [[contents], [metadata]] = await Promise.all([
-      file.download(),
-      file.getMetadata(),
-    ]);
-    return {
-      body: contents,
-      contentType: (metadata.contentType as string) || "application/octet-stream",
-    };
+    return { body: Buffer.concat(chunks), contentType: opened.contentType };
   }
 
   /**
@@ -622,7 +1075,8 @@ export class ObjectStorageService {
       throw new Error("putPrivateObject requires an /objects/ path");
     }
     const entityId = trimSlashes(objectPath.slice("/objects/".length));
-    if (!entityId) throw new Error("putPrivateObject requires a non-empty path");
+    if (!entityId)
+      throw new Error("putPrivateObject requires a non-empty path");
     const sha256 = createHash("sha256").update(body).digest("hex");
     const uploadStatus = options.uploadStatus ?? "stored";
 
@@ -670,7 +1124,10 @@ export class ObjectStorageService {
   }
 
   /** Stream a private object ("/objects/<entityId>") to the response. */
-  async servePrivateObject(objectPath: string, res: ExpressResponse): Promise<void> {
+  async servePrivateObject(
+    objectPath: string,
+    res: ExpressResponse,
+  ): Promise<void> {
     if (!objectPath.startsWith("/objects/")) {
       throw new ObjectNotFoundError();
     }
@@ -721,7 +1178,10 @@ export class ObjectStorageService {
    * Stream a public asset by its relative path, searching configured public
    * prefixes / search paths. Returns false if no matching object is found.
    */
-  async servePublicObject(filePath: string, res: ExpressResponse): Promise<boolean> {
+  async servePublicObject(
+    filePath: string,
+    res: ExpressResponse,
+  ): Promise<boolean> {
     const relative = trimSlashes(filePath);
     if (!relative) return false;
 
@@ -737,11 +1197,15 @@ export class ObjectStorageService {
     }
 
     for (const searchPath of gcsPublicSearchPaths()) {
-      const { bucketName, objectName } = parseGcsPath(`${searchPath}/${relative}`);
+      const { bucketName, objectName } = parseGcsPath(
+        `${searchPath}/${relative}`,
+      );
       const file = getGcsClient().bucket(bucketName).file(objectName);
       const [exists] = await file.exists();
       if (exists) {
-        await gcsStreamToResponse(bucketName, objectName, res, { isPublic: true });
+        await gcsStreamToResponse(bucketName, objectName, res, {
+          isPublic: true,
+        });
         return true;
       }
     }

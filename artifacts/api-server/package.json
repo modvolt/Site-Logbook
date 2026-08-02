@@ -15,6 +15,7 @@
     "auth:reset-admin-password": "tsx src/scripts/reset-admin-password.ts",
     "cleanup-materials": "tsx src/scripts/cleanup-duplicate-materials.ts",
     "objects:recovery": "tsx src/scripts/object-recovery.ts",
+    "objects:recovery:drill": "tsx src/scripts/object-recovery-drill.ts",
     "secrets:backfill": "tsx src/scripts/backfill-secret-envelopes.ts",
     "public-tokens:backfill": "tsx src/scripts/backfill-public-access-tokens.ts"
   },
