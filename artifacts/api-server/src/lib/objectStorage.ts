@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
+  ListObjectsV2Command,
   ListBucketsCommand,
   HeadBucketCommand,
 } from "@aws-sdk/client-s3";
@@ -487,6 +488,124 @@ async function gcsStreamToResponse(
 // ---------------------------------------------------------------------------
 
 export class ObjectStorageService {
+  /** Secret-free identity used to prevent recovery into the source store. */
+  getRecoveryStorageIdentity(): Record<string, string> {
+    if (s3Configured()) {
+      return {
+        backend: "s3",
+        endpoint: normalizeEndpoint(process.env.S3_ENDPOINT) || "aws-default",
+        region: process.env.S3_REGION || "us-east-1",
+        bucket: getBucket(),
+        privatePrefix: getPrivatePrefix(),
+      };
+    }
+
+    const { bucketName, objectName } = parseGcsPath(gcsPrivateDir());
+    return {
+      backend: "gcs-replit",
+      bucket: bucketName,
+      privatePrefix: trimSlashes(objectName),
+    };
+  }
+
+  /** List every object below the configured private prefix for recovery. */
+  async listPrivateObjectsForRecovery(): Promise<
+    Array<{ objectPath: string; size: number; lastModified: string | null }>
+  > {
+    if (s3Configured()) {
+      const prefix = `${getPrivatePrefix()}/`;
+      const objects: Array<{
+        objectPath: string;
+        size: number;
+        lastModified: string | null;
+      }> = [];
+      let continuationToken: string | undefined;
+      do {
+        const page = await getClient().send(
+          new ListObjectsV2Command({
+            Bucket: getBucket(),
+            Prefix: prefix,
+            ContinuationToken: continuationToken,
+          }),
+        );
+        for (const item of page.Contents ?? []) {
+          if (!item.Key || item.Key === prefix) continue;
+          const entityId = item.Key.slice(prefix.length);
+          if (!entityId) continue;
+          objects.push({
+            objectPath: `/objects/${entityId}`,
+            size: Number(item.Size ?? 0),
+            lastModified: item.LastModified?.toISOString() ?? null,
+          });
+        }
+        continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+        if (page.IsTruncated && !continuationToken) {
+          throw new Error("Object inventory pagination ended without a continuation token.");
+        }
+      } while (continuationToken);
+      return objects.sort((a, b) => a.objectPath.localeCompare(b.objectPath));
+    }
+
+    const { bucketName, objectName } = parseGcsPath(gcsPrivateDir());
+    const prefix = trimSlashes(objectName);
+    const keyPrefix = prefix ? `${prefix}/` : "";
+    const [files] = await getGcsClient().bucket(bucketName).getFiles({ prefix: keyPrefix });
+    const objects = files
+      .filter((file) => file.name !== keyPrefix)
+      .map((file) => ({
+        objectPath: `/objects/${file.name.slice(keyPrefix.length)}`,
+        size: Number(file.metadata.size ?? 0),
+        lastModified:
+          typeof file.metadata.updated === "string" ? file.metadata.updated : null,
+      }))
+      .filter((item) => item.objectPath !== "/objects/");
+    return objects.sort((a, b) => a.objectPath.localeCompare(b.objectPath));
+  }
+
+  /** True when the current private store already contains the exact path. */
+  async privateObjectExists(objectPath: string): Promise<boolean> {
+    if (!objectPath.startsWith("/objects/")) return false;
+    const entityId = trimSlashes(objectPath.slice("/objects/".length));
+    if (!entityId) return false;
+    if (s3Configured()) return s3ObjectExists(joinKey(getPrivatePrefix(), entityId));
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    const [exists] = await getGcsClient().bucket(bucketName).file(objectName).exists();
+    return exists;
+  }
+
+  /** Read bytes plus content type so a recovery copy preserves object metadata. */
+  async readPrivateObjectForRecovery(
+    objectPath: string,
+  ): Promise<{ body: Buffer; contentType: string }> {
+    if (!objectPath.startsWith("/objects/")) throw new ObjectNotFoundError();
+    if (s3Configured()) {
+      const entityId = trimSlashes(objectPath.slice("/objects/".length));
+      if (!entityId) throw new ObjectNotFoundError();
+      const out = await getClient().send(
+        new GetObjectCommand({ Bucket: getBucket(), Key: joinKey(getPrivatePrefix(), entityId) }),
+      );
+      if (!out.Body) throw new ObjectNotFoundError();
+      return {
+        body: Buffer.from(await out.Body.transformToByteArray()),
+        contentType: out.ContentType || "application/octet-stream",
+      };
+    }
+
+    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
+    const file = getGcsClient().bucket(bucketName).file(objectName);
+    const [exists] = await file.exists();
+    if (!exists) throw new ObjectNotFoundError();
+    const [[contents], [metadata]] = await Promise.all([
+      file.download(),
+      file.getMetadata(),
+    ]);
+    return {
+      body: contents,
+      contentType: (metadata.contentType as string) || "application/octet-stream",
+    };
+  }
+
   /**
    * Upload a server-generated private object (e.g. a database backup) directly
    * from the API process. `objectPath` is the backend-agnostic
@@ -547,29 +666,7 @@ export class ObjectStorageService {
    * handing them to pg_restore. Throws ObjectNotFoundError if missing.
    */
   async getPrivateObjectBuffer(objectPath: string): Promise<Buffer> {
-    if (!objectPath.startsWith("/objects/")) {
-      throw new ObjectNotFoundError();
-    }
-
-    if (s3Configured()) {
-      const entityId = trimSlashes(objectPath.slice("/objects/".length));
-      if (!entityId) throw new ObjectNotFoundError();
-      const key = joinKey(getPrivatePrefix(), entityId);
-      if (!(await s3ObjectExists(key))) throw new ObjectNotFoundError();
-      const out = await getClient().send(
-        new GetObjectCommand({ Bucket: getBucket(), Key: key }),
-      );
-      if (!out.Body) throw new ObjectNotFoundError();
-      const bytes = await out.Body.transformToByteArray();
-      return Buffer.from(bytes);
-    }
-
-    const { bucketName, objectName } = gcsResolvePrivate(objectPath);
-    const file = getGcsClient().bucket(bucketName).file(objectName);
-    const [exists] = await file.exists();
-    if (!exists) throw new ObjectNotFoundError();
-    const [contents] = await file.download();
-    return contents;
+    return (await this.readPrivateObjectForRecovery(objectPath)).body;
   }
 
   /** Stream a private object ("/objects/<entityId>") to the response. */

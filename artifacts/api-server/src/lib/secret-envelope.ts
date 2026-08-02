@@ -332,8 +332,27 @@ export function encryptBackupPayload(
   filename: string,
   keyring = loadEncryptionKeyring(BACKUP_KEYRING_ENV, BACKUP_ACTIVE_KEY_ENV),
 ): { payload: Buffer; keyId: string; format: typeof FORMAT_VERSION } {
+  return encryptBackupArtifactPayload(
+    plaintext,
+    `backup_log:${filename}:pg_dump`,
+    keyring,
+  );
+}
+
+/**
+ * Encrypt a non-database recovery artifact with the backup keyring.
+ *
+ * The caller owns the context namespace. It is authenticated as AAD, so a
+ * payload cannot be moved between bundle manifests, object paths, or artifact
+ * kinds without decryption failing closed.
+ */
+export function encryptBackupArtifactPayload(
+  plaintext: Buffer,
+  context: string,
+  keyring = loadEncryptionKeyring(BACKUP_KEYRING_ENV, BACKUP_ACTIVE_KEY_ENV),
+): { payload: Buffer; keyId: string; format: typeof FORMAT_VERSION } {
   return {
-    payload: encodeEnvelope(plaintext, `backup_log:${filename}:pg_dump`, keyring),
+    payload: encodeEnvelope(plaintext, context, keyring),
     keyId: keyring.activeKeyId,
     format: FORMAT_VERSION,
   };
@@ -344,7 +363,20 @@ export function decryptBackupPayload(
   filename: string,
   keyring = loadEncryptionKeyring(BACKUP_KEYRING_ENV, BACKUP_ACTIVE_KEY_ENV),
 ): Buffer {
-  return decodeEnvelope(payload, `backup_log:${filename}:pg_dump`, keyring).plaintext;
+  return decryptBackupArtifactPayload(
+    payload,
+    `backup_log:${filename}:pg_dump`,
+    keyring,
+  );
+}
+
+/** Decrypt an authenticated recovery artifact using the backup keyring. */
+export function decryptBackupArtifactPayload(
+  payload: Buffer,
+  context: string,
+  keyring = loadEncryptionKeyring(BACKUP_KEYRING_ENV, BACKUP_ACTIVE_KEY_ENV),
+): Buffer {
+  return decodeEnvelope(payload, context, keyring).plaintext;
 }
 
 export function encryptionStatus(
