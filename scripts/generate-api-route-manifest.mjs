@@ -15,6 +15,12 @@ const outputPath = path.join(
 const routePattern =
   /router\.(get|post|put|patch|delete|options|head|all)\s*\(\s*(["'])([^"']+)\2/gi;
 
+function compareCodeUnits(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 const routes = [];
 for (const fileName of readdirSync(routesDir).filter((name) => name.endsWith(".ts")).sort()) {
   if (fileName === "index.ts") continue;
@@ -29,9 +35,9 @@ for (const fileName of readdirSync(routesDir).filter((name) => name.endsWith(".t
 }
 
 routes.sort((a, b) =>
-  a.template.localeCompare(b.template) ||
-  a.method.localeCompare(b.method) ||
-  a.source.localeCompare(b.source),
+  compareCodeUnits(a.template, b.template) ||
+  compareCodeUnits(a.method, b.method) ||
+  compareCodeUnits(a.source, b.source),
 );
 
 const keys = new Set();

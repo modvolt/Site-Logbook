@@ -12,6 +12,12 @@ const routePattern =
 const routeRegistrationPattern =
   /router\.(get|post|put|patch|delete|options|head|all)\s*\(/gi;
 
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 function routeSources() {
   const routesDir = path.resolve(process.cwd(), "src", "routes");
   return readdirSync(routesDir)
@@ -33,9 +39,9 @@ function sourceRoutes() {
       }));
     })
     .sort((a, b) =>
-      a.template.localeCompare(b.template) ||
-      a.method.localeCompare(b.method) ||
-      a.source.localeCompare(b.source),
+      compareCodeUnits(a.template, b.template) ||
+      compareCodeUnits(a.method, b.method) ||
+      compareCodeUnits(a.source, b.source),
     );
 }
 
