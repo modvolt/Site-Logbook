@@ -13,7 +13,7 @@ Teprve na tomto základě má smysl zavádět durable audit/outbox, DB invariant
 
 Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolovaných změnách s regresními testy. Každá migrace používá expand–migrate–contract, samostatný backfill, měření a předem ověřený návratový postup.
 
-### Stav realizace po FÁZI 8.10
+### Stav realizace po FÁZI 8.11
 
 | Workstream | Stav | Důkaz | Zbývající hranice |
 |---|---|---|---|
@@ -23,9 +23,9 @@ Roadmapa neznamená jeden release. R00–R07 se mají realizovat v malých izolo
 | R03 | Dokončeno lokálně | `71bf9d8`, `7e9d819`, `45937f6`, `583eaa4`; identity partition a live scope kontrolu doplňuje atomický IndexedDB lease, durable serverový ledger pro všechny offline mutace, SHA-256 raw uploadů a řízené retry/conflict/ambiguous stavy | před produkcí aplikovat `0097`, nasadit server a frontend jako jeden řízený rollout; plný browser E2E se dvěma reálnými taby zůstává v R14 |
 | R04 | Dokončeno lokálně | `63ba086`; auth před nákladným parsingem, pevné body/decompression limity, strukturální MIME validace, re-decode podpisů, scanner/quarantine hook, SHA-256 metadata a durable upload ledger `0098` | před produkcí aplikovat `0098`, ověřit scanner a nasadit API+proxy koordinovaně; inventura, retence a orphan cleanup zůstávají v R12 |
 | R05 | Dokončeno lokálně | `5d1b041`; versioned authenticated envelope, dual-read, měřený backfill a šifrování nových DB záloh přes oddělený keyring | před produkcí schválit key custody/DR, aplikovat `0099`, provést backfill, rotaci a úplný restore drill |
-| R06 | Zahájeno, SEC-18 uzavřen lokálně | `b620014`; všechny vytvářené job/PPE/quote/QR bearer odkazy používají validovaný `PUBLIC_APP_URL`, produkční API failuje bez HTTPS originu a nginx odmítá neznámý Host | stále chybí jednotný hash/expiry/revoke/one-time token lifecycle, atomické transitiony a neměnné job/quote snapshoty |
+| R06 | Rozpracováno, SEC-12 a SEC-18 uzavřeny lokálně | `b620014`, `a749475`; důvěryhodný veřejný origin a jednotné hash-only job/PPE/quote tokeny s účelem, expirací, revokací a atomickým one-time consume | stále chybí neměnné job/quote snapshoty, verze/hash podepisovaného artefaktu, korekční model a produkční cutover/odstranění legacy plaintextu |
 
-FÁZE 8.1–8.10 nic nenasadily ani neposlaly na remote. R05 je lokálně implementačně uzavřen a FÁZE 8.10 otevřela R06 pouze izolovanou hranicí důvěryhodného veřejného originu; R06 jako celek ani R07 dokončeny nejsou. Podrobnosti, rollout hranice a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md), [08-secret-encryption-runbook.md](08-secret-encryption-runbook.md) a [08-public-origin-runbook.md](08-public-origin-runbook.md).
+FÁZE 8.1–8.11 nic nenasadily ani neposlaly na remote. R05 je lokálně implementačně uzavřen. FÁZE 8.10 uzavřela hranici důvěryhodného veřejného originu a FÁZE 8.11 doplnila jednotný lifecycle veřejných job/PPE/quote credentialů. R06 jako celek ani R07 dokončeny nejsou. Podrobnosti, rollout hranice a reprodukovatelné kontroly jsou v [08-phase-checkpoint.md](08-phase-checkpoint.md), [08-secret-encryption-runbook.md](08-secret-encryption-runbook.md), [08-public-origin-runbook.md](08-public-origin-runbook.md) a [08-public-token-runbook.md](08-public-token-runbook.md).
 
 ## 2. Definice priorit
 
@@ -174,7 +174,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 
 ### R06 – Veřejné tokeny a neměnné podepisované snapshoty
 
-- **Stav:** zahájeno ve FÁZI 8.10. SEC-18 je lokálně uzavřen: tvorba externích bearer odkazů již nepoužívá request `Host`/`X-Forwarded-Host`, produkční API vyžaduje kanonický HTTPS `PUBLIC_APP_URL` a web edge má fail-closed host allowlist. SEC-12, SEC-14, GDPR-11, COMP-02, COMP-07 a UX-09 zůstávají otevřené; R06 proto není dokončeno.
+- **Stav:** rozpracováno ve FÁZÍCH 8.10–8.11. SEC-18 je lokálně uzavřen důvěryhodným originem. SEC-12 je lokálně uzavřen jednotným hash-only úložištěm, purpose/resource bindingem, expirací, revokací, rotací a atomickým one-time consume pro podpis zakázky, podpis/potvrzení OOPP a accept/reject nabídky. GDPR-11 je splněn pouze v části minimalizace credentialů; retence metadat a privacy logy zůstávají otevřené. SEC-14, COMP-02, COMP-07 a korekční část UX-09 zůstávají otevřené, takže R06 není dokončeno.
 - **Přínos:** veřejné odkazy jsou revokovatelné a podpis dokládá přesnou verzi dokumentu.
 - **Riziko neprovedení:** dlouhodobě použitelný bearer link, Host-header poisoning, accept/reject race a změna obsahu po podpisu.
 - **Rozsah:** jednotný token service (hash, účel, expirace, one-time transition, revoke), trusted public base URL, immutable document version/hash/PDF a korekční verze/storno.
