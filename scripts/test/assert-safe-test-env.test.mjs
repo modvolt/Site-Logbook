@@ -22,6 +22,10 @@ test("hermetic unit mode rejects database and provider secrets", () => {
     () => assertHermeticUnitEnvironment({ NODE_ENV: "test", SESSION_SECRET: "secret" }),
     /SESSION_SECRET/,
   );
+  assert.throws(
+    () => assertHermeticUnitEnvironment({ NODE_ENV: "test", FULL_OBJECT_RESTORE_TEST_ENABLED: "true" }),
+    /FULL_OBJECT_RESTORE_TEST_ENABLED/,
+  );
 });
 
 test("database mode requires the dedicated variable and rejects ambient DATABASE_URL", () => {

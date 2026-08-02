@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   db,
   timeEntriesTable,
@@ -471,7 +471,10 @@ export async function addManualWorkSession(input: {
           ne(workSessionsTable.status, "voided"),
           ne(workSessionsTable.source, "correction"),
           lt(workSessionsTable.startedAt, input.endedAt),
-          sql`coalesce(${workSessionsTable.endedAt}, 'infinity'::timestamp) > ${input.startedAt}`,
+          or(
+            isNull(workSessionsTable.endedAt),
+            gt(workSessionsTable.endedAt, input.startedAt),
+          ),
         ),
       );
     if (overlap) throw new WorkSessionOverlapError();

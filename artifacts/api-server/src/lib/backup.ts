@@ -580,8 +580,7 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
       child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
       child.on("error", reject);
       child.on("close", (code) => {
-        // pg_restore exits 1 for warnings (e.g. role does not exist); 0 = clean.
-        if (code === 0 || code === 1) resolve();
+        if (code === 0) resolve();
         else reject(new Error(`pg_restore exited with code ${code}: ${stderr.trim()}`));
       });
     });
@@ -591,12 +590,25 @@ export async function testBackupRestore(id: number): Promise<BackupLog> {
     const verifiedTables: Record<string, number> = {};
     try {
       for (const table of VERIFY_TABLES) {
-        try {
-          const result = await testPool.query(`SELECT COUNT(*)::integer AS c FROM "${table}"`);
-          verifiedTables[table] = result.rows[0]?.c ?? 0;
-        } catch {
-          verifiedTables[table] = 0;
+        const result = await testPool.query(`SELECT COUNT(*)::integer AS c FROM "${table}"`);
+        const count = result.rows[0]?.c;
+        if (!Number.isInteger(count) || count < 0) {
+          throw new Error(`Restore verification returned an invalid row count for ${table}.`);
         }
+        verifiedTables[table] = count;
+      }
+
+      const invalidConstraints = await testPool.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM pg_constraint WHERE NOT convalidated",
+      );
+      const invalidIndexes = await testPool.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM pg_index WHERE NOT indisvalid OR NOT indisready",
+      );
+      if ((invalidConstraints.rows[0]?.count ?? 0) !== 0) {
+        throw new Error("Restore verification found unvalidated database constraints.");
+      }
+      if ((invalidIndexes.rows[0]?.count ?? 0) !== 0) {
+        throw new Error("Restore verification found invalid database indexes.");
       }
     } finally {
       await testPool.end();

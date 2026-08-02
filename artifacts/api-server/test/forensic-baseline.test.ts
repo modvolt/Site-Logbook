@@ -199,7 +199,10 @@ describe("staged acceptance tests not implemented in phase 1", () => {
     expect(
       (
         await admin.put(`/api/users/${masterId}/permissions`).send({
-          overrides: [{ permission: "statistics.view", effect: "allow" }],
+          overrides: [
+            { permission: "statistics.view", effect: "allow" },
+            { permission: "billing.view", effect: "allow" },
+          ],
         })
       ).status,
     ).toBe(200);
@@ -228,7 +231,12 @@ describe("staged acceptance tests not implemented in phase 1", () => {
         })
       ).status,
     ).toBe(200);
-    const created = await guest.post("/api/jobs").send({ title: `${TAG}-guest-job`, date: "2041-01-15" });
+    const created = await guest.post("/api/jobs").send({
+      title: `${TAG}-guest-job`,
+      type: "other",
+      date: "2041-01-15",
+      status: "planned",
+    });
     expect(created.status).toBe(201);
     jobIds.push(created.body.id);
   });

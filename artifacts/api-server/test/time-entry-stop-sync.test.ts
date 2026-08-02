@@ -8,6 +8,7 @@ import {
   peopleTable,
   jobsTable,
   timeEntriesTable,
+  workSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
 
@@ -54,16 +55,19 @@ async function getJob(jobId: number) {
   return j;
 }
 
-/** Start a timer directly in the DB, backdated so stop() accumulates a known duration. */
-async function startBackdated(jobId: number, personId: number, hoursAgo: number, baseHours = 0) {
+/** Start through the authoritative API, then backdate its work_session. */
+async function startBackdated(jobId: number, personId: number, hoursAgo: number) {
   const startedAt = new Date(Date.now() - hoursAgo * 3600 * 1000);
+  const started = await agent.post(`/api/jobs/${jobId}/time-entries/${personId}/start`);
+  expect(started.status).toBe(200);
   await db
-    .insert(timeEntriesTable)
-    .values({ personId, jobId, hours: String(baseHours), timerStartedAt: startedAt })
-    .onConflictDoUpdate({
-      target: [timeEntriesTable.personId, timeEntriesTable.jobId],
-      set: { hours: String(baseHours), timerStartedAt: startedAt, updatedAt: new Date() },
-    });
+    .update(workSessionsTable)
+    .set({ startedAt })
+    .where(and(
+      eq(workSessionsTable.personId, personId),
+      eq(workSessionsTable.jobId, jobId),
+      eq(workSessionsTable.status, "active"),
+    ));
 }
 
 beforeAll(async () => {
@@ -92,6 +96,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const ids = [vasekId, jonasId, otherId].filter(Boolean);
+  for (const id of ids) {
+    await db.delete(workSessionsTable).where(eq(workSessionsTable.personId, id));
+  }
   for (const id of ids) {
     await db.delete(timeEntriesTable).where(eq(timeEntriesTable.personId, id));
   }
@@ -132,6 +139,7 @@ describe("stop timer -> Souhrn práce sync", () => {
     expect(Number(job.hoursJonas)).toBeCloseTo(1, 1);
     expect(job.hoursVasek).toBeNull();
 
+    await db.delete(workSessionsTable).where(eq(workSessionsTable.personId, asciiJonasId));
     await db.delete(timeEntriesTable).where(eq(timeEntriesTable.jobId, jobId));
     await db.delete(peopleTable).where(eq(peopleTable.id, asciiJonasId));
     await db.delete(jobsTable).where(eq(jobsTable.id, jobId));
@@ -177,10 +185,12 @@ describe("stop timer -> Souhrn práce sync", () => {
     await db.delete(jobsTable).where(eq(jobsTable.id, jobId));
   });
 
-  it("returns 404 (and never touches summary fields) when stopping an entry that doesn't exist", async () => {
+  it("keeps stop idempotent when no active session exists", async () => {
     const jobId = await makeJob();
     const res = await agent.post(`/api/jobs/${jobId}/time-entries/${otherId}/stop`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(res.body.timerStartedAt).toBeNull();
+    expect(res.body.hours).toBe(0);
 
     const job = await getJob(jobId);
     expect(job.hoursSpent).toBeNull();
@@ -197,7 +207,7 @@ describe("stop timer -> Souhrn práce sync", () => {
     expect(job.hoursVasek).toBeNull();
     expect(job.hoursSpent).toBeNull();
 
-    await db.delete(timeEntriesTable).where(and(eq(timeEntriesTable.jobId, jobId), eq(timeEntriesTable.personId, vasekId)));
+    expect((await agent.delete(`/api/jobs/${jobId}/time-entries/${vasekId}`)).status).toBe(204);
     await db.delete(jobsTable).where(eq(jobsTable.id, jobId));
   });
 });

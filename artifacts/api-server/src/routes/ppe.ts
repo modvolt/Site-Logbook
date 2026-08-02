@@ -1037,27 +1037,25 @@ router.get("/ppe/assignments/:id/signature", async (req, res): Promise<void> => 
     res.status(404).json({ error: "Podpis nenalezen" });
     return;
   }
-  db.insert(ppeHandoverEventsTable)
-    .values({
-      assignmentId: params.data.id,
-      handoverDocumentId: doc?.id ?? null,
-      eventType: "signature_viewed",
-      actorUserId: req.auth?.userId ?? null,
-      actorName: req.auth?.name ?? req.auth?.username ?? null,
-    })
-    .catch(() => undefined);
-
-  res.setHeader("Content-Type", "image/png");
-  res.setHeader(
-    "Content-Disposition",
-    `inline; filename="podpis-${doc?.documentNumber ?? assignment.id}.png"`,
-  );
   try {
-    await objectStorage.servePrivateObject(signatureObjectPath, res);
+    const signature = await objectStorage.getPrivateObjectBuffer(signatureObjectPath);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="podpis-${doc?.documentNumber ?? assignment.id}.png"`,
+    );
+    res.send(signature);
+    db.insert(ppeHandoverEventsTable)
+      .values({
+        assignmentId: params.data.id,
+        handoverDocumentId: doc?.id ?? null,
+        eventType: "signature_viewed",
+        actorUserId: req.auth?.userId ?? null,
+        actorName: req.auth?.name ?? req.auth?.username ?? null,
+      })
+      .catch(() => undefined);
   } catch {
-    if (!res.headersSent) {
-      res.status(404).json({ error: "Soubor nenalezen" });
-    }
+    res.status(404).json({ error: "Soubor nenalezen" });
   }
 });
 

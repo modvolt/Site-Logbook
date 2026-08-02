@@ -6,6 +6,7 @@ import {
   billingDocumentLinesTable,
   auditLogTable,
   usersTable,
+  jobsTable,
 } from "@workspace/db";
 import {
   bulkConfirmReviewLines,
@@ -38,6 +39,7 @@ const actor = { userId: -1, name: `test-${TAG}`, role: "admin" as const };
 const docIds: number[] = [];
 const lineIds: number[] = [];
 let testUserId = -1;
+let testJobId = -1;
 
 beforeAll(async () => {
   const [user] = await db
@@ -46,6 +48,11 @@ beforeAll(async () => {
     .returning();
   testUserId = user.id;
   actor.userId = testUserId;
+  const [job] = await db
+    .insert(jobsTable)
+    .values({ title: `Zakázka ${TAG}`, type: "other", date: "2041-01-15" })
+    .returning();
+  testJobId = job.id;
 });
 
 afterAll(async () => {
@@ -56,6 +63,9 @@ afterAll(async () => {
   if (docIds.length) {
     await db.delete(billingDocumentsTable).where(inArray(billingDocumentsTable.id, docIds));
     docIds.length = 0;
+  }
+  if (testJobId !== -1) {
+    await db.delete(jobsTable).where(eq(jobsTable.id, testJobId));
   }
   if (testUserId !== -1) {
     await db.delete(usersTable).where(eq(usersTable.id, testUserId));
@@ -185,7 +195,7 @@ describe("bulkConfirmReviewLines – diff accuracy (stillUnresolved, withJobAssi
 
   beforeAll(async () => {
     docId = await makeDoc("needs_review");
-    lineWithJob = await makeLine(docId, { jobId: 1, matchConfirmed: 0, confidence: "0.5" });
+    lineWithJob = await makeLine(docId, { jobId: testJobId, matchConfirmed: 0, confidence: "0.5" });
     lineNoJob = await makeLine(docId, { jobId: null, matchConfirmed: 0, confidence: "0.5" });
   });
 
@@ -193,7 +203,7 @@ describe("bulkConfirmReviewLines – diff accuracy (stillUnresolved, withJobAssi
     const diff = await bulkConfirmReviewLines([lineWithJob, lineNoJob], actor, true);
     expect(diff.withJobAssigned).toBe(1);
     // affectedJobIds lists the actual job IDs (deduplicated)
-    expect(diff.affectedJobIds).toContain(1);
+    expect(diff.affectedJobIds).toContain(testJobId);
     expect(diff.affectedJobIds).toHaveLength(1);
   });
 

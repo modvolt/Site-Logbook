@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -16,6 +16,7 @@ import {
   cancelInvoice,
   getUnbilledCustomerDetail,
 } from "../src/lib/invoice-service";
+import { ObjectStorageService } from "../src/lib/objectStorage";
 
 /**
  * Double-bill guard for completed long-term actions (dlouhodobé akce), DB-backed.
@@ -72,6 +73,9 @@ async function makeCompletedActivity(): Promise<number> {
 }
 
 beforeAll(async () => {
+  vi.spyOn(ObjectStorageService.prototype, "putPrivateObject").mockResolvedValue();
+  vi.spyOn(ObjectStorageService.prototype, "deletePrivateObject").mockResolvedValue();
+
   const [user] = await db
     .insert(usersTable)
     .values({
@@ -108,6 +112,7 @@ afterAll(async () => {
     await db.delete(customersTable).where(eq(customersTable.id, customerId));
   if (actor.userId)
     await db.delete(usersTable).where(eq(usersTable.id, actor.userId));
+  vi.restoreAllMocks();
 });
 
 describe("activity double-bill guard", () => {

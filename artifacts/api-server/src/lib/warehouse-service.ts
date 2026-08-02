@@ -262,6 +262,25 @@ export async function reconcileSourceMovements(
 
 type WarehouseItemRow = typeof warehouseItemsTable.$inferSelect;
 
+function normalizeWarehouseName(name: string): string {
+  return name.trim().normalize("NFKC").toLowerCase();
+}
+
+/**
+ * PostgreSQL's lower() follows the database collation. A valid UTF-8 test or
+ * recovery database created with the C locale therefore does not necessarily
+ * fold Czech characters such as Š/š, which made stock matching depend on the
+ * cluster that happened to execute it. Keep the comparison in JavaScript so
+ * the same Unicode case-folding rule is used in development, CI and recovery
+ * drills. Warehouse catalogues are small enough for this save-time scan, and
+ * all later reconciliation remains ID-based.
+ */
+async function itemsMatchingName(tx: DbTx, name: string): Promise<WarehouseItemRow[]> {
+  const key = normalizeWarehouseName(name);
+  const rows = await tx.select().from(warehouseItemsTable).orderBy(warehouseItemsTable.id);
+  return rows.filter((row) => normalizeWarehouseName(row.name) === key);
+}
+
 async function loadItemMaps(tx: DbTx): Promise<{
   byCode: Map<string, WarehouseItemRow>;
   byName: Map<string, WarehouseItemRow>;
@@ -271,7 +290,7 @@ async function loadItemMaps(tx: DbTx): Promise<{
   const byName = new Map<string, WarehouseItemRow>();
   for (const it of items) {
     if (it.code) byCode.set(it.code.trim().toLowerCase(), it);
-    byName.set(it.name.trim().toLowerCase(), it);
+    byName.set(normalizeWarehouseName(it.name), it);
   }
   return { byCode, byName };
 }
@@ -350,16 +369,12 @@ export async function resolveOrCreateWarehouseItemByName(
   name: string,
   opts: { code?: string | null; unit?: string | null; purchasePrice?: string | null },
 ): Promise<WarehouseItemRow> {
-  const normalizedName = name.trim().toLowerCase();
+  const normalizedName = normalizeWarehouseName(name);
 
   // Acquire advisory lock before the re-check to prevent concurrent duplicates.
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${normalizedName}))`);
 
-  const [existing] = await tx
-    .select()
-    .from(warehouseItemsTable)
-    .where(sql`lower(${warehouseItemsTable.name}) = ${normalizedName}`)
-    .limit(1);
+  const [existing] = await itemsMatchingName(tx, name);
   if (existing) return existing;
 
   const [created] = await tx
@@ -384,7 +399,7 @@ async function resolveOrCreateItemForLine(
     .filter((c): c is string => !!c)
     .map((c) => c.trim().toLowerCase());
   let item = codeKeys.map((k) => maps.byCode.get(k)).find(Boolean);
-  if (!item) item = maps.byName.get(line.description.trim().toLowerCase());
+  if (!item) item = maps.byName.get(normalizeWarehouseName(line.description));
   if (item) return item;
 
   const code = (line.supplierSku ?? line.ean ?? "")?.trim() || null;
@@ -395,7 +410,7 @@ async function resolveOrCreateItemForLine(
       line.unitPriceWithoutVat == null ? null : String(round2(num(line.unitPriceWithoutVat))),
   });
   if (code) maps.byCode.set(code.toLowerCase(), created);
-  maps.byName.set(created.name.trim().toLowerCase(), created);
+  maps.byName.set(normalizeWarehouseName(created.name), created);
   return created;
 }
 
@@ -457,11 +472,7 @@ export async function resolveWarehouseItemIdByName(
   tx: DbTx,
   name: string,
 ): Promise<number | null> {
-  const key = name.trim().toLowerCase();
-  const rows = await tx
-    .select({ id: warehouseItemsTable.id })
-    .from(warehouseItemsTable)
-    .where(sql`lower(${warehouseItemsTable.name}) = ${key}`);
+  const rows = await itemsMatchingName(tx, name);
   return rows.length === 1 ? rows[0].id : null;
 }
 
