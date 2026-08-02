@@ -70,7 +70,7 @@ function handleError(err: unknown, fallback: string, res: import("express").Resp
     res.status(err.statusCode).json({ error: err.message });
     return;
   }
-  res.status(500).json({ error: err instanceof Error ? err.message : fallback });
+  res.status(500).json({ error: fallback, code: "unexpected_error" });
 }
 
 // ---------------------------------------------------------------------------

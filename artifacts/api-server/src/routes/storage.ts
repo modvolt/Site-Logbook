@@ -182,56 +182,41 @@ router.post(
     } catch (error) {
       await markObjectUploadFailed(
         objectPath,
-        error instanceof Error ? error.message : "Uložení objektu selhalo.",
+        "Storage provider request failed.",
         scan.verdict === "unavailable" ? "unavailable" : "pending",
       ).catch((ledgerError: unknown) => {
-        req.log.error({ err: ledgerError, objectPath }, "Upload ledger update failed");
+        const ledgerFailure = ledgerError as { name?: string; code?: string };
+        req.log.error(
+          {
+            objectPath,
+            errorName: ledgerFailure?.name,
+            errorCode: ledgerFailure?.code,
+          },
+          "Upload ledger update failed",
+        );
       });
-      // Capture the full S3/Hetzner error detail. An InvalidAccessKeyId XML
-      // body echoes back the exact key the provider received (`AWSAccessKeyId`)
-      // and a human message — invaluable for telling a mangled/wrong key apart
-      // from a genuinely-unknown one. These fields never contain the secret.
-      const s3err = error as Record<string, unknown> & {
+      const providerError = error as Record<string, unknown> & {
         name?: string;
-        message?: string;
         Code?: string;
         $metadata?: { httpStatusCode?: number; requestId?: string };
       };
       req.log.error(
         {
-          err: error,
-          s3Detail: {
-            name: s3err?.name,
-            code: s3err?.Code,
-            message: s3err?.message,
-            awsAccessKeyId: s3err?.["AWSAccessKeyId"],
-            hostId: s3err?.["HostId"],
-            endpoint: s3err?.["Endpoint"],
-            bucketRegion: s3err?.["Region"] ?? s3err?.["region"],
-            httpStatusCode: s3err?.$metadata?.httpStatusCode,
-            requestId: s3err?.$metadata?.requestId,
+          objectPath,
+          storageError: {
+            name: providerError?.name,
+            code: providerError?.Code,
+            endpoint: providerError?.["Endpoint"],
+            bucketRegion: providerError?.["Region"] ?? providerError?.["region"],
+            httpStatusCode: providerError?.$metadata?.httpStatusCode,
+            requestId: providerError?.$metadata?.requestId,
           },
         },
         "Error uploading object",
       );
-      // Surface the underlying storage reason (e.g. "InvalidAccessKeyId",
-      // "Access Denied", "bucket does not exist", "ENOTFOUND <endpoint>") so a
-      // misconfigured deployment is diagnosable from the UI instead of a blanket
-      // "save failed". The AWS SDK often sets `message` to a useless
-      // "UnknownError" while the real reason is in `name`/`Code` — prefer those.
-      // Storage SDK error fields don't contain credentials; we still cap length.
-      const err = error as { name?: string; Code?: string; message?: string };
-      const code = err?.Code || err?.name;
-      const rawMessage =
-        err?.message && err.message !== "UnknownError" ? err.message : "";
-      const detail = [code, rawMessage]
-        .filter((p): p is string => Boolean(p) && p !== "Error")
-        .join(": ")
-        .slice(0, 200);
       res.status(500).json({
-        error: detail
-          ? `Nepodařilo se uložit soubor do úložiště: ${detail}`
-          : "Nepodařilo se uložit soubor do úložiště.",
+        error: "Nepodařilo se uložit soubor do úložiště.",
+        code: "storage_upload_failed",
       });
     }
   },

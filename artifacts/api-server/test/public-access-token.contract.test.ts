@@ -53,6 +53,24 @@ describe("public access token migration contract", () => {
     expect(cleanup).not.toMatch(/console\.(?:log|error)\([^\n]*(?:rawToken|signatureToken|confirmToken|shareToken)/);
   });
 
+  it("keeps the legacy PPE token readiness preflight read-only and isolated", () => {
+    const preflight = read(
+      "artifacts/api-server/src/scripts/preflight-public-token-cutover.ts",
+    );
+    const statements = preflight.match(/sql`[\s\S]*?`/g) ?? [];
+
+    expect(preflight).toContain("PUBLIC_TOKEN_PREFLIGHT_CONFIRM_ISOLATED");
+    expect(preflight).toContain("--database=<exact DATABASE_URL database name>");
+    expect(preflight).toContain("--max-age-days");
+    expect(preflight).toContain('mode: "read-only"');
+    expect(preflight).toContain('decision: blocked ? "BLOCK" : "PASS"');
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/\bselect\b/i);
+    expect(statements[0]).toContain("from ppe_assignments");
+    expect(statements[0]).not.toMatch(/\b(?:insert|update|delete|alter|drop|truncate)\b/i);
+    expect(preflight).not.toMatch(/console\.(?:log|error)\([^\n]*(?:signatureToken|confirmToken)/);
+  });
+
   it("binds job and quote tokens to immutable versions without inventing legacy history", () => {
     const migration = read(
       "lib/db/migrations/0102_immutable_job_quote_versions.sql",

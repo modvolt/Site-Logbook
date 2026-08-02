@@ -24,7 +24,7 @@ Abort podmínky:
 
 ## 2. Expand a aplikační cutover
 
-1. Zastav paralelní změny schématu a ověř aktuální journal. `0101` musí být koordinována se souběžnou `0100_user_ui_preferences`; pořadí v cílovém release manifestu musí být jednoznačné.
+1. Zastav paralelní změny schématu a ověř aktuální journal. Tento release obsahuje pořadí `0099` → `0101`; rozpracovaná `0100_user_ui_preferences` do něj nesmí být dodatečně vložena.
 2. Vytvoř a ověř obnovitelnou zálohu. Zaznamenej pouze její ID/hash a čas, ne credentials.
 3. Aplikuj expand migraci. Ta vytvoří `public_access_tokens` a importuje hashe legacy job/OOPP/quote tokenů, ale nemaže plaintext.
 4. Ověř počty tabulky podle účelu, počet duplicit a integritu constraintů. Rozdíly proti předmigrační inventuře jsou abort.
@@ -34,6 +34,18 @@ Abort podmínky:
 ## 3. Měřený cleanup plaintextu
 
 Příkazy spouštěj z důvěryhodného checkoutu stejného commitu s `DATABASE_URL` předaným chráněným secret mechanismem. Dry-run nic nemaže:
+
+Nejdřív na izolované anonymizované kopii spusť read-only age gate s maximálním stářím schváleným service ownerem. Skript vypisuje pouze agregované počty a stáří, nikdy tokeny nebo jejich prefixy:
+
+```powershell
+$env:NODE_ENV = "test"
+$env:PUBLIC_TOKEN_PREFLIGHT_CONFIRM_ISOLATED = "true"
+pnpm --filter @workspace/api-server public-tokens:preflight -- --database=<PRESNY_NAZEV_IZOLOVANE_DB> --max-age-days=<SCHVALENE_MAXIMUM>
+```
+
+`decision: BLOCK` a exit code 2 znamenají, že existuje aktivní legacy PPE odkaz starší než schválený limit. Rollout zastav, odkazy revokuj nebo znovu bezpečně vydej a preflight opakuj. `created_at` je pro PPE signature konzervativní horní odhad stáří, protože legacy schema nemá samostatný čas vydání signature tokenu.
+
+Poté proveď stávající dry-run cleanup plánu:
 
 ```powershell
 pnpm --filter @workspace/api-server public-tokens:backfill

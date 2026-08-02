@@ -98,9 +98,16 @@ describe("generated API route manifest", () => {
     expect(resolveApiRouteAccess("GET", "/events")).toEqual({ kind: "authenticated" });
     expect(resolveApiRouteAccess("GET", "/sessions")).toEqual({ kind: "authenticated" });
     expect(resolveApiRouteAccess("PUT", "/preferences")).toEqual({ kind: "authenticated" });
-    expect(resolveApiRouteAccess("POST", "/storage/uploads")).toEqual({ kind: "authenticated" });
     expect(resolveApiRouteAccess("GET", "/storage/objects/uploads/known")).toEqual({
       kind: "authenticated",
+    });
+  });
+
+  it("requires a staged-upload claim permission for upload intents", () => {
+    expect(resolveApiRouteAccess("POST", "/storage/uploads")).toEqual({
+      kind: "permissions",
+      allOf: [],
+      anyOf: ["jobs.work", "activities.manage", "customers.manage"],
     });
   });
 

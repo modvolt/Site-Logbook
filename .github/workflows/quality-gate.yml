@@ -16,7 +16,7 @@ jobs:
       BASE_PATH: /
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:16-alpine
         env:
           POSTGRES_DB: site_logbook_ci_test
           POSTGRES_PASSWORD: site-logbook-ci-only

@@ -17,7 +17,8 @@
     "objects:recovery": "tsx src/scripts/object-recovery.ts",
     "objects:recovery:drill": "tsx src/scripts/object-recovery-drill.ts",
     "secrets:backfill": "tsx src/scripts/backfill-secret-envelopes.ts",
-    "public-tokens:backfill": "tsx src/scripts/backfill-public-access-tokens.ts"
+    "public-tokens:backfill": "tsx src/scripts/backfill-public-access-tokens.ts",
+    "public-tokens:preflight": "tsx src/scripts/preflight-public-token-cutover.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",

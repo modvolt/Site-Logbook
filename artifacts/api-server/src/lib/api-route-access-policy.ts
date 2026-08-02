@@ -73,6 +73,12 @@ const MODULE_RULES: readonly ModuleRule[] = [
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+const STAGED_UPLOAD_CLAIM_PERMISSIONS: readonly Permission[] = [
+  "jobs.work",
+  "activities.manage",
+  "customers.manage",
+];
+
 const AUTHENTICATED_ONLY_ROUTES: readonly {
   methods: ReadonlySet<string>;
   path: RegExp;
@@ -90,7 +96,6 @@ const AUTHENTICATED_ONLY_ROUTES: readonly {
   { methods: new Set(["GET", "HEAD"]), path: /^\/sessions$/ },
   { methods: new Set(["DELETE"]), path: /^\/sessions\/[^/]+$/ },
   { methods: new Set(["GET", "HEAD"]), path: /^\/(?:events|public-holidays)$/ },
-  { methods: new Set(["POST"]), path: /^\/storage\/uploads$/ },
   { methods: new Set(["GET", "HEAD"]), path: /^\/storage\/objects\/.+$/ },
   { methods: new Set(["POST"]), path: /^\/client-errors$/ },
 ];
@@ -249,6 +254,13 @@ export function resolveApiRouteAccess(
   }
   if (isPublicApiRequest(normalizedMethod, `/api${path}`)) return { kind: "public" };
   if (authenticatedOnly(normalizedMethod, path)) return { kind: "authenticated" };
+  if (normalizedMethod === "POST" && path === "/storage/uploads") {
+    return {
+      kind: "permissions",
+      allOf: [],
+      anyOf: [...STAGED_UPLOAD_CLAIM_PERMISSIONS],
+    };
+  }
 
   const moduleRule = moduleRuleForPath(path);
   const specific = specificPermission(policyMethod, path);
