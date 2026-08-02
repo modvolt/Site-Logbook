@@ -1,15 +1,19 @@
 import { Router, type IRouter } from "express";
-import { and, eq, isNull, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { z } from "zod/v4";
 import { db, jobsTable, customersTable } from "@workspace/db";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { decodeSignatureImage } from "../lib/signature-image";
+import {
+  consumePublicAccessToken,
+  PublicAccessTokenError,
+  publicAccessTokenHttpStatus,
+  resolvePublicAccessToken,
+} from "../lib/public-access-token";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
-
-const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function fmtDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -17,26 +21,52 @@ function fmtDate(iso: string): string {
   return `${m[3]}.${m[2]}.${m[1]}`;
 }
 
+function sendTokenError(
+  res: import("express").Response,
+  error: PublicAccessTokenError,
+): void {
+  const status = publicAccessTokenHttpStatus(error);
+  const message = error.code === "expired"
+    ? "Platnost odkazu k podpisu vypršela. Požádejte o zaslání nového odkazu."
+    : error.code === "consumed"
+      ? "Tento odkaz k podpisu již byl použit."
+      : "Odkaz k podpisu nebyl nalezen, byl zrušen nebo již není platný.";
+  res.status(status).json({ error: message, code: `public_token_${error.code}` });
+}
+
+class JobSignatureStateError extends Error {
+  constructor(readonly code: "not_found" | "already_signed") {
+    super(code);
+    this.name = "JobSignatureStateError";
+  }
+}
+
 router.get("/sign/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
-  if (!token || !TOKEN_RE.test(token)) {
+  if (!token) {
     res.status(400).json({ error: "Neplatný token" });
     return;
   }
 
+  let tokenRecord;
+  try {
+    tokenRecord = await resolvePublicAccessToken("job_signature", token);
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendTokenError(res, error);
+      return;
+    }
+    throw error;
+  }
   const [job] = await db
     .select()
     .from(jobsTable)
-    .where(eq(jobsTable.signatureToken, token));
+    .where(eq(jobsTable.id, tokenRecord.resourceId));
 
   if (!job) {
     res.status(404).json({ error: "Odkaz k podpisu nebyl nalezen. Možná byl zrušen nebo jste použili neplatný odkaz." });
     return;
   }
-
-  const expired =
-    job.signatureTokenExpiresAt != null &&
-    job.signatureTokenExpiresAt < new Date();
 
   let customerCompanyName: string | null = null;
   if (job.customerId) {
@@ -55,13 +85,13 @@ router.get("/sign/:token", async (req, res): Promise<void> => {
     notes: job.notes,
     alreadySigned: !!job.signedAt,
     signedAt: job.signedAt ? job.signedAt.toISOString() : null,
-    expired,
+    expired: false,
   });
 });
 
 router.post("/sign/:token", async (req, res): Promise<void> => {
   const { token } = req.params;
-  if (!token || !TOKEN_RE.test(token)) {
+  if (!token) {
     res.status(400).json({ error: "Neplatný token" });
     return;
   }
@@ -75,18 +105,24 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
+  let tokenRecord;
+  try {
+    tokenRecord = await resolvePublicAccessToken("job_signature", token);
+  } catch (error) {
+    if (error instanceof PublicAccessTokenError) {
+      sendTokenError(res, error);
+      return;
+    }
+    throw error;
+  }
+
   const [job] = await db
     .select()
     .from(jobsTable)
-    .where(eq(jobsTable.signatureToken, token));
+    .where(eq(jobsTable.id, tokenRecord.resourceId));
 
   if (!job) {
     res.status(404).json({ error: "Odkaz k podpisu nebyl nalezen" });
-    return;
-  }
-
-  if (job.signatureTokenExpiresAt != null && job.signatureTokenExpiresAt < new Date()) {
-    res.status(410).json({ error: "Platnost odkazu k podpisu vypršela. Požádejte o zaslání nového odkazu." });
     return;
   }
 
@@ -117,29 +153,47 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  const signedAt = new Date();
-  const updated = await db
-    .update(jobsTable)
-    .set({ signedAt, signatureObjectPath: objectPath })
-    .where(
-      and(
-        eq(jobsTable.signatureToken, token),
-        isNull(jobsTable.signedAt),
-        gt(jobsTable.signatureTokenExpiresAt, new Date()),
-      )
-    )
-    .returning({ id: jobsTable.id });
-
-  if (!updated.length) {
-    // Another request won the race — clean up the orphan object we just uploaded.
-    objectStorage.deletePrivateObject(objectPath).catch((err: unknown) => {
-      req.log?.warn({ err, objectPath }, "Failed to clean up orphan signature object after lost race");
+  try {
+    const signedAt = await consumePublicAccessToken({
+      purpose: "job_signature",
+      token,
+      action: "signed",
+      transition: async (tx, record) => {
+        const [current] = await tx
+          .select({ id: jobsTable.id, signedAt: jobsTable.signedAt })
+          .from(jobsTable)
+          .where(eq(jobsTable.id, record.resourceId))
+          .for("update");
+        if (!current) throw new JobSignatureStateError("not_found");
+        if (current.signedAt) throw new JobSignatureStateError("already_signed");
+        const value = new Date();
+        await tx
+          .update(jobsTable)
+          .set({ signedAt: value, signatureObjectPath: objectPath })
+          .where(eq(jobsTable.id, current.id));
+        return value;
+      },
     });
-    res.status(409).json({ error: "Zakázka již byla podepsána nebo platnost odkazu vypršela." });
-    return;
+    res.json({ signedAt: signedAt.toISOString() });
+  } catch (error) {
+    await objectStorage.deletePrivateObject(objectPath).catch((cleanupError: unknown) => {
+      req.log?.warn({ err: cleanupError, objectPath }, "Failed to clean up orphan signature object after lost race");
+    });
+    if (error instanceof PublicAccessTokenError) {
+      sendTokenError(res, error);
+      return;
+    }
+    if (error instanceof JobSignatureStateError) {
+      res.status(error.code === "not_found" ? 404 : 409).json({
+        error: error.code === "not_found"
+          ? "Zakázka nebyla nalezena."
+          : "Zakázka již byla podepsána.",
+      });
+      return;
+    }
+    req.log?.error({ err: error }, "Job signature save failed");
+    res.status(500).json({ error: "Nepodařilo se uložit podpis. Zkuste to prosím znovu." });
   }
-
-  res.json({ signedAt: signedAt.toISOString() });
 });
 
 export default router;

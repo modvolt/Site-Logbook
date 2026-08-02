@@ -234,6 +234,7 @@ import type {
   PpeItem,
   PpeItemInput,
   PpeSignHandoverInput,
+  PpeSignLinkResponse,
   PublicHoliday,
   PublicQuoteDetail,
   PurgeClientErrorsParams,
@@ -9482,6 +9483,76 @@ export function useExportPpeAssignments<TData = Awaited<ReturnType<typeof export
 
 
 
+export const getIssuePpeSignTokenUrl = (id: number,) => {
+
+
+
+
+  return `/api/ppe/assignments/${id}/sign-token`
+}
+
+/**
+ * @summary Issue a new one-time signature link for an active assignment (admin/master)
+ */
+export const issuePpeSignToken = async (id: number, options?: RequestInit): Promise<PpeSignLinkResponse> => {
+
+  return customFetch<PpeSignLinkResponse>(getIssuePpeSignTokenUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getIssuePpeSignTokenMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof issuePpeSignToken>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof issuePpeSignToken>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['issuePpeSignToken'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof issuePpeSignToken>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  issuePpeSignToken(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type IssuePpeSignTokenMutationResult = NonNullable<Awaited<ReturnType<typeof issuePpeSignToken>>>
+
+    export type IssuePpeSignTokenMutationError = ErrorType<void>
+
+    /**
+ * @summary Issue a new one-time signature link for an active assignment (admin/master)
+ */
+export const useIssuePpeSignToken = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof issuePpeSignToken>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof issuePpeSignToken>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getIssuePpeSignTokenMutationOptions(options));
+    }
+
 export const getRevokePpeSignTokenUrl = (id: number,) => {
 
 
@@ -9703,7 +9774,7 @@ export const getRequestPpeConfirmUrl = (id: number,) => {
 }
 
 /**
- * @summary Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+ * @summary Generate a new one-time confirmation link for an issued PPE assignment (admin/master)
  */
 export const requestPpeConfirm = async (id: number, options?: RequestInit): Promise<PpeConfirmLinkResponse> => {
 
@@ -9751,7 +9822,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RequestPpeConfirmMutationError = ErrorType<void>
 
     /**
- * @summary Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+ * @summary Generate a new one-time confirmation link for an issued PPE assignment (admin/master)
  */
 export const useRequestPpeConfirm = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestPpeConfirm>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}

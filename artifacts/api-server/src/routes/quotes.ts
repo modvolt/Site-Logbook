@@ -9,6 +9,10 @@ import { requirePermission } from "../middlewares/permissions";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { PublicOriginConfigError } from "../lib/public-origin";
 import {
+  PublicAccessTokenError,
+  publicAccessTokenHttpStatus,
+} from "../lib/public-access-token";
+import {
   listQuotes,
   getQuoteDetail,
   createQuote,
@@ -40,6 +44,16 @@ function isAppError(err: unknown): err is ReturnType<typeof appError> {
 }
 
 function handleError(err: unknown, fallback: string, res: import("express").Response): void {
+  if (err instanceof PublicAccessTokenError) {
+    const status = publicAccessTokenHttpStatus(err);
+    const message = err.code === "expired"
+      ? "Platnost odkazu nabídky vypršela."
+      : err.code === "consumed"
+        ? "Tento odkaz nabídky již byl použit."
+        : "Odkaz nabídky nebyl nalezen, byl zrušen nebo již není platný.";
+    res.status(status).json({ error: message, code: `public_token_${err.code}` });
+    return;
+  }
   if (err instanceof PublicOriginConfigError) {
     res.status(503).json({
       error: "Veřejný odkaz nyní nelze bezpečně vytvořit.",
@@ -261,6 +275,7 @@ router.post("/quotes/:id/send", async (req, res): Promise<void> => {
       to: parsed.data.to ?? null,
       subject: parsed.data.subject ?? null,
       message: parsed.data.message ?? null,
+      createdByUserId: req.auth?.userId ?? null,
     });
     res.json(result);
   } catch (err) {

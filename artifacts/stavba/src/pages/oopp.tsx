@@ -79,8 +79,11 @@ function ShareSignDialog({
     fetch(`/api/ppe/assignments/${assignment.id}/sign-token`, { method: "POST" })
       .then((r) => r.json())
       .then(async (data: { error?: string; signUrl?: string }) => {
-        if (data.error) { setError(data.error); return; }
-        const fullUrl = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, "")}${data.signUrl}`;
+        if (data.error || !data.signUrl) {
+          setError(data.error ?? "Server nevrátil odkaz pro podpis");
+          return;
+        }
+        const fullUrl = new URL(data.signUrl, window.location.origin).toString();
         setSignUrl(fullUrl);
         const qr = await QRCode.toDataURL(fullUrl, { width: 240, margin: 2 });
         setQrDataUrl(qr);

@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   db,
   quotesTable,
   quoteItemsTable,
   customersTable,
+  billingSettingsTable,
+  publicAccessTokensTable,
 } from "@workspace/db";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { hashPublicAccessToken } from "../src/lib/public-access-token";
 
 /**
  * Quote send flow — create → send (DB-backed).
@@ -70,8 +73,12 @@ beforeAll(async () => {
     .spyOn(ObjectStorageService.prototype, "putPrivateObject")
     .mockResolvedValue(undefined);
 
-  // billing_settings row is auto-created by ensureSettings() if absent, so
-  // we do not need to seed it here.
+  // Quote number allocation locks the singleton row. A fresh isolated DB has
+  // no settings yet, so seed the same default row production setup creates.
+  await db
+    .insert(billingSettingsTable)
+    .values({ id: 1 })
+    .onConflictDoNothing();
 
   const [customer] = await db
     .insert(customersTable)
@@ -88,6 +95,9 @@ afterAll(async () => {
   else process.env.PUBLIC_APP_URL = originalPublicUrl;
   vi.restoreAllMocks();
   if (quoteIds.length > 0) {
+    await db
+      .delete(publicAccessTokensTable)
+      .where(inArray(publicAccessTokensTable.resourceId, quoteIds));
     await db
       .delete(quoteItemsTable)
       .where(inArray(quoteItemsTable.quoteId, quoteIds));
@@ -233,6 +243,7 @@ describe("sendQuote", () => {
       .select({
         status: quotesTable.status,
         pdfObjectPath: quotesTable.pdfObjectPath,
+        shareToken: quotesTable.shareToken,
       })
       .from(quotesTable)
       .where(eq(quotesTable.id, quote!.id))
@@ -240,6 +251,7 @@ describe("sendQuote", () => {
 
     expect(row?.status).toBe("sent");
     expect(row?.pdfObjectPath).toBeTruthy();
+    expect(row?.shareToken).toBeNull();
 
     // Object storage: PDF was uploaded
     expect(putSpy).toHaveBeenCalledOnce();
@@ -256,6 +268,18 @@ describe("sendQuote", () => {
     expect(emailCall.to).toBe("zakaznik@example.com");
     expect(emailCall.subject).toContain("Cenová nabídka");
     expect(emailCall.text).toContain("https://quotes.test/quote-share/");
+    const emailedToken = /quote-share\/([A-Za-z0-9_-]{43})/.exec(emailCall.text)?.[1];
+    expect(emailedToken).toBeTruthy();
+    const [tokenRow] = await db
+      .select({ tokenHash: publicAccessTokensTable.tokenHash })
+      .from(publicAccessTokensTable)
+      .where(and(
+        eq(publicAccessTokensTable.purpose, "quote_decision"),
+        eq(publicAccessTokensTable.resourceId, quote!.id),
+        isNull(publicAccessTokensTable.revokedAt),
+      ));
+    expect(tokenRow?.tokenHash).toBe(hashPublicAccessToken(emailedToken!));
+    expect(JSON.stringify(tokenRow)).not.toContain(emailedToken!);
     expect(emailCall.pdfBase64.length).toBeGreaterThan(100);
     expect(emailCall.filename).toMatch(/^nabidka-.*\.pdf$/);
 

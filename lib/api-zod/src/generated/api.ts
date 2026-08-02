@@ -3634,6 +3634,19 @@ export const ExportPpeAssignmentsQueryParams = zod.object({
 
 
 /**
+ * @summary Issue a new one-time signature link for an active assignment (admin/master)
+ */
+export const IssuePpeSignTokenParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const IssuePpeSignTokenResponse = zod.object({
+  "signUrl": zod.string().describe('Full URL for the newly issued one-time signature credential'),
+  "expiresAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Revoke the signature link for an assignment so the token is no longer valid (admin/master)
  */
 export const RevokePpeSignTokenParams = zod.object({
@@ -3713,7 +3726,7 @@ export const UpdatePpeAssignmentResponse = zod.object({
 
 
 /**
- * @summary Generate (or re-use) a confirmation link for an issued PPE assignment (admin/master)
+ * @summary Generate a new one-time confirmation link for an issued PPE assignment (admin/master)
  */
 export const RequestPpeConfirmParams = zod.object({
   "id": zod.coerce.number()
@@ -3721,7 +3734,7 @@ export const RequestPpeConfirmParams = zod.object({
 
 export const RequestPpeConfirmResponse = zod.object({
   "confirmUrl": zod.string().describe('Full URL the employee opens to confirm receipt'),
-  "token": zod.string(),
+  "expiresAt": zod.coerce.date().describe('Expiration time of the newly issued one-time link'),
   "emailSent": zod.boolean().describe('True when the confirmation link was successfully emailed to the employee')
 })
 
@@ -12211,7 +12224,6 @@ export const ListQuotesResponseItem = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
-  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
@@ -12267,7 +12279,6 @@ export const GetQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
-  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
@@ -12325,7 +12336,6 @@ export const UpdateQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
-  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
@@ -12392,7 +12402,6 @@ export const AcceptQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
-  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
@@ -12432,7 +12441,6 @@ export const RejectQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
-  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),
@@ -12472,7 +12480,6 @@ export const ExpireQuoteResponse = zod.object({
   "validUntil": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "pdfObjectPath": zod.string().nullish(),
-  "shareToken": zod.string().nullish(),
   "convertedToJobId": zod.number().nullish(),
   "convertedToJobGroupId": zod.number().nullish(),
   "convertedToInvoiceId": zod.number().nullish(),

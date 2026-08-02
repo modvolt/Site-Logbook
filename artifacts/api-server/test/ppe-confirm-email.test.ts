@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
-import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
+import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable, publicAccessTokensTable } from "@workspace/db";
 
 /**
  * Integration tests for POST /ppe/assignments/:id/request-confirm
@@ -70,6 +70,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
   else process.env.PUBLIC_APP_URL = originalPublicUrl;
+  if (assignmentIds.length > 0)
+    await db.delete(publicAccessTokensTable).where(inArray(publicAccessTokensTable.resourceId, assignmentIds));
   if (assignmentIds.length > 0)
     await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
   if (itemIds.length > 0)

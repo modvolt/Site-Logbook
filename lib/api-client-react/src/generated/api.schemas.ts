@@ -2941,6 +2941,12 @@ export interface PpeAssignmentInput {
   notes?: string | null;
 }
 
+export interface PpeSignLinkResponse {
+  /** Full URL for the newly issued one-time signature credential */
+  signUrl: string;
+  expiresAt: string;
+}
+
 export type PpeAssignmentUpdateStatus = typeof PpeAssignmentUpdateStatus[keyof typeof PpeAssignmentUpdateStatus];
 
 
@@ -2973,7 +2979,8 @@ export interface PpeAssignmentUpdate {
 export interface PpeConfirmLinkResponse {
   /** Full URL the employee opens to confirm receipt */
   confirmUrl: string;
-  token: string;
+  /** Expiration time of the newly issued one-time link */
+  expiresAt: string;
   /** True when the confirmation link was successfully emailed to the employee */
   emailSent: boolean;
 }
@@ -6199,8 +6206,6 @@ export interface Quote {
   /** @nullable */
   pdfObjectPath?: string | null;
   /** @nullable */
-  shareToken?: string | null;
-  /** @nullable */
   convertedToJobId?: number | null;
   /** @nullable */
   convertedToJobGroupId?: number | null;
@@ -6287,8 +6292,6 @@ export interface QuoteDetail {
   notes?: string | null;
   /** @nullable */
   pdfObjectPath?: string | null;
-  /** @nullable */
-  shareToken?: string | null;
   /** @nullable */
   convertedToJobId?: number | null;
   /** @nullable */

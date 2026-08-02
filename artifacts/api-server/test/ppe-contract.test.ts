@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
-import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
+import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable, publicAccessTokensTable } from "@workspace/db";
 import app from "../src/app";
 
 /**
@@ -83,6 +83,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
   else process.env.PUBLIC_APP_URL = originalPublicUrl;
+  if (assignmentIds.length > 0)
+    await db.delete(publicAccessTokensTable).where(inArray(publicAccessTokensTable.resourceId, assignmentIds));
   if (assignmentIds.length > 0)
     await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
   if (itemIds.length > 0)
@@ -412,14 +414,13 @@ describe("employee confirmation signature flow", () => {
     assignmentIds.push(confirmAssignmentId);
   });
 
-  it("POST /api/ppe/assignments/:id/request-confirm → 200 with confirmUrl and token", async () => {
+  it("POST /api/ppe/assignments/:id/request-confirm → 200 with a one-time confirmUrl", async () => {
     const res = await adminAgent.post(`/api/ppe/assignments/${confirmAssignmentId}/request-confirm`);
     expect(res.status).toBe(200);
-    expect(typeof res.body.token).toBe("string");
-    expect(res.body.token.length).toBeGreaterThan(0);
+    expect(res.body.token).toBeUndefined();
     expect(typeof res.body.confirmUrl).toBe("string");
-    expect(res.body.confirmUrl).toContain(res.body.token);
-    confirmToken = res.body.token;
+    confirmToken = new URL(res.body.confirmUrl).searchParams.get("token") ?? "";
+    expect(confirmToken.length).toBeGreaterThan(30);
   });
 
   it("GET /api/ppe/confirm?token= returns assignment info without confirmToken field", async () => {
@@ -430,9 +431,9 @@ describe("employee confirmation signature flow", () => {
     expect(res.body.confirmToken).toBeUndefined();
   });
 
-  it("GET /api/ppe/confirm with invalid token → 404", async () => {
+  it("GET /api/ppe/confirm with malformed token → 400", async () => {
     const res = await adminAgent.get("/api/ppe/confirm?token=definitely-not-a-real-token-xyz");
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(400);
   });
 
   it("GET /api/ppe/confirm with missing token → 400", async () => {
@@ -449,11 +450,10 @@ describe("employee confirmation signature flow", () => {
     expect(res.body.assignment.confirmToken).toBeUndefined();
   });
 
-  it("POST /api/ppe/confirm again with same token → 200 with already:true (idempotent)", async () => {
+  it("POST /api/ppe/confirm again with same token rejects replay", async () => {
     const res = await request(app).post("/api/ppe/confirm").send({ token: confirmToken });
-    expect(res.status).toBe(200);
-    expect(res.body.already).toBe(true);
-    expect(res.body.assignment.employeeConfirmedAt).not.toBeNull();
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("public_token_consumed");
   });
 
   it("POST /api/ppe/confirm with missing token → 400", async () => {
@@ -461,9 +461,9 @@ describe("employee confirmation signature flow", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/ppe/confirm with invalid token → 404", async () => {
+  it("POST /api/ppe/confirm with malformed token → 400", async () => {
     const res = await request(app).post("/api/ppe/confirm").send({ token: "bad-token-xyz" });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(400);
   });
 
   it("POST /api/ppe/assignments/:id/request-confirm on already-confirmed → 409", async () => {
@@ -495,6 +495,60 @@ describe("employee confirmation signature flow", () => {
 });
 
 // ── request-confirm guards ────────────────────────────────────────────────────
+
+describe("employee signature-link lifecycle", () => {
+  let signAssignmentId = 0;
+
+  beforeAll(async () => {
+    const [item] = await db
+      .insert(ppeItemsTable)
+      .values({ name: `SignLink ${TAG}`, category: "ruky", active: true })
+      .returning();
+    itemIds.push(item.id);
+    const [assignment] = await db
+      .insert(ppeAssignmentsTable)
+      .values({
+        ppeItemId: item.id,
+        personId,
+        ppeNameSnapshot: item.name,
+        personNameSnapshot: `Worker ${TAG}`,
+        quantity: 1,
+        issuedAt: new Date().toISOString().slice(0, 10),
+        status: "issued",
+      })
+      .returning();
+    signAssignmentId = assignment.id;
+    assignmentIds.push(assignment.id);
+  });
+
+  it("issues hash-only links, rotates them, and revokes explicitly", async () => {
+    const first = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
+    expect(first.status).toBe(200);
+    expect(first.body.token).toBeUndefined();
+    const firstToken = new URL(first.body.signUrl).pathname.split("/").at(-1) ?? "";
+    expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const second = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
+    expect(second.status).toBe(200);
+    const secondToken = new URL(second.body.signUrl).pathname.split("/").at(-1) ?? "";
+    expect(secondToken).not.toBe(firstToken);
+    expect((await request(app).get(`/api/ppe/sign/${firstToken}`)).status).toBe(410);
+    expect((await request(app).get(`/api/ppe/sign/${secondToken}`)).status).toBe(200);
+
+    const revoked = await adminAgent.delete(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
+    expect(revoked.status).toBe(204);
+    expect((await request(app).get(`/api/ppe/sign/${secondToken}`)).status).toBe(410);
+  });
+
+  it("does not issue a link after the assignment closes", async () => {
+    await db
+      .update(ppeAssignmentsTable)
+      .set({ status: "returned", returnedAt: new Date().toISOString().slice(0, 10) })
+      .where(eq(ppeAssignmentsTable.id, signAssignmentId));
+    const response = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
+    expect(response.status).toBe(409);
+  });
+});
 
 describe("request-confirm guards", () => {
   let returnedAssignmentId: number;
@@ -540,7 +594,7 @@ describe("request-confirm guards", () => {
     expect(res.status).toBe(403);
   });
 
-  it("POST request-confirm is idempotent (same token returned on repeat call for issued assignment)", async () => {
+  it("POST request-confirm rotates the one-time link for an issued assignment", async () => {
     const [item] = await db
       .insert(ppeItemsTable)
       .values({ name: `IdempotentConfirm ${TAG}`, category: "telo", active: true })
@@ -566,7 +620,17 @@ describe("request-confirm guards", () => {
     expect(first.status).toBe(200);
     const second = await adminAgent.post(`/api/ppe/assignments/${assignment.id}/request-confirm`);
     expect(second.status).toBe(200);
-    expect(second.body.token).toBe(first.body.token);
+    const firstToken = new URL(first.body.confirmUrl).searchParams.get("token");
+    const secondToken = new URL(second.body.confirmUrl).searchParams.get("token");
+    expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(secondToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(secondToken).not.toBe(firstToken);
+
+    const revoked = await request(app).get(`/api/ppe/confirm?token=${firstToken}`);
+    expect(revoked.status).toBe(410);
+    expect(revoked.body.code).toBe("public_token_revoked");
+    const active = await request(app).get(`/api/ppe/confirm?token=${secondToken}`);
+    expect(active.status).toBe(200);
   });
 });
 

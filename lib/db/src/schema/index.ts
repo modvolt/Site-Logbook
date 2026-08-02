@@ -27,6 +27,7 @@ export * from "./customer-site-attachments";
 export * from "./device-credentials";
 export * from "./audit-log";
 export * from "./api-idempotency";
+export * from "./public-access-tokens";
 export * from "./object-uploads";
 export * from "./time-entries";
 export * from "./work-sessions";

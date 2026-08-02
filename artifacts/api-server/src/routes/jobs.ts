@@ -53,6 +53,11 @@ import {
   UpdateJobAssigneesBody,
 } from "@workspace/api-zod";
 import { publicAppUrl } from "../lib/public-origin";
+import {
+  issuePublicAccessToken,
+  publicTokenExpiry,
+  revokePublicAccessTokens,
+} from "../lib/public-access-token";
 import { sendEmailWithPdf, sendPlainEmail } from "../lib/email";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { randomUUID } from "node:crypto";
@@ -1793,27 +1798,38 @@ router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
     return;
   }
 
+  if (job.signedAt) {
+    res.status(409).json({ error: "Zakázka již byla podepsána" });
+    return;
+  }
+
   const isDev = process.env.NODE_ENV !== "production";
   const expiredForTesting =
     isDev && (req.body as Record<string, unknown>)?.expiredForTesting === true;
 
-  const token = randomUUID();
-  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
   const expiresAt = expiredForTesting
     ? new Date(Date.now() - 1000)
-    : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    : publicTokenExpiry("JOB_SIGNATURE_EXPIRY_DAYS", 7);
   const requestedAt = new Date();
+  const { token } = await issuePublicAccessToken({
+    purpose: "job_signature",
+    resourceId: id,
+    expiresAt,
+    createdByUserId: req.auth?.userId ?? null,
+    onIssue: async (tx) => {
+      await tx
+        .update(jobsTable)
+        .set({
+          signatureToken: null,
+          signatureTokenExpiresAt: expiresAt,
+          signatureRequestedAt: requestedAt,
+        })
+        .where(eq(jobsTable.id, id));
+    },
+  });
+  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
 
-  await db
-    .update(jobsTable)
-    .set({
-      signatureToken: token,
-      signatureTokenExpiresAt: expiresAt,
-      signatureRequestedAt: requestedAt,
-    })
-    .where(eq(jobsTable.id, id));
-
-  res.json({ token, signUrl, expiresAt: expiresAt.toISOString() });
+  res.json({ signUrl, expiresAt: expiresAt.toISOString() });
 });
 
 router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
@@ -1826,6 +1842,11 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
   const [job] = await db.select().from(jobsTable).where(eq(jobsTable.id, id));
   if (!job) {
     res.status(404).json({ error: "Zakázka nenalezena" });
+    return;
+  }
+
+  if (job.signedAt) {
+    res.status(409).json({ error: "Zakázka již byla podepsána" });
     return;
   }
 
@@ -1862,19 +1883,25 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
     return;
   }
 
-  const token = randomUUID();
-  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = publicTokenExpiry("JOB_SIGNATURE_EXPIRY_DAYS", 7);
   const requestedAt = new Date();
-
-  await db
-    .update(jobsTable)
-    .set({
-      signatureToken: token,
-      signatureTokenExpiresAt: expiresAt,
-      signatureRequestedAt: requestedAt,
-    })
-    .where(eq(jobsTable.id, id));
+  const { token } = await issuePublicAccessToken({
+    purpose: "job_signature",
+    resourceId: id,
+    expiresAt,
+    createdByUserId: req.auth?.userId ?? null,
+    onIssue: async (tx) => {
+      await tx
+        .update(jobsTable)
+        .set({
+          signatureToken: null,
+          signatureTokenExpiresAt: expiresAt,
+          signatureRequestedAt: requestedAt,
+        })
+        .where(eq(jobsTable.id, id));
+    },
+  });
+  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
 
   const jobLabel = job.title ?? `Zakázka #${job.id}`;
 
@@ -1892,6 +1919,14 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
       text: emailText,
     });
   } catch (err) {
+    await revokePublicAccessTokens({
+      purpose: "job_signature",
+      resourceId: id,
+      revokedByUserId: req.auth?.userId ?? null,
+      reason: "delivery_failed",
+    }).catch((revokeError: unknown) => {
+      req.log.error({ err: revokeError, jobId: id }, "Failed to revoke undelivered signature token");
+    });
     req.log.error({ err }, "Failed to send signature request email");
     res
       .status(502)

@@ -7,6 +7,7 @@ import {
   ppeItemsTable,
   ppeAssignmentsTable,
   peopleTable,
+  publicAccessTokensTable,
 } from "@workspace/db";
 import app from "../src/app";
 import { ObjectStorageService } from "../src/lib/objectStorage";
@@ -70,6 +71,8 @@ beforeAll(async () => {
 afterAll(async () => {
   vi.restoreAllMocks();
 
+  if (assignmentIds.length > 0)
+    await db.delete(publicAccessTokensTable).where(inArray(publicAccessTokensTable.resourceId, assignmentIds));
   if (assignmentIds.length > 0)
     await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
   if (itemIds.length > 0)
@@ -137,7 +140,7 @@ describe("concurrent PPE employee self-sign — double-sign race guard", () => {
     expect(loser.status).toBe(409);
     expect(typeof loser.body.error).toBe("string");
     expect(loser.body.error.length).toBeGreaterThan(0);
-    expect(loser.body.error).toMatch(/podepsán/i);
+    expect(loser.body.error).toMatch(/použit|podepsán/i);
   });
 
   it("employeeConfirmedAt is set exactly once (not null, not overwritten)", async () => {
@@ -190,7 +193,8 @@ describe("concurrent PPE employee self-sign — double-sign race guard", () => {
 
     expect(row.signatureObjectPath).not.toBeNull();
     // The stored path must follow the expected pattern for this assignment
-    expect(row.signatureObjectPath).toMatch(new RegExp(`/objects/ppe-signatures/${id}-${token}\\.png`));
+    expect(row.signatureObjectPath).toMatch(new RegExp(`/objects/ppe-signatures/${id}-[0-9a-f-]{36}\\.png`));
+    expect(row.signatureObjectPath).not.toContain(token);
   });
 
   it("three simultaneous requests: still exactly one success and two 409s", async () => {
@@ -266,7 +270,7 @@ describe("sequential sign guard — second sign after first commits → 409", ()
       .send({ signatureDataUrl: MINIMAL_PNG })
       .set("Content-Type", "application/json");
     expect(second.status).toBe(409);
-    expect(second.body.error).toMatch(/podepsán/i);
+    expect(second.body.error).toMatch(/použit|podepsán/i);
   });
 
   it("second 409 does not overwrite employeeConfirmedAt", async () => {

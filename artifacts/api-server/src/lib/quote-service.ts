@@ -16,6 +16,14 @@ import { sendEmailWithPdf } from "./email";
 import { ObjectStorageService } from "./objectStorage";
 import { randomUUID } from "node:crypto";
 import { publicAppOrigin } from "./public-origin";
+import {
+  consumePublicAccessToken,
+  isPlausiblePublicAccessToken,
+  issuePublicAccessToken,
+  publicTokenExpiry,
+  resolvePublicAccessToken,
+  revokePublicAccessTokens,
+} from "./public-access-token";
 
 const objectStorage = new ObjectStorageService();
 const SETTINGS_ID = 1;
@@ -147,8 +155,9 @@ export function serializeItem(item: QuoteItem) {
 }
 
 export function serializeQuote(quote: Quote) {
+  const { shareToken: _secretShareToken, ...safeQuote } = quote;
   return {
-    ...quote,
+    ...safeQuote,
     createdAt: quote.createdAt.toISOString(),
     updatedAt: quote.updatedAt.toISOString(),
   };
@@ -256,17 +265,16 @@ export async function getQuoteDetail(id: number) {
 // Public share-token lookup (no auth — gated by token)
 // ---------------------------------------------------------------------------
 
-const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export function isValidToken(token: string): boolean {
-  return TOKEN_RE.test(token);
+  return isPlausiblePublicAccessToken(token);
 }
 
 export async function getQuoteByShareToken(token: string) {
+  const tokenRecord = await resolvePublicAccessToken("quote_decision", token);
   const [quote] = await db
     .select()
     .from(quotesTable)
-    .where(eq(quotesTable.shareToken, token))
+    .where(eq(quotesTable.id, tokenRecord.resourceId))
     .limit(1);
   if (!quote) return null;
 
@@ -331,35 +339,51 @@ export async function getQuoteByShareToken(token: string) {
 }
 
 export async function acceptQuoteByToken(token: string) {
-  const [quote] = await db
-    .select()
-    .from(quotesTable)
-    .where(eq(quotesTable.shareToken, token))
-    .limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Tuto nabídku již nelze přijmout.");
-  await db
-    .update(quotesTable)
-    .set({ status: "accepted", updatedAt: new Date() })
-    .where(eq(quotesTable.shareToken, token));
-  return { accepted: true };
+  return consumePublicAccessToken({
+    purpose: "quote_decision",
+    token,
+    action: "accepted",
+    transition: async (tx, record) => {
+      const [quote] = await tx
+        .select({ id: quotesTable.id, status: quotesTable.status })
+        .from(quotesTable)
+        .where(eq(quotesTable.id, record.resourceId))
+        .for("update");
+      if (!quote) throw appError(404, "Nabídka nenalezena.");
+      if (!["sent", "draft"].includes(quote.status)) {
+        throw appError(409, "Tuto nabídku již nelze přijmout.");
+      }
+      await tx
+        .update(quotesTable)
+        .set({ status: "accepted", updatedAt: new Date(), shareToken: null })
+        .where(eq(quotesTable.id, quote.id));
+      return { accepted: true };
+    },
+  });
 }
 
 export async function rejectQuoteByToken(token: string) {
-  const [quote] = await db
-    .select()
-    .from(quotesTable)
-    .where(eq(quotesTable.shareToken, token))
-    .limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Tuto nabídku již nelze odmítnout.");
-  await db
-    .update(quotesTable)
-    .set({ status: "rejected", updatedAt: new Date() })
-    .where(eq(quotesTable.shareToken, token));
-  return { rejected: true };
+  return consumePublicAccessToken({
+    purpose: "quote_decision",
+    token,
+    action: "rejected",
+    transition: async (tx, record) => {
+      const [quote] = await tx
+        .select({ id: quotesTable.id, status: quotesTable.status })
+        .from(quotesTable)
+        .where(eq(quotesTable.id, record.resourceId))
+        .for("update");
+      if (!quote) throw appError(404, "Nabídka nenalezena.");
+      if (!["sent", "draft"].includes(quote.status)) {
+        throw appError(409, "Tuto nabídku již nelze odmítnout.");
+      }
+      await tx
+        .update(quotesTable)
+        .set({ status: "rejected", updatedAt: new Date(), shareToken: null })
+        .where(eq(quotesTable.id, quote.id));
+      return { rejected: true };
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +528,7 @@ export async function sendQuote(
     to?: string | null;
     subject?: string | null;
     message?: string | null;
+    createdByUserId?: number | null;
   },
 ) {
   // Validate the canonical external origin before generating or storing a PDF.
@@ -514,25 +539,24 @@ export async function sendQuote(
   if (!["draft", "sent"].includes(quote.status))
     throw appError(409, "Nabídku v tomto stavu nelze odeslat.");
 
-  const { buffer, objectPath } = await generateAndStorePdf(id);
-
   const to = (opts.to ?? quote.customerEmail ?? "").trim();
   const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
   if (!emailPattern.test(to)) throw appError(400, "Chybí platná e-mailová adresa příjemce.");
 
-  // Generate or reuse share token
-  const [existing] = await db
-    .select({ shareToken: quotesTable.shareToken })
-    .from(quotesTable)
-    .where(eq(quotesTable.id, id))
-    .limit(1);
-  const shareToken = existing?.shareToken ?? randomUUID();
-  if (!existing?.shareToken) {
-    await db
-      .update(quotesTable)
-      .set({ shareToken })
-      .where(eq(quotesTable.id, id));
-  }
+  const { buffer, objectPath } = await generateAndStorePdf(id);
+  const expiresAt = publicTokenExpiry("QUOTE_SHARE_EXPIRY_DAYS", 30);
+  const { token: shareToken } = await issuePublicAccessToken({
+    purpose: "quote_decision",
+    resourceId: id,
+    expiresAt,
+    createdByUserId: opts.createdByUserId ?? null,
+    onIssue: async (tx) => {
+      await tx
+        .update(quotesTable)
+        .set({ shareToken: null })
+        .where(eq(quotesTable.id, id));
+    },
+  });
 
   const number = quote.quoteNumber ?? `#${id}`;
   const subject = (opts.subject ?? "").trim() || `Cenová nabídka ${number}`;
@@ -546,55 +570,85 @@ export async function sendQuote(
     (opts.message ?? "").trim() ||
     `Dobrý den,\n\nv příloze zasíláme cenovou nabídku ${number}.${shareLine}\n\nS pozdravem`;
 
-  await sendEmailWithPdf({
-    to,
-    subject,
-    text: message,
-    pdfBase64: buffer.toString("base64"),
-    filename: `nabidka-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
-  });
+  try {
+    await sendEmailWithPdf({
+      to,
+      subject,
+      text: message,
+      pdfBase64: buffer.toString("base64"),
+      filename: `nabidka-${number.replace(/[^\w.-]+/g, "-")}.pdf`,
+    });
+  } catch (error) {
+    await revokePublicAccessTokens({
+      purpose: "quote_decision",
+      resourceId: id,
+      reason: "delivery_failed",
+    }).catch(() => undefined);
+    throw error;
+  }
 
   await db
     .update(quotesTable)
-    .set({ status: "sent", pdfObjectPath: objectPath, shareToken, updatedAt: new Date() })
+    .set({ status: "sent", pdfObjectPath: objectPath, shareToken: null, updatedAt: new Date() })
     .where(eq(quotesTable.id, id));
 
-  return { sent: true, to, shareToken };
+  return { sent: true, to, expiresAt: expiresAt.toISOString() };
 }
 
 export async function acceptQuote(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Přijmout lze pouze odeslané nebo konceptové nabídky.");
-  await db
-    .update(quotesTable)
-    .set({ status: "accepted", updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
+  await db.transaction(async (tx) => {
+    const [quote] = await tx.select().from(quotesTable).where(eq(quotesTable.id, id)).for("update").limit(1);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (!["sent", "draft"].includes(quote.status))
+      throw appError(409, "Přijmout lze pouze odeslané nebo konceptové nabídky.");
+    await tx
+      .update(quotesTable)
+      .set({ status: "accepted", shareToken: null, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+    await revokePublicAccessTokens({
+      purpose: "quote_decision",
+      resourceId: id,
+      reason: "admin_accepted",
+    }, tx);
+  });
   return getQuoteDetail(id);
 }
 
 export async function rejectQuote(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Odmítnout lze pouze odeslané nebo konceptové nabídky.");
-  await db
-    .update(quotesTable)
-    .set({ status: "rejected", updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
+  await db.transaction(async (tx) => {
+    const [quote] = await tx.select().from(quotesTable).where(eq(quotesTable.id, id)).for("update").limit(1);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (!["sent", "draft"].includes(quote.status))
+      throw appError(409, "Odmítnout lze pouze odeslané nebo konceptové nabídky.");
+    await tx
+      .update(quotesTable)
+      .set({ status: "rejected", shareToken: null, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+    await revokePublicAccessTokens({
+      purpose: "quote_decision",
+      resourceId: id,
+      reason: "admin_rejected",
+    }, tx);
+  });
   return getQuoteDetail(id);
 }
 
 export async function expireQuote(id: number) {
-  const [quote] = await db.select().from(quotesTable).where(eq(quotesTable.id, id)).limit(1);
-  if (!quote) throw appError(404, "Nabídka nenalezena.");
-  if (!["sent", "draft"].includes(quote.status))
-    throw appError(409, "Expirovat lze pouze odeslané nebo konceptové nabídky.");
-  await db
-    .update(quotesTable)
-    .set({ status: "expired", updatedAt: new Date() })
-    .where(eq(quotesTable.id, id));
+  await db.transaction(async (tx) => {
+    const [quote] = await tx.select().from(quotesTable).where(eq(quotesTable.id, id)).for("update").limit(1);
+    if (!quote) throw appError(404, "Nabídka nenalezena.");
+    if (!["sent", "draft"].includes(quote.status))
+      throw appError(409, "Expirovat lze pouze odeslané nebo konceptové nabídky.");
+    await tx
+      .update(quotesTable)
+      .set({ status: "expired", shareToken: null, updatedAt: new Date() })
+      .where(eq(quotesTable.id, id));
+    await revokePublicAccessTokens({
+      purpose: "quote_decision",
+      resourceId: id,
+      reason: "admin_expired",
+    }, tx);
+  });
   return getQuoteDetail(id);
 }
 
