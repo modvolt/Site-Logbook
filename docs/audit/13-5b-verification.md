@@ -83,4 +83,3 @@ produkční důkaz.
 3. Staging Environment, jeho owner, tester a rollback approver nejsou doloženi.
 4. PPE `--max-age-days` a případná revokace/znovuvydání tokenů zůstávají rozhodnutím
    service ownera.
-
