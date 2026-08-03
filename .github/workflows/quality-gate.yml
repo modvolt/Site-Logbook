@@ -16,7 +16,7 @@ jobs:
       BASE_PATH: /
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
         env:
           POSTGRES_DB: site_logbook_ci_test
           POSTGRES_PASSWORD: site-logbook-ci-only
@@ -40,6 +40,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm gate:quality
       - run: pnpm gate:release
+      - name: Validate immutable staging runtime contract
+        run: pnpm gate:staging-runtime
+      - name: Test staging guard, evidence, and runtime contracts
+        run: pnpm test:staging-contract
       - name: Isolated API database suites
         run: pnpm --filter @workspace/api-server test:db
         env:

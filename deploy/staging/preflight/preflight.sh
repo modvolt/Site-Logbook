@@ -40,6 +40,31 @@ esac
 [ "${#STAGING_BUILD_SHA}" -eq 40 ] \
   || fail "build SHA must be 40 lowercase hexadecimal characters"
 case "$STAGING_BUILD_SHA" in *[!0-9a-f]*) fail "build SHA must be 40 lowercase hexadecimal characters" ;; esac
+
+validate_immutable_image() {
+  image_ref=$1
+  label=$2
+  case "$image_ref" in
+    *@sha256:*) ;;
+    *) fail "$label must use repository@sha256:<64 lowercase hex>" ;;
+  esac
+  image_repository=${image_ref%@sha256:*}
+  image_digest=${image_ref##*@sha256:}
+  case "$image_repository" in
+    ''|*' '*|*'@'*|*://*) fail "$label repository is invalid" ;;
+  esac
+  [ "${#image_digest}" -eq 64 ] \
+    || fail "$label digest must be 64 lowercase hexadecimal characters"
+  case "$image_digest" in
+    *[!0-9a-f]*) fail "$label digest must be 64 lowercase hexadecimal characters" ;;
+  esac
+}
+validate_immutable_image "$STAGING_PREFLIGHT_IMAGE" STAGING_PREFLIGHT_IMAGE
+validate_immutable_image "$STAGING_MAILPIT_IMAGE" STAGING_MAILPIT_IMAGE
+validate_immutable_image "$STAGING_API_IMAGE" STAGING_API_IMAGE
+validate_immutable_image "$STAGING_WEB_IMAGE" STAGING_WEB_IMAGE
+unset image_ref label image_repository image_digest
+
 validate_hex_secret() {
   [ "${#1}" -eq 64 ] || fail "$2 must be 32-byte lowercase hex"
   case "$1" in *[!0-9a-f]*) fail "$2 must be 32-byte lowercase hex" ;; esac

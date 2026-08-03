@@ -17,17 +17,22 @@ services:
   # Fail before any stateful service starts if a staging-only boundary is not
   # explicit. Values are checked without printing them.
   staging-preflight:
-    build:
-      context: .
-      dockerfile: deploy/staging/preflight/Dockerfile
-    image: site-logbook-staging-preflight:${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+    image: ${STAGING_PREFLIGHT_IMAGE:?set immutable preflight image repository@sha256:<64 hex digest>}
+    pull_policy: always
     restart: "no"
+    cpus: "0.25"
+    mem_limit: 128m
+    mem_reservation: 64m
     environment:
       STAGING_ENVIRONMENT_ID: ${STAGING_ENVIRONMENT_ID:?set STAGING_ENVIRONMENT_ID}
       STAGING_COMPOSE_PROJECT_NAME: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}
       STAGING_PUBLIC_APP_URL: ${STAGING_PUBLIC_APP_URL:?set STAGING_PUBLIC_APP_URL}
       STAGING_NGINX_SERVER_NAME: ${STAGING_NGINX_SERVER_NAME:?set STAGING_NGINX_SERVER_NAME}
       STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+      STAGING_PREFLIGHT_IMAGE: ${STAGING_PREFLIGHT_IMAGE:?set immutable preflight image repository@sha256:<64 hex digest>}
+      STAGING_MAILPIT_IMAGE: ${STAGING_MAILPIT_IMAGE:?set immutable Mailpit image repository@sha256:<64 hex digest>}
+      STAGING_API_IMAGE: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+      STAGING_WEB_IMAGE: ${STAGING_WEB_IMAGE:?set immutable web image repository@sha256:<64 hex digest>}
       STAGING_POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:?set a staging-only PostgreSQL password}
       STAGING_SESSION_SECRET: ${STAGING_SESSION_SECRET:?set a staging-only session secret}
       STAGING_S3_ENDPOINT: ${STAGING_S3_ENDPOINT:?set the staging S3 HTTPS endpoint}
@@ -43,8 +48,12 @@ services:
     logging: *staging-logging
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    pull_policy: always
     restart: unless-stopped
+    cpus: "0.50"
+    mem_limit: 768m
+    mem_reservation: 512m
     depends_on:
       staging-preflight:
         condition: service_completed_successfully
@@ -57,7 +66,11 @@ services:
     expose:
       - "5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U site_logbook_staging -d site_logbook_staging"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U site_logbook_staging -d site_logbook_staging",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -66,11 +79,12 @@ services:
   mailpit:
     # v1.30.0 contains the May 2026 security fixes. Relay/forwarding variables
     # are deliberately absent and neither SMTP nor the UI has a host port.
-    build:
-      context: .
-      dockerfile: deploy/staging/mailpit/Dockerfile
-    image: site-logbook-staging-mailpit:${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+    image: ${STAGING_MAILPIT_IMAGE:?set immutable Mailpit image repository@sha256:<64 hex digest>}
+    pull_policy: always
     restart: unless-stopped
+    cpus: "0.25"
+    mem_limit: 256m
+    mem_reservation: 128m
     depends_on:
       staging-preflight:
         condition: service_completed_successfully
@@ -91,12 +105,12 @@ services:
     logging: *staging-logging
 
   api:
-    build:
-      context: .
-      dockerfile: artifacts/api-server/Dockerfile
-      args:
-        BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+    image: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+    pull_policy: always
     restart: unless-stopped
+    cpus: "1.00"
+    mem_limit: 1g
+    mem_reservation: 768m
     depends_on:
       postgres:
         condition: service_healthy
@@ -150,13 +164,12 @@ services:
     logging: *staging-logging
 
   web:
-    build:
-      context: .
-      dockerfile: artifacts/stavba/Dockerfile
-      args:
-        BASE_PATH: /
-        VITE_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+    image: ${STAGING_WEB_IMAGE:?set immutable web image repository@sha256:<64 hex digest>}
+    pull_policy: always
     restart: unless-stopped
+    cpus: "0.25"
+    mem_limit: 128m
+    mem_reservation: 64m
     depends_on:
       api:
         condition: service_healthy

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
 #
 # Production image for the Stavba API server.
 #
@@ -11,12 +11,12 @@
 # the REST API on $PORT (default 5000).
 
 # ---------- Builder ----------
-FROM node:24-slim AS builder
+FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS builder
 WORKDIR /repo
 
 # glibc base (node:*-slim) is required: the workspace pins the gnu variants of
 # esbuild/rollup/lightningcss/tailwind-oxide and removes the musl ones.
-RUN npm install -g pnpm@10.26.1
+RUN npm install -g pnpm@11.9.0
 
 # Install dependencies first for better layer caching.
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json tsconfig.json ./
@@ -42,9 +42,11 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm --filter @workspace/api-server deploy --prod --legacy --store-dir=/pnpm/store /app
 
 # ---------- Runtime ----------
-FROM node:24-slim AS runtime
+FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS runtime
 WORKDIR /app
 ARG BUILD_SHA=dev
+LABEL org.opencontainers.image.source="https://github.com/modvolt/Site-Logbook" \
+      org.opencontainers.image.revision="$BUILD_SHA"
 ENV NODE_ENV=production
 ENV PORT=5000
 ENV BUILD_SHA=$BUILD_SHA
