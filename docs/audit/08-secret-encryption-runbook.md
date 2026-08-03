@@ -31,6 +31,61 @@ BACKUP_ENCRYPTION_ACTIVE_KEY_ID=backup-2026-08
 
 Jednotlivé hodnoty lze vygenerovat například `openssl rand -base64 32`. Skutečné klíče nevkládej do repozitáře, shell historie, ticketu ani logu. Ulož je přímo v produkčním secret manageru, omez čtení na aplikační workload a recovery roli a před cutoverem ověř zálohu konfigurace mimo aplikační DB.
 
+### Offline mnemonic recovery ceremony
+
+Nové keyring klíče lze místo jednorázového `openssl` příkazu vytvořit verzovaným
+lokálním průvodcem. Pro aplikační a backup keyring musí proběhnout dvě nezávislé
+ceremonie s odlišným mnemonicem i passphrase:
+
+```powershell
+pnpm recovery:ceremony -- generate `
+  --purpose application `
+  --key-id '2026-08' `
+  --acknowledge-offline `
+  --acknowledge-separate-storage
+
+pnpm recovery:ceremony -- generate `
+  --purpose backup `
+  --key-id 'backup-2026-08' `
+  --acknowledge-offline `
+  --acknowledge-separate-storage
+```
+
+Průvodce používá 256bitový BIP-39 English mnemonic a samostatnou passphrase tvořenou
+osmi kryptograficky náhodnými English BIP-39 slovy. Standardní BIP-39 seed dále
+doménově odděluje HKDF-SHA256 podle formátu `modvolt-recovery-mnemonic/v1`, účelu a
+`key ID`; výsledkem je přesně 32 bajtů v kanonickém Base64, které přijímá současný
+keyring parser. Změna účelu, `key ID`, jediného mnemonic slova nebo passphrase vytvoří
+jiný klíč.
+
+Nástroj úmyslně:
+
+- běží pouze v lokálním interaktivním TTY, nikoli v CI nebo `NODE_ENV=production`;
+- odmítne prostředí obsahující DB, provider nebo aplikační secrets;
+- nepřijímá mnemonic ani passphrase v argumentech;
+- nemá síťový ani souborový výstup a odmítne pipe/redirection;
+- po potvrzení vyčistí viditelný terminál; scrollback/OS paměť nelze z JavaScriptu
+  zaručeně vymazat, proto musí jít o důvěryhodný offline počítač;
+- vypisuje skutečný recovery materiál jen při interaktivním `generate` nebo při
+  `verify --show-derived-key --acknowledge-secret-output`.
+
+Před použitím klíče proveď druhou nezávislou ceremonii a porovnej celý veřejný
+fingerprint:
+
+```powershell
+pnpm recovery:ceremony -- verify `
+  --purpose backup `
+  --key-id 'backup-2026-08' `
+  --expected-fingerprint 'sha256:<64 lowercase hex>' `
+  --acknowledge-offline `
+  --acknowledge-separate-storage
+```
+
+Mnemonic a passphrase ukládej fyzicky odděleně. Fingerprint, formát, účel a `key ID`
+nejsou secret a patří na obě recovery karty. Existující náhodný keyring nelze zpětně
+odvodit z nového mnemonic seedu: současné produkční klíče musí zůstat zachované, nebo
+projít samostatně schválenou rotací, backfillem a restore drillem.
+
 `TOKEN_ENCRYPTION_KEY` je po nasazení `0099` pouze legacy read klíč pro staré Gmail/QR hodnoty. Musí zůstat dostupný do úspěšného backfillu a ověření nulového počtu legacy hodnot; nové zápisy jej nepoužívají.
 
 ## Bezpečný rollout

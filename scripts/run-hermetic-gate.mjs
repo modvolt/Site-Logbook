@@ -19,6 +19,7 @@ const commands = [
     [
       "--test",
       "scripts/test/assert-safe-test-env.test.mjs",
+      "scripts/test/recovery-ceremony.test.mjs",
       "scripts/test/staging-release-guard.test.mjs",
       "scripts/test/staging-release-evidence.test.mjs",
     ],
