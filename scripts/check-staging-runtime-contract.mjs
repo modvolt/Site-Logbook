@@ -87,6 +87,12 @@ function requireText(source, expected, field) {
   }
 }
 
+function requirePublicationText(source, expected, code, field) {
+  if (!source.includes(expected)) {
+    fail(code, `${field} is missing from the staging image publisher.`);
+  }
+}
+
 function serviceBlock(compose, service) {
   const marker = `  ${service}:\n`;
   const start = compose.indexOf(marker);
@@ -217,11 +223,244 @@ export function validateStagingRuntimeContract(overrides = {}) {
     ".github/workflows/staging-images.yml",
     overrides,
   );
-  requireText(publishWorkflow, "workflow_dispatch:", "manual workflow trigger");
-  requireText(
+  if (/\bworkflow_dispatch\s*:/.test(publishWorkflow)) {
+    fail(
+      "STAGING_IMAGE_PUBLIC_DIRECT_DISPATCH",
+      "the public source repository must not expose a direct image publisher.",
+    );
+  }
+  requirePublicationText(
     publishWorkflow,
-    "expected_sha:",
-    "exact source SHA confirmation",
+    "workflow_call:",
+    "STAGING_IMAGE_REUSABLE_TRIGGER_MISSING",
+    "private-caller reusable workflow trigger",
+  );
+  for (const input of [
+    "source_sha:",
+    "source_ref:",
+    "source_pr_number:",
+    "confirm_registry_publication:",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      input,
+      "STAGING_IMAGE_REUSABLE_TRIGGER_MISSING",
+      `required workflow_call input ${input}`,
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "permissions: {}\n\nconcurrency:",
+    "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
+    "deny-by-default workflow permissions",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "validate-public-source:\n    permissions: {}",
+    "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
+    "token-free public source validation job",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "publish-staging-images:\n    needs: validate-public-source\n    permissions:\n      contents: read\n      packages: write",
+    "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
+    "isolated package publication permission",
+  );
+  if ((publishWorkflow.match(/packages: write/g) ?? []).length !== 1) {
+    fail(
+      "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
+      "only the package publication job may receive packages: write.",
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "SOURCE_REPOSITORY: modvolt/Site-Logbook",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "fixed public source repository",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "APPROVED_SOURCE_REF: agent/phase13-staging-gate",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "approved candidate ref",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "public_source_api()",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "unauthenticated public source API helper",
+  );
+  const publicHelper = publishWorkflow.match(
+    /^ {10}public_source_api\(\) \{\r?\n([\s\S]*?)^ {10}\}/m,
+  )?.[1];
+  if (!publicHelper) {
+    fail(
+      "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+      "the public source API helper could not be isolated for validation.",
+    );
+  }
+  for (const forbidden of [
+    "Authorization",
+    "GH_TOKEN",
+    "github.token",
+    "secrets.GITHUB_TOKEN",
+    "gh api",
+  ]) {
+    if (publicHelper.includes(forbidden)) {
+      fail(
+        "STAGING_IMAGE_SOURCE_AUTH_BOUNDARY_BROKEN",
+        `the public source API helper must not contain ${forbidden}.`,
+      );
+    }
+  }
+  for (const transportGuard of [
+    "curl --disable",
+    "--proto '=https'",
+    "--connect-timeout 10 --max-time 30",
+  ]) {
+    if (!publicHelper.includes(transportGuard)) {
+      fail(
+        "STAGING_IMAGE_SOURCE_AUTH_BOUNDARY_BROKEN",
+        `the public source API helper is missing ${transportGuard}.`,
+      );
+    }
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "https://api.github.com/repos/${SOURCE_REPOSITORY}/git/ref/heads/${SOURCE_REF}",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "candidate branch head lookup",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    ".head.sha == $sha",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "exact PR head SHA check",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "repository: modvolt/Site-Logbook",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "exact public source checkout repository",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "ref: ${{ inputs.source_sha }}",
+    "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+    "exact public source checkout SHA",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&status=completed",
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+    "exact-SHA pull-request Quality gate lookup",
+  );
+  if (
+    /gh api\s+[\s\S]{0,120}repos\/\$\{SOURCE_REPOSITORY\}\//.test(
+      publishWorkflow,
+    )
+  ) {
+    fail(
+      "STAGING_IMAGE_SOURCE_AUTH_BOUNDARY_BROKEN",
+      "public source metadata must not use the caller-scoped GitHub token.",
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    '.conclusion == "success"',
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+    "successful Quality gate conclusion",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    ".head_sha == $sha",
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+    "Quality gate head SHA coupling",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "exact private caller repository",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    '[[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]]',
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "exact private caller identity check",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    ".private == true",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "private caller repository check",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    '.visibility == "private"',
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "GHCR package visibility check",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "Verify first published package is private before continuing",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "fail-fast first package privacy verification",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "Verify all published packages remain private",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "post-publication privacy verification",
+  );
+  if (
+    (
+      publishWorkflow.match(
+        /org\.opencontainers\.image\.source=\$\{\{ github\.server_url \}\}\/\$\{\{ github\.repository \}\}/g,
+      ) ?? []
+    ).length !== 4
+  ) {
+    fail(
+      "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+      "all four images must link to the private caller repository.",
+    );
+  }
+  if (
+    (
+      publishWorkflow.match(
+        /org\.opencontainers\.image\.url=https:\/\/github\.com\/modvolt\/Site-Logbook\/commit\/\$\{\{ inputs\.source_sha \}\}/g,
+      ) ?? []
+    ).length !== 4
+  ) {
+    fail(
+      "STAGING_IMAGE_SOURCE_GUARD_MISSING",
+      "all four images must preserve the exact public source commit URL.",
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    '[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]',
+    "STAGING_IMAGE_DIGEST_GUARD_MISSING",
+    "nonempty sha256 digest validation",
+  );
+  for (const imageName of [
+    "site-logbook-staging-preflight",
+    "site-logbook-staging-mailpit",
+    "site-logbook-staging-api",
+    "site-logbook-staging-web",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      `^ghcr\\\\.io/modvolt/${imageName}@sha256:[0-9a-f]{64}$`,
+      "STAGING_IMAGE_DIGEST_GUARD_MISSING",
+      `immutable manifest namespace for ${imageName}`,
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "confirm_registry_publication:",
+    "STAGING_IMAGE_REUSABLE_TRIGGER_MISSING",
+    "explicit publication confirmation",
   );
   requireText(publishWorkflow, "packages: write", "GHCR write permission");
   for (const action of PINNED_ACTIONS) {
@@ -237,6 +476,18 @@ export function validateStagingRuntimeContract(overrides = {}) {
     fail(
       "STAGING_IMAGE_PLATFORM_DRIFT",
       "all four custom images must target the approved linux/amd64 host.",
+    );
+  }
+  if ((publishWorkflow.match(/provenance: mode=max/g) ?? []).length !== 4) {
+    fail(
+      "STAGING_IMAGE_ATTESTATION_MISSING",
+      "all four custom images must publish maximum BuildKit provenance.",
+    );
+  }
+  if ((publishWorkflow.match(/\bsbom: true\b/g) ?? []).length !== 4) {
+    fail(
+      "STAGING_IMAGE_ATTESTATION_MISSING",
+      "all four custom images must publish an SBOM attestation.",
     );
   }
   requireText(
@@ -275,7 +526,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     totalMemoryLimitMiB: 2304,
     immutableCustomImages: REQUIRED_IMAGE_VARIABLES.length,
     pinnedBaseImageFamilies: 5,
-    publicationMode: "manual-ghcr-no-deploy",
+    publicationMode: "private-caller-ghcr-no-deploy",
   });
 }
 

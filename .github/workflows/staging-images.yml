@@ -1,50 +1,208 @@
-name: Publish immutable staging images (manual, no deploy)
+name: Publish immutable staging images (private caller, no deploy)
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      expected_sha:
-        description: Exact 40-character commit SHA selected for publication
+      source_sha:
+        description: Exact 40-character Site-Logbook commit SHA selected for publication
         required: true
         type: string
+      source_ref:
+        description: Approved Site-Logbook candidate branch
+        required: true
+        type: string
+      source_pr_number:
+        description: Open draft PR whose head is the selected source SHA
+        required: true
+        type: number
       confirm_registry_publication:
-        description: Publish four staging-only images to GHCR without deploying them
+        description: Publish four staging-only images to private GHCR without deploying them
         required: true
         type: boolean
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
 
 concurrency:
-  group: staging-images-${{ github.sha }}
+  group: staging-images-${{ inputs.source_sha }}
   cancel-in-progress: false
 
 jobs:
+  validate-public-source:
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require exact green public source candidate
+        shell: bash
+        env:
+          APPROVED_SOURCE_REF: agent/phase13-staging-gate
+          PUBLICATION_CONFIRMED: ${{ inputs.confirm_registry_publication }}
+          SOURCE_PR_NUMBER: ${{ inputs.source_pr_number }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_REPOSITORY: modvolt/Site-Logbook
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Public Site-Logbook source validation failed: $1" >&2
+            exit 1
+          }
+
+          public_source_api() {
+            local url="$1"
+            case "$url" in
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/"*) ;;
+              *) fail "unexpected public source API origin." ;;
+            esac
+            curl --disable \
+              --fail-with-body --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              --connect-timeout 10 --max-time 30 \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'User-Agent: site-logbook-private-publisher' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "$url"
+          }
+
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "source_sha must be 40 lowercase hexadecimal characters."
+          [[ "$SOURCE_REF" == "$APPROVED_SOURCE_REF" ]] \
+            || fail "source_ref must equal the approved candidate branch."
+          [[ "$SOURCE_PR_NUMBER" =~ ^[1-9][0-9]*$ ]] \
+            || fail "source_pr_number must be a positive integer."
+          [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
+            || fail "registry publication confirmation is required."
+
+          ref_json="$(
+            public_source_api \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/git/ref/heads/${SOURCE_REF}"
+          )" || fail "the public source branch head could not be read."
+          ref_sha="$(jq -r '.object.sha' <<<"$ref_json")"
+          [[ "$ref_sha" == "$SOURCE_SHA" ]] \
+            || fail "source_sha is not the current approved candidate branch head."
+
+          pr_json="$(
+            public_source_api \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}"
+          )" || fail "the public source PR could not be read."
+          jq -e \
+            --arg branch "$SOURCE_REF" \
+            --arg repository "${SOURCE_REPOSITORY,,}" \
+            --arg sha "$SOURCE_SHA" \
+            '.state == "open" and
+             .draft == true and
+             .merged == false and
+             (.head.repo.full_name | ascii_downcase) == $repository and
+             .head.ref == $branch and
+             .head.sha == $sha and
+             .base.ref == "main"' \
+            <<<"$pr_json" >/dev/null \
+            || fail "source PR must be the open draft candidate with the exact source head."
+
+          quality_json="$(
+            public_source_api \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&status=completed&per_page=100"
+          )" || fail "the public source Quality gate could not be read."
+          jq -e \
+            --arg branch "$SOURCE_REF" \
+            --arg repository "${SOURCE_REPOSITORY,,}" \
+            --arg sha "$SOURCE_SHA" \
+            '[.workflow_runs[] |
+              select(
+                .name == "Quality gate" and
+                .path == ".github/workflows/quality-gate.yml" and
+                .event == "pull_request" and
+                .status == "completed" and
+                .conclusion == "success" and
+                .head_branch == $branch and
+                .head_sha == $sha and
+                (.head_repository.full_name | ascii_downcase) == $repository
+              )] | length > 0' \
+            <<<"$quality_json" >/dev/null \
+            || fail "no successful exact-SHA pull-request Quality gate was found."
+
   publish-staging-images:
+    needs: validate-public-source
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Require exact source and publication confirmation
+      - name: Require private caller and private package namespace
         shell: bash
         env:
-          ACTUAL_SHA: ${{ github.sha }}
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRIVATE_REGISTRY_OWNER: modvolt
           PUBLICATION_CONFIRMED: ${{ inputs.confirm_registry_publication }}
         run: |
-          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
-            echo "expected_sha must exactly match the selected workflow commit."
-            exit 1
-          fi
-          if [[ "$PUBLICATION_CONFIRMED" != "true" ]]; then
-            echo "Registry publication confirmation is required."
-            exit 1
-          fi
+          set -euo pipefail
 
-      - name: Check out the exact source commit
+          fail() {
+            echo "Private staging image publication preflight failed: $1" >&2
+            exit 1
+          }
+
+          [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
+            || fail "registry publication confirmation is required."
+          [[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]] \
+            || fail "the reusable workflow must be called by the approved private publisher repository."
+          [[ "${CALLER_REPOSITORY_OWNER,,}" == "$PRIVATE_REGISTRY_OWNER" ]] \
+            || fail "the reusable workflow must be called by the approved registry owner."
+
+          caller_json="$(gh api "repos/${CALLER_REPOSITORY}")"
+          jq -e \
+            --arg caller "${CALLER_REPOSITORY,,}" \
+            --arg owner "$PRIVATE_REGISTRY_OWNER" \
+            '(.full_name | ascii_downcase) == $caller and
+             (.owner.login | ascii_downcase) == $owner and
+             .private == true' \
+            <<<"$caller_json" >/dev/null \
+            || fail "the caller repository must be private and owned by modvolt."
+
+          for package_name in \
+            site-logbook-staging-preflight \
+            site-logbook-staging-mailpit \
+            site-logbook-staging-api \
+            site-logbook-staging-web
+          do
+            response_file="${RUNNER_TEMP}/${package_name}-preflight.json"
+            status="$(
+              curl --disable --silent --show-error \
+                --proto '=https' --tlsv1.2 \
+                --connect-timeout 10 --max-time 30 \
+                --output "$response_file" \
+                --write-out '%{http_code}' \
+                --header 'Accept: application/vnd.github+json' \
+                --header "Authorization: Bearer ${GH_TOKEN}" \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "https://api.github.com/users/${PRIVATE_REGISTRY_OWNER}/packages/container/${package_name}"
+            )"
+            case "$status" in
+              200)
+                jq -e '.visibility == "private"' "$response_file" >/dev/null \
+                  || fail "existing package ${package_name} is not private."
+                ;;
+              404)
+                ;;
+              *)
+                fail "package privacy preflight for ${package_name} returned HTTP ${status}."
+                ;;
+            esac
+            rm -f "$response_file"
+          done
+
+      - name: Check out the exact public source commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          repository: modvolt/Site-Logbook
+          ref: ${{ inputs.source_sha }}
 
       - name: Configure Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -56,13 +214,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Derive lowercase staging image names
+      - name: Derive private staging image names
         id: names
         shell: bash
         env:
           REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
+          set -euo pipefail
           owner="${REPOSITORY_OWNER,,}"
+          [[ "$owner" == "modvolt" ]] || exit 1
           echo "preflight=ghcr.io/${owner}/site-logbook-staging-preflight" >> "$GITHUB_OUTPUT"
           echo "mailpit=ghcr.io/${owner}/site-logbook-staging-mailpit" >> "$GITHUB_OUTPUT"
           echo "api=ghcr.io/${owner}/site-logbook-staging-api" >> "$GITHUB_OUTPUT"
@@ -76,12 +236,31 @@ jobs:
           file: deploy/staging/preflight/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.names.outputs.preflight }}:${{ github.sha }}
-          build-args: BUILD_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.preflight }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-preflight
           cache-to: type=gha,mode=max,scope=staging-preflight
           provenance: mode=max
           sbom: true
+
+      - name: Verify first published package is private before continuing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          package_json="$(
+            gh api \
+              "users/modvolt/packages/container/site-logbook-staging-preflight"
+          )"
+          jq -e '.visibility == "private"' <<<"$package_json" >/dev/null || {
+            echo "The first published staging package is not private; refusing all remaining image writes." >&2
+            exit 1
+          }
 
       - name: Build and publish Mailpit image
         id: mailpit
@@ -91,8 +270,12 @@ jobs:
           file: deploy/staging/mailpit/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.names.outputs.mailpit }}:${{ github.sha }}
-          build-args: BUILD_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.mailpit }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-mailpit
           cache-to: type=gha,mode=max,scope=staging-mailpit
           provenance: mode=max
@@ -106,8 +289,12 @@ jobs:
           file: artifacts/api-server/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.names.outputs.api }}:${{ github.sha }}
-          build-args: BUILD_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.api }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-api
           cache-to: type=gha,mode=max,scope=staging-api
           provenance: mode=max
@@ -121,16 +308,20 @@ jobs:
           file: artifacts/stavba/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.names.outputs.web }}:${{ github.sha }}
+          tags: ${{ steps.names.outputs.web }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
           build-args: |
             BASE_PATH=/
-            VITE_BUILD_SHA=${{ github.sha }}
+            VITE_BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-web
           cache-to: type=gha,mode=max,scope=staging-web
           provenance: mode=max
           sbom: true
 
-      - name: Create secret-free immutable image manifest
+      - name: Create and validate secret-free immutable image manifest
         shell: bash
         env:
           API_DIGEST: ${{ steps.api.outputs.digest }}
@@ -139,10 +330,30 @@ jobs:
           MAILPIT_REPOSITORY: ${{ steps.names.outputs.mailpit }}
           PREFLIGHT_DIGEST: ${{ steps.preflight.outputs.digest }}
           PREFLIGHT_REPOSITORY: ${{ steps.names.outputs.preflight }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
           WEB_DIGEST: ${{ steps.web.outputs.digest }}
           WEB_REPOSITORY: ${{ steps.names.outputs.web }}
         run: |
+          set -euo pipefail
+
+          require_digest() {
+            local label="$1"
+            local digest="$2"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "${label} digest is missing or invalid." >&2
+              exit 1
+            }
+          }
+
+          [[ "$PREFLIGHT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-preflight" ]]
+          [[ "$MAILPIT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-mailpit" ]]
+          [[ "$API_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-api" ]]
+          [[ "$WEB_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-web" ]]
+          require_digest preflight "$PREFLIGHT_DIGEST"
+          require_digest mailpit "$MAILPIT_DIGEST"
+          require_digest api "$API_DIGEST"
+          require_digest web "$WEB_DIGEST"
+
           jq -n \
             --arg schemaVersion "1" \
             --arg sourceSha "$SOURCE_SHA" \
@@ -153,10 +364,44 @@ jobs:
             '{schemaVersion: ($schemaVersion | tonumber), sourceSha: $sourceSha, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web}}' \
             > staging-images.json
 
+          jq -e \
+            --arg sha "$SOURCE_SHA" \
+            '.schemaVersion == 1 and
+             .sourceSha == $sha and
+             (.images | keys) == ["api", "mailpit", "preflight", "web"] and
+             (.images.preflight | test("^ghcr\\.io/modvolt/site-logbook-staging-preflight@sha256:[0-9a-f]{64}$")) and
+             (.images.mailpit | test("^ghcr\\.io/modvolt/site-logbook-staging-mailpit@sha256:[0-9a-f]{64}$")) and
+             (.images.api | test("^ghcr\\.io/modvolt/site-logbook-staging-api@sha256:[0-9a-f]{64}$")) and
+             (.images.web | test("^ghcr\\.io/modvolt/site-logbook-staging-web@sha256:[0-9a-f]{64}$"))' \
+            staging-images.json >/dev/null
+
+      - name: Verify all published packages remain private
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRIVATE_REGISTRY_OWNER: modvolt
+        run: |
+          set -euo pipefail
+          for package_name in \
+            site-logbook-staging-preflight \
+            site-logbook-staging-mailpit \
+            site-logbook-staging-api \
+            site-logbook-staging-web
+          do
+            package_json="$(
+              gh api \
+                "users/${PRIVATE_REGISTRY_OWNER}/packages/container/${package_name}"
+            )"
+            jq -e '.visibility == "private"' <<<"$package_json" >/dev/null || {
+              echo "Published package ${package_name} is not private." >&2
+              exit 1
+            }
+          done
+
       - name: Upload immutable image manifest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: staging-images-${{ github.sha }}
+          name: staging-images-${{ inputs.source_sha }}
           path: staging-images.json
           if-no-files-found: error
           retention-days: 30
