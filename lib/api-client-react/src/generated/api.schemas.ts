@@ -407,6 +407,87 @@ export interface WatchdogStatus {
   delivery: OperationalAlertDeliveryStatus;
 }
 
+export type OperationalAlertDeadLetterListItemSeverity = typeof OperationalAlertDeadLetterListItemSeverity[keyof typeof OperationalAlertDeadLetterListItemSeverity];
+
+
+export const OperationalAlertDeadLetterListItemSeverity = {
+  warning: 'warning',
+  critical: 'critical',
+} as const;
+
+export type OperationalAlertDeadLetterListItemTransitionKind = typeof OperationalAlertDeadLetterListItemTransitionKind[keyof typeof OperationalAlertDeadLetterListItemTransitionKind];
+
+
+export const OperationalAlertDeadLetterListItemTransitionKind = {
+  triggered: 'triggered',
+  escalated: 'escalated',
+  deescalated: 'deescalated',
+  recovered: 'recovered',
+} as const;
+
+export interface OperationalAlertDeadLetterListItem {
+  /** @minimum 1 */
+  outboxId: number;
+  /** @maxLength 160 */
+  code: string;
+  severity: OperationalAlertDeadLetterListItemSeverity;
+  transitionKind: OperationalAlertDeadLetterListItemTransitionKind;
+  /** @minimum 1 */
+  attemptCount: number;
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  lastFailureCategory: string | null;
+  /**
+     * @minimum 100
+     * @maximum 599
+     * @nullable
+     */
+  lastHttpStatus: number | null;
+  deadLetteredAt: string;
+  createdAt: string;
+}
+
+export interface OperationalAlertDeadLetterList {
+  /** @maxItems 50 */
+  items: OperationalAlertDeadLetterListItem[];
+}
+
+export type OperationalAlertDeadLetterRequeueInputReason = typeof OperationalAlertDeadLetterRequeueInputReason[keyof typeof OperationalAlertDeadLetterRequeueInputReason];
+
+
+export const OperationalAlertDeadLetterRequeueInputReason = {
+  receiver_configuration_corrected: 'receiver_configuration_corrected',
+  receiver_recovered: 'receiver_recovered',
+  transient_provider_outage_resolved: 'transient_provider_outage_resolved',
+  operator_verified_safe_retry: 'operator_verified_safe_retry',
+} as const;
+
+export interface OperationalAlertDeadLetterRequeueInput {
+  /** @minimum 1 */
+  expectedAttemptCount: number;
+  expectedDeadLetteredAt: string;
+  reason: OperationalAlertDeadLetterRequeueInputReason;
+}
+
+export type OperationalAlertDeadLetterRequeueResultState = typeof OperationalAlertDeadLetterRequeueResultState[keyof typeof OperationalAlertDeadLetterRequeueResultState];
+
+
+export const OperationalAlertDeadLetterRequeueResultState = {
+  pending: 'pending',
+} as const;
+
+export interface OperationalAlertDeadLetterRequeueResult {
+  /** @minimum 1 */
+  outboxId: number;
+  state: OperationalAlertDeadLetterRequeueResultState;
+  /** @minimum 0 */
+  attemptCount: number;
+  availableAt: string;
+  requeued: true;
+}
+
 export type HealthLogEntryOverallStatus = typeof HealthLogEntryOverallStatus[keyof typeof HealthLogEntryOverallStatus];
 
 

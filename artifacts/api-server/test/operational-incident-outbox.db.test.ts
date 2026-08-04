@@ -1,22 +1,28 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
+  auditLogTable,
   db,
   pool,
   operationalAlertOutboxTable,
   operationalIncidentEventsTable,
   operationalIncidentsTable,
+  usersTable,
 } from "@workspace/db";
 import {
   claimOperationalAlert,
+  listOperationalAlertDeadLetters,
   markOperationalAlertDelivered,
   markOperationalAlertFailed,
   reconcileOperationalIncidents,
+  requeueOperationalAlertDeadLetter,
 } from "../src/lib/operational-incident-store";
 import type { OperationalAlert } from "../src/lib/operational-alert-policy";
 
 if (process.env.AUTH_DB_TEST_ENABLED !== "true") {
-  throw new Error("Refusing to run incident DB tests outside the isolated DB runner.");
+  throw new Error(
+    "Refusing to run incident DB tests outside the isolated DB runner.",
+  );
 }
 
 function alert(
@@ -166,5 +172,202 @@ describe("durable operational incident registry and outbox", () => {
         .delete(operationalIncidentEventsTable)
         .where(eq(operationalIncidentEventsTable.id, event.id)),
     ).rejects.toThrow();
+  });
+
+  it("requeues one dead letter with concurrency fencing and atomic redacted audit", async () => {
+    const fingerprint = "queue.r15d-requeue.sensitive-fingerprint";
+    await reconcileOperationalIncidents(
+      [alert("critical", fingerprint)],
+      "2026-08-05T01:00:00.000Z",
+    );
+    const originalClaim = await claimOperationalAlert();
+    expect(originalClaim).toBeTruthy();
+    await expect(
+      markOperationalAlertFailed(originalClaim!, {
+        category: "http_permanent",
+        retryable: false,
+        status: 403,
+        attemptCount: 1,
+        pendingCount: 0,
+      }),
+    ).resolves.toBe("dead_letter");
+
+    const [deadLetter] = await db
+      .select()
+      .from(operationalAlertOutboxTable)
+      .where(eq(operationalAlertOutboxTable.id, originalClaim!.outboxId));
+    expect(deadLetter.deadLetteredAt).toBeInstanceOf(Date);
+
+    const listed = await listOperationalAlertDeadLetters();
+    const listedRow = listed.find(
+      (row) => row.outboxId === originalClaim!.outboxId,
+    );
+    expect(listedRow).toEqual({
+      outboxId: originalClaim!.outboxId,
+      code: fingerprint,
+      severity: "critical",
+      transitionKind: "triggered",
+      attemptCount: 1,
+      lastFailureCategory: "http_permanent",
+      lastHttpStatus: 403,
+      deadLetteredAt: deadLetter.deadLetteredAt!.toISOString(),
+      createdAt: deadLetter.createdAt.toISOString(),
+    });
+    expect(Object.keys(listedRow!).sort()).toEqual(
+      [
+        "attemptCount",
+        "code",
+        "createdAt",
+        "deadLetteredAt",
+        "lastFailureCategory",
+        "lastHttpStatus",
+        "outboxId",
+        "severity",
+        "transitionKind",
+      ].sort(),
+    );
+
+    const actorName = "R15-D isolated operator";
+    const [actor] = await db
+      .insert(usersTable)
+      .values({
+        username: `r15d-operator-${Date.now()}`,
+        passwordHash: "isolated-test-only",
+        name: actorName,
+        role: "master",
+      })
+      .returning({ id: usersTable.id });
+    const [eventBefore] = await db
+      .select()
+      .from(operationalIncidentEventsTable)
+      .where(
+        eq(operationalIncidentEventsTable.eventKey, originalClaim!.eventKey),
+      );
+    const input = {
+      outboxId: originalClaim!.outboxId,
+      expectedAttemptCount: deadLetter.attemptCount,
+      expectedDeadLetteredAt: deadLetter.deadLetteredAt!.toISOString(),
+      reason: "receiver_configuration_corrected" as const,
+      actor: { userId: actor.id, name: actorName },
+    };
+    await expect(
+      requeueOperationalAlertDeadLetter({
+        ...input,
+        outboxId: 2_147_483_647,
+      }),
+    ).resolves.toEqual({ status: "not_found" });
+    await expect(
+      requeueOperationalAlertDeadLetter({
+        ...input,
+        expectedAttemptCount: input.expectedAttemptCount + 1,
+      }),
+    ).resolves.toEqual({
+      status: "conflict",
+      reason: "precondition_failed",
+    });
+    await expect(
+      requeueOperationalAlertDeadLetter({
+        ...input,
+        expectedDeadLetteredAt: "2026-08-05T00:00:00.000Z",
+      }),
+    ).resolves.toEqual({
+      status: "conflict",
+      reason: "precondition_failed",
+    });
+    expect(
+      await db
+        .select()
+        .from(auditLogTable)
+        .where(
+          and(
+            eq(auditLogTable.action, "operational_alert.dead_letter.requeued"),
+            eq(auditLogTable.entityId, originalClaim!.outboxId),
+          ),
+        ),
+    ).toHaveLength(0);
+
+    const concurrent = await Promise.all([
+      requeueOperationalAlertDeadLetter(input),
+      requeueOperationalAlertDeadLetter(input),
+    ]);
+    expect(
+      concurrent.filter((result) => result.status === "requeued"),
+    ).toHaveLength(1);
+    expect(concurrent.filter((result) => result.status === "conflict")).toEqual(
+      [{ status: "conflict", reason: "not_dead_letter" }],
+    );
+
+    const [requeued] = await db
+      .select()
+      .from(operationalAlertOutboxTable)
+      .where(eq(operationalAlertOutboxTable.id, originalClaim!.outboxId));
+    expect(requeued).toMatchObject({
+      state: "pending",
+      attemptCount: 0,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      deliveredAt: null,
+      deadLetteredAt: null,
+      lastFailureCategory: "http_permanent",
+      lastHttpStatus: 403,
+    });
+    expect(
+      (await listOperationalAlertDeadLetters()).some(
+        (row) => row.outboxId === originalClaim!.outboxId,
+      ),
+    ).toBe(false);
+
+    const audits = await db
+      .select()
+      .from(auditLogTable)
+      .where(
+        and(
+          eq(auditLogTable.action, "operational_alert.dead_letter.requeued"),
+          eq(auditLogTable.entityId, originalClaim!.outboxId),
+        ),
+      );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorUserId: actor.id,
+      actorName,
+      entityType: "operational_alert_outbox",
+      method: "POST",
+      path: `/admin/health/operational-alert-outbox/${originalClaim!.outboxId}/requeue`,
+    });
+    expect(JSON.parse(audits[0]!.summary!)).toEqual({
+      reason: "receiver_configuration_corrected",
+      previousAttemptCount: 1,
+      previousDeadLetteredAt: deadLetter.deadLetteredAt!.toISOString(),
+    });
+    expect(audits[0]!.summary).not.toMatch(
+      /fingerprint|payload|recipient|owner|runbook|metric|secret/i,
+    );
+
+    const reclaimed = await claimOperationalAlert();
+    expect(reclaimed).toMatchObject({
+      outboxId: originalClaim!.outboxId,
+      attemptCount: 1,
+    });
+    await expect(markOperationalAlertDelivered(originalClaim!)).resolves.toBe(
+      false,
+    );
+    await expect(markOperationalAlertDelivered(reclaimed!)).resolves.toBe(true);
+    const [eventAfter] = await db
+      .select()
+      .from(operationalIncidentEventsTable)
+      .where(
+        eq(operationalIncidentEventsTable.eventKey, originalClaim!.eventKey),
+      );
+    expect(eventAfter).toEqual(eventBefore);
+
+    await db
+      .delete(auditLogTable)
+      .where(
+        and(
+          eq(auditLogTable.action, "operational_alert.dead_letter.requeued"),
+          eq(auditLogTable.entityId, originalClaim!.outboxId),
+        ),
+      );
+    await db.delete(usersTable).where(eq(usersTable.id, actor.id));
   });
 });

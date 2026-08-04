@@ -27,6 +27,11 @@ const SKIP_SUFFIXES = [
   "/audit-access",
 ];
 
+// Exact route shapes whose domain mutation and audit row share one transaction.
+const SKIP_PATTERNS = [
+  /^\/admin\/health\/operational-alert-outbox\/\d+\/requeue$/,
+];
+
 const REDACT_KEYS = new Set([
   "password", "passwordHash", "currentPassword", "newPassword",
   "pin", "pinHash",
@@ -117,6 +122,10 @@ export function auditMutations(req: Request, res: Response, next: NextFunction):
     return;
   }
   if (SKIP_SUFFIXES.some((s) => relPath.endsWith(s))) {
+    next();
+    return;
+  }
+  if (SKIP_PATTERNS.some((pattern) => pattern.test(relPath))) {
     next();
     return;
   }

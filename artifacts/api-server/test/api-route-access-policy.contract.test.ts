@@ -137,6 +137,24 @@ describe("generated API route manifest", () => {
       kind: "permissions",
       allOf: ["settings.view", "settings.manage"],
     });
+    expect(
+      resolveApiRouteAccess(
+        "GET",
+        "/admin/health/operational-alert-outbox/dead-letters",
+      ),
+    ).toEqual({
+      kind: "permissions",
+      allOf: ["diagnostics.view"],
+    });
+    expect(
+      resolveApiRouteAccess(
+        "POST",
+        "/admin/health/operational-alert-outbox/1/requeue",
+      ),
+    ).toEqual({
+      kind: "permissions",
+      allOf: ["diagnostics.view", "diagnostics.manage"],
+    });
   });
 
   it("treats HEAD as the registered GET route without widening other methods", () => {

@@ -66,6 +66,50 @@ Před finálním staging release gate je navíc nutné samostatně prokázat:
 Při kterémkoli nejasném hostname, SHA, storage mountu nebo secret boundary drill
 ukončete. Nevypínejte kvůli němu produkční službu a nepoužívejte produkční token.
 
+## R15-D: ruční obnova jedné dead-letter zásilky
+
+Tento postup použijte až po nasazení aplikace včetně migrace `0103` a jen s
+oprávněním `diagnostics.manage`. Nejdříve načtěte redigovaný seznam přes
+`GET /api/admin/health/operational-alert-outbox/dead-letters`. Vrací nejvýše 50
+nejnovějších položek a pouze stabilní provozní kód, závažnost, druh přechodu,
+počet pokusů, kategorii posledního selhání, HTTP status a časové značky. Nevrací
+payload, fingerprint, příjemce, identitu, event key, URL, token ani secret.
+
+Před requeue ověřte mimo payload, že příčina selhání byla odstraněna a receiver
+je dostupný. Potom odešlete právě jeden požadavek:
+
+```http
+POST /api/admin/health/operational-alert-outbox/{id}/requeue
+Idempotency-Key: <nové náhodné UUID pro tuto jedinou operaci>
+X-Stavba-Offline-Scope: <aktuální scope přihlášené relace>
+Content-Type: application/json
+
+{
+  "expectedAttemptCount": 8,
+  "expectedDeadLetteredAt": "2026-08-05T01:23:45.678Z",
+  "reason": "receiver_recovered"
+}
+```
+
+Povolené důvody jsou `receiver_configuration_corrected`, `receiver_recovered`,
+`transient_provider_outage_resolved` a `operator_verified_safe_retry`. Volný text
+není povolen. Hodnoty `expectedAttemptCount` a `expectedDeadLetteredAt` vždy
+převezměte z právě načteného seznamu; tvoří optimistic-concurrency podmínku.
+
+Úspěch změní pouze vybraný řádek na `pending`, vynuluje počet pokusů a uvolní jej
+pro běžný worker. HTTP požadavek sám webhook nevolá. Worker při prvním claimu
+nového omezeného cyklu zvýší počet na 1 a znovu má nejvýše osm doručovacích
+cyklů. Poslední kategorie selhání a HTTP status zůstávají jako forenzní stopa.
+Ve stejné DB transakci vznikne jediný audit
+`operational_alert.dead_letter.requeued` s identitou operátora, pevným důvodem a
+předchozími precondition hodnotami; incident event se nemění.
+
+Stejný `Idempotency-Key` se stejným tělem bezpečně přehraje původní odpověď.
+Stejný klíč s jiným tělem je konflikt. Jiný klíč po úspěšném requeue nebo
+zastaralé precondition hodnoty vrátí `409`. Při `404` nebo `409` operaci ukončete,
+obnovte seznam a znovu ověřte stav; nevytvářejte slepě nový klíč. Hromadný requeue
+endpoint úmyslně neexistuje.
+
 Snapshot je dostupný oprávnění `diagnostics.view` na
 `GET /api/admin/health/operational`. Endpoint čte pouze agregace z PostgreSQL;
 nespouští S3 write/delete probe ani provider test.

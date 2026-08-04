@@ -142,6 +142,69 @@ paths:
         "403":
           description: Forbidden
 
+  /admin/health/operational-alert-outbox/dead-letters:
+    get:
+      operationId: listOperationalAlertDeadLetters
+      tags: [admin]
+      summary: List redacted operational alert dead letters (admin only)
+      description: >
+        Returns at most 50 newest dead-letter rows with stable operational
+        metadata and optimistic-concurrency fields. Payload bodies,
+        fingerprints, recipients, identities, object paths and secrets are
+        never returned.
+      responses:
+        "200":
+          description: Redacted dead-letter list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalAlertDeadLetterList"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Missing diagnostics.manage permission
+
+  /admin/health/operational-alert-outbox/{id}/requeue:
+    post:
+      operationId: requeueOperationalAlertDeadLetter
+      tags: [admin]
+      summary: Requeue one dead-lettered operational alert (admin only)
+      description: >
+        Atomically returns exactly one dead-lettered delivery to the pending
+        queue. The request must match the current attempt count and
+        dead-letter timestamp. Identity-scoped Idempotency-Key handling is
+        enforced by the API middleware; bulk requeue is intentionally absent.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OperationalAlertDeadLetterRequeueInput"
+      responses:
+        "200":
+          description: The individual dead-letter row was requeued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalAlertDeadLetterRequeueResult"
+        "400":
+          description: Invalid path or request body
+        "401":
+          description: Unauthorized
+        "403":
+          description: Missing diagnostics.manage permission
+        "404":
+          description: Outbox row not found
+        "409":
+          description: State, attempt count or dead-letter timestamp changed
+
   /admin/health/log:
     get:
       operationId: listHealthLog
@@ -9215,6 +9278,108 @@ components:
         lastDeliveredAt:
           type: [string, "null"]
           format: date-time
+
+    OperationalAlertDeadLetterRequeueInput:
+      type: object
+      additionalProperties: false
+      required:
+        - expectedAttemptCount
+        - expectedDeadLetteredAt
+        - reason
+      properties:
+        expectedAttemptCount:
+          type: integer
+          minimum: 1
+        expectedDeadLetteredAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          enum:
+            - receiver_configuration_corrected
+            - receiver_recovered
+            - transient_provider_outage_resolved
+            - operator_verified_safe_retry
+
+    OperationalAlertDeadLetterList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/OperationalAlertDeadLetterListItem"
+
+    OperationalAlertDeadLetterListItem:
+      type: object
+      additionalProperties: false
+      required:
+        - outboxId
+        - code
+        - severity
+        - transitionKind
+        - attemptCount
+        - lastFailureCategory
+        - lastHttpStatus
+        - deadLetteredAt
+        - createdAt
+      properties:
+        outboxId:
+          type: integer
+          minimum: 1
+        code:
+          type: string
+          maxLength: 160
+        severity:
+          type: string
+          enum: [warning, critical]
+        transitionKind:
+          type: string
+          enum: [triggered, escalated, deescalated, recovered]
+        attemptCount:
+          type: integer
+          minimum: 1
+        lastFailureCategory:
+          type: [string, "null"]
+          maxLength: 80
+        lastHttpStatus:
+          type: [integer, "null"]
+          minimum: 100
+          maximum: 599
+        deadLetteredAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    OperationalAlertDeadLetterRequeueResult:
+      type: object
+      additionalProperties: false
+      required:
+        - outboxId
+        - state
+        - attemptCount
+        - availableAt
+        - requeued
+      properties:
+        outboxId:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [pending]
+        attemptCount:
+          type: integer
+          minimum: 0
+        availableAt:
+          type: string
+          format: date-time
+        requeued:
+          type: boolean
+          const: true
 
     OperationalAlert:
       type: object
