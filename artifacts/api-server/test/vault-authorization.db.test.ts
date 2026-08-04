@@ -185,8 +185,12 @@ describe("credential vault permission composition", () => {
     const [audit] = await db
       .select()
       .from(auditLogTable)
-      .where(eq(auditLogTable.entityType, "vault-step-up"));
-    expect(audit).toMatchObject({ actorUserId: fullAccess.userId, action: "security" });
+      .where(eq(auditLogTable.action, "security.auth.vault.password.succeeded"));
+    expect(audit).toMatchObject({
+      actorUserId: fullAccess.userId,
+      action: "security.auth.vault.password.succeeded",
+      entityType: "security_event",
+    });
 
     const separateSession = await loginActor(fullAccess.username);
     const separateRequest = await separateSession.get(

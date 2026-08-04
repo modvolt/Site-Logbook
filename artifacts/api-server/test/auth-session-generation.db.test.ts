@@ -115,7 +115,7 @@ describe("isolated account and session lifecycle", () => {
     ]);
 
     const snapshot = await collectOperationalSnapshot({ now: new Date() });
-    expect(snapshot.metrics.security).toMatchObject({
+    expect(snapshot.security).toMatchObject({
       available: true,
       sensitiveEventCount: 2,
     });
