@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
-import { db, usersTable, webauthnCredentialsTable } from "@workspace/db";
+import { auditLogTable, db, usersTable, webauthnCredentialsTable } from "@workspace/db";
 import app from "../src/app";
 // vi.mock is hoisted by vitest so this import receives the mocked module.
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
@@ -266,6 +266,10 @@ describe("POST /api/auth/webauthn/login/complete — username-scoped flow", () =
   });
 
   it("returns 200 and user payload when verification succeeds", async () => {
+    const before = await db
+      .select({ id: auditLogTable.id })
+      .from(auditLogTable)
+      .where(eq(auditLogTable.action, "security.auth.webauthn.login.succeeded"));
     mockVerifySuccess();
 
     const agent = await beginWithUsername();
@@ -276,6 +280,16 @@ describe("POST /api/auth/webauthn/login/complete — username-scoped flow", () =
     expect(res.status).toBe(200);
     expect(res.body.username).toBe(`${TAG}-user`);
     expect(typeof res.body.role).toBe("string");
+
+    let after = before;
+    for (let attempt = 0; attempt < 50 && after.length === before.length; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      after = await db
+        .select({ id: auditLogTable.id })
+        .from(auditLogTable)
+        .where(eq(auditLogTable.action, "security.auth.webauthn.login.succeeded"));
+    }
+    expect(after).toHaveLength(before.length + 1);
   });
 
   it("session is established — authenticated endpoint responds 200 after login", async () => {

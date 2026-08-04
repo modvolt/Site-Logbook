@@ -9,6 +9,7 @@ export const SENSITIVE_TEST_ENV_PATTERNS = [
   /^(OPENAI|ANTHROPIC|GEMINI)_/i,
   /^(SMTP|IMAP|GMAIL)_/i,
   /^(BACKUP_RESTORE_TEST|FULL_OBJECT_RESTORE_TEST)_/i,
+  /^BACKUP_ENCRYPTION_/i,
 ];
 
 const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
@@ -50,6 +51,11 @@ export function assertSafeLocalTestDatabase(env = process.env) {
   }
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
     throw new Error("TEST_DATABASE_URL must use postgres:// or postgresql://.");
+  }
+  if (url.search) {
+    throw new Error(
+      "TEST_DATABASE_URL must not contain query parameters; PostgreSQL host overrides can bypass isolation.",
+    );
   }
   if (!LOCAL_DATABASE_HOSTS.has(url.hostname)) {
     throw new Error(`Database tests accept only a local isolated host, got ${url.hostname}.`);

@@ -12,7 +12,11 @@
  * round-trip is exercised. No mocking of DB internals.
  */
 import { describe, it, expect } from "vitest";
-import { withSchedulerLock, SCHEDULER_LOCK_KEYS } from "../src/lib/scheduler-lock";
+import {
+  tryAcquireSchedulerLock,
+  withSchedulerLock,
+  SCHEDULER_LOCK_KEYS,
+} from "../src/lib/scheduler-lock";
 
 // Use an arbitrary lock key that doesn't collide with real schedulers.
 // We pick one beyond the defined keys to avoid any real scheduler interference.
@@ -57,6 +61,23 @@ describe("withSchedulerLock – concurrent-instance protection", () => {
     });
 
     expect(results).toEqual([1, 2]);
+  });
+
+  it("keeps an explicit lease locked until its idempotent release", async () => {
+    const lease = await tryAcquireSchedulerLock(TEST_LOCK_KEY);
+    expect(lease).not.toBeNull();
+    expect(lease!.isValid()).toBe(true);
+
+    const whileHeld = await tryAcquireSchedulerLock(TEST_LOCK_KEY);
+    expect(whileHeld).toBeNull();
+
+    await lease!.release();
+    await lease!.release();
+    expect(lease!.isValid()).toBe(false);
+
+    const afterRelease = await tryAcquireSchedulerLock(TEST_LOCK_KEY);
+    expect(afterRelease).not.toBeNull();
+    await afterRelease!.release();
   });
 
   it("releases the lock even when fn() throws", async () => {

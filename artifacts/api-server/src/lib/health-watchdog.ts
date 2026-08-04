@@ -17,6 +17,10 @@ import {
 } from "./operational-signals";
 import { OperationalAlertTracker } from "./operational-alert-policy";
 import { emitLocalOperationalAlertTransitions } from "./operational-alert-sink";
+import {
+  deliverOperationalAlertTransitions,
+  getOperationalAlertTransportMode,
+} from "./operational-alert-transport";
 import { SCHEDULER_LOCK_KEYS, withSchedulerLock } from "./scheduler-lock";
 
 // ---------------------------------------------------------------------------
@@ -192,7 +196,14 @@ export async function runHealthCheck(
     operational.activeAlerts,
     operational.generatedAt,
   );
-  emitLocalOperationalAlertTransitions(operationalTransitions);
+  const alertTransport = getOperationalAlertTransportMode();
+  emitLocalOperationalAlertTransitions(operationalTransitions, alertTransport);
+  void deliverOperationalAlertTransitions(operationalTransitions).catch((error) => {
+    logger.warn(
+      { errorName: error instanceof Error ? error.name : "unknown" },
+      "Health watchdog: operational alert transport unavailable",
+    );
+  });
   operationalStatus = operational.status;
   activeOperationalAlerts = operational.activeAlerts.length;
   if (operationalTransitions.length > 0) {
@@ -334,7 +345,7 @@ export function getWatchdogState(): {
   operationalStatus: "ok" | "warning" | "critical" | "unknown";
   activeOperationalAlerts: number;
   lastOperationalAlertAt: string | null;
-  alertTransport: "local_log_only";
+  alertTransport: "local_log_only" | "local_log_and_https_webhook";
 } {
   if (state.lastAlertedState === null) {
     return {
@@ -347,7 +358,7 @@ export function getWatchdogState(): {
       operationalStatus,
       activeOperationalAlerts,
       lastOperationalAlertAt,
-      alertTransport: "local_log_only",
+      alertTransport: getOperationalAlertTransportMode(),
     };
   }
   return {
@@ -364,6 +375,6 @@ export function getWatchdogState(): {
     operationalStatus,
     activeOperationalAlerts,
     lastOperationalAlertAt,
-    alertTransport: "local_log_only",
+    alertTransport: getOperationalAlertTransportMode(),
   };
 }

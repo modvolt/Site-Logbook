@@ -8,6 +8,8 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, gte, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { backupsEnabled } from "./backup";
+import { SECURITY_OPERATIONAL_ALERT_ACTIONS } from "./security-audit";
+import { getOperationalAlertTransportMode } from "./operational-alert-transport";
 import {
   evaluateOperationalMetrics,
   loadOperationalThresholds,
@@ -73,6 +75,7 @@ export function unavailableOperationalSnapshot(
   return evaluateOperationalMetrics(
     metrics,
     options.thresholds ?? loadOperationalThresholds(),
+    getOperationalAlertTransportMode(),
   );
 }
 
@@ -153,9 +156,8 @@ export async function collectOperationalSnapshot(
             inArray(auditLogTable.entityType, [
               "sessions",
               "webauthn-credentials",
-              "vault-step-up",
             ]),
-            like(auditLogTable.action, "security%"),
+            inArray(auditLogTable.action, [...SECURITY_OPERATIONAL_ALERT_ACTIONS]),
           ),
         ),
       ),
@@ -217,5 +219,6 @@ export async function collectOperationalSnapshot(
   return evaluateOperationalMetrics(
     metrics,
     options.thresholds ?? loadOperationalThresholds(),
+    getOperationalAlertTransportMode(),
   );
 }

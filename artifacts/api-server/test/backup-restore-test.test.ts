@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { CreateBucketCommand, DeleteBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import {
   activitiesTable,
   backupLogTable,
@@ -43,6 +44,10 @@ import type { BackupLog } from "@workspace/db";
 const ENABLED = process.env.BACKUP_RESTORE_TEST_ENABLED === "true";
 const ISOLATION_CONFIRMED = process.env.BACKUP_RESTORE_TEST_CONFIRM_ISOLATED === "true";
 const FULL_OBJECT_DRILL = process.env.FULL_OBJECT_RESTORE_TEST_ENABLED === "true";
+const RESTORE_OPERATION_TIMEOUT_MS =
+  Number(process.env.BACKUP_RESTORE_TEST_TIMEOUT_MS) || 10 * 60 * 1_000;
+const SETUP_HOOK_TIMEOUT_MS = RESTORE_OPERATION_TIMEOUT_MS + 2 * 60 * 1_000;
+const CLEANUP_HOOK_TIMEOUT_MS = 2 * 60 * 1_000;
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const HAS_STORAGE = backupsEnabled();
 
@@ -80,6 +85,20 @@ if (ENABLED && !SAFE_ENVIRONMENT) {
 
 const shouldRun = ENABLED && HAS_DB && HAS_STORAGE && SAFE_ENVIRONMENT;
 
+function isolatedS3Client(): S3Client {
+  return new S3Client({
+    endpoint: process.env.S3_ENDPOINT,
+    region: process.env.S3_REGION ?? "us-east-1",
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+    },
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
+  });
+}
+
 const objectStorage = new ObjectStorageService();
 const ALL_PRIVATE_PREFIXES = [
   ...DB_BACKED_PRIVATE_OBJECT_PREFIXES,
@@ -113,6 +132,9 @@ describe.runIf(shouldRun)(
   () => {
     let backupId: number;
     let backupObjectPath: string | null = null;
+    let createdBackups: BackupLog[] = [];
+    let concurrentReservationProof = { fulfilled: 0, rejected: 0, rows: 0 };
+    let staleReconciliationProof = { freshBlocked: false, staleFailed: false };
     let restoreResult: BackupLog;
     let sourceCounts: TableCounts;
     let userId = 0;
@@ -123,8 +145,13 @@ describe.runIf(shouldRun)(
     let activityId = 0;
     const canaryPaths: string[] = [];
     let objectProof = { manifestEntries: 0, missingAfterLoss: 0, restoredWithMatchingHash: 0 };
+    const s3 = isolatedS3Client();
+    const testBucket = process.env.S3_BUCKET!;
+    let bucketCreated = false;
 
     beforeAll(async () => {
+      await s3.send(new CreateBucketCommand({ Bucket: testBucket }));
+      bucketCreated = true;
       const tag = `restore-drill-${randomUUID()}`;
       const [user] = await db
         .insert(usersTable)
@@ -169,7 +196,72 @@ describe.runIf(shouldRun)(
 
       // Create a fresh backup so the test owns its own fixture and doesn't
       // depend on a pre-existing backup being present in the environment.
-      const backup = await createBackup({ trigger: "manual", actor: "vitest-restore-test" });
+      const backupActor = `vitest-concurrent-backup-${randomUUID()}`;
+      const [freshRunning] = await db
+        .insert(backupLogTable)
+        .values({
+          filename: `fresh-running-${randomUUID()}.pgcustom`,
+          status: "running",
+          trigger: "manual",
+          createdBy: backupActor,
+        })
+        .returning();
+      staleReconciliationProof.freshBlocked =
+        (await Promise.allSettled([
+          createBackup({ trigger: "manual", actor: backupActor }),
+        ]))[0]?.status === "rejected";
+      const [freshAfter] = await db
+        .select({ status: backupLogTable.status })
+        .from(backupLogTable)
+        .where(eq(backupLogTable.id, freshRunning.id));
+      if (freshAfter?.status !== "running") {
+        throw new Error("A fresh running backup attempt was reconciled unexpectedly.");
+      }
+      await db.delete(backupLogTable).where(eq(backupLogTable.id, freshRunning.id));
+
+      const [staleRunning] = await db
+        .insert(backupLogTable)
+        .values({
+          filename: `stale-running-${randomUUID()}.pgcustom`,
+          status: "running",
+          trigger: "manual",
+          createdBy: backupActor,
+          createdAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000),
+        })
+        .returning();
+      const attempts = await Promise.allSettled([
+        createBackup({ trigger: "manual", actor: backupActor }),
+        createBackup({ trigger: "manual", actor: backupActor }),
+      ]);
+      const [staleAfter] = await db
+        .select({ status: backupLogTable.status, error: backupLogTable.error })
+        .from(backupLogTable)
+        .where(eq(backupLogTable.id, staleRunning.id));
+      staleReconciliationProof.staleFailed =
+        staleAfter?.status === "failed" &&
+        staleAfter.error ===
+          "Backup process ended before completion; stale attempt reconciled.";
+      createdBackups = attempts.flatMap((attempt) =>
+        attempt.status === "fulfilled" ? [attempt.value] : [],
+      );
+      const reservationRows = await db
+        .select()
+        .from(backupLogTable)
+        .where(
+          and(
+            eq(backupLogTable.createdBy, backupActor),
+            eq(backupLogTable.status, "success"),
+          ),
+        );
+      concurrentReservationProof = {
+        fulfilled: createdBackups.length,
+        rejected: attempts.filter((attempt) => attempt.status === "rejected").length,
+        rows: reservationRows.length,
+      };
+      if (createdBackups.length !== 1 || reservationRows.length !== 1) {
+        throw new Error("Concurrent backup reservation did not produce exactly one attempt.");
+      }
+      const backup = createdBackups[0];
       backupId = backup.id;
       backupObjectPath = backup.objectPath;
 
@@ -229,17 +321,26 @@ describe.runIf(shouldRun)(
 
       // Run the restore test against the backup we just created.
       restoreResult = await testBackupRestore(backupId);
-    });
+    }, SETUP_HOOK_TIMEOUT_MS);
 
     afterAll(async () => {
       // Clean up the backup log row we created. The temp database used during
       // the test is always dropped by testBackupRestore() itself (in its
       // finally block), so no extra cleanup is needed here.
-      if (backupId) {
-        await db.delete(backupLogTable).where(eq(backupLogTable.id, backupId));
+      const backupIds = createdBackups.map((backup) => backup.id);
+      if (backupIds.length > 0) {
+        await db.delete(backupLogTable).where(inArray(backupLogTable.id, backupIds));
       }
+      await db
+        .delete(backupLogTable)
+        .where(eq(backupLogTable.createdBy, createdBackups[0]?.createdBy ?? "__none__"));
       await Promise.all(
-        [...canaryPaths, ...(backupObjectPath ? [backupObjectPath] : [])].map((objectPath) =>
+        [
+          ...canaryPaths,
+          ...createdBackups.flatMap((backup) =>
+            backup.objectPath ? [backup.objectPath] : [],
+          ),
+        ].map((objectPath) =>
           objectStorage.deletePrivateObject(objectPath).catch(() => undefined),
         ),
       );
@@ -249,10 +350,32 @@ describe.runIf(shouldRun)(
       if (personId) await db.delete(peopleTable).where(eq(peopleTable.id, personId));
       if (customerId) await db.delete(customersTable).where(eq(customersTable.id, customerId));
       if (userId) await db.delete(usersTable).where(eq(usersTable.id, userId));
-    });
+      if (bucketCreated) {
+        await s3.send(new DeleteBucketCommand({ Bucket: testBucket }));
+      }
+      s3.destroy();
+    }, CLEANUP_HOOK_TIMEOUT_MS);
 
     it("returns restoreStatus=ok", () => {
       expect(restoreResult.restoreStatus).toBe("ok");
+    });
+
+    it("allows exactly one row and one execution for concurrent reservations", () => {
+      expect(concurrentReservationProof).toEqual({
+        fulfilled: 1,
+        rejected: 1,
+        rows: 1,
+      });
+      expect(createdBackups[0]?.filename).toMatch(
+        /^stavba-.*-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.pgcustom$/,
+      );
+    });
+
+    it("blocks a fresh running attempt and reconciles an abandoned aged attempt", () => {
+      expect(staleReconciliationProof).toEqual({
+        freshBlocked: true,
+        staleFailed: true,
+      });
     });
 
     it("populates restoreVerifiedTables with all expected table names", () => {

@@ -19,6 +19,11 @@ import { getPermissionOverrides } from "../lib/permissions";
 import rateLimit from "express-rate-limit";
 import { establishAuthenticatedSession } from "../lib/auth-session";
 import { establishVaultStepUp } from "../lib/vault-step-up";
+import {
+  auditSecurityResponse,
+  recordRateLimitAuditEvent,
+  SECURITY_AUDIT_CODES,
+} from "../lib/security-audit";
 
 const router: IRouter = Router();
 
@@ -27,7 +32,10 @@ const webauthnLimiter = rateLimit({
   limit: 30,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." },
+  handler: async (req, res) => {
+    await recordRateLimitAuditEvent(req, "webauthn");
+    res.status(429).json({ error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." });
+  },
   skip: (req) => {
     const ip = req.ip ?? "";
     return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
@@ -54,6 +62,26 @@ function serializeCred(c: typeof webauthnCredentialsTable.$inferSelect) {
     createdAt: c.createdAt.toISOString(),
   };
 }
+
+const auditRegistrationComplete = auditSecurityResponse({
+  succeededCode: SECURITY_AUDIT_CODES.webauthnRegistrationSucceeded,
+  deniedCode: SECURITY_AUDIT_CODES.webauthnRegistrationDenied,
+  actorUserId: (req) => req.auth?.userId,
+  skipUnauthenticated: true,
+  dedupeDeniedByActorAndSource: true,
+});
+const auditLoginComplete = auditSecurityResponse({
+  succeededCode: SECURITY_AUDIT_CODES.webauthnLoginSucceeded,
+  deniedCode: SECURITY_AUDIT_CODES.webauthnLoginDenied,
+  actorUserId: (req) => req.session.userId,
+});
+const auditVerifyComplete = auditSecurityResponse({
+  succeededCode: SECURITY_AUDIT_CODES.webauthnVerifySucceeded,
+  deniedCode: SECURITY_AUDIT_CODES.webauthnVerifyDenied,
+  actorUserId: (req) => req.auth?.userId,
+  skipUnauthenticated: true,
+  dedupeDeniedByActorAndSource: true,
+});
 
 router.post("/auth/webauthn/register/begin", async (req, res): Promise<void> => {
   if (!req.auth) {
@@ -98,7 +126,7 @@ router.post("/auth/webauthn/register/begin", async (req, res): Promise<void> => 
   res.json(options);
 });
 
-router.post("/auth/webauthn/register/complete", async (req, res): Promise<void> => {
+router.post("/auth/webauthn/register/complete", auditRegistrationComplete, async (req, res): Promise<void> => {
   if (!req.auth) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -130,8 +158,8 @@ router.post("/auth/webauthn/register/complete", async (req, res): Promise<void> 
       expectedRPID: getRpId(req),
       requireUserVerification: true,
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message ?? "Verification failed" });
+  } catch {
+    res.status(400).json({ error: "Registraci bezpečnostního klíče nelze ověřit" });
     return;
   }
 
@@ -216,7 +244,7 @@ router.post("/auth/webauthn/login/begin", webauthnLimiter, async (req, res): Pro
   res.json(options);
 });
 
-router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): Promise<void> => {
+router.post("/auth/webauthn/login/complete", webauthnLimiter, auditLoginComplete, async (req, res): Promise<void> => {
   const challenge = req.session.webauthnChallenge;
   const username = req.session.webauthnUsername;
 
@@ -311,8 +339,8 @@ router.post("/auth/webauthn/login/complete", webauthnLimiter, async (req, res): 
         counter: cred.counter,
       },
     });
-  } catch (err: any) {
-    res.status(401).json({ error: err?.message ?? "Verification failed" });
+  } catch {
+    res.status(401).json({ error: "Biometrické ověření selhalo" });
     return;
   }
 
@@ -357,7 +385,7 @@ router.post("/auth/webauthn/verify/begin", async (req, res): Promise<void> => {
   res.json(options);
 });
 
-router.post("/auth/webauthn/verify/complete", async (req, res): Promise<void> => {
+router.post("/auth/webauthn/verify/complete", auditVerifyComplete, async (req, res): Promise<void> => {
   if (!req.auth) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -408,8 +436,8 @@ router.post("/auth/webauthn/verify/complete", async (req, res): Promise<void> =>
         counter: cred.counter,
       },
     });
-  } catch (err: any) {
-    res.status(401).json({ error: err?.message ?? "Verification failed" });
+  } catch {
+    res.status(401).json({ error: "Biometrické ověření selhalo" });
     return;
   }
 

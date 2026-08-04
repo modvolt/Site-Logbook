@@ -9182,7 +9182,7 @@ components:
           type: ["string", "null"]
         alertTransport:
           type: string
-          enum: [local_log_only]
+          enum: [local_log_only, local_log_and_https_webhook]
 
     OperationalAlert:
       type: object
@@ -9354,7 +9354,7 @@ components:
           enum: [ok, warning, critical, unknown]
         alertTransport:
           type: string
-          enum: [local_log_only]
+          enum: [local_log_only, local_log_and_https_webhook]
         queues:
           type: array
           items:

@@ -11,6 +11,7 @@
     "test": "pnpm run test:unit",
     "test:unit": "node ../../scripts/assert-safe-test-env.mjs --mode unit && vitest run --config vitest.unit.config.ts",
     "test:db": "node ../../scripts/run-safe-test-db.mjs",
+    "test:backup-restore:isolated": "node ../../scripts/run-safe-test-db.mjs --backup-restore-isolated backup-restore-test",
     "test:all:isolated": "node ../../scripts/run-safe-test-db.mjs --all",
     "auth:reset-admin-password": "tsx src/scripts/reset-admin-password.ts",
     "cleanup-materials": "tsx src/scripts/cleanup-duplicate-materials.ts",

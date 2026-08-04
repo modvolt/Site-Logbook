@@ -26,6 +26,10 @@ test("hermetic unit mode rejects database and provider secrets", () => {
     () => assertHermeticUnitEnvironment({ NODE_ENV: "test", FULL_OBJECT_RESTORE_TEST_ENABLED: "true" }),
     /FULL_OBJECT_RESTORE_TEST_ENABLED/,
   );
+  assert.throws(
+    () => assertHermeticUnitEnvironment({ NODE_ENV: "test", BACKUP_ENCRYPTION_KEYRING: "production-value" }),
+    /BACKUP_ENCRYPTION_KEYRING/,
+  );
 });
 
 test("database mode requires the dedicated variable and rejects ambient DATABASE_URL", () => {
@@ -52,6 +56,15 @@ test("database mode rejects production and remote targets", () => {
   assert.throws(
     () => assertSafeLocalTestDatabase({ NODE_ENV: "test", TEST_DATABASE_URL: "postgres://localhost/modvolt" }),
     /test or ci segment/,
+  );
+  assert.throws(
+    () =>
+      assertSafeLocalTestDatabase({
+        NODE_ENV: "test",
+        TEST_DATABASE_URL:
+          "postgres://tester:secret@127.0.0.1:5432/modvolt_ci_test?host=db.example.com&port=6543",
+      }),
+    /must not contain query parameters/,
   );
 });
 
