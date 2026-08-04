@@ -74,6 +74,25 @@ function fail(code, message) {
   throw new StagingRuntimeContractError(code, message);
 }
 
+export function classifyStagingPublicationState(stage, state) {
+  if (!/^[01]{4}$/.test(state)) {
+    return Object.freeze({ decision: "STOP", reason: "invalid-state" });
+  }
+  if (stage === "preflight-only" && state === "0000") {
+    return Object.freeze({ decision: "PUBLISH_PREFLIGHT" });
+  }
+  if (stage === "preflight-only" && state === "1000") {
+    return Object.freeze({ decision: "VERIFIED_PREFLIGHT_NOOP" });
+  }
+  if (stage === "complete" && state === "1000") {
+    return Object.freeze({ decision: "PUBLISH_REMAINING" });
+  }
+  if (stage === "complete" && state === "1111") {
+    return Object.freeze({ decision: "VERIFIED_COMPLETE_NOOP" });
+  }
+  return Object.freeze({ decision: "STOP", reason: "partial-or-wrong-stage" });
+}
+
 function readSource(relativePath, overrides) {
   if (Object.hasOwn(overrides, relativePath)) {
     return overrides[relativePath];
@@ -239,6 +258,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "source_sha:",
     "source_ref:",
     "source_pr_number:",
+    "publication_stage:",
+    "expected_preflight_digest:",
     "confirm_registry_publication:",
   ]) {
     requirePublicationText(
@@ -253,6 +274,12 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "permissions: {}\n\nconcurrency:",
     "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
     "deny-by-default workflow permissions",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "group: site-logbook-images-publication",
+    "STAGING_IMAGE_CONCURRENCY_GUARD_MISSING",
+    "fixed package-namespace concurrency group",
   );
   requirePublicationText(
     publishWorkflow,
@@ -351,7 +378,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   requirePublicationText(
     publishWorkflow,
-    "actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&status=completed",
+    "actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&per_page=100",
     "STAGING_IMAGE_QUALITY_GUARD_MISSING",
     "exact-SHA pull-request Quality gate lookup",
   );
@@ -367,15 +394,33 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
   requirePublicationText(
     publishWorkflow,
-    '.conclusion == "success"',
+    '.status == "completed" and .conclusion == "success"',
     "STAGING_IMAGE_QUALITY_GUARD_MISSING",
     "successful Quality gate conclusion",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "sort_by([.run_number, .run_attempt]) |\n             last |",
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+    "latest exact-SHA Quality gate selection",
   );
   requirePublicationText(
     publishWorkflow,
     ".head_sha == $sha",
     "STAGING_IMAGE_QUALITY_GUARD_MISSING",
     "Quality gate head SHA coupling",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "any(.pull_requests[]?; .number == $pr)",
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+    "Quality gate source PR coupling",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    '--argjson pr "$SOURCE_PR_NUMBER"',
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+    "Quality gate source PR argument binding",
   );
   requirePublicationText(
     publishWorkflow,
@@ -401,6 +446,143 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
     "GHCR package visibility check",
   );
+  requirePublicationText(
+    publishWorkflow,
+    "'/user/packages?package_type=container&per_page=100'",
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    "authenticated private package inventory",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "user/packages/container/${package_name}/versions?per_page=100",
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    "authenticated private package version lookup",
+  );
+  if (
+    /users\/\$?\{?(?:PRIVATE_REGISTRY_OWNER|[Mm]odvolt)/.test(publishWorkflow)
+  ) {
+    fail(
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+      "private package metadata must not use the public-user package endpoint.",
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "(.repository.full_name | ascii_downcase) == $caller",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "private caller package linkage check",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    ".repository.private == true",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "linked repository privacy check",
+  );
+  for (const stageGuard of [
+    '"$PUBLICATION_STAGE" == "preflight-only"',
+    '"$PUBLICATION_STAGE" == "complete"',
+    "if: inputs.publication_stage == 'preflight-only'",
+    "if: inputs.publication_stage == 'complete'",
+    "PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      stageGuard,
+      "STAGING_IMAGE_STAGE_GUARD_MISSING",
+      `two-stage publication guard ${stageGuard}`,
+    );
+  }
+  for (const stateTransition of [
+    "preflight-only:0000",
+    "preflight-only:1000",
+    "complete:1000",
+    "complete:1111",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      stateTransition,
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+      `exact-SHA state transition ${stateTransition}`,
+    );
+  }
+  for (const stateOutput of [
+    'echo "publish_preflight=${publish_preflight}" >> "$GITHUB_OUTPUT"',
+    'echo "publish_remaining=${publish_remaining}" >> "$GITHUB_OUTPUT"',
+    'echo "${package_key}_digest=${exact_digests[$package_key]}" >> "$GITHUB_OUTPUT"',
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      stateOutput,
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+      "idempotent exact-SHA package-state output",
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "length == 1 and .[0].name == $digest",
+    "STAGING_IMAGE_DIGEST_GUARD_MISSING",
+    "unique exact-SHA remote digest binding",
+  );
+  for (const remoteAttestation of [
+    "docker buildx imagetools inspect",
+    "--format '{{json .Provenance}}'",
+    "--format '{{json .SBOM}}'",
+    "remoteManifestVerified: true",
+    "provenanceVerified: true",
+    "sbomVerified: true",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      remoteAttestation,
+      "STAGING_IMAGE_ATTESTATION_MISSING",
+      `remote attestation proof ${remoteAttestation}`,
+    );
+  }
+  requirePublicationText(
+    publishWorkflow,
+    "assert-exact-tag-absent.sh",
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    "immediate exact-tag absence helper",
+  );
+  for (const immediateGuard of [
+    "Recheck preflight tag absence immediately before publication",
+    "Recheck Mailpit tag absence immediately before publication",
+    "Recheck API tag absence immediately before publication",
+    "Recheck web tag absence immediately before publication",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      immediateGuard,
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+      `pre-push TOCTOU guard ${immediateGuard}`,
+    );
+  }
+  for (const packageName of [
+    "site-logbook-staging-preflight",
+    "site-logbook-staging-mailpit",
+    "site-logbook-staging-api",
+    "site-logbook-staging-web",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      `"\${RUNNER_TEMP}/assert-exact-tag-absent.sh" ${packageName}`,
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+      `immediate exact-tag absence invocation for ${packageName}`,
+    );
+  }
+  for (const verificationStep of [
+    "Verify first published package is private before continuing",
+    "Verify Mailpit package is private and digest-bound",
+    "Verify API package is private and digest-bound",
+    "Verify web package is private and digest-bound",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      verificationStep,
+      "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+      `sequential package verification ${verificationStep}`,
+    );
+  }
   requirePublicationText(
     publishWorkflow,
     "Verify first published package is private before continuing",
@@ -472,10 +654,28 @@ export function validateStagingRuntimeContract(overrides = {}) {
       "the manual workflow must publish exactly four custom images.",
     );
   }
-  if ((publishWorkflow.match(/platforms: linux\/amd64/g) ?? []).length !== 4) {
+  if ((publishWorkflow.match(/\bpush: false\b/g) ?? []).length !== 4) {
+    fail(
+      "STAGING_IMAGE_PREBUILD_GUARD_MISSING",
+      "each image publication stage must validate builds without a registry write first.",
+    );
+  }
+  for (const buildValidation of [
+    "Validate preflight image build without registry write",
+    "Validate Mailpit image build without registry write",
+    "Validate API image build without registry write",
+    "Validate web image build without registry write",
+  ]) {
+    requireText(
+      publishWorkflow,
+      buildValidation,
+      `complete-stage no-write prebuild ${buildValidation}`,
+    );
+  }
+  if ((publishWorkflow.match(/platforms: linux\/amd64/g) ?? []).length !== 8) {
     fail(
       "STAGING_IMAGE_PLATFORM_DRIFT",
-      "all four custom images must target the approved linux/amd64 host.",
+      "all eight validation and publication builds must target the approved linux/amd64 host.",
     );
   }
   if ((publishWorkflow.match(/provenance: mode=max/g) ?? []).length !== 4) {
@@ -495,6 +695,56 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "staging-images.json",
     "secret-free immutable image manifest",
   );
+  requireText(
+    publishWorkflow,
+    "preflight-publication.json",
+    "secret-free preflight publication evidence",
+  );
+  for (const checksum of [
+    "preflight-publication.sha256",
+    "staging-images.sha256",
+    "remaining-mailpit-package.sha256",
+    "remaining-api-package.sha256",
+    "remaining-web-package.sha256",
+  ]) {
+    requireText(publishWorkflow, checksum, `${checksum} evidence checksum`);
+  }
+  const orderedRecoverySteps = [
+    "Verify Mailpit package is private and digest-bound",
+    "Upload Mailpit partial-publication recovery evidence",
+    "Recheck API tag absence immediately before publication",
+    "Build and publish API image",
+    "Verify API package is private and digest-bound",
+    "Upload API partial-publication recovery evidence",
+    "Recheck web tag absence immediately before publication",
+    "Build and publish web image",
+    "Verify web package is private and digest-bound",
+    "Upload web partial-publication recovery evidence",
+    "Verify all published packages remain private",
+    "Create and validate secret-free immutable image manifest",
+  ];
+  let previousRecoveryStep = -1;
+  for (const recoveryStep of orderedRecoverySteps) {
+    const recoveryStepIndex = publishWorkflow.indexOf(recoveryStep);
+    if (recoveryStepIndex <= previousRecoveryStep) {
+      fail(
+        "STAGING_IMAGE_RECOVERY_EVIDENCE_ORDER_BROKEN",
+        `${recoveryStep} is missing or out of fail-closed order.`,
+      );
+    }
+    previousRecoveryStep = recoveryStepIndex;
+  }
+  for (const evidenceField of [
+    "initialPackageState",
+    "registryAction",
+    "callerWorkflowRef",
+  ]) {
+    requireText(
+      publishWorkflow,
+      evidenceField,
+      `publication evidence field ${evidenceField}`,
+    );
+  }
   if (/\b(?:coolify|kubectl|ssh)\b/i.test(publishWorkflow)) {
     fail(
       "STAGING_IMAGE_WORKFLOW_DEPLOYS",

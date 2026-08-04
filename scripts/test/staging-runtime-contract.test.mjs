@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import {
   StagingRuntimeContractError,
+  classifyStagingPublicationState,
   validateStagingRuntimeContract,
 } from "../check-staging-runtime-contract.mjs";
 
@@ -187,14 +188,35 @@ test("requires exact source branch, PR head, and checkout coupling", () => {
 test("requires a successful exact-SHA pull-request Quality gate", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
-    workflow.replace('.conclusion == "success"', '.conclusion != "failure"'),
+    workflow.replace(
+      '.status == "completed" and .conclusion == "success"',
+      '.conclusion != "failure"',
+    ),
     "STAGING_IMAGE_QUALITY_GUARD_MISSING",
   );
   assertWorkflowContractError(
     workflow.replace(
-      "actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&status=completed",
+      "actions/workflows/quality-gate.yml/runs?head_sha=${SOURCE_SHA}&event=pull_request&per_page=100",
       "actions/workflows/quality-gate.yml/runs?per_page=100",
     ),
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "sort_by([.run_number, .run_attempt]) |\n             last |",
+      "first |",
+    ),
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "any(.pull_requests[]?; .number == $pr)",
+      "(.pull_requests | length) >= 0",
+    ),
+    "STAGING_IMAGE_QUALITY_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace('            --argjson pr "$SOURCE_PR_NUMBER" \\\n', ""),
     "STAGING_IMAGE_QUALITY_GUARD_MISSING",
   );
 });
@@ -209,7 +231,7 @@ test("requires a private caller and private package verification", () => {
     "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace(".private == true", ".private != false"),
+    workflow.replaceAll(".private == true", ".private != false"),
     "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
   );
   assertWorkflowContractError(
@@ -240,12 +262,120 @@ test("requires a private caller and private package verification", () => {
     ),
     "STAGING_IMAGE_SOURCE_GUARD_MISSING",
   );
+  assertWorkflowContractError(
+    workflow.replaceAll(
+      "(.repository.full_name | ascii_downcase) == $caller",
+      "(.repository.full_name | ascii_downcase) != $caller",
+    ),
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+  );
+});
+
+test("enforces a fixed two-stage append-only package state gate", () => {
+  const workflow = source(".github/workflows/staging-images.yml");
+  assertWorkflowContractError(
+    workflow.replace(
+      "group: site-logbook-images-publication",
+      "group: staging-images-${{ inputs.source_sha }}",
+    ),
+    "STAGING_IMAGE_CONCURRENCY_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replaceAll(
+      "if: inputs.publication_stage == 'preflight-only'",
+      "if: always()",
+    ),
+    "STAGING_IMAGE_STAGE_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace("preflight-only:0000", "preflight-only:1111"),
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "'/user/packages?package_type=container&per_page=100'",
+      "'/users/modvolt/packages?package_type=container&per_page=100'",
+    ),
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replaceAll("length == 1 and .[0].name == $digest", "length > 0"),
+    "STAGING_IMAGE_DIGEST_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "Recheck API tag absence immediately before publication",
+      "Skip API tag recheck",
+    ),
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      '"${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-api',
+      "true # removed API tag absence check",
+    ),
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+  );
+});
+
+test("classifies exact-SHA publication states fail-closed", () => {
+  const allowed = new Map([
+    ["preflight-only:0000", "PUBLISH_PREFLIGHT"],
+    ["preflight-only:1000", "VERIFIED_PREFLIGHT_NOOP"],
+    ["complete:1000", "PUBLISH_REMAINING"],
+    ["complete:1111", "VERIFIED_COMPLETE_NOOP"],
+  ]);
+  for (const stage of ["preflight-only", "complete"]) {
+    for (let value = 0; value < 16; value += 1) {
+      const state = value.toString(2).padStart(4, "0");
+      const key = `${stage}:${state}`;
+      const result = classifyStagingPublicationState(stage, state);
+      assert.equal(result.decision, allowed.get(key) ?? "STOP", key);
+    }
+  }
+  assert.equal(
+    classifyStagingPublicationState("unexpected", "0000").decision,
+    "STOP",
+  );
+  assert.equal(
+    classifyStagingPublicationState("complete", "partial").decision,
+    "STOP",
+  );
+});
+
+test("verifies each remote package before the next publication", () => {
+  const workflow = source(".github/workflows/staging-images.yml");
+  for (const step of [
+    "Verify Mailpit package is private and digest-bound",
+    "Verify API package is private and digest-bound",
+    "Verify web package is private and digest-bound",
+  ]) {
+    assertWorkflowContractError(
+      workflow.replace(step, "Omit remote package gate"),
+      "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    );
+  }
+  assertWorkflowContractError(
+    workflow.replaceAll("preflight-publication.sha256", "preflight.txt"),
+    "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "Upload API partial-publication recovery evidence",
+      "Omit API recovery artifact",
+    ),
+    "STAGING_IMAGE_RECOVERY_EVIDENCE_ORDER_BROKEN",
+  );
+  assertWorkflowContractError(
+    workflow.replace("          push: false", "          push: true"),
+    "STAGING_IMAGE_PUBLICATION_INCOMPLETE",
+  );
 });
 
 test("requires strict digest namespace and provenance guards", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
-    workflow.replace(
+    workflow.replaceAll(
       '[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]',
       '[[ -n "$digest" ]]',
     ),
@@ -271,7 +401,7 @@ test("requires strict digest namespace and provenance guards", () => {
   );
 });
 
-test("requires all four images to remain linux/amd64", () => {
+test("requires all validation and publication builds to remain linux/amd64", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
     workflow.replace(
