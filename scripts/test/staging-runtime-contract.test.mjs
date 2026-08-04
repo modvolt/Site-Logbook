@@ -399,6 +399,46 @@ test("requires strict digest namespace and provenance guards", () => {
     workflow.replace("          sbom: true", "          sbom: false"),
     "STAGING_IMAGE_ATTESTATION_MISSING",
   );
+  assertWorkflowContractError(
+    workflow.replace("($runnable | length) == 1", "($runnable | length) >= 1"),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(".schemaVersion == 2", ".schemaVersion >= 1"),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "($attestations | length) == 1",
+      "($attestations | length) >= 1",
+    ),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      '.annotations["vnd.docker.reference.digest"] == $runnable[0].digest',
+      "true",
+    ),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      '.SLSA.invocation.environment.platform == "linux/amd64"',
+      ".SLSA.invocation.environment.platform != null",
+    ),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      '.SPDX.SPDXID == "SPDXRef-DOCUMENT"',
+      ".SPDX.SPDXID != null",
+    ),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace('test("^SPDX-[0-9]+\\\\.[0-9]+$")', 'test(".*")'),
+    "STAGING_IMAGE_ATTESTATION_MISSING",
+  );
 });
 
 test("requires all validation and publication builds to remain linux/amd64", () => {
