@@ -283,7 +283,7 @@ R00 je minimální prerequisite, nikoli záminka odložit P0. Plný testovací s
 ### R14 – Izolované DB/E2E/fault testovací prostředí
 
 - **Stav:** dokončeno ve FÁZÍCH R14-A/R14-B; povinný disposable full-stack/fault gate prošel na
-  head `98585a8e39a8c30dd2332d17b6d6808a84588b81` v GitHub runu
+  implementačním headu `98585a8e39a8c30dd2332d17b6d6808a84588b81` v GitHub runu
   [30893394249](https://github.com/modvolt/Site-Logbook/actions/runs/30893394249). Produkční merge a
   deploy zůstávají samostatně neschválené.
 

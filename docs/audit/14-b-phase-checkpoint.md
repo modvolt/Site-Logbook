@@ -2,7 +2,8 @@
 
 - **Datum:** 2026-08-04.
 - **Stav:** **DOKONČENO – IZOLOVANÝ FULL-STACK/FAULT GATE**.
-- **Head větve:** `98585a8e39a8c30dd2332d17b6d6808a84588b81`.
+- **Ověřený implementační head před docs-only checkpointem:**
+  `98585a8e39a8c30dd2332d17b6d6808a84588b81`.
 - **Větev:** `agent/phase14b-full-stack-fault-gate`.
 - **Draft PR:** [#4](https://github.com/modvolt/Site-Logbook/pull/4).
 - **Exact CI důkaz:** [run 30893394249](https://github.com/modvolt/Site-Logbook/actions/runs/30893394249),

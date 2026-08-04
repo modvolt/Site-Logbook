@@ -3,7 +3,8 @@
 - **Datum:** 2026-08-04.
 - **Verdikt:** **PASS – POVINNÝ IZOLOVANÝ CI FULL-STACK/FAULT GATE**.
 - **Implementační větev:** `agent/phase14b-full-stack-fault-gate`.
-- **Ověřený head větve:** `98585a8e39a8c30dd2332d17b6d6808a84588b81`.
+- **Ověřený implementační head před docs-only checkpointem:**
+  `98585a8e39a8c30dd2332d17b6d6808a84588b81`.
 - **Ověřený pull-request merge SHA:** `41618d82b624d7956a7d328c85307ba5d4e79803`.
 - **Draft PR:** [#4](https://github.com/modvolt/Site-Logbook/pull/4), base
   `agent/phase14-pwa-isolation`.
