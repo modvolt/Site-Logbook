@@ -564,7 +564,7 @@ test("keeps every registry push behind an immediate guard and ordered recovery e
         step.with?.push === true,
     )
     .map(({ index }) => index);
-  assert.equal(publishIndexes.length, 4);
+  assert.equal(publishIndexes.length, PACKAGE_NAMES.length);
 
   for (const index of publishIndexes) {
     const guard = steps[index - 1];
