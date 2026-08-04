@@ -227,28 +227,36 @@ async function verifySourceProvenance() {
 }
 
 async function dockerBuilds() {
-  await spawnResult(dockerCommand, [
-    "build",
-    "--file",
-    "artifacts/api-server/Dockerfile",
-    "--build-arg",
-    `BUILD_SHA=${sourceSha}`,
-    "--tag",
-    apiImage,
-    ".",
-  ]);
-  await spawnResult(dockerCommand, [
-    "build",
-    "--file",
-    "artifacts/stavba/Dockerfile",
-    "--build-arg",
-    "BASE_PATH=/",
-    "--build-arg",
-    `VITE_BUILD_SHA=${sourceSha}`,
-    "--tag",
-    webImage,
-    ".",
-  ]);
+  await spawnResult(
+    dockerCommand,
+    [
+      "build",
+      "--file",
+      "artifacts/api-server/Dockerfile",
+      "--build-arg",
+      `BUILD_SHA=${sourceSha}`,
+      "--tag",
+      apiImage,
+      ".",
+    ],
+    { env: { DOCKER_BUILDKIT: "1" } },
+  );
+  await spawnResult(
+    dockerCommand,
+    [
+      "build",
+      "--file",
+      "artifacts/stavba/Dockerfile",
+      "--build-arg",
+      "BASE_PATH=/",
+      "--build-arg",
+      `VITE_BUILD_SHA=${sourceSha}`,
+      "--tag",
+      webImage,
+      ".",
+    ],
+    { env: { DOCKER_BUILDKIT: "1" } },
+  );
 }
 
 async function runBrowserAcceptance() {

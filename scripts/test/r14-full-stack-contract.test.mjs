@@ -26,13 +26,16 @@ const workflowPath = path.join(
   "workflows",
   "quality-gate.yml",
 );
+const dockerignorePath = path.join(root, ".dockerignore");
 
-const [composeSource, runner, provider, workflow] = await Promise.all([
-  readFile(composePath, "utf8"),
-  readFile(runnerPath, "utf8"),
-  readFile(providerPath, "utf8"),
-  readFile(workflowPath, "utf8"),
-]);
+const [composeSource, runner, provider, workflow, dockerignore] =
+  await Promise.all([
+    readFile(composePath, "utf8"),
+    readFile(runnerPath, "utf8"),
+    readFile(providerPath, "utf8"),
+    readFile(workflowPath, "utf8"),
+    readFile(dockerignorePath, "utf8"),
+  ]);
 const compose = YAML.parse(composeSource);
 
 test("R14 stack contains only disposable, internally networked services", () => {
@@ -133,6 +136,9 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
     runner,
     /captureText\("git", \[\s*"status",\s*"--porcelain=v1",\s*"--untracked-files=all",\s*\]\)/,
   );
+  assert.equal((runner.match(/DOCKER_BUILDKIT: "1"/g) ?? []).length, 2);
+  assert.match(dockerignore, /^\/tmp$/m);
+  assert.match(dockerignore, /^\/e2e\/test-results$/m);
   assert.ok(runner.indexOf("finally {") < runner.indexOf("await cleanup();"));
 });
 
