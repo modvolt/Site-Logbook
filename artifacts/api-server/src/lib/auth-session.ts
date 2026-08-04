@@ -37,6 +37,33 @@ export function destroySession(req: Request): Promise<void> {
 }
 
 /**
+ * Logout must not report success while a still-valid server session survives.
+ * If the session store cannot destroy the row, revoke the authenticated user's
+ * session generation so every copy of that session fails on its next request.
+ */
+export async function destroySessionOrRevokeIdentity(
+  req: Request,
+  revokeIdentity: (userId: number) => Promise<void>,
+): Promise<"destroyed" | "identity-revoked"> {
+  try {
+    await destroySession(req);
+    return "destroyed";
+  } catch (destroyError) {
+    const userId = req.auth?.userId;
+    if (!userId) throw destroyError;
+    try {
+      await revokeIdentity(userId);
+      return "identity-revoked";
+    } catch (revokeError) {
+      throw new AggregateError(
+        [destroyError, revokeError],
+        "Session destruction and identity revocation both failed",
+      );
+    }
+  }
+}
+
+/**
  * Rotate an anonymous/pre-authentication session before attaching identity.
  * The response must be sent only after the new session is persisted.
  */

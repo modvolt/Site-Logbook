@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Request } from "express";
-import { establishAuthenticatedSession } from "../src/lib/auth-session";
+import {
+  destroySessionOrRevokeIdentity,
+  establishAuthenticatedSession,
+} from "../src/lib/auth-session";
 
 function mockRequest(options: { saveError?: Error } = {}) {
   const events: string[] = [];
@@ -84,5 +87,43 @@ describe("establishAuthenticatedSession", () => {
     ).rejects.toBe(failure);
 
     expect(session).not.toHaveProperty("userId");
+  });
+});
+
+describe("destroySessionOrRevokeIdentity", () => {
+  it("destroys a healthy session without revoking every device", async () => {
+    const session = {
+      destroy: vi.fn((callback: (error?: Error) => void) => callback()),
+    } as unknown as Request["session"];
+    const request = { session, auth: { userId: 42 } } as Request;
+    const revoke = vi.fn(async () => undefined);
+
+    await expect(destroySessionOrRevokeIdentity(request, revoke)).resolves.toBe("destroyed");
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("revokes the identity epoch when the session store cannot destroy logout", async () => {
+    const destroyError = new Error("session store unavailable");
+    const session = {
+      destroy: vi.fn((callback: (error?: Error) => void) => callback(destroyError)),
+    } as unknown as Request["session"];
+    const request = { session, auth: { userId: 42 } } as Request;
+    const revoke = vi.fn(async () => undefined);
+
+    await expect(destroySessionOrRevokeIdentity(request, revoke)).resolves.toBe("identity-revoked");
+    expect(revoke).toHaveBeenCalledWith(42);
+  });
+
+  it("fails loudly when neither session destruction nor identity revocation succeeds", async () => {
+    const session = {
+      destroy: vi.fn((callback: (error?: Error) => void) => callback(new Error("destroy failed"))),
+    } as unknown as Request["session"];
+    const request = { session, auth: { userId: 42 } } as Request;
+
+    await expect(
+      destroySessionOrRevokeIdentity(request, async () => {
+        throw new Error("revoke failed");
+      }),
+    ).rejects.toThrow("Session destruction and identity revocation both failed");
   });
 });

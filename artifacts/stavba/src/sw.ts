@@ -23,6 +23,51 @@ declare let self: ServiceWorkerGlobalScope;
 
 const clientScopes = new Map<string, string>();
 const scopedStrategies = new Map<string, NetworkFirst>();
+const OFFLINE_SCOPE_HEADER = "x-stavba-offline-scope";
+
+function requestWithScope(request: Request, scope: string): Request {
+  const headers = new Headers(request.headers);
+  headers.set(OFFLINE_SCOPE_HEADER, scope);
+  return new Request(request, { headers });
+}
+
+function eventClientId(event?: ExtendableEvent): string | undefined {
+  const fetchEvent = event as FetchEvent | undefined;
+  return fetchEvent?.clientId || fetchEvent?.resultingClientId || undefined;
+}
+
+async function enforceResponseScopeBeforeDelivery(
+  scope: string,
+  response: Response,
+  event?: ExtendableEvent,
+): Promise<Response> {
+  if (response.status !== 200) return response;
+  const responseScope = response.headers.get(OFFLINE_SCOPE_HEADER);
+  if (responseScope === scope) return response;
+
+  // Never deliver the response body to a client whose proven scope differs.
+  // A missing header means an old API is serving a new SW and also fails closed.
+  const clientId = eventClientId(event);
+  if (clientId) {
+    clientScopes.delete(clientId);
+    const client = await self.clients.get(clientId);
+    client?.postMessage({
+      type: "AUTH_SCOPE_MISMATCH",
+      reason: responseScope ? "mismatch" : "missing-response-scope",
+    });
+  }
+  await purgeApiCaches();
+  return new Response(JSON.stringify({
+    error: responseScope ? "Offline identity changed" : "Identity scope required",
+    code: responseScope ? "offline_scope_mismatch" : "identity_scope_required",
+  }), {
+    status: responseScope ? 409 : 428,
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
 
 function strategyForScope(scope: string): NetworkFirst {
   const existing = scopedStrategies.get(scope);
@@ -31,6 +76,10 @@ function strategyForScope(scope: string): NetworkFirst {
     cacheName: apiCacheName(scope),
     networkTimeoutSeconds: 5,
     plugins: [
+      {
+        fetchDidSucceed: ({ response, event }) =>
+          enforceResponseScopeBeforeDelivery(scope, response, event),
+      },
       new CacheableResponsePlugin({ statuses: [200] }),
       new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 60 }),
     ],
@@ -65,7 +114,7 @@ clientsClaim();
 // ourselves to activate immediately and let the client reload onto the new SW.
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
+    event.waitUntil(self.skipWaiting());
     return;
   }
 
@@ -83,7 +132,9 @@ self.addEventListener("message", (event) => {
   }
 
   if (event.data?.type === "CLEAR_IDENTITY_SCOPE") {
-    if (sourceId) clientScopes.delete(sourceId);
+    // Session cookies are origin-wide, not tab-local. One tab logging out or
+    // changing identity invalidates every remembered client mapping.
+    clientScopes.clear();
     event.waitUntil(purgeApiCaches());
   }
 });
@@ -114,23 +165,30 @@ const navRoute = new NavigationRoute(navHandler, {
 });
 registerRoute(navRoute);
 
-// Cache only the explicit field-work read model, partitioned by the opaque
-// user + authorization epoch supplied by /api/auth/me. Auth, vault, billing,
-// storage objects and every unknown/future API path are always network-only.
+// Bind every controlled API request to the tab's proven identity epoch. Only
+// the explicit field-work read model is cached; every other endpoint remains
+// network-only but receives the same server-verifiable scope header.
 registerRoute(
-  ({ url, request, sameOrigin }: { url: URL; request: Request; sameOrigin: boolean }) =>
-    sameOrigin && request.method === "GET" && isOfflineCacheableApiPath(url.pathname),
+  ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+    sameOrigin && url.pathname.startsWith("/api/") && url.pathname !== "/api/events",
   async (options) => {
     const event = options.event as FetchEvent;
-    const scope = event.clientId ? clientScopes.get(event.clientId) : undefined;
+    const clientId = eventClientId(event);
+    const scope = clientId ? clientScopes.get(clientId) : undefined;
     if (!scope) {
-      if (event.clientId) {
-        const client = await self.clients.get(event.clientId);
+      if (clientId) {
+        const client = await self.clients.get(clientId);
         client?.postMessage({ type: "REQUEST_IDENTITY_SCOPE" });
       }
-      return fetch(options.request, { cache: "no-store" });
+      return fetch(options.request);
     }
-    return strategyForScope(scope).handle(options);
+    const scopedRequest = requestWithScope(options.request, scope);
+    if (scopedRequest.method === "GET" && isOfflineCacheableApiPath(new URL(scopedRequest.url).pathname)) {
+      return strategyForScope(scope).handle({ ...options, request: scopedRequest });
+    }
+    const response = await fetch(scopedRequest);
+    if (scopedRequest.method !== "GET" && scopedRequest.method !== "HEAD") return response;
+    return enforceResponseScopeBeforeDelivery(scope, response, event);
   },
 );
 

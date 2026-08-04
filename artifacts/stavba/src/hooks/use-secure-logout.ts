@@ -1,18 +1,21 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLogout } from "@workspace/api-client-react";
-import { useAuth } from "@/hooks/use-auth";
+import { getGetMeQueryKey, useLogout } from "@workspace/api-client-react";
 import { useOfflineQueue } from "@/hooks/use-offline-queue";
 import { clearApiCache } from "@/lib/pwa";
 import { clearTimerNotification } from "@/lib/timer-notification";
+import { publishAuthTransition, resetIdentityQueries } from "@/lib/auth-coordination";
+import {
+  beginIdentityRequestTransition,
+  completeIdentityRequestTransition,
+} from "@/lib/identity-fetch";
 
 export function useSecureLogout() {
   const queryClient = useQueryClient();
-  const { refresh } = useAuth();
   const { pendingCount, failedCount } = useOfflineQueue();
   const logout = useLogout();
 
-  const requestLogout = useCallback(() => {
+  const requestLogout = useCallback(async () => {
     const ownedCount = pendingCount + failedCount;
     if (
       ownedCount > 0 &&
@@ -24,14 +27,24 @@ export function useSecureLogout() {
       return;
     }
 
-    logout.mutate(undefined, {
-      onSuccess: async () => {
-        await Promise.allSettled([clearApiCache(), clearTimerNotification()]);
-        queryClient.clear();
-        refresh();
-      },
-    });
-  }, [failedCount, logout, pendingCount, queryClient, refresh]);
+    beginIdentityRequestTransition();
+    const transition = publishAuthTransition("changing");
+    const reset = resetIdentityQueries(queryClient);
+    const cleanup = Promise.allSettled([clearApiCache(), clearTimerNotification()]);
+    try {
+      await logout.mutateAsync(undefined);
+      await Promise.allSettled([reset, cleanup]);
+      publishAuthTransition("changed", transition);
+      completeIdentityRequestTransition();
+    } catch {
+      // A lost response may mean the server committed the logout. Keep the
+      // browser signed out, finish local cleanup, then trust only a fresh /me.
+      await Promise.allSettled([reset, cleanup]);
+      publishAuthTransition("changed", transition);
+      completeIdentityRequestTransition();
+      await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+    }
+  }, [failedCount, logout, pendingCount, queryClient]);
 
   return { requestLogout, isPending: logout.isPending };
 }

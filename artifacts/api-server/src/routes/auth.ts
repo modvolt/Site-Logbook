@@ -5,7 +5,10 @@ import rateLimit from "express-rate-limit";
 import { db, usersTable, USER_ROLES, resolvePermissions, type PermissionEffect, type User, type UserRole } from "@workspace/db";
 import { LoginBody, SetupFirstAdminBody, VerifyVaultPasswordBody } from "@workspace/api-zod";
 import { getPermissionOverrides } from "../lib/permissions";
-import { establishAuthenticatedSession } from "../lib/auth-session";
+import {
+  destroySessionOrRevokeIdentity,
+  establishAuthenticatedSession,
+} from "../lib/auth-session";
 import { establishVaultStepUp } from "../lib/vault-step-up";
 import { createOfflineIdentityScope } from "../lib/offline-identity";
 
@@ -142,11 +145,22 @@ router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {
   res.json(serializeUser(user, overrides));
 });
 
-router.post("/auth/logout", (req, res): void => {
-  req.session.destroy(() => {
+router.post("/auth/logout", async (req, res, next): Promise<void> => {
+  try {
+    await destroySessionOrRevokeIdentity(req, async (userId) => {
+      const [revoked] = await db
+        .update(usersTable)
+        .set({ sessionGeneration: sql`${usersTable.sessionGeneration} + 1` })
+        .where(eq(usersTable.id, userId))
+        .returning({ id: usersTable.id });
+      if (!revoked) throw new Error("Authenticated user disappeared during logout");
+    });
     res.clearCookie("stavba.sid");
     res.sendStatus(204);
-  });
+  } catch (error) {
+    res.clearCookie("stavba.sid");
+    next(error);
+  }
 });
 
 router.post(

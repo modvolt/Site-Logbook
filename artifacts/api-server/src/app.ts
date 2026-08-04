@@ -12,7 +12,10 @@ import { auditMutations } from "./middlewares/audit";
 import { rejectArchivedJobMutations } from "./middlewares/archived-job";
 import { broadcastMutations } from "./middlewares/live-updates";
 import { trackSessionActivity } from "./middlewares/session-activity";
-import { enforceOfflineReplayScope } from "./middlewares/offline-replay-scope";
+import {
+  attachOfflineResponseScope,
+  enforceOfflineReplayScope,
+} from "./middlewares/offline-replay-scope";
 import { enforceOfflineIdempotency } from "./middlewares/offline-idempotency";
 import { record5xxError } from "./lib/server-errors";
 import { isPublicApiRequest } from "./lib/public-api-policy";
@@ -158,6 +161,7 @@ app.use("/api", (_req: Request, res: Response, next: NextFunction) => {
 });
 
 app.use("/api", attachAuth);
+app.use("/api", attachOfflineResponseScope);
 app.use("/api", trackSessionActivity);
 
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
@@ -165,7 +169,10 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   return requireAuth(req, res, next);
 });
 
-app.use("/api", enforceOfflineReplayScope);
+app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  if (isPublicApiRequest(req.method, req.originalUrl)) return next();
+  return enforceOfflineReplayScope(req, res, next);
+});
 
 // Enforce module permissions on the backend. Role defaults are resolved with
 // per-user allow/deny overrides before this middleware runs.

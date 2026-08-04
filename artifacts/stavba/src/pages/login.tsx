@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { Briefcase, LogIn, ShieldAlert, RotateCw, Loader2, Fingerprint } from "lucide-react";
 import {
   useLogin,
@@ -13,11 +14,21 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { clearApiCache, debugLog, hardRefreshApp } from "@/lib/pwa";
+import {
+  publishAuthTransition,
+  resetIdentityQueries,
+  type AuthTransitionHandle,
+} from "@/lib/auth-coordination";
+import {
+  beginIdentityRequestTransition,
+  completeIdentityRequestTransition,
+} from "@/lib/identity-fetch";
 
 export default function Login() {
   const { needsSetup, refresh } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const login = useLogin();
   const setup = useSetupFirstAdmin();
   const webauthnBegin = useWebauthnLoginBegin();
@@ -39,17 +50,34 @@ export default function Login() {
     }
   }, []);
 
-  const goToApp = () => {
+  const goToApp = (transition: AuthTransitionHandle) => {
     debugLog("auth", "login success → redirect to dashboard (/)");
+    publishAuthTransition("changed", transition);
+    completeIdentityRequestTransition();
     refresh();
     setLocation("/");
+  };
+
+  const beginLoginTransition = async () => {
+    beginIdentityRequestTransition();
+    const transition = publishAuthTransition("changing");
+    const reset = resetIdentityQueries(queryClient);
+    await Promise.allSettled([reset, clearApiCache()]);
+    return transition;
+  };
+
+  const restoreAfterFailedTransition = (transition: AuthTransitionHandle) => {
+    publishAuthTransition("changed", transition);
+    completeIdentityRequestTransition();
+    refresh();
   };
 
   const handleBiometricLogin = async () => {
     const trimmedUsername = username.trim();
     setBiometricLoading(true);
+    let transition: AuthTransitionHandle | null = null;
     try {
-      await clearApiCache();
+      transition = await beginLoginTransition();
       const options = await webauthnBegin.mutateAsync({
         data: trimmedUsername ? { username: trimmedUsername } : {},
       });
@@ -57,6 +85,7 @@ export default function Login() {
       try {
         authResp = await startAuthentication({ optionsJSON: options as any });
       } catch (err: any) {
+        restoreAfterFailedTransition(transition);
         if (err?.name === "NotAllowedError") {
           toast({ title: "Biometrické přihlášení zrušeno" });
         } else {
@@ -65,9 +94,10 @@ export default function Login() {
         return;
       }
       await webauthnComplete.mutateAsync({ data: { response: authResp as any } });
-      goToApp();
+      goToApp(transition);
       toast({ title: "Přihlášeno biometrikou" });
     } catch (err: any) {
+      if (transition) restoreAfterFailedTransition(transition);
       toast({ title: "Biometrické přihlášení selhalo", description: err?.message ?? "Zkuste se přihlásit heslem.", variant: "destructive" });
     } finally {
       setBiometricLoading(false);
@@ -85,12 +115,14 @@ export default function Login() {
     }
     setFieldErrors({});
     debugLog("auth", "login attempt");
+    let transition: AuthTransitionHandle | null = null;
     try {
-      await clearApiCache();
+      transition = await beginLoginTransition();
       await login.mutateAsync({ data: { username: username.trim(), password } });
-      goToApp();
+      goToApp(transition);
       toast({ title: `Vítej, ${username}` });
     } catch {
+      if (transition) restoreAfterFailedTransition(transition);
       setFieldErrors({ password: "Špatné uživatelské jméno nebo heslo." });
     }
   };
@@ -100,12 +132,14 @@ export default function Login() {
     if (!username || !password || !name) return;
     if (password.length < 12) { setSetupError("Heslo musí mít aspoň 12 znaků."); return; }
     setSetupError(null);
+    let transition: AuthTransitionHandle | null = null;
     try {
-      await clearApiCache();
+      transition = await beginLoginTransition();
       await setup.mutateAsync({ data: { username, password, name, email: email || null } });
-      goToApp();
+      goToApp(transition);
       toast({ title: "Admin účet vytvořen" });
     } catch (error: any) {
+      if (transition) restoreAfterFailedTransition(transition);
       setSetupError(error?.message ?? "Nepodařilo se vytvořit účet.");
     }
   };
@@ -158,8 +192,9 @@ export default function Login() {
         ) : (
           <form onSubmit={handleLogin} className="space-y-4" noValidate>
             <div>
-              <label className="text-sm font-medium block mb-1">Uživatelské jméno</label>
+              <label htmlFor="login-username" className="text-sm font-medium block mb-1">Uživatelské jméno</label>
               <Input
+                id="login-username"
                 value={username}
                 onChange={e => { setUsername(e.target.value); if (fieldErrors.username) setFieldErrors(p => ({ ...p, username: undefined })); }}
                 autoComplete="username"
@@ -172,8 +207,9 @@ export default function Login() {
               )}
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1">Heslo</label>
+              <label htmlFor="login-password" className="text-sm font-medium block mb-1">Heslo</label>
               <Input
+                id="login-password"
                 type="password"
                 value={password}
                 onChange={e => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors(p => ({ ...p, password: undefined })); }}
