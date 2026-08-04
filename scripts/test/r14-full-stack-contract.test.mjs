@@ -137,6 +137,8 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
     /captureText\("git", \[\s*"status",\s*"--porcelain=v1",\s*"--untracked-files=all",\s*\]\)/,
   );
   assert.equal((runner.match(/DOCKER_BUILDKIT: "1"/g) ?? []).length, 2);
+  assert.ok(runner.includes('"docker-buildx.exe"'));
+  assert.ok(runner.includes('["build", "--load"]'));
   assert.match(dockerignore, /^\/tmp$/m);
   assert.match(dockerignore, /^\/e2e\/test-results$/m);
   assert.ok(runner.indexOf("finally {") < runner.indexOf("await cleanup();"));

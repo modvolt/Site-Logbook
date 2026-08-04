@@ -37,6 +37,14 @@ const windowsCompose = path.join(
   "bin",
   "docker-compose.exe",
 );
+const windowsBuildx = path.join(
+  process.env.ProgramFiles ?? "C:\\Program Files",
+  "Docker",
+  "Docker",
+  "resources",
+  "cli-plugins",
+  "docker-buildx.exe",
+);
 const dockerCommand =
   process.platform === "win32" && existsSync(windowsDocker)
     ? windowsDocker
@@ -46,6 +54,12 @@ const composeCommand =
     ? windowsCompose
     : dockerCommand;
 const composePrefix = composeCommand === dockerCommand ? ["compose"] : [];
+const buildCommand =
+  process.platform === "win32" && existsSync(windowsBuildx)
+    ? windowsBuildx
+    : dockerCommand;
+const buildPrefix =
+  buildCommand === dockerCommand ? ["build"] : ["build", "--load"];
 
 if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
   throw new Error(
@@ -228,9 +242,9 @@ async function verifySourceProvenance() {
 
 async function dockerBuilds() {
   await spawnResult(
-    dockerCommand,
+    buildCommand,
     [
-      "build",
+      ...buildPrefix,
       "--file",
       "artifacts/api-server/Dockerfile",
       "--build-arg",
@@ -242,9 +256,9 @@ async function dockerBuilds() {
     { env: { DOCKER_BUILDKIT: "1" } },
   );
   await spawnResult(
-    dockerCommand,
+    buildCommand,
     [
-      "build",
+      ...buildPrefix,
       "--file",
       "artifacts/stavba/Dockerfile",
       "--build-arg",
