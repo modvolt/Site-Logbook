@@ -21,6 +21,7 @@
     "test:staging-contract": "node --test scripts/test/staging-release-guard.test.mjs scripts/test/staging-release-evidence.test.mjs scripts/test/staging-runtime-contract.test.mjs scripts/test/staging-workflow-execution.test.mjs",
     "test:staging-workflow-execution": "node --test scripts/test/staging-workflow-execution.test.mjs",
     "test:r14-full-stack-contract": "node --test scripts/test/r14-full-stack-contract.test.mjs",
+    "test:operational-alert-receiver": "node --test scripts/test/operational-alert-receiver.test.mjs",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "typecheck:e2e:staging": "tsc -p e2e/tsconfig.staging.json",

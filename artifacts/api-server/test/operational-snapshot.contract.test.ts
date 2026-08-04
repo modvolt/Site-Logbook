@@ -73,13 +73,16 @@ describe("R15-A operational snapshot contract", () => {
     expect(signals).not.toContain('"vault-step-up",');
   });
 
-  it("keeps webhook delivery non-blocking so health persistence and lock release can continue", () => {
+  it("uses durable delivery with a non-blocking DB-outage fallback", () => {
     const watchdog = source("artifacts/api-server/src/lib/health-watchdog.ts");
     const delivery = watchdog.indexOf("void deliverOperationalAlertTransitions(");
     const stateUpdate = watchdog.indexOf("operationalStatus = operational.status", delivery);
 
     expect(delivery).toBeGreaterThan(0);
     expect(stateUpdate).toBeGreaterThan(delivery);
+    expect(watchdog).toContain("reconcileOperationalIncidents(");
+    expect(watchdog).toContain("dbOk && operationalSnapshotComplete");
+    expect(watchdog).toContain("if (!durableIncidentState)");
     expect(watchdog).not.toContain("await deliverOperationalAlertTransitions(");
     expect(watchdog).toContain("operational alert transport unavailable");
   });

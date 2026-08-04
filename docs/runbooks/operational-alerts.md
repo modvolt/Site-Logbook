@@ -5,6 +5,38 @@ závažnost, metriku, naměřenou a limitní hodnotu, vlastníka a odkaz sem. Ne
 obsahovat uživatelské identity, e-maily, session ID, názvy souborů, object paths,
 raw chyby workerů ani provider secrets.
 
+## R15-B2: durable incidenty, outbox a nezávislý receiver
+
+Při dostupné databázi je autoritou tabulka `operational_incidents`. Celý snapshot
+se porovnává v transakci pod stabilním `pg_advisory_xact_lock`; stejný tick dvou
+replik proto vytvoří nejvýše jeden `triggered`, `escalated`, `deescalated` nebo
+`recovered` event. `operational_incident_events` je append-only evidence a pro
+každý event vznikne právě jeden řádek `operational_alert_outbox`.
+
+Worker claimuje splatné záznamy pomocí `FOR UPDATE SKIP LOCKED`. Claim má náhodný
+lease token a 45sekundovou expiraci; po pádu jej může převzít jiná replika.
+Doručení je **at-least-once**. Deterministický SHA-256 event key se posílá jako
+`Idempotency-Key`, ACK se zapíše jen s aktuálním lease tokenem. Retryable chyby
+mají exponenciální backoff nejvýše 15 minut; permanentní chyba nebo osm vyčerpaných
+doručovacích cyklů končí v `dead_letter`. Zapnutí transportu po období `disabled`
+bezpečně odešle čekající eventy.
+
+Nouzová výjimka platí jen při nedostupné DB: protože nelze získat lock ani zapsat
+outbox, watchdog zachová přímý redigovaný webhook. Duplicitní zpráva mezi replikami
+je v tomto stavu možná a receiver ji musí deduplikovat.
+
+Referenční receiver je v `deploy/operational-alert-receiver`. Musí běžet mimo
+aplikační proces a jeho databázi, za veřejným TLS proxy a s persistentním volume.
+Striktně ověřuje bearer token, 64hex idempotency key, 16KiB limit a allowlist polí;
+každý klíč uloží atomicky na volume. Současně nezávisle probuje veřejné staging
+`/healthz` a po nastaveném počtu selhání vypíše `dead_man_triggered`. Receiver logy
+proto musí sbírat platforma oddělená od Site Logbooku.
+
+Tato implementace sama receiver neprovisionuje, nevytváří DNS ani secret a
+neaktivuje egress. Před staging rolloutem samostatně schvalte doménu, TLS,
+persistentní volume, log alerting a dva nezávisle vytvořené secret záznamy se
+stejnou náhodnou hodnotou na obou stranách.
+
 Snapshot je dostupný oprávnění `diagnostics.view` na
 `GET /api/admin/health/operational`. Endpoint čte pouze agregace z PostgreSQL;
 nespouští S3 write/delete probe ani provider test.

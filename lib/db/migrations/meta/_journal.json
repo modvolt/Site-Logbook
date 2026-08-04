@@ -715,6 +715,13 @@
       "when": 1785639600000,
       "tag": "0102_immutable_job_quote_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1785848870157,
+      "tag": "0103_durable_operational_incident_outbox",
+      "breakpoints": true
     }
   ]
 }

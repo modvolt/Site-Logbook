@@ -22,6 +22,7 @@ import {
   getOperationalAlertTransportMode,
 } from "./operational-alert-transport";
 import { SCHEDULER_LOCK_KEYS, withSchedulerLock } from "./scheduler-lock";
+import { reconcileOperationalIncidents } from "./operational-incident-store";
 
 // ---------------------------------------------------------------------------
 // In-process state for transition detection
@@ -44,6 +45,7 @@ const state: WatchdogState = {
   lastAlertAt: null,
 };
 const operationalAlertTracker = new OperationalAlertTracker();
+const fallbackOnlyAlertFingerprints = new Set<string>();
 let operationalStatus: "ok" | "warning" | "critical" | "unknown" = "unknown";
 let activeOperationalAlerts = 0;
 let lastOperationalAlertAt: string | null = null;
@@ -182,9 +184,11 @@ export async function runHealthCheck(
     },
   ];
   let operational = unavailableOperationalSnapshot({ providers });
+  let operationalSnapshotComplete = false;
   if (dbOk) {
     try {
       operational = await collectOperationalSnapshot({ providers });
+      operationalSnapshotComplete = true;
     } catch (err) {
       logger.warn(
         { errorName: err instanceof Error ? err.name : "unknown" },
@@ -192,18 +196,64 @@ export async function runHealthCheck(
       );
     }
   }
-  const operationalTransitions = operationalAlertTracker.update(
+  const trackerTransitions = operationalAlertTracker.update(
     operational.activeAlerts,
     operational.generatedAt,
   );
+  let operationalTransitions;
+  let directTransitions = trackerTransitions;
+  let durableIncidentState = false;
+  if (dbOk && operationalSnapshotComplete) {
+    try {
+      operationalTransitions = await reconcileOperationalIncidents(
+        operational.activeAlerts,
+        operational.generatedAt,
+      );
+      durableIncidentState = true;
+      const fallbackRecoveries = trackerTransitions.filter(
+        (transition) =>
+          transition.kind === "recovered" &&
+          fallbackOnlyAlertFingerprints.delete(transition.alert.fingerprint),
+      );
+      for (const alert of operational.activeAlerts) {
+        // The durable registry has now adopted any still-active fallback alert.
+        fallbackOnlyAlertFingerprints.delete(alert.fingerprint);
+      }
+      operationalTransitions.push(...fallbackRecoveries);
+      directTransitions = fallbackRecoveries;
+    } catch (error) {
+      logger.warn(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "Health watchdog: durable incident reconciliation unavailable",
+      );
+    }
+  }
+  operationalTransitions ??= trackerTransitions;
+  if (!durableIncidentState) {
+    for (const transition of trackerTransitions) {
+      if (transition.kind === "recovered") {
+        fallbackOnlyAlertFingerprints.delete(transition.alert.fingerprint);
+      } else {
+        fallbackOnlyAlertFingerprints.add(transition.alert.fingerprint);
+      }
+    }
+  }
   const alertTransport = getOperationalAlertTransportMode();
   emitLocalOperationalAlertTransitions(operationalTransitions, alertTransport);
-  void deliverOperationalAlertTransitions(operationalTransitions).catch((error) => {
-    logger.warn(
-      { errorName: error instanceof Error ? error.name : "unknown" },
-      "Health watchdog: operational alert transport unavailable",
-    );
-  });
+  // A DB-unavailable fallback and its later recovery bypass the outbox because
+  // PostgreSQL could not persist the original transition. Duplicate risk is
+  // explicit and preferable to losing the only signal that the DB is down.
+  if (!durableIncidentState) {
+    directTransitions = operationalTransitions;
+  }
+  if (directTransitions.length > 0) {
+    void deliverOperationalAlertTransitions(directTransitions).catch((error) => {
+      logger.warn(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "Health watchdog: operational alert transport unavailable",
+      );
+    });
+  }
   operationalStatus = operational.status;
   activeOperationalAlerts = operational.activeAlerts.length;
   if (operationalTransitions.length > 0) {

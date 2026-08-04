@@ -343,6 +343,38 @@ export class OperationalAlertWebhookTransport {
     return this.inFlight;
   }
 
+  /**
+   * Sends one database-outbox event without the process-local queue/cooldown.
+   * The stable event key survives retries, restarts, and replica hand-off.
+   */
+  async deliverDurable(
+    transition: OperationalAlertTransition,
+    idempotencyKey: string,
+  ): Promise<DeliveryResult> {
+    const payload = payloadFor([transition]);
+    try {
+      await this.sendWithRetry(payload.body, idempotencyKey);
+      return { state: "delivered", transitionCount: 1, pendingCount: 0 };
+    } catch (error) {
+      const failureError =
+        error instanceof WebhookDeliveryError
+          ? error
+          : new WebhookDeliveryError("network", true, null, 3);
+      const failure: DeliveryFailure = {
+        category: failureError.category,
+        retryable: failureError.retryable,
+        status: failureError.status,
+        attemptCount: failureError.attemptCount,
+        pendingCount: 0,
+      };
+      return {
+        state: failure.retryable ? "deferred" : "dropped",
+        failure,
+        pendingCount: 0,
+      };
+    }
+  }
+
   private enqueue(transitions: OperationalAlertTransition[]): number {
     const now = this.now();
     for (const [key, expiresAt] of this.cooldownUntilByKey) {
@@ -427,8 +459,10 @@ export class OperationalAlertWebhookTransport {
     };
   }
 
-  private async sendWithRetry(body: string): Promise<void> {
-    const idempotencyKey = createHash("sha256").update(body).digest("hex");
+  private async sendWithRetry(
+    body: string,
+    idempotencyKey = createHash("sha256").update(body).digest("hex"),
+  ): Promise<void> {
     let lastError: WebhookDeliveryError | null = null;
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -567,4 +601,14 @@ export function deliverOperationalAlertTransitions(
     return Promise.resolve({ state: "disabled", pendingCount: 0 });
   }
   return webhookTransport.deliver(transitions);
+}
+
+export function deliverOperationalAlertTransitionDurably(
+  transition: OperationalAlertTransition,
+  idempotencyKey: string,
+): Promise<DeliveryResult> {
+  if (!webhookTransport) {
+    return Promise.resolve({ state: "disabled", pendingCount: 0 });
+  }
+  return webhookTransport.deliverDurable(transition, idempotencyKey);
 }

@@ -57,3 +57,4 @@ export * from "./health-log";
 export * from "./recurring-invoice-templates";
 export * from "./webauthn-credentials";
 export * from "./switchboards";
+export * from "./operational-incidents";

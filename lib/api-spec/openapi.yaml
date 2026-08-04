@@ -9164,6 +9164,7 @@ components:
         - operationalStatus
         - activeOperationalAlerts
         - alertTransport
+        - delivery
       properties:
         overallStatus:
           type: string
@@ -9183,6 +9184,37 @@ components:
         alertTransport:
           type: string
           enum: [local_log_only, local_log_and_https_webhook]
+        delivery:
+          $ref: "#/components/schemas/OperationalAlertDeliveryStatus"
+
+    OperationalAlertDeliveryStatus:
+      type: object
+      required:
+        - status
+        - pending
+        - delivering
+        - deadLetter
+        - oldestPendingAt
+        - lastDeliveredAt
+      properties:
+        status:
+          type: string
+          enum: [available, unavailable]
+        pending:
+          type: [integer, "null"]
+          minimum: 0
+        delivering:
+          type: [integer, "null"]
+          minimum: 0
+        deadLetter:
+          type: [integer, "null"]
+          minimum: 0
+        oldestPendingAt:
+          type: [string, "null"]
+          format: date-time
+        lastDeliveredAt:
+          type: [string, "null"]
+          format: date-time
 
     OperationalAlert:
       type: object
