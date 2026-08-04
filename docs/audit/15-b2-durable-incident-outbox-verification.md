@@ -4,6 +4,11 @@
 - **Rozsah:** implementace a izolované ověření; bez staging/production rollout
 - **Větev:** `agent/phase15b2-durable-incident-outbox`
 - **Base:** vzdálený checkpoint R15-B1 `c79d03256dc63a2ea19de0883469ab22028c224d`
+- **Draft PR:** [#7](https://github.com/modvolt/Site-Logbook/pull/7)
+- **Implementační commit:** `a751a319648ec891191ac1ccc74b864074d80c3b`
+- **GitHub CI:**
+  [Quality gate 30953447754](https://github.com/modvolt/Site-Logbook/actions/runs/30953447754),
+  PASS
 - **Produkce / Coolify / Hetzner / DNS / GHCR / secrets:** beze změny
 
 ## Výsledek
@@ -92,6 +97,7 @@ Migrace byla aplikována jen na jednorázový lokální PostgreSQL 18 cluster.
 | peer dependency gate | PASS |
 | dependency audit `moderate` | PASS, bez známé zranitelnosti |
 | `git diff --check` | PASS |
+| GitHub `hermetic-release-gate` nad `a751a319` | PASS |
 
 DB fault test prokázal souběžný dedupe reconcile, stabilní sekvence, restartové
 reopen, jediný claim, převzetí expirovaného lease, odmítnutí stale ACK,

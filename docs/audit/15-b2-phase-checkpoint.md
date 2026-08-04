@@ -1,8 +1,14 @@
 # FÁZE R15-B2 – checkpoint
 
 - **Datum:** 2026-08-04
-- **Stav:** DOKONČENO LOKÁLNĚ, PUBLIKAČNÍ ÚDAJE DOPLNÍ FINÁLNÍ COMMIT
+- **Stav:** DOKONČENO A PUBLIKOVÁNO JAKO DRAFT PR; IMPLEMENTAČNÍ CI PASS
 - **Větev:** `agent/phase15b2-durable-incident-outbox`
+- **Draft PR:** [#7](https://github.com/modvolt/Site-Logbook/pull/7), stacked na
+  `agent/phase15b1-security-alert-hardening`
+- **Implementační commit:** `a751a319648ec891191ac1ccc74b864074d80c3b`
+- **GitHub CI implementačního commitu:**
+  [Quality gate 30953447754](https://github.com/modvolt/Site-Logbook/actions/runs/30953447754),
+  PASS
 - **Produkce:** beze změny
 - **Migrace:** nová expand-only `0103_durable_operational_incident_outbox.sql`,
   ověřena pouze v jednorázové lokální DB; nikde nenasazena
@@ -37,6 +43,7 @@ izolovaný rollout, ale tato fáze jej nikam nenasadila a nevytvořila secrets.
 - migration drift: žádný;
 - hermetický release gate, production buildy a 35+130+15 souvisejících testů:
   PASS;
+- GitHub `hermetic-release-gate` nad implementačním commitem `a751a319`: PASS;
 - dočasný PostgreSQL cluster: zastaven a odstraněn;
 - `0100_user_ui_preferences.sql`: stále nezařazena.
 
