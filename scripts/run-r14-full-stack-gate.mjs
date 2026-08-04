@@ -630,6 +630,25 @@ async function injectProviderFaults() {
   };
 }
 
+async function waitForStorageHealth(session, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = "no response";
+  while (Date.now() < deadline) {
+    try {
+      const response = await scopedFetch("/api/admin/health", session);
+      const body = await response.json();
+      last = `HTTP ${response.status}, storageStatus=${String(body.storageStatus)}`;
+      if (response.status === 200 && body.storageStatus === "ok") return;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    `S3 health did not recover after restarting the disposable provider; last result: ${last}.`,
+  );
+}
+
 async function injectStorageAndDatabaseFaults() {
   const session = await sessionEnvelope();
   await compose(["stop", "--timeout", "5", "minio"]);
@@ -675,15 +694,7 @@ async function injectStorageAndDatabaseFaults() {
     (response, body) =>
       response.status === 200 && JSON.parse(body).status === "ok",
   );
-  const recoveredStorage = await scopedFetch("/api/admin/health", session);
-  if (
-    recoveredStorage.status !== 200 ||
-    (await recoveredStorage.json()).storageStatus !== "ok"
-  ) {
-    throw new Error(
-      "S3 health did not recover after restarting the disposable provider.",
-    );
-  }
+  await waitForStorageHealth(session);
   evidence.scenarios.storageFault = {
     passed: true,
     degradedStatus: "error",

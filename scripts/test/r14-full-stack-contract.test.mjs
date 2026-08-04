@@ -165,6 +165,8 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
     "timeoutMs: 600_000",
     "timeoutMs: 30_000",
     "await persistEvidence()",
+    "await waitForStorageHealth(session)",
+    "storageStatus=${String(body.storageStatus)}",
   ]) {
     assert.ok(runner.includes(marker), `runner is missing ${marker}`);
   }
