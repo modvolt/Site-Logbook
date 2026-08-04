@@ -10,6 +10,7 @@
     "gate:staging-config": "node ./scripts/staging-release-guard.cjs",
     "gate:staging-evidence": "node ./scripts/check-staging-release-evidence.mjs",
     "gate:staging-runtime": "node ./scripts/check-staging-runtime-contract.mjs",
+    "prepare:staging-workflow-harness": "node ./scripts/prepare-workflow-execution-harness.mjs",
     "recovery:ceremony": "node ./scripts/recovery-ceremony.mjs",
     "gate:quality": "pnpm run lint && pnpm run check:peers && pnpm run audit:dependencies",
     "lint": "eslint . --max-warnings=0",
@@ -17,7 +18,8 @@
     "audit:dependencies": "pnpm audit --audit-level=moderate",
     "test": "node ./scripts/run-hermetic-gate.mjs --tests-only",
     "test:recovery-ceremony": "node --test scripts/test/recovery-ceremony.test.mjs",
-    "test:staging-contract": "node --test scripts/test/staging-release-guard.test.mjs scripts/test/staging-release-evidence.test.mjs scripts/test/staging-runtime-contract.test.mjs",
+    "test:staging-contract": "node --test scripts/test/staging-release-guard.test.mjs scripts/test/staging-release-evidence.test.mjs scripts/test/staging-runtime-contract.test.mjs scripts/test/staging-workflow-execution.test.mjs",
+    "test:staging-workflow-execution": "node --test scripts/test/staging-workflow-execution.test.mjs",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "typecheck:e2e:staging": "tsc -p e2e/tsconfig.staging.json",
@@ -34,6 +36,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.8.3",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.65.0",
+    "yaml": "2.8.4"
   }
 }

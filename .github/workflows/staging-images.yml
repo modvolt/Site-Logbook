@@ -305,12 +305,14 @@ jobs:
               || fail "the exact source tag does not resolve to the approved preflight digest."
           fi
 
-          echo "state=${state}" >> "$GITHUB_OUTPUT"
-          echo "publish_preflight=${publish_preflight}" >> "$GITHUB_OUTPUT"
-          echo "publish_remaining=${publish_remaining}" >> "$GITHUB_OUTPUT"
-          for package_key in "${package_keys[@]}"; do
-            echo "${package_key}_digest=${exact_digests[$package_key]}" >> "$GITHUB_OUTPUT"
-          done
+          {
+            echo "state=${state}"
+            echo "publish_preflight=${publish_preflight}"
+            echo "publish_remaining=${publish_remaining}"
+            for package_key in "${package_keys[@]}"; do
+              echo "${package_key}_digest=${exact_digests[$package_key]}"
+            done
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check out the exact public source commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -339,10 +341,12 @@ jobs:
           set -euo pipefail
           owner="${REPOSITORY_OWNER,,}"
           [[ "$owner" == "modvolt" ]] || exit 1
-          echo "preflight=ghcr.io/${owner}/site-logbook-staging-preflight" >> "$GITHUB_OUTPUT"
-          echo "mailpit=ghcr.io/${owner}/site-logbook-staging-mailpit" >> "$GITHUB_OUTPUT"
-          echo "api=ghcr.io/${owner}/site-logbook-staging-api" >> "$GITHUB_OUTPUT"
-          echo "web=ghcr.io/${owner}/site-logbook-staging-web" >> "$GITHUB_OUTPUT"
+          {
+            echo "preflight=ghcr.io/${owner}/site-logbook-staging-preflight"
+            echo "mailpit=ghcr.io/${owner}/site-logbook-staging-mailpit"
+            echo "api=ghcr.io/${owner}/site-logbook-staging-api"
+            echo "web=ghcr.io/${owner}/site-logbook-staging-web"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Configure fail-closed private package verifier
         shell: bash
@@ -424,28 +428,58 @@ jobs:
 
               if jq -e \
                 --arg digest "$expected_digest" \
-                '.digest == $digest and
-                 any(.manifests[]?;
-                   .platform.os == "linux" and .platform.architecture == "amd64") and
-                 any(.manifests[]?;
-                   .annotations["vnd.docker.reference.type"] == "attestation-manifest")' \
+                '.schemaVersion == 2 and
+                 .mediaType == "application/vnd.oci.image.index.v1+json" and
+                 .digest == $digest and
+                 ((.manifests // []) as $manifests |
+                  ($manifests |
+                    map(select(
+                      (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"
+                    ))) as $runnable |
+                  ($manifests |
+                    map(select(
+                      .annotations["vnd.docker.reference.type"] == "attestation-manifest"
+                    ))) as $attestations |
+                  ($runnable | length) == 1 and
+                  $runnable[0].mediaType == "application/vnd.oci.image.manifest.v1+json" and
+                  $runnable[0].platform.os == "linux" and
+                  $runnable[0].platform.architecture == "amd64" and
+                  ($runnable[0].digest | test("^sha256:[0-9a-f]{64}$")) and
+                  ($attestations | length) == 1 and
+                  all($attestations[];
+                    .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+                    (.digest | test("^sha256:[0-9a-f]{64}$")) and
+                    .annotations["vnd.docker.reference.digest"] == $runnable[0].digest and
+                    .platform.os == "unknown" and
+                    .platform.architecture == "unknown"))' \
                 <<<"$manifest_json" >/dev/null 2>&1 &&
                 jq -e \
-                  '[.. | objects | select(has("buildType"))] | length > 0' \
+                  '.SLSA.buildType == "https://mobyproject.org/buildkit@v1" and
+                   .SLSA.invocation.environment.platform == "linux/amd64"' \
                   <<<"$provenance_json" >/dev/null 2>&1 &&
                 jq -e \
-                  '[.. | objects | select(.SPDXID? == "SPDXRef-DOCUMENT")] | length > 0' \
+                  '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and
+                   (.SPDX.spdxVersion | test("^SPDX-[0-9]+\\.[0-9]+$"))' \
                   <<<"$sbom_json" >/dev/null 2>&1
               then
+                runnable_manifest_digest="$(
+                  jq -r \
+                    '[.manifests[] |
+                      select(
+                        (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"
+                      )][0].digest' \
+                    <<<"$manifest_json"
+                )"
                 jq -n \
                   --arg digest "$expected_digest" \
                   --arg packageId "$(jq -r '.id' <<<"$package_json")" \
                   --arg packageName "$package_name" \
                   --arg registryRepository "$repository" \
                   --arg repository "$(jq -r '.repository.full_name' <<<"$package_json")" \
+                  --arg runnableManifestDigest "$runnable_manifest_digest" \
                   --arg sourceSha "$source_sha" \
                   --arg versionId "$(jq -r '.id' <<<"$version_json")" \
-                  '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, platform: "linux/amd64", remoteManifestVerified: true, provenanceVerified: true, sbomVerified: true}' \
+                  '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, runnableManifestDigest: $runnableManifestDigest, platform: "linux/amd64", remoteManifestVerified: true, provenanceVerified: true, sbomVerified: true}' \
                   > "$evidence_path"
                 exit 0
               fi

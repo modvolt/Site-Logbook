@@ -506,9 +506,9 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
   for (const stateOutput of [
-    'echo "publish_preflight=${publish_preflight}" >> "$GITHUB_OUTPUT"',
-    'echo "publish_remaining=${publish_remaining}" >> "$GITHUB_OUTPUT"',
-    'echo "${package_key}_digest=${exact_digests[$package_key]}" >> "$GITHUB_OUTPUT"',
+    'echo "publish_preflight=${publish_preflight}"',
+    'echo "publish_remaining=${publish_remaining}"',
+    'echo "${package_key}_digest=${exact_digests[$package_key]}"',
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -519,6 +519,12 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
   requirePublicationText(
     publishWorkflow,
+    '} >> "$GITHUB_OUTPUT"',
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    "grouped package-state output",
+  );
+  requirePublicationText(
+    publishWorkflow,
     "length == 1 and .[0].name == $digest",
     "STAGING_IMAGE_DIGEST_GUARD_MISSING",
     "unique exact-SHA remote digest binding",
@@ -527,7 +533,19 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "docker buildx imagetools inspect",
     "--format '{{json .Provenance}}'",
     "--format '{{json .SBOM}}'",
+    ".schemaVersion == 2 and",
+    '.mediaType == "application/vnd.oci.image.index.v1+json" and',
+    "($runnable | length) == 1",
+    '$runnable[0].mediaType == "application/vnd.oci.image.manifest.v1+json"',
+    "($attestations | length) == 1",
+    "all($attestations[];",
+    "vnd.docker.reference.digest",
+    '.SLSA.buildType == "https://mobyproject.org/buildkit@v1"',
+    '.SLSA.invocation.environment.platform == "linux/amd64"',
+    '.SPDX.SPDXID == "SPDXRef-DOCUMENT"',
+    '(.SPDX.spdxVersion | test("^SPDX-[0-9]+\\\\.[0-9]+$"))',
     "remoteManifestVerified: true",
+    "runnableManifestDigest",
     "provenanceVerified: true",
     "sbomVerified: true",
   ]) {

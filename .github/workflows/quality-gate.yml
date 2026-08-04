@@ -42,6 +42,8 @@ jobs:
       - run: pnpm gate:release
       - name: Validate immutable staging runtime contract
         run: pnpm gate:staging-runtime
+      - name: Prepare pinned staging workflow execution harness
+        run: pnpm prepare:staging-workflow-harness
       - name: Test staging guard, evidence, and runtime contracts
         run: pnpm test:staging-contract
       - name: Isolated API database suites
@@ -58,7 +60,7 @@ jobs:
           server /data
       - name: Wait for isolated MinIO
         run: |
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:19000/minio/health/ready > /dev/null; then
               exit 0
             fi
