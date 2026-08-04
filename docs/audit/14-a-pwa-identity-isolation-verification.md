@@ -3,7 +3,8 @@
 - **Datum:** 2026-08-04.
 - **Verdikt:** **PASS – EXACT-SHA REAL-BROWSER A LOKÁLNÍ DOCKER/POSTGRES DŮKAZ**.
 - **Výchozí commit:** `d13e3d72bd00b9a3e4e558c722e0a5abbcbe5e8b`.
-- **Přesně testovaný implementační commit:** `0b941507062a783dab37e898f4f3dbea026fa273`.
+- **Bezpečnostní implementace:** `0b941507062a783dab37e898f4f3dbea026fa273`.
+- **Přesně ověřený source commit:** `486a13adfce5a64b6cb3f1d7214848a67b386312`.
 - **Větev:** `agent/phase14-pwa-isolation`.
 - **Draft PR:** [#3](https://github.com/modvolt/Site-Logbook/pull/3), base
   `agent/phase13-staging-workflow-harness`.
@@ -14,7 +15,7 @@
 
 | Oblast | Výsledek | Důkaz |
 |---|---:|---|
-| Exact-SHA PWA gate | PASS | Edge `151.0.4129.59`, 5/5 scénářů, source SHA `0b941507…` |
+| Exact-SHA PWA gate | PASS | Edge `151.0.4129.59`, 5/5 scénářů, source SHA `486a13a…` |
 | Dva taby / jediný executor | PASS | 1 request, 1 ledger záznam, 1 efekt |
 | Ztracená odpověď po commitu | PASS | 2 pokusy, 1 replay, 1 ledger záznam, 1 efekt, stejný klíč |
 | Přepnutí Alice → Bob | PASS | 1 Alice operace a 1 blob zůstaly uzamčené; Bob je 0× replayoval |
@@ -22,8 +23,10 @@
 | Rolling kompatibilita | PASS | mismatch `409`, chybějící scope `428`, cizí response body nedoručeno |
 | Automatická invalidace relace | PASS | po startu Bob loginu bylo zobrazeno 0 Alice markerů |
 | Diagnostika prohlížeče | PASS | 0 neočekávaných console/page/network chyb, 0 non-loopback requestů |
-| Release gate | PASS | 29 script, 130 frontend, 15 live-events a 323 API testů |
+| Release gate | PASS | 29 script, 130 frontend, 15 live-events a 325 API testů |
 | Quality gate | PASS | ESLint bez varování, peers bez problému, audit bez známé zranitelnosti |
+| Izolovaná API/Postgres matice | PASS | lokálně 142/142 souborů, každý ve vlastní disposable DB; 102/102 migrací |
+| GitHub Quality gate | PASS | [run 30880262322](https://github.com/modvolt/Site-Logbook/actions/runs/30880262322), exact head `486a13a…`, všechny kroky včetně DB a recovery drillu |
 | Docker/Postgres smoke | PASS | oba amd64 obrazy zdravé; PostgreSQL 16; 102 migrací; parity `true` |
 | Úklid | PASS | browser storage prázdné; E2E server zavřen; 0 R14 kontejnerů a sítí |
 
@@ -85,7 +88,7 @@ lokální Roboto soubory. Impeccable detector pro dotčenou login/app-shell ploc
 Příkaz:
 
 ```text
-R14_SOURCE_SHA=0b941507062a783dab37e898f4f3dbea026fa273 pnpm test:e2e:pwa-isolation
+R14_SOURCE_SHA=486a13adfce5a64b6cb3f1d7214848a67b386312 pnpm test:e2e:pwa-isolation
 ```
 
 Gate nejprve vyžaduje čistý implementační strom a shodu proměnné s `git HEAD`, potom sestaví PWA
@@ -127,13 +130,26 @@ bezpečnostní stavy ani vlastní ovládání; je to neblokující UX omezení p
   - 29/29 hermetických script testů;
   - 10 frontend souborů, 130/130 testů;
   - 1 live-events soubor, 15/15 testů;
-  - 46 API souborů, 323/323 unit testů;
+  - 47 API souborů, 325/325 unit testů;
   - API a PWA production build.
 - `pnpm gate:quality`: **PASS**;
   - ESLint `--max-warnings=0`;
   - žádný peer dependency problém;
   - žádná známá zranitelnost od úrovně moderate.
 - `git diff --check`: **PASS**.
+
+Kompletní lokální `test:all:isolated` aplikoval 102/102 committed migrací do nové šablony a spustil
+142/142 API testovacích souborů, každý proti vlastní disposable databázi: **PASS**. Dočasný Postgres
+16 byl dostupný pouze na `127.0.0.1:55433`, neměl volume a po testu byl odstraněn.
+
+První publikovaný GitHub běh [30878225469](https://github.com/modvolt/Site-Logbook/actions/runs/30878225469)
+správně selhal: 20 starších DB sad po přihlášení neposílalo nový identity scope a následně ani
+idempotency klíč, takže dostávaly `428`/`400` před doménovou validací. Commit
+`486a13adfce5a64b6cb3f1d7214848a67b386312` doplnil výhradně testovací SuperTest handshake:
+scope se vždy načte ze skutečného `/api/auth/me`, soukromé mutace dostanou unikátní klíč a po změně
+identity epochy se scope explicitně obnoví. Produkční middleware ani jeho fail-closed pravidla nebyla
+oslabena. Následující GitHub běh [30880262322](https://github.com/modvolt/Site-Logbook/actions/runs/30880262322)
+prošel včetně celé izolované DB matice a encrypted streaming recovery drillu.
 
 Build hlásí již známé varování pro několik chunků nad 500 kB. Není to regresní bezpečnostní
 chyba R14-A; code-splitting zůstává samostatnou výkonovou prací.
@@ -174,7 +190,8 @@ nepublikované image tagy; nevznikl volume ani běžící služba.
 ## Negativní důkazy a hranice
 
 - žádný kontakt s `modvoltapp.cz`, Coolify, produkční DB, Hetzner S3 nebo produkčními secrets;
-- žádný GHCR push/pull/delete, workflow dispatch, deploy, DNS zásah nebo merge;
+- žádný GHCR push/pull/delete, ruční workflow dispatch, deploy, DNS zásah nebo merge; proběhl pouze
+  automatický pull-request Quality gate izolované větve;
 - žádná migrace nebyla vytvořena; `0100` není v adresáři ani journalu;
 - draft PR #3 je stacked na integrační větvi, nikoli na `main`;
 - Docker smoke použil syntetické lokální credentials a prázdnou disposable DB;

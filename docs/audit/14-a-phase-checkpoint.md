@@ -3,7 +3,8 @@
 - **Datum:** 2026-08-04.
 - **Stav:** **DOKONČENO – REAL-BROWSER PWA IDENTITY/OFFLINE ISOLATION**.
 - **Výchozí commit:** `d13e3d72bd00b9a3e4e558c722e0a5abbcbe5e8b`.
-- **Exact-SHA implementace:** `0b941507062a783dab37e898f4f3dbea026fa273`.
+- **Bezpečnostní implementace:** `0b941507062a783dab37e898f4f3dbea026fa273`.
+- **Exact-SHA ověřený source commit:** `486a13adfce5a64b6cb3f1d7214848a67b386312`.
 - **Větev:** `agent/phase14-pwa-isolation`.
 - **Draft PR:** [#3](https://github.com/modvolt/Site-Logbook/pull/3), base
   `agent/phase13-staging-workflow-harness`.
@@ -36,13 +37,20 @@ aktualizaci. Externí Google Fonts request byl odstraněn.
 ## Provedené kontroly
 
 - exact-SHA Edge gate: **5/5 PASS**;
-- release gate: **PASS** – 29 script, 130 frontend, 15 live-events a 323 API testů;
+- release gate: **PASS** – 29 script, 130 frontend, 15 live-events a 325 API testů;
 - quality gate: **PASS**;
+- kompletní lokální API/Postgres matice: **142/142 souborů PASS**, každý ve vlastní disposable DB;
+- GitHub Quality gate: **PASS** – [run 30880262322](https://github.com/modvolt/Site-Logbook/actions/runs/30880262322)
+  na exact head `486a13a…`, včetně izolovaných DB sad a encrypted streaming recovery drillu;
 - Docker amd64 web/API + nový PostgreSQL 16: **PASS**;
 - 102/102 migrací, latest `0102`, migrační parity `true`; `0100` není přítomná;
 - skutečný setup/scope/private request/logout kontrakt přes nginx a Postgres: **PASS**;
 - browser origin, E2E server, Docker kontejnery a síť: **uklizeno**;
 - implementační větev zveřejněna a draft PR #3 otevřen; **bez merge/deploye**.
+
+První GitHub běh `30878225469` odhalil pouze nesoulad starších SuperTest agentů s novým
+identity-scope a idempotency kontraktem. Oprava v `486a13a…` je omezena na testovací helper a
+dotčené DB sady; produkční vynucení nebylo obcházeno ani oslabeno.
 
 ## Nejasnosti a zbytkové riziko
 
