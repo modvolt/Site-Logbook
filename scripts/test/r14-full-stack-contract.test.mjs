@@ -161,6 +161,10 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
     '"down", "--volumes", "--remove-orphans"',
     "loopbackPortsClosed",
     "syntheticCredentialsOnly: true",
+    "options.timeoutMs ?? 120_000",
+    "timeoutMs: 600_000",
+    "timeoutMs: 30_000",
+    "await persistEvidence()",
   ]) {
     assert.ok(runner.includes(marker), `runner is missing ${marker}`);
   }

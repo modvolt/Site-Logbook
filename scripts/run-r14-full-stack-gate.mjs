@@ -116,6 +116,7 @@ function childEnvironment(extra = {}) {
 
 function spawnResult(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    const timeoutMs = options.timeoutMs ?? 120_000;
     const child = spawn(command, args, {
       cwd: repoRoot,
       env: childEnvironment(options.env),
@@ -128,12 +129,24 @@ function spawnResult(command, args, options = {}) {
     });
     const stdout = [];
     const stderr = [];
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(
+        new Error(
+          `${command} ${args.join(" ")} timed out after ${timeoutMs}ms`,
+        ),
+      );
+    }, timeoutMs);
     if (options.input !== undefined) child.stdin?.end(options.input);
     else if (options.capture) child.stdin?.end();
     child.stdout?.on("data", (chunk) => stdout.push(chunk));
     child.stderr?.on("data", (chunk) => stderr.push(chunk));
-    child.once("error", reject);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
     child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
       const result = {
         code,
         signal,
@@ -154,8 +167,12 @@ function spawnResult(command, args, options = {}) {
   });
 }
 
-async function captureText(command, args, env) {
-  const result = await spawnResult(command, args, { capture: true, env });
+async function captureText(command, args, env, timeoutMs) {
+  const result = await spawnResult(command, args, {
+    capture: true,
+    env,
+    timeoutMs,
+  });
   return result.stdout.toString("utf8").trim();
 }
 
@@ -243,7 +260,7 @@ async function dockerBuilds() {
       apiImage,
       ".",
     ],
-    { env: { DOCKER_BUILDKIT: "1" } },
+    { env: { DOCKER_BUILDKIT: "1" }, timeoutMs: 600_000 },
   );
   await spawnResult(
     buildCommand,
@@ -259,7 +276,7 @@ async function dockerBuilds() {
       webImage,
       ".",
     ],
-    { env: { DOCKER_BUILDKIT: "1" } },
+    { env: { DOCKER_BUILDKIT: "1" }, timeoutMs: 600_000 },
   );
 }
 
@@ -295,7 +312,7 @@ async function runBrowserAcceptance() {
   await spawnResult(
     process.execPath,
     [playwright, "test", "--config=e2e/playwright.r14-full-stack.config.ts"],
-    { env: testEnv },
+    { env: testEnv, timeoutMs: 300_000 },
   );
   const browserEvidence = JSON.parse(
     await readFile(browserEvidenceFile, "utf8"),
@@ -705,45 +722,77 @@ let composeAvailable = false;
 async function cleanup() {
   const cleanupErrors = [];
   if (composeAvailable) {
-    const logs = await compose(["logs", "--no-color", "--tail", "300"], {
-      capture: true,
-      allowFailure: true,
-    });
-    if (logs.stdout.length)
-      await writeFile(path.join(resultsDir, "compose.log"), logs.stdout);
-    const down = await compose(
-      ["down", "--volumes", "--remove-orphans", "--timeout", "10"],
-      { capture: true, allowFailure: true },
-    );
-    if (down.code !== 0)
-      cleanupErrors.push(`docker compose down exited ${down.code}`);
+    try {
+      const logs = await compose(["logs", "--no-color", "--tail", "300"], {
+        capture: true,
+        allowFailure: true,
+        timeoutMs: 30_000,
+      });
+      if (logs.stdout.length)
+        await writeFile(path.join(resultsDir, "compose.log"), logs.stdout);
+    } catch (error) {
+      cleanupErrors.push(
+        `docker compose logs failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    try {
+      const down = await compose(
+        ["down", "--volumes", "--remove-orphans", "--timeout", "10"],
+        { capture: true, allowFailure: true, timeoutMs: 60_000 },
+      );
+      if (down.code !== 0)
+        cleanupErrors.push(`docker compose down exited ${down.code}`);
+    } catch (error) {
+      cleanupErrors.push(
+        `docker compose down failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
+  const captureCleanupIds = async (args, label) => {
+    try {
+      return await captureText(dockerCommand, args, undefined, 30_000);
+    } catch (error) {
+      cleanupErrors.push(
+        `${label} cleanup query failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return "__cleanup_query_failed__";
+    }
+  };
   const containers = dockerAvailable
-    ? await captureText(dockerCommand, [
+    ? await captureCleanupIds(
+        [
+          "container",
+          "ls",
+          "-aq",
+          "--filter",
+          `label=com.docker.compose.project=${project}`,
+        ],
         "container",
-        "ls",
-        "-aq",
-        "--filter",
-        `label=com.docker.compose.project=${project}`,
-      ])
+      )
     : "";
   const networks = dockerAvailable
-    ? await captureText(dockerCommand, [
+    ? await captureCleanupIds(
+        [
+          "network",
+          "ls",
+          "-q",
+          "--filter",
+          `label=com.docker.compose.project=${project}`,
+        ],
         "network",
-        "ls",
-        "-q",
-        "--filter",
-        `label=com.docker.compose.project=${project}`,
-      ])
+      )
     : "";
   const volumes = dockerAvailable
-    ? await captureText(dockerCommand, [
+    ? await captureCleanupIds(
+        [
+          "volume",
+          "ls",
+          "-q",
+          "--filter",
+          `label=com.docker.compose.project=${project}`,
+        ],
         "volume",
-        "ls",
-        "-q",
-        "--filter",
-        `label=com.docker.compose.project=${project}`,
-      ])
+      )
     : "";
   const openPorts = [];
   if (await portIsOpen(webPort)) openPorts.push(webPort);
@@ -763,18 +812,24 @@ async function cleanup() {
 }
 
 await mkdir(resultsDir, { recursive: true });
+const persistEvidence = () =>
+  writeFile(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
 let primaryError;
 let cleanupError;
 try {
   await verifySourceProvenance();
-  await spawnResult(dockerCommand, ["version"]);
+  await spawnResult(dockerCommand, ["version"], { timeoutMs: 30_000 });
   dockerAvailable = true;
-  await spawnResult(composeCommand, [...composePrefix, "version"]);
+  await spawnResult(composeCommand, [...composePrefix, "version"], {
+    timeoutMs: 30_000,
+  });
   composeAvailable = true;
   if (await portIsOpen(webPort))
     throw new Error(`R14 requires free loopback port ${webPort}.`);
   await dockerBuilds();
-  await compose(["up", "--detach", "--remove-orphans"]);
+  await compose(["up", "--detach", "--remove-orphans"], {
+    timeoutMs: 180_000,
+  });
   await waitForHttp(
     `${baseURL}/api/healthz`,
     (response, body) =>
@@ -782,24 +837,25 @@ try {
     180_000,
   );
   const browserEvidence = await runBrowserAcceptance();
+  await persistEvidence();
   await injectProviderFaults();
+  await persistEvidence();
   await proveDatabaseRestore(browserEvidence);
+  await persistEvidence();
   await injectStorageAndDatabaseFaults();
+  await persistEvidence();
   evidence.completedAt = new Date().toISOString();
 } catch (error) {
   primaryError = error;
   evidence.failure = error instanceof Error ? error.message : String(error);
 } finally {
+  await persistEvidence();
   try {
     await cleanup();
   } catch (error) {
     cleanupError = error;
   }
-  await writeFile(
-    evidenceFile,
-    `${JSON.stringify(evidence, null, 2)}\n`,
-    "utf8",
-  );
+  await persistEvidence();
 }
 
 if (primaryError && cleanupError) {
