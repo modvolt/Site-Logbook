@@ -35,9 +35,9 @@ test("accepts the immutable pull-only staging runtime", () => {
   const summary = validateStagingRuntimeContract();
   assert.equal(summary.decision, "PASS");
   assert.equal(summary.runtimeBuildDefinitions, 0);
-  assert.equal(summary.totalCpuLimit, 2.25);
-  assert.equal(summary.totalMemoryLimitMiB, 2304);
-  assert.equal(summary.immutableCustomImages, 4);
+  assert.equal(summary.totalCpuLimit, 2.5);
+  assert.equal(summary.totalMemoryLimitMiB, 2432);
+  assert.equal(summary.immutableCustomImages, 5);
   assert.equal(summary.publicationMode, "private-caller-ghcr-no-deploy");
 });
 
@@ -288,7 +288,7 @@ test("enforces a fixed two-stage append-only package state gate", () => {
     "STAGING_IMAGE_STAGE_GUARD_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace("preflight-only:0000", "preflight-only:1111"),
+    workflow.replace("preflight-only:00000", "preflight-only:11111"),
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
   );
   assertWorkflowContractError(
@@ -320,21 +320,21 @@ test("enforces a fixed two-stage append-only package state gate", () => {
 
 test("classifies exact-SHA publication states fail-closed", () => {
   const allowed = new Map([
-    ["preflight-only:0000", "PUBLISH_PREFLIGHT"],
-    ["preflight-only:1000", "VERIFIED_PREFLIGHT_NOOP"],
-    ["complete:1000", "PUBLISH_REMAINING"],
-    ["complete:1111", "VERIFIED_COMPLETE_NOOP"],
+    ["preflight-only:00000", "PUBLISH_PREFLIGHT"],
+    ["preflight-only:10000", "VERIFIED_PREFLIGHT_NOOP"],
+    ["complete:10000", "PUBLISH_REMAINING"],
+    ["complete:11111", "VERIFIED_COMPLETE_NOOP"],
   ]);
   for (const stage of ["preflight-only", "complete"]) {
-    for (let value = 0; value < 16; value += 1) {
-      const state = value.toString(2).padStart(4, "0");
+    for (let value = 0; value < 32; value += 1) {
+      const state = value.toString(2).padStart(5, "0");
       const key = `${stage}:${state}`;
       const result = classifyStagingPublicationState(stage, state);
       assert.equal(result.decision, allowed.get(key) ?? "STOP", key);
     }
   }
   assert.equal(
-    classifyStagingPublicationState("unexpected", "0000").decision,
+    classifyStagingPublicationState("unexpected", "00000").decision,
     "STOP",
   );
   assert.equal(
@@ -349,6 +349,7 @@ test("verifies each remote package before the next publication", () => {
     "Verify Mailpit package is private and digest-bound",
     "Verify API package is private and digest-bound",
     "Verify web package is private and digest-bound",
+    "Verify alert receiver package is private and digest-bound",
   ]) {
     assertWorkflowContractError(
       workflow.replace(step, "Omit remote package gate"),

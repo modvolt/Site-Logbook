@@ -63,6 +63,7 @@ validate_immutable_image "$STAGING_PREFLIGHT_IMAGE" STAGING_PREFLIGHT_IMAGE
 validate_immutable_image "$STAGING_MAILPIT_IMAGE" STAGING_MAILPIT_IMAGE
 validate_immutable_image "$STAGING_API_IMAGE" STAGING_API_IMAGE
 validate_immutable_image "$STAGING_WEB_IMAGE" STAGING_WEB_IMAGE
+validate_immutable_image "$STAGING_ALERT_RECEIVER_IMAGE" STAGING_ALERT_RECEIVER_IMAGE
 unset image_ref label image_repository image_digest
 
 validate_hex_secret() {
@@ -71,6 +72,43 @@ validate_hex_secret() {
 }
 validate_hex_secret "$STAGING_POSTGRES_PASSWORD" STAGING_POSTGRES_PASSWORD
 validate_hex_secret "$STAGING_SESSION_SECRET" STAGING_SESSION_SECRET
+
+case "$STAGING_OPERATIONAL_ALERT_RECEIVER_URL" in
+  https://*/v1/operational-alerts)
+    alert_receiver_authority=${STAGING_OPERATIONAL_ALERT_RECEIVER_URL#https://}
+    alert_receiver_authority=${alert_receiver_authority%/v1/operational-alerts}
+    ;;
+  *) fail "operational alert receiver must use HTTPS and the exact /v1/operational-alerts path" ;;
+esac
+case "$alert_receiver_authority" in
+  ''|*/*|*@*|*:*|*[[:space:]]*|*'?'*|*'#'*)
+    fail "operational alert receiver must use one bare public hostname"
+    ;;
+esac
+case "$alert_receiver_authority" in
+  *[!a-z0-9.-]*) fail "operational alert receiver hostname contains forbidden characters" ;;
+esac
+case "$alert_receiver_authority" in
+  *.*) ;;
+  *) fail "operational alert receiver must use a public multi-label hostname" ;;
+esac
+case "$alert_receiver_authority" in
+  modvoltapp.cz|*.modvoltapp.cz|localhost|*.localhost|*.local|*.internal|*.invalid|127.*|0.0.0.0|10.*|192.168.*|169.254.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*)
+    fail "production or loopback alert receiver is forbidden"
+    ;;
+esac
+[ "$STAGING_OPERATIONAL_ALERT_RECEIVER_HOST" = "$alert_receiver_authority" ] \
+  || fail "operational alert receiver hostname must exactly match its URL"
+[ "$STAGING_OPERATIONAL_ALERT_RECEIVER_HOST" != "$staging_host" ] \
+  || fail "operational alert receiver must use a separate public hostname"
+[ "${#STAGING_OPERATIONAL_ALERT_BEARER_TOKEN}" -ge 43 ] \
+  || fail "operational alert bearer token must contain at least 32 random base64url bytes"
+[ "${#STAGING_OPERATIONAL_ALERT_BEARER_TOKEN}" -le 128 ] \
+  || fail "operational alert bearer token is too long"
+case "$STAGING_OPERATIONAL_ALERT_BEARER_TOKEN" in
+  *[!A-Za-z0-9_-]*) fail "operational alert bearer token must use unpadded base64url" ;;
+esac
+unset alert_receiver_authority
 
 case "$STAGING_S3_ENDPOINT" in
   https://*) staging_s3_authority=${STAGING_S3_ENDPOINT#https://} ;;

@@ -37,6 +37,35 @@ neaktivuje egress. Před staging rolloutem samostatně schvalte doménu, TLS,
 persistentní volume, log alerting a dva nezávisle vytvořené secret záznamy se
 stejnou náhodnou hodnotou na obou stranách.
 
+## R15-C: staging rollout a fault drill
+
+Staging compose přidává receiver jako šestou službu s limitem 0,25 CPU/128 MiB,
+read-only root filesystemem, odebranými capabilities a persistentním volume pro
+idempotency keys. API čeká na jeho exact-SHA health a používá výhradně veřejný
+HTTPS hostname z preflight allowlistu. Receiver současně probuje veřejný staging
+`/api/healthz`; nevstupuje do databáze aplikace.
+
+Publikace image musí proběhnout privátním GHCR publisher workflow pro přesný commit
+a výsledný deployment musí používat digest, nikoli pohyblivý tag. DNS, TLS proxy,
+secret a volume jsou externí staging zdroje a jejich vznik není autorizací změny
+produkce.
+
+Manuální `Staging smoke (manual, no deploy)` nejprve ověří exact-SHA health API i
+receiveru, potom odešle jediný redigovaný syntetický event dvakrát se stejným
+idempotency key. Očekává první ACK `202` a druhý deduplikační ACK `200`; evidence
+neobsahuje URL, token ani samotný idempotency key.
+
+Před finálním staging release gate je navíc nutné samostatně prokázat:
+
+1. skutečný incident transition prošel durable outboxem a receiver jej potvrdil;
+2. deduplikace přežila restart receiveru a připojení stejného volume;
+3. bezpečný výpadek pouze staging health endpointu vyvolal `dead_man_triggered`;
+4. obnovení endpointu vyvolalo `dead_man_recovered`;
+5. platformní log alert doručil oba dead-man přechody mimo Site Logbook proces.
+
+Při kterémkoli nejasném hostname, SHA, storage mountu nebo secret boundary drill
+ukončete. Nevypínejte kvůli němu produkční službu a nepoužívejte produkční token.
+
 Snapshot je dostupný oprávnění `diagnostics.view` na
 `GET /api/admin/health/operational`. Endpoint čte pouze agregace z PostgreSQL;
 nespouští S3 write/delete probe ani provider test.
@@ -55,14 +84,14 @@ nespouští S3 write/delete probe ani provider test.
 
 ## Fronty
 
-| Kód | Význam | Vlastník | První bezpečná kontrola |
-| --- | --- | --- | --- |
-| `queue.extraction.stale` | Nejstarší `extraction_jobs.queued` překročil časové SLO. | Backend / doklady | Stav extraction workeru, hloubka fronty, stáří nejstarší úlohy. |
-| `queue.extraction.failed` | Existují trvale selhané extrakce. | Backend / doklady | Počet pokusů a redigovaný error code v interních logách. |
-| `queue.switchboard.stale` | Způsobilá úloha rozvaděče čeká příliš dlouho. | Backend / rozvaděče | Stav switchboard workeru, `available_at`, lock timeout. |
-| `queue.switchboard.failed` | Existují vyčerpané úlohy rozvaděčů. | Backend / rozvaděče | Parser verze, počet pokusů a redigovaný error code. |
-| `queue.email_import.stale` | Dočasně selhaný import čeká příliš dlouho na úspěšný retry. | Backend / doklady | Stav Gmail/IMAP importu a poslední poll bez obsahu zprávy. |
-| `queue.email_import.failed` | Existují `failed_permanent` e-mailové importy. | Backend / doklady | Počet pokusů; ruční retry pouze pro konkrétní ověřenou zprávu. |
+| Kód                         | Význam                                                      | Vlastník            | První bezpečná kontrola                                         |
+| --------------------------- | ----------------------------------------------------------- | ------------------- | --------------------------------------------------------------- |
+| `queue.extraction.stale`    | Nejstarší `extraction_jobs.queued` překročil časové SLO.    | Backend / doklady   | Stav extraction workeru, hloubka fronty, stáří nejstarší úlohy. |
+| `queue.extraction.failed`   | Existují trvale selhané extrakce.                           | Backend / doklady   | Počet pokusů a redigovaný error code v interních logách.        |
+| `queue.switchboard.stale`   | Způsobilá úloha rozvaděče čeká příliš dlouho.               | Backend / rozvaděče | Stav switchboard workeru, `available_at`, lock timeout.         |
+| `queue.switchboard.failed`  | Existují vyčerpané úlohy rozvaděčů.                         | Backend / rozvaděče | Parser verze, počet pokusů a redigovaný error code.             |
+| `queue.email_import.stale`  | Dočasně selhaný import čeká příliš dlouho na úspěšný retry. | Backend / doklady   | Stav Gmail/IMAP importu a poslední poll bez obsahu zprávy.      |
+| `queue.email_import.failed` | Existují `failed_permanent` e-mailové importy.              | Backend / doklady   | Počet pokusů; ruční retry pouze pro konkrétní ověřenou zprávu.  |
 
 Výchozí warning je 15 minut, critical 60 minut. Trvalé chyby varují od jednoho
 záznamu a jsou kritické od pěti. Limity lze změnit pouze explicitními
@@ -70,14 +99,14 @@ záznamu a jsou kritické od pěti. Limity lze změnit pouze explicitními
 
 ## Zálohy a obnova
 
-| Kód | Význam | Vlastník | První bezpečná kontrola |
-| --- | --- | --- | --- |
-| `backup.success.missing` | Backup je zapnutý, ale neexistuje úspěšná záloha. | DevOps / databáze | Dostupnost `pg_dump`, objektového úložiště a backup scheduleru. |
-| `backup.success.stale` | Poslední úspěšná záloha překročila freshness limit. | DevOps / databáze | Poslední pokus a plán scheduleru; nemažte starší dobrou zálohu. |
-| `backup.attempt.failed` | Poslední pokus selhal. | DevOps / databáze | Redigovaný server log a dostupnost cílového bucketu. |
-| `backup.restore.missing` | Není evidovaný ověřovací DB restore test. | DevOps / databáze | Konfigurace weekly restore-test scheduleru. |
-| `backup.restore.stale` | Poslední DB restore test je příliš starý. | DevOps / databáze | Poslední test a jeho izolovaná dočasná DB. |
-| `backup.restore.failed` | Poslední DB restore test selhal. | DevOps / databáze | Zachovat zdrojovou zálohu a analyzovat izolovaný test; neobnovovat produkci. |
+| Kód                      | Význam                                              | Vlastník          | První bezpečná kontrola                                                      |
+| ------------------------ | --------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `backup.success.missing` | Backup je zapnutý, ale neexistuje úspěšná záloha.   | DevOps / databáze | Dostupnost `pg_dump`, objektového úložiště a backup scheduleru.              |
+| `backup.success.stale`   | Poslední úspěšná záloha překročila freshness limit. | DevOps / databáze | Poslední pokus a plán scheduleru; nemažte starší dobrou zálohu.              |
+| `backup.attempt.failed`  | Poslední pokus selhal.                              | DevOps / databáze | Redigovaný server log a dostupnost cílového bucketu.                         |
+| `backup.restore.missing` | Není evidovaný ověřovací DB restore test.           | DevOps / databáze | Konfigurace weekly restore-test scheduleru.                                  |
+| `backup.restore.stale`   | Poslední DB restore test je příliš starý.           | DevOps / databáze | Poslední test a jeho izolovaná dočasná DB.                                   |
+| `backup.restore.failed`  | Poslední DB restore test selhal.                    | DevOps / databáze | Zachovat zdrojovou zálohu a analyzovat izolovaný test; neobnovovat produkci. |
 
 Výchozí freshness je 26/48 hodin pro backup a 8/14 dní pro restore test.
 `restoreTestedAt` dokládá databázový test, nikoli úplný disaster-recovery drill

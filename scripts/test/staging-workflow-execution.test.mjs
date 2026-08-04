@@ -16,6 +16,7 @@ const PACKAGE_NAMES = [
   "site-logbook-staging-mailpit",
   "site-logbook-staging-api",
   "site-logbook-staging-web",
+  "site-logbook-staging-alert-receiver",
 ];
 const ROOT_DIGESTS = PACKAGE_NAMES.map(
   (_, index) => `sha256:${String.fromCharCode(97 + index).repeat(64)}`,
@@ -311,12 +312,12 @@ test("maps a POSIX harness to the owner of its private bind mount", () => {
 });
 
 test("accepts a genuinely empty inventory for first publication", () => {
-  const result = runPackageState("preflight-only", "0000", {
+  const result = runPackageState("preflight-only", "00000", {
     files: { "fixtures/inventory.json": "[]" },
   });
   assert.equal(result.status, 0, result.stderr);
   const output = parseGithubOutput(result.captured["github-output.txt"]);
-  assert.equal(output.state, "0000");
+  assert.equal(output.state, "00000");
   assert.equal(output.publish_preflight, "true");
   assert.equal(output.publish_remaining, "false");
 });
@@ -335,16 +336,16 @@ shellcheck --shell=bash scripts/package-state.sh scripts/tag-absence.sh scripts/
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("executes all 32 stage and exact-SHA package-state combinations fail-closed", () => {
+test("executes all 64 stage and exact-SHA package-state combinations fail-closed", () => {
   const allowed = new Map([
-    ["preflight-only:0000", ["true", "false"]],
-    ["preflight-only:1000", ["false", "false"]],
-    ["complete:1000", ["false", "true"]],
-    ["complete:1111", ["false", "false"]],
+    ["preflight-only:00000", ["true", "false"]],
+    ["preflight-only:10000", ["false", "false"]],
+    ["complete:10000", ["false", "true"]],
+    ["complete:11111", ["false", "false"]],
   ]);
   for (const stage of ["preflight-only", "complete"]) {
-    for (let value = 0; value < 16; value += 1) {
-      const state = value.toString(2).padStart(4, "0");
+    for (let value = 0; value < 32; value += 1) {
+      const state = value.toString(2).padStart(5, "0");
       const key = `${stage}:${state}`;
       const result = runPackageState(stage, state);
       if (!allowed.has(key)) {
@@ -369,14 +370,14 @@ test("executes all 32 stage and exact-SHA package-state combinations fail-closed
 });
 
 test("rejects malformed, duplicate, untrusted, or unavailable package metadata", () => {
-  const malformed = runPackageState("preflight-only", "0000", {
+  const malformed = runPackageState("preflight-only", "00000", {
     files: { "fixtures/inventory.json": JSON.stringify({ not: "an array" }) },
   });
   assert.notEqual(malformed.status, 0);
   assert.match(malformed.stderr, /inventory is malformed/u);
 
   const duplicateMetadata = packageMetadata(PACKAGE_NAMES[0], 0);
-  const duplicate = runPackageState("preflight-only", "0000", {
+  const duplicate = runPackageState("preflight-only", "00000", {
     files: {
       "fixtures/inventory.json": JSON.stringify([
         duplicateMetadata,
@@ -387,7 +388,7 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
   assert.notEqual(duplicate.status, 0);
   assert.match(duplicate.stderr, /duplicate package metadata/u);
 
-  const caller = runPackageState("preflight-only", "0000", {
+  const caller = runPackageState("preflight-only", "00000", {
     files: {
       "fixtures/caller.json": JSON.stringify({
         full_name: "modvolt/site-logbook-registry",
@@ -399,7 +400,7 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
   assert.notEqual(caller.status, 0);
   assert.match(caller.stderr, /caller repository must be private/u);
 
-  const unavailable = runPackageState("preflight-only", "0000", {
+  const unavailable = runPackageState("preflight-only", "00000", {
     environment: { MOCK_INVENTORY_FAIL: "true" },
   });
   assert.notEqual(unavailable.status, 0);
@@ -407,7 +408,7 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
 
   const publicPackage = packageMetadata(PACKAGE_NAMES[0], 0);
   publicPackage.visibility = "public";
-  const untrustedWithoutExactTag = runPackageState("preflight-only", "0000", {
+  const untrustedWithoutExactTag = runPackageState("preflight-only", "00000", {
     files: {
       [`fixtures/package-${PACKAGE_NAMES[0]}.json`]:
         JSON.stringify(publicPackage),
@@ -421,7 +422,7 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
 });
 
 test("rejects duplicate exact tags and a complete-stage digest mismatch", () => {
-  const duplicateTag = runPackageState("preflight-only", "1000", {
+  const duplicateTag = runPackageState("preflight-only", "10000", {
     files: {
       [`fixtures/versions-${PACKAGE_NAMES[0]}.json`]: JSON.stringify([
         packageVersion(0),
@@ -432,7 +433,7 @@ test("rejects duplicate exact tags and a complete-stage digest mismatch", () => 
   assert.notEqual(duplicateTag.status, 0);
   assert.match(duplicateTag.stderr, /exact source tag.*not unique/u);
 
-  const digestMismatch = runPackageState("complete", "1000", {
+  const digestMismatch = runPackageState("complete", "10000", {
     expectedPreflightDigest: `sha256:${"9".repeat(64)}`,
   });
   assert.notEqual(digestMismatch.status, 0);

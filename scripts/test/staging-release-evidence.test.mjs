@@ -7,7 +7,7 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 
 function validEvidence() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     run: {
       id: "phase13-20260802-001",
       environmentId: "modvolt-staging-eu1",
@@ -67,7 +67,16 @@ function validEvidence() {
       mobileSmoke: "pass",
     },
     mail: { sandboxDelivery: "pass" },
-    alerts: { freshnessAlertDelivery: "pass" },
+    alerts: {
+      freshnessAlertDelivery: "pass",
+      receiverHealth: "pass",
+      receiverBuildSha: SHA,
+      receiverSyntheticDelivery: "pass",
+      durableOutboxDelivery: "pass",
+      persistentIdempotency: "pass",
+      deadManTrigger: "pass",
+      deadManRecovery: "pass",
+    },
     approvals: {
       mode: "dual_control",
       operator: "operator-a",
@@ -123,6 +132,14 @@ test("rejects stale evidence and commit drift", () => {
     () => validateStagingReleaseEvidence(drift, { now: NOW }),
     /deployment.healthVersion/,
   );
+
+  const receiverDrift = validEvidence();
+  receiverDrift.alerts.receiverBuildSha =
+    "ffffffffffffffffffffffffffffffffffffffff";
+  assert.throws(
+    () => validateStagingReleaseEvidence(receiverDrift, { now: NOW }),
+    /alerts.receiverBuildSha/,
+  );
 });
 
 test("rejects incomplete migrations, object mismatch, and RPO/RTO breaches", () => {
@@ -161,6 +178,13 @@ test("rejects missing release gates and self-approval", () => {
   assert.throws(
     () => validateStagingReleaseEvidence(pending, { now: NOW }),
     /browser.mobileSmoke/,
+  );
+
+  const incompleteAlertDrill = validEvidence();
+  incompleteAlertDrill.alerts.deadManRecovery = "pending";
+  assert.throws(
+    () => validateStagingReleaseEvidence(incompleteAlertDrill, { now: NOW }),
+    /alerts.deadManRecovery/,
   );
 
   const selfApproved = validEvidence();

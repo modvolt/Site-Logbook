@@ -11,6 +11,10 @@ on:
         description: Allow the admin health endpoint to create and delete its diagnostic object in staging
         required: true
         type: boolean
+      confirm_operational_alert_drill:
+        description: Allow one redacted synthetic receiver event and duplicate acknowledgement in isolated staging
+        required: true
+        type: boolean
 
 permissions:
   contents: read
@@ -29,6 +33,13 @@ jobs:
       NODE_ENV: test
       STAGING_RELEASE_CONFIRM_ISOLATED: ${{ inputs.confirm_isolated_target }}
       STAGING_DEEP_STORAGE_PROBE_CONFIRMED: ${{ inputs.confirm_deep_storage_probe }}
+      STAGING_ALERT_DRILL_CONFIRM_ISOLATED: ${{ inputs.confirm_operational_alert_drill }}
+      STAGING_ALERT_DRILL_SOURCE_SHA: ${{ github.sha }}
+      STAGING_ALERT_DRILL_RUN_ID: staging-${{ github.run_id }}-${{ github.run_attempt }}
+      STAGING_ALERT_APP_HEALTH_URL: ${{ vars.STAGING_BASE_URL }}/api/healthz
+      STAGING_ALERT_RECEIVER_URL: ${{ vars.STAGING_ALERT_RECEIVER_URL }}
+      STAGING_ALERT_RECEIVER_BEARER_TOKEN: ${{ secrets.STAGING_ALERT_RECEIVER_BEARER_TOKEN }}
+      STAGING_ALERT_DRILL_EVIDENCE_FILE: ${{ runner.temp }}/staging-operational-alert-evidence.json
       STAGING_MAIL_SANDBOX_CONFIRMED: ${{ vars.STAGING_MAIL_SANDBOX_CONFIRMED }}
       STAGING_ENVIRONMENT_ID: ${{ vars.STAGING_ENVIRONMENT_ID }}
       STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
@@ -36,11 +47,11 @@ jobs:
       STAGING_ADMIN_USERNAME: ${{ secrets.STAGING_ADMIN_USERNAME }}
       STAGING_ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_PASSWORD }}
     steps:
-      - name: Require both manual safety confirmations
+      - name: Require all manual safety confirmations
         shell: bash
         run: |
-          if [[ "$STAGING_RELEASE_CONFIRM_ISOLATED" != "true" || "$STAGING_DEEP_STORAGE_PROBE_CONFIRMED" != "true" ]]; then
-            echo "Both isolated-target and deep-storage-probe confirmations are required."
+          if [[ "$STAGING_RELEASE_CONFIRM_ISOLATED" != "true" || "$STAGING_DEEP_STORAGE_PROBE_CONFIRMED" != "true" || "$STAGING_ALERT_DRILL_CONFIRM_ISOLATED" != "true" ]]; then
+            echo "Isolated-target, deep-storage-probe and operational-alert confirmations are required."
             exit 1
           fi
       - uses: actions/checkout@v4
@@ -62,11 +73,21 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run authenticated API, desktop, mobile, and PWA smoke
         run: pnpm test:e2e:staging
+      - name: Prove exact-SHA alert receiver acceptance and persistent deduplication
+        run: pnpm drill:staging-operational-alert
       - name: Upload secret-free bootstrap evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: staging-bootstrap-${{ github.run_id }}
           path: e2e/test-results/staging-bootstrap-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload secret-free operational alert drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-operational-alert-${{ github.run_id }}
+          path: ${{ runner.temp }}/staging-operational-alert-evidence.json
           if-no-files-found: ignore
           retention-days: 14

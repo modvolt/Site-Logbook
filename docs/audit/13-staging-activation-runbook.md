@@ -13,13 +13,15 @@ druhého člověka, je povolen pouze explicitní `solo_maintainer` režim: revie
 Quality gate a branch-restricted Environment. AI kontrola se neeviduje jako nezávislý
 lidský reviewer. Hodnoty secretů se nesmí zapisovat do repozitáře ani evidence JSON.
 
-| Typ | Název | Kontrakt |
-| --- | --- | --- |
-| variable | `STAGING_BASE_URL` | čistý externí HTTPS origin; nikdy `modvoltapp.cz`, jeho subdoména ani localhost |
-| variable | `STAGING_ENVIRONMENT_ID` | jednoznačný název s odděleným segmentem `staging`, `test`, `qa`, `sandbox` nebo `preview` |
-| variable | `STAGING_MAIL_SANDBOX_CONFIRMED` | přesně `true`, pouze pokud žádný staging e-mail nemůže dojít skutečnému zákazníkovi |
-| secret | `STAGING_ADMIN_USERNAME` | dedikovaná staging identita s `diagnostics.view`; nesdílet s produkcí |
-| secret | `STAGING_ADMIN_PASSWORD` | unikátní staging heslo alespoň 16 znaků; nesdílet s produkcí |
+| Typ      | Název                                 | Kontrakt                                                                                                                  |
+| -------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| variable | `STAGING_BASE_URL`                    | čistý externí HTTPS origin; nikdy `modvoltapp.cz`, jeho subdoména ani localhost                                           |
+| variable | `STAGING_ENVIRONMENT_ID`              | jednoznačný název s odděleným segmentem `staging`, `test`, `qa`, `sandbox` nebo `preview`                                 |
+| variable | `STAGING_MAIL_SANDBOX_CONFIRMED`      | přesně `true`, pouze pokud žádný staging e-mail nemůže dojít skutečnému zákazníkovi                                       |
+| variable | `STAGING_ALERT_RECEIVER_URL`          | samostatný veřejný HTTPS endpoint končící přesně `/v1/operational-alerts`; hostname se nesmí shodovat se staging aplikací |
+| secret   | `STAGING_ADMIN_USERNAME`              | dedikovaná staging identita s `diagnostics.view`; nesdílet s produkcí                                                     |
+| secret   | `STAGING_ADMIN_PASSWORD`              | unikátní staging heslo alespoň 16 znaků; nesdílet s produkcí                                                              |
+| secret   | `STAGING_ALERT_RECEIVER_BEARER_TOKEN` | náhodná base64url hodnota z alespoň 32 bajtů, uložená pouze v GitHub Environment a secret manageru receiveru              |
 
 Dále musí být známé, ale neukládají se do GitHub workflow:
 
@@ -49,15 +51,18 @@ Okamžitě zastavte běh, pokud platí alespoň jedno:
    desítky commitů před remote a obsahovala cizí rozpracované UI změny.
 2. Push/pull request proveďte pouze po samostatném výslovném schválení uživatele.
 3. Vyčkejte na zelený `Quality gate` pro přesný plný SHA.
-4. Nasazujte stejný SHA do izolovaného stagingu; nastavte API `BUILD_SHA` a frontend
-   `VITE_BUILD_SHA` na plný SHA.
+4. Nasazujte stejný SHA do izolovaného stagingu; nastavte API `BUILD_SHA`, frontend
+   `VITE_BUILD_SHA` a receiver `RECEIVER_BUILD_SHA` na plný SHA. Použijte pouze
+   digest-pinned privátní image z manifestu schváleného publisher workflow.
 5. Počítejte s tím, že API image při startu automaticky aplikuje existující
    migrace. Cílová DB proto musí být stagingová a předem obnovitelná.
+6. Receiver provozujte za veřejným TLS proxy, s vlastním hostname, persistentním
+   volume a platformními log alerty. Jeho volume ani logy nesmí sdílet API proces.
 
 ## 4. Ruční staging smoke
 
 V GitHub Actions spusťte `Staging smoke (manual, no deploy)` na právě nasazeném
-ref. Zaškrtněte obě potvrzení pouze po kontrole targetu. Workflow:
+ref. Zaškrtněte všechna tři potvrzení pouze po kontrole targetu. Workflow:
 
 1. fail-closed ověří URL, identitu, mail sandbox a plný SHA bez výpisu secretů;
 2. ověří veřejnou DB/migrační readiness;
@@ -65,7 +70,9 @@ ref. Zaškrtněte obě potvrzení pouze po kontrole targetu. Workflow:
 4. zavolá `/api/admin/health`, který provede malou write/delete storage sondu;
 5. ověří storage bez dev fallbacku, SMTP konfiguraci, PWA manifest a service worker;
 6. otevře autentizovaný shell v desktopním Chromium a emulovaném iPhone 13;
-7. uloží pouze secret-free bootstrap summary na 14 dní.
+7. ověří exact-SHA health receiveru, pošle jeden redigovaný syntetický event a
+   opakováním stejného idempotency key prokáže persistentní deduplikaci;
+8. uloží pouze secret-free bootstrap a alert summary na 14 dní.
 
 Chybějící proměnná, `admin/admin`, HTTP, lokální/produkční host, krátký SHA nebo
 nepotvrzená storage sonda ukončí workflow před přihlášením.
@@ -83,6 +90,10 @@ Povinné důkazy:
 - target je oddělený, versionovaný a má schválenou immutable retenci;
 - skutečné RPO a RTO nepřekračují schválené hodnoty;
 - freshness monitor vyvolá a doručí testovací alert;
+- skutečný staging incident projde durable outboxem do receiveru a je potvrzen;
+- přímý syntetický event je po restartu receiveru stále deduplikován díky volume;
+- bezpečně vyvolaný výpadek staging health endpointu vytvoří v platformních
+  receiver logách `dead_man_triggered` a obnovení vytvoří `dead_man_recovered`;
 - anonymizovaná data neopustí schválené staging hranice.
 
 ## 6. Business a mail evidence
@@ -114,6 +125,10 @@ Gate přijme pouze čerstvý (výchozí limit 48 hodin) a plně zelený záznam.
 `solo_maintainer` místo toho vyžaduje `reviewer: null`, přijetí rizika vlastníkem a
 všechny tři kompenzační kontroly. `decision: PASS` je nutná, nikoli sama dostačující
 podmínka produkčního release. Produkce vyžaduje nový samostatný souhlas.
+
+Schéma evidence verze 3 odděluje přímý receiver smoke od skutečného durable outbox
+doručení a dead-man fault drillu. Automatický smoke tedy sám o sobě nestačí k
+vyplnění všech položek `alerts` hodnotou `pass`.
 
 ## 8. Rollback a cleanup
 

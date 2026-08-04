@@ -197,9 +197,10 @@ jobs:
             site-logbook-staging-preflight \
             site-logbook-staging-mailpit \
             site-logbook-staging-api \
-            site-logbook-staging-web
+            site-logbook-staging-web \
+            site-logbook-staging-alert-receiver
           )
-          package_keys=(preflight mailpit api web)
+          package_keys=(preflight mailpit api web alert_receiver)
 
           inventory_json="$(
             gh api --paginate \
@@ -285,15 +286,15 @@ jobs:
           publish_preflight=false
           publish_remaining=false
           case "${PUBLICATION_STAGE}:${state}" in
-            preflight-only:0000)
+            preflight-only:00000)
               publish_preflight=true
               ;;
-            preflight-only:1000)
+            preflight-only:10000)
               ;;
-            complete:1000)
+            complete:10000)
               publish_remaining=true
               ;;
-            complete:1111)
+            complete:11111)
               ;;
             *)
               fail "exact-SHA package state ${state} is not valid for ${PUBLICATION_STAGE}; partial recovery requires a separate review."
@@ -346,6 +347,7 @@ jobs:
             echo "mailpit=ghcr.io/${owner}/site-logbook-staging-mailpit"
             echo "api=ghcr.io/${owner}/site-logbook-staging-api"
             echo "web=ghcr.io/${owner}/site-logbook-staging-web"
+            echo "alert_receiver=ghcr.io/${owner}/site-logbook-staging-alert-receiver"
           } >> "$GITHUB_OUTPUT"
 
       - name: Configure fail-closed private package verifier
@@ -363,7 +365,7 @@ jobs:
           approved_caller="modvolt/site-logbook-registry"
 
           case "$package_name" in
-            site-logbook-staging-preflight|site-logbook-staging-mailpit|site-logbook-staging-api|site-logbook-staging-web) ;;
+            site-logbook-staging-preflight|site-logbook-staging-mailpit|site-logbook-staging-api|site-logbook-staging-web|site-logbook-staging-alert-receiver) ;;
             *) echo "Unexpected package name: ${package_name}" >&2; exit 1 ;;
           esac
           [[ "$expected_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
@@ -501,7 +503,7 @@ jobs:
           source_sha="${SOURCE_SHA:?source SHA required}"
           approved_caller="modvolt/site-logbook-registry"
           case "$package_name" in
-            site-logbook-staging-preflight|site-logbook-staging-mailpit|site-logbook-staging-api|site-logbook-staging-web) ;;
+            site-logbook-staging-preflight|site-logbook-staging-mailpit|site-logbook-staging-api|site-logbook-staging-web|site-logbook-staging-alert-receiver) ;;
             *) echo "Unexpected package name: ${package_name}" >&2; exit 1 ;;
           esac
 
@@ -734,6 +736,18 @@ jobs:
             VITE_BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-web
           cache-to: type=gha,mode=max,scope=staging-web
+
+      - name: Validate alert receiver image build without registry write
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: deploy/operational-alert-receiver
+          file: deploy/operational-alert-receiver/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-alert-receiver
+          cache-to: type=gha,mode=max,scope=staging-alert-receiver
 
       - name: Recheck Mailpit tag absence immediately before publication
         if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
@@ -968,6 +982,83 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Recheck alert receiver tag absence immediately before publication
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/assert-exact-tag-absent.sh" site-logbook-staging-alert-receiver
+
+      - name: Build and publish alert receiver image
+        id: alert-receiver
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: deploy/operational-alert-receiver
+          file: deploy/operational-alert-receiver/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.names.outputs.alert_receiver }}:${{ inputs.source_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ inputs.source_sha }}
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
+          build-args: BUILD_SHA=${{ inputs.source_sha }}
+          cache-from: type=gha,scope=staging-alert-receiver
+          cache-to: type=gha,mode=max,scope=staging-alert-receiver
+          provenance: mode=max
+          sbom: true
+
+      - name: Select exact alert receiver digest
+        id: selected-alert-receiver
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.alert-receiver.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.alert_receiver_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish_remaining }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then digest="$BUILT_DIGEST"; else digest="$EXISTING_DIGEST"; fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify alert receiver package is private and digest-bound
+        if: inputs.publication_stage == 'complete'
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.selected-alert-receiver.outputs.digest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/verify-private-package.sh" \
+            site-logbook-staging-alert-receiver \
+            "$EXPECTED_DIGEST" \
+            "${RUNNER_TEMP}/alert-receiver-package.json"
+
+      - name: Seal alert receiver partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/alert-receiver-package.json" remaining-alert-receiver-package.json
+          sha256sum remaining-alert-receiver-package.json > remaining-alert-receiver-package.sha256
+
+      - name: Upload alert receiver partial-publication recovery evidence
+        if: inputs.publication_stage == 'complete' && steps.package-state.outputs.publish_remaining == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remaining-alert-receiver-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            remaining-alert-receiver-package.json
+            remaining-alert-receiver-package.sha256
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Verify all published packages remain private
         if: inputs.publication_stage == 'complete'
         shell: bash
@@ -977,8 +1068,9 @@ jobs:
           set -euo pipefail
           jq -s -e \
             --arg sha "$SOURCE_SHA" \
-            'length == 4 and
+            'length == 5 and
              (map(.packageName) | sort) == [
+               "site-logbook-staging-alert-receiver",
                "site-logbook-staging-api",
                "site-logbook-staging-mailpit",
                "site-logbook-staging-preflight",
@@ -995,12 +1087,15 @@ jobs:
             "${RUNNER_TEMP}/preflight-package.json" \
             "${RUNNER_TEMP}/mailpit-package.json" \
             "${RUNNER_TEMP}/api-package.json" \
-            "${RUNNER_TEMP}/web-package.json" >/dev/null
+            "${RUNNER_TEMP}/web-package.json" \
+            "${RUNNER_TEMP}/alert-receiver-package.json" >/dev/null
 
       - name: Create and validate secret-free immutable image manifest
         if: inputs.publication_stage == 'complete'
         shell: bash
         env:
+          ALERT_RECEIVER_DIGEST: ${{ steps.selected-alert-receiver.outputs.digest }}
+          ALERT_RECEIVER_REPOSITORY: ${{ steps.names.outputs.alert_receiver }}
           API_DIGEST: ${{ steps.selected-api.outputs.digest }}
           API_REPOSITORY: ${{ steps.names.outputs.api }}
           CALLER_REPOSITORY: ${{ github.repository }}
@@ -1032,10 +1127,12 @@ jobs:
           [[ "$MAILPIT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-mailpit" ]]
           [[ "$API_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-api" ]]
           [[ "$WEB_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-web" ]]
+          [[ "$ALERT_RECEIVER_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-alert-receiver" ]]
           require_digest preflight "$PREFLIGHT_DIGEST"
           require_digest mailpit "$MAILPIT_DIGEST"
           require_digest api "$API_DIGEST"
           require_digest web "$WEB_DIGEST"
+          require_digest alert-receiver "$ALERT_RECEIVER_DIGEST"
           if [[ "$REGISTRY_WRITE" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
 
           jq -n \
@@ -1044,6 +1141,7 @@ jobs:
             --arg preflight "${PREFLIGHT_REPOSITORY}@${PREFLIGHT_DIGEST}" \
             --arg mailpit "${MAILPIT_REPOSITORY}@${MAILPIT_DIGEST}" \
             --arg api "${API_REPOSITORY}@${API_DIGEST}" \
+            --arg alertReceiver "${ALERT_RECEIVER_REPOSITORY}@${ALERT_RECEIVER_DIGEST}" \
             --arg callerRepository "$CALLER_REPOSITORY" \
             --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
             --arg initialPackageState "$INITIAL_PACKAGE_STATE" \
@@ -1052,10 +1150,11 @@ jobs:
             --arg runAttempt "$RUN_ATTEMPT" \
             --arg runId "$RUN_ID" \
             --slurpfile apiPackage "${RUNNER_TEMP}/api-package.json" \
+            --slurpfile alertReceiverPackage "${RUNNER_TEMP}/alert-receiver-package.json" \
             --slurpfile mailpitPackage "${RUNNER_TEMP}/mailpit-package.json" \
             --slurpfile preflightPackage "${RUNNER_TEMP}/preflight-package.json" \
             --slurpfile webPackage "${RUNNER_TEMP}/web-package.json" \
-            '{schemaVersion: ($schemaVersion | tonumber), sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0]}}' \
+            '{schemaVersion: ($schemaVersion | tonumber), sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web, alertReceiver: $alertReceiver}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0], alertReceiver: $alertReceiverPackage[0]}}' \
             > staging-images.json
 
           jq -e \
@@ -1063,15 +1162,17 @@ jobs:
             '.schemaVersion == 1 and
              .sourceSha == $sha and
              (.registryAction == "published" or .registryAction == "verified-noop") and
-             (.images | keys) == ["api", "mailpit", "preflight", "web"] and
+             (.images | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
              (.images.preflight | test("^ghcr\\.io/modvolt/site-logbook-staging-preflight@sha256:[0-9a-f]{64}$")) and
              (.images.mailpit | test("^ghcr\\.io/modvolt/site-logbook-staging-mailpit@sha256:[0-9a-f]{64}$")) and
              (.images.api | test("^ghcr\\.io/modvolt/site-logbook-staging-api@sha256:[0-9a-f]{64}$")) and
              (.images.web | test("^ghcr\\.io/modvolt/site-logbook-staging-web@sha256:[0-9a-f]{64}$")) and
+             (.images.alertReceiver | test("^ghcr\\.io/modvolt/site-logbook-staging-alert-receiver@sha256:[0-9a-f]{64}$")) and
              .packages.preflight.digest == (.images.preflight | split("@")[1]) and
              .packages.mailpit.digest == (.images.mailpit | split("@")[1]) and
              .packages.api.digest == (.images.api | split("@")[1]) and
-             .packages.web.digest == (.images.web | split("@")[1])' \
+             .packages.web.digest == (.images.web | split("@")[1]) and
+             .packages.alertReceiver.digest == (.images.alertReceiver | split("@")[1])' \
             staging-images.json >/dev/null
           sha256sum staging-images.json > staging-images.sha256
           [[ "$(awk '{print $1}' staging-images.sha256)" =~ ^[0-9a-f]{64}$ ]]

@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 const MAX_BODY_BYTES = 16 * 1024;
 const IDEMPOTENCY_KEY = /^[a-f0-9]{64}$/;
 const TOKEN = /^[A-Za-z0-9_-]{43,}$/;
+const BUILD_SHA = /^[a-f0-9]{40}$/;
 const ALLOWED_ROOT_KEYS = new Set(["schemaVersion", "event", "transitions"]);
 const ALLOWED_TRANSITION_KEYS = new Set([
   "kind",
@@ -38,13 +39,21 @@ export function loadReceiverConfig(env = process.env) {
   if (!stateDir || !isAbsolute(stateDir)) {
     throw new Error("RECEIVER_STATE_DIR must be an absolute persistent path");
   }
+  const buildSha = env.RECEIVER_BUILD_SHA?.trim() ?? "";
+  if (!BUILD_SHA.test(buildSha)) {
+    throw new Error(
+      "RECEIVER_BUILD_SHA must be the exact 40-character source SHA",
+    );
+  }
   const bindHost = env.RECEIVER_BIND_HOST?.trim() || "127.0.0.1";
   if (
     bindHost !== "127.0.0.1" &&
     bindHost !== "::1" &&
     env.RECEIVER_TRUSTED_TLS_PROXY !== "true"
   ) {
-    throw new Error("Non-loopback receiver binding requires RECEIVER_TRUSTED_TLS_PROXY=true");
+    throw new Error(
+      "Non-loopback receiver binding requires RECEIVER_TRUSTED_TLS_PROXY=true",
+    );
   }
   const target = new URL(env.DEAD_MAN_TARGET_URL ?? "");
   if (
@@ -58,13 +67,19 @@ export function loadReceiverConfig(env = process.env) {
   }
   return {
     bearerToken,
+    buildSha,
     stateDir,
     bindHost,
     port: boundedInteger(env.PORT, 8080, 1, 65_535, "PORT"),
     targetUrl: target.toString(),
     probeIntervalMs:
-      boundedInteger(env.DEAD_MAN_INTERVAL_SECONDS, 60, 30, 3_600, "DEAD_MAN_INTERVAL_SECONDS") *
-      1_000,
+      boundedInteger(
+        env.DEAD_MAN_INTERVAL_SECONDS,
+        60,
+        30,
+        3_600,
+        "DEAD_MAN_INTERVAL_SECONDS",
+      ) * 1_000,
     probeTimeoutMs: boundedInteger(
       env.DEAD_MAN_TIMEOUT_MS,
       5_000,
@@ -95,7 +110,8 @@ function validateString(value, max) {
 
 export function validateEnvelope(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (Object.keys(value).some((key) => !ALLOWED_ROOT_KEYS.has(key))) return false;
+  if (Object.keys(value).some((key) => !ALLOWED_ROOT_KEYS.has(key)))
+    return false;
   if (
     value.schemaVersion !== 1 ||
     value.event !== "operational_alert_transitions" ||
@@ -106,10 +122,20 @@ export function validateEnvelope(value) {
     return false;
   }
   return value.transitions.every((transition) => {
-    if (!transition || typeof transition !== "object" || Array.isArray(transition)) return false;
-    if (Object.keys(transition).some((key) => !ALLOWED_TRANSITION_KEYS.has(key))) return false;
+    if (
+      !transition ||
+      typeof transition !== "object" ||
+      Array.isArray(transition)
+    )
+      return false;
+    if (
+      Object.keys(transition).some((key) => !ALLOWED_TRANSITION_KEYS.has(key))
+    )
+      return false;
     return (
-      ["triggered", "escalated", "deescalated", "recovered"].includes(transition.kind) &&
+      ["triggered", "escalated", "deescalated", "recovered"].includes(
+        transition.kind,
+      ) &&
       ["warning", "critical"].includes(transition.severity) &&
       validateString(transition.observedAt, 40) &&
       Number.isFinite(Date.parse(transition.observedAt)) &&
@@ -145,14 +171,23 @@ function reply(response, status, body) {
 }
 
 export function createReceiverServer(config, dependencies = {}) {
-  const log = dependencies.log ?? ((entry) => process.stdout.write(`${JSON.stringify(entry)}\n`));
+  const log =
+    dependencies.log ??
+    ((entry) => process.stdout.write(`${JSON.stringify(entry)}\n`));
   return http.createServer(async (request, response) => {
     try {
       if (request.method === "GET" && request.url === "/healthz") {
-        reply(response, 200, { ok: true });
+        reply(response, 200, {
+          ok: true,
+          service: "operational-alert-receiver",
+          buildSha: config.buildSha,
+        });
         return;
       }
-      if (request.method !== "POST" || request.url !== "/v1/operational-alerts") {
+      if (
+        request.method !== "POST" ||
+        request.url !== "/v1/operational-alerts"
+      ) {
         reply(response, 404, { error: "not_found" });
         return;
       }
@@ -165,7 +200,11 @@ export function createReceiverServer(config, dependencies = {}) {
         reply(response, 400, { error: "invalid_idempotency_key" });
         return;
       }
-      if (!String(request.headers["content-type"] ?? "").startsWith("application/json")) {
+      if (
+        !String(request.headers["content-type"] ?? "").startsWith(
+          "application/json",
+        )
+      ) {
         reply(response, 415, { error: "unsupported_media_type" });
         return;
       }
@@ -173,9 +212,15 @@ export function createReceiverServer(config, dependencies = {}) {
       try {
         envelope = JSON.parse(await readBody(request));
       } catch (error) {
-        reply(response, error instanceof Error && error.message === "body_too_large" ? 413 : 400, {
-          error: "invalid_body",
-        });
+        reply(
+          response,
+          error instanceof Error && error.message === "body_too_large"
+            ? 413
+            : 400,
+          {
+            error: "invalid_body",
+          },
+        );
         return;
       }
       if (!validateEnvelope(envelope)) {
@@ -189,17 +234,28 @@ export function createReceiverServer(config, dependencies = {}) {
       try {
         await writeFile(
           join(receipts, `${key}.json`),
-          JSON.stringify({ receivedAt: new Date().toISOString(), transitionCount: envelope.transitions.length }),
+          JSON.stringify({
+            receivedAt: new Date().toISOString(),
+            transitionCount: envelope.transitions.length,
+          }),
           { encoding: "utf8", flag: "wx", mode: 0o600 },
         );
       } catch (error) {
-        if (error && typeof error === "object" && error.code === "EEXIST") duplicate = true;
+        if (error && typeof error === "object" && error.code === "EEXIST")
+          duplicate = true;
         else throw error;
       }
-      log({ event: duplicate ? "alert_duplicate_acknowledged" : "alert_received", key, transitionCount: envelope.transitions.length });
+      log({
+        event: duplicate ? "alert_duplicate_acknowledged" : "alert_received",
+        key,
+        transitionCount: envelope.transitions.length,
+      });
       reply(response, duplicate ? 200 : 202, { accepted: true, duplicate });
     } catch (error) {
-      log({ event: "receiver_error", errorName: error instanceof Error ? error.name : "unknown" });
+      log({
+        event: "receiver_error",
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
       reply(response, 500, { error: "receiver_unavailable" });
     }
   });
@@ -212,12 +268,17 @@ export class DeadManMonitor {
   constructor(config, dependencies = {}) {
     this.config = config;
     this.fetch = dependencies.fetch ?? globalThis.fetch;
-    this.log = dependencies.log ?? ((entry) => process.stdout.write(`${JSON.stringify(entry)}\n`));
+    this.log =
+      dependencies.log ??
+      ((entry) => process.stdout.write(`${JSON.stringify(entry)}\n`));
   }
 
   async probeOnce() {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.probeTimeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(),
+      this.config.probeTimeoutMs,
+    );
     timer.unref?.();
     let ok = false;
     try {
@@ -235,7 +296,11 @@ export class DeadManMonitor {
       clearTimeout(timer);
     }
     if (ok) {
-      if (this.#alerting) this.log({ event: "dead_man_recovered", target: new URL(this.config.targetUrl).host });
+      if (this.#alerting)
+        this.log({
+          event: "dead_man_recovered",
+          target: new URL(this.config.targetUrl).host,
+        });
       this.#failures = 0;
       this.#alerting = false;
       return true;
@@ -266,13 +331,20 @@ export async function startReceiver(env = process.env) {
   const timer = setInterval(probe, config.probeIntervalMs);
   timer.unref();
   probe();
-  process.stdout.write(`${JSON.stringify({ event: "receiver_started", port: config.port })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ event: "receiver_started", port: config.port })}\n`,
+  );
   return { server, timer };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   startReceiver().catch((error) => {
-    process.stderr.write(`${JSON.stringify({ event: "receiver_start_failed", errorName: error instanceof Error ? error.name : "unknown" })}\n`);
+    process.stderr.write(
+      `${JSON.stringify({ event: "receiver_start_failed", errorName: error instanceof Error ? error.name : "unknown" })}\n`,
+    );
     process.exitCode = 1;
   });
 }

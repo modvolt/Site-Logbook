@@ -162,7 +162,7 @@ function validateWorkflowUrl(raw) {
 export function validateStagingReleaseEvidence(evidence, options = {}) {
   scanForSecrets(evidence);
   const root = objectAt(evidence, "evidence");
-  requireValue(root.schemaVersion, 2, "schemaVersion");
+  requireValue(root.schemaVersion, 3, "schemaVersion");
 
   const run = objectAt(root.run, "run");
   const isolation = objectAt(root.isolation, "isolation");
@@ -416,6 +416,31 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
     "pass",
     "alerts.freshnessAlertDelivery",
   );
+  requireValue(
+    stringAt(alerts.receiverHealth, "alerts.receiverHealth"),
+    "pass",
+    "alerts.receiverHealth",
+  );
+  const receiverBuildSha = stringAt(
+    alerts.receiverBuildSha,
+    "alerts.receiverBuildSha",
+  ).toLowerCase();
+  if (!FULL_GIT_SHA_PATTERN.test(receiverBuildSha)) {
+    fail(
+      "EVIDENCE_SHA_INVALID",
+      "alerts.receiverBuildSha must be a full 40-character Git SHA.",
+    );
+  }
+  requireValue(receiverBuildSha, commitSha, "alerts.receiverBuildSha");
+  for (const key of [
+    "receiverSyntheticDelivery",
+    "durableOutboxDelivery",
+    "persistentIdempotency",
+    "deadManTrigger",
+    "deadManRecovery",
+  ]) {
+    requireValue(stringAt(alerts[key], `alerts.${key}`), "pass", `alerts.${key}`);
+  }
 
   const approvalMode = stringAt(approvals.mode, "approvals.mode");
   const operator = stringAt(approvals.operator, "approvals.operator");
@@ -473,7 +498,7 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
   }
 
   return Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     runId,
     environmentId,
     baseUrl,
