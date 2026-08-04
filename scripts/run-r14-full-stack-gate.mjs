@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import path from "node:path";
 import process from "node:process";
@@ -20,6 +21,18 @@ const sourceSha = process.env.R14_SOURCE_SHA?.trim() ?? "";
 const webPort = Number(process.env.R14_WEB_PORT ?? "4194");
 const minioPort = Number(process.env.R14_MINIO_PORT ?? "19014");
 const providerPort = Number(process.env.R14_PROVIDER_PORT ?? "14010");
+const windowsDocker = path.join(
+  process.env.ProgramFiles ?? "C:\\Program Files",
+  "Docker",
+  "Docker",
+  "resources",
+  "bin",
+  "docker.exe",
+);
+const dockerCommand =
+  process.platform === "win32" && existsSync(windowsDocker)
+    ? windowsDocker
+    : "docker";
 
 if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
   throw new Error(
@@ -145,7 +158,7 @@ const composeArgs = [
   composeFile,
 ];
 const compose = (args, options = {}) =>
-  spawnResult("docker", [...composeArgs, ...args], {
+  spawnResult(dockerCommand, [...composeArgs, ...args], {
     ...options,
     env: composeEnv,
   });
@@ -201,7 +214,7 @@ async function verifySourceProvenance() {
 }
 
 async function dockerBuilds() {
-  await spawnResult("docker", [
+  await spawnResult(dockerCommand, [
     "build",
     "--file",
     "artifacts/api-server/Dockerfile",
@@ -211,7 +224,7 @@ async function dockerBuilds() {
     apiImage,
     ".",
   ]);
-  await spawnResult("docker", [
+  await spawnResult(dockerCommand, [
     "build",
     "--file",
     "artifacts/stavba/Dockerfile",
@@ -327,7 +340,7 @@ async function proveDatabaseRestore(browserEvidence) {
   );
   const migrationCount = Number(
     await captureText(
-      "docker",
+      dockerCommand,
       [
         ...composeArgs,
         "exec",
@@ -344,7 +357,7 @@ async function proveDatabaseRestore(browserEvidence) {
   );
   const markerCount = Number(
     await captureText(
-      "docker",
+      dockerCommand,
       [
         ...composeArgs,
         "exec",
@@ -509,44 +522,52 @@ async function injectStorageAndDatabaseFaults() {
   };
 }
 
+let dockerAvailable = false;
+let composeAvailable = false;
+
 async function cleanup() {
   const cleanupErrors = [];
-  const logs = await compose(["logs", "--no-color", "--tail", "300"], {
-    capture: true,
-    allowFailure: true,
-  });
-  if (logs.stdout.length)
-    await writeFile(path.join(resultsDir, "compose.log"), logs.stdout);
-  const down = await compose(
-    ["down", "--volumes", "--remove-orphans", "--timeout", "10"],
-    {
+  if (composeAvailable) {
+    const logs = await compose(["logs", "--no-color", "--tail", "300"], {
       capture: true,
       allowFailure: true,
-    },
-  );
-  if (down.code !== 0)
-    cleanupErrors.push(`docker compose down exited ${down.code}`);
-  const containers = await captureText("docker", [
-    "container",
-    "ls",
-    "-aq",
-    "--filter",
-    `label=com.docker.compose.project=${project}`,
-  ]);
-  const networks = await captureText("docker", [
-    "network",
-    "ls",
-    "-q",
-    "--filter",
-    `label=com.docker.compose.project=${project}`,
-  ]);
-  const volumes = await captureText("docker", [
-    "volume",
-    "ls",
-    "-q",
-    "--filter",
-    `label=com.docker.compose.project=${project}`,
-  ]);
+    });
+    if (logs.stdout.length)
+      await writeFile(path.join(resultsDir, "compose.log"), logs.stdout);
+    const down = await compose(
+      ["down", "--volumes", "--remove-orphans", "--timeout", "10"],
+      { capture: true, allowFailure: true },
+    );
+    if (down.code !== 0)
+      cleanupErrors.push(`docker compose down exited ${down.code}`);
+  }
+  const containers = dockerAvailable
+    ? await captureText(dockerCommand, [
+        "container",
+        "ls",
+        "-aq",
+        "--filter",
+        `label=com.docker.compose.project=${project}`,
+      ])
+    : "";
+  const networks = dockerAvailable
+    ? await captureText(dockerCommand, [
+        "network",
+        "ls",
+        "-q",
+        "--filter",
+        `label=com.docker.compose.project=${project}`,
+      ])
+    : "";
+  const volumes = dockerAvailable
+    ? await captureText(dockerCommand, [
+        "volume",
+        "ls",
+        "-q",
+        "--filter",
+        `label=com.docker.compose.project=${project}`,
+      ])
+    : "";
   const openPorts = [];
   for (const port of [webPort, minioPort, providerPort])
     if (await portIsOpen(port)) openPorts.push(port);
@@ -570,8 +591,10 @@ let primaryError;
 let cleanupError;
 try {
   await verifySourceProvenance();
-  await spawnResult("docker", ["version"]);
-  await spawnResult("docker", ["compose", "version"]);
+  await spawnResult(dockerCommand, ["version"]);
+  dockerAvailable = true;
+  await spawnResult(dockerCommand, ["compose", "version"]);
+  composeAvailable = true;
   for (const port of [webPort, minioPort, providerPort]) {
     if (await portIsOpen(port))
       throw new Error(`R14 requires free loopback port ${port}.`);
