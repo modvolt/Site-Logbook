@@ -122,6 +122,7 @@ test("runtime uses only synthetic test configuration and test-only provider boun
   assert.equal(env.MAIL_TEST_ALLOW_INSECURE, "true");
   assert.equal(env.OPENAI_TEST_BASE_URL, "http://provider-fakes:4010/v1");
   assert.equal(env.S3_ENDPOINT, "http://minio:9000");
+  assert.equal(env.S3_TEST_REQUEST_TIMEOUT_MS, "5000");
   assert.equal(env.BACKUP_ENABLED, "false");
   assert.notEqual(env.SECRET_ENCRYPTION_KEYRING, env.BACKUP_ENCRYPTION_KEYRING);
   assert.doesNotMatch(
