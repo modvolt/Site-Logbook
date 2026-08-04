@@ -65,3 +65,4 @@ logs/
 .cache/
 .local/
 e2e/test-results/.last-run.json
+/e2e/test-results/r14-full-stack/

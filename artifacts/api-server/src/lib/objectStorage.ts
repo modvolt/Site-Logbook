@@ -17,6 +17,7 @@ import { createHash, randomUUID } from "crypto";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import type { Response as ExpressResponse } from "express";
+import { resolveS3TestRequestTimeout } from "./s3-test-request-timeout";
 
 export type RecoveryReadinessStatus = "pass" | "fail" | "unknown";
 
@@ -1082,6 +1083,7 @@ export class ObjectStorageService {
 
     if (s3Configured()) {
       const key = joinKey(getPrivatePrefix(), entityId);
+      const testTimeoutMs = resolveS3TestRequestTimeout();
       await getClient().send(
         new PutObjectCommand({
           Bucket: getBucket(),
@@ -1094,6 +1096,9 @@ export class ObjectStorageService {
             "upload-status": uploadStatus,
           },
         }),
+        testTimeoutMs === undefined
+          ? undefined
+          : { abortSignal: AbortSignal.timeout(testTimeoutMs) },
       );
       return;
     }

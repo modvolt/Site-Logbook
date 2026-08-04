@@ -1,0 +1,178 @@
+name: ${R14_COMPOSE_PROJECT_NAME:-site-logbook-r14}
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    restart: "no"
+    environment:
+      POSTGRES_USER: site_logbook_r14
+      POSTGRES_PASSWORD: r14-postgres-synthetic-only
+      POSTGRES_DB: site_logbook_r14
+    expose:
+      - "5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U site_logbook_r14 -d site_logbook_r14"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [r14_internal]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: "no"
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: r14-minio-access
+      MINIO_ROOT_PASSWORD: r14-minio-secret-synthetic-only
+      MINIO_BROWSER: "off"
+    expose:
+      - "9000"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [r14_internal]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set r14 http://minio:9000 r14-minio-access r14-minio-secret-synthetic-only
+        && mc mb --ignore-existing r14/site-logbook-r14
+    networks: [r14_internal]
+
+  provider-fakes:
+    image: node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7
+    restart: "no"
+    command: ["node", "/opt/r14/provider-fakes.mjs"]
+    environment:
+      R14_PROVIDER_CONTROL_TOKEN: ${R14_PROVIDER_CONTROL_TOKEN:?set synthetic R14 control token}
+    volumes:
+      - ./provider-fakes.mjs:/opt/r14/provider-fakes.mjs:ro
+    expose:
+      - "4010"
+      - "1025"
+      - "1143"
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4010/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [r14_internal]
+
+  api:
+    image: ${R14_API_IMAGE:?set exact-SHA local R14 API image}
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      provider-fakes:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      PORT: "5000"
+      BUILD_SHA: ${R14_SOURCE_SHA:?set exact Git SHA}
+      DATABASE_URL: postgresql://site_logbook_r14:r14-postgres-synthetic-only@postgres:5432/site_logbook_r14
+      SESSION_SECRET: r14-session-secret-synthetic-only-00000000000000000000000000000000
+      PUBLIC_APP_URL: http://127.0.0.1:${R14_WEB_PORT:-4194}
+      S3_ENDPOINT: http://minio:9000
+      S3_TEST_REQUEST_TIMEOUT_MS: "5000"
+      S3_REGION: us-east-1
+      S3_BUCKET: site-logbook-r14
+      S3_ACCESS_KEY_ID: r14-minio-access
+      S3_SECRET_ACCESS_KEY: r14-minio-secret-synthetic-only
+      S3_FORCE_PATH_STYLE: "true"
+      S3_PRIVATE_PREFIX: private
+      S3_PUBLIC_PREFIX: public
+      SMTP_HOST: provider-fakes
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: r14@site-logbook.invalid
+      IMAP_HOST: provider-fakes
+      IMAP_PORT: "1143"
+      IMAP_SECURE: "false"
+      IMAP_USER: r14-imap
+      IMAP_PASSWORD: r14-imap-synthetic-only
+      IMAP_FOLDER: INBOX
+      IMAP_POLL_MINUTES: "1440"
+      MAIL_TEST_ALLOW_INSECURE: "true"
+      OPENAI_API_KEY: r14-openai-synthetic-only
+      OPENAI_DOCUMENT_EXTRACTION_ENABLED: "true"
+      OPENAI_DOCUMENT_MODEL: r14-deterministic-model
+      OPENAI_REQUEST_TIMEOUT_MS: "1500"
+      OPENAI_TEST_BASE_URL: http://provider-fakes:4010/v1
+      SECRET_ENCRYPTION_KEYRING: '{"r14-app":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+      SECRET_ENCRYPTION_ACTIVE_KEY_ID: r14-app
+      BACKUP_ENCRYPTION_KEYRING: '{"r14-backup":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="}'
+      BACKUP_ENCRYPTION_ACTIVE_KEY_ID: r14-backup
+      BACKUP_ENABLED: "false"
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+      MAX_REQUEST_BODY_MB: "50"
+    expose:
+      - "5000"
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+    networks: [r14_internal]
+
+  web:
+    image: ${R14_WEB_IMAGE:?set exact-SHA local R14 web image}
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NGINX_PORT: "80"
+      API_UPSTREAM: http://api:5000
+      NGINX_SERVER_NAME: localhost
+    ports:
+      - "127.0.0.1:${R14_WEB_PORT:-4194}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    # The browser reaches only nginx over a loopback-published test bridge.
+    # API, PostgreSQL, S3 and provider protocols remain internal-only.
+    networks: [r14_internal, r14_host]
+
+networks:
+  r14_internal:
+    internal: true
+  r14_host:

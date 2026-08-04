@@ -20,6 +20,7 @@ import { resolveEmailConfig } from "../lib/email";
 import { resolveOpenAiConfig } from "../lib/openai-extraction";
 import { resolveImapConfig } from "../lib/email-import";
 import { countServerErrors, getRecentServerErrors } from "../lib/server-errors";
+import { probeDatabaseReadiness } from "../lib/db-health-probe";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
 
@@ -129,10 +130,9 @@ async function getCachedMigrationParity(): Promise<ParityCache> {
 }
 
 async function checkDbLatency(): Promise<{ status: "ok" | "error"; latencyMs: number | null }> {
-  const t0 = Date.now();
   try {
-    await db.execute(sql`SELECT 1`);
-    return { status: "ok", latencyMs: Date.now() - t0 };
+    const latencyMs = await probeDatabaseReadiness();
+    return { status: "ok", latencyMs };
   } catch {
     return { status: "error", latencyMs: null };
   }
@@ -343,8 +343,25 @@ router.get("/healthz", async (_req, res) => {
   const apiVersion = resolveApiVersion();
   const uptimeSeconds = process.uptime();
 
-  const [dbPing, smtp, migration] = await Promise.all([
-    checkDbLatency(),
+  // The DB probe is a prerequisite for every DB-backed secondary diagnostic.
+  // Short-circuiting here prevents an expired migration cache or DB-backed
+  // SMTP settings lookup from outliving the platform's five-second probe.
+  const dbPing = await checkDbLatency();
+  if (dbPing.status === "error") {
+    const data = HealthCheckResponse.parse({
+      status: "degraded",
+      version: apiVersion,
+      uptimeSeconds,
+      dbStatus: dbPing.status,
+      dbLatencyMs: dbPing.latencyMs,
+      storageStatus: "ok",
+      migrationParity: null,
+    });
+    res.status(503).json(data);
+    return;
+  }
+
+  const [smtp, migration] = await Promise.all([
     checkSmtp(),
     getCachedMigrationParity(),
   ]);

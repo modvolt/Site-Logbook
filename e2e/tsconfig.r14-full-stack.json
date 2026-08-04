@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["playwright.r14-full-stack.config.ts", "r14-full-stack/**/*.ts"]
+}

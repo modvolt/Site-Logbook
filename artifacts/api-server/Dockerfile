@@ -44,12 +44,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # ---------- Runtime ----------
 FROM node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7 AS runtime
 WORKDIR /app
-ARG BUILD_SHA=dev
-LABEL org.opencontainers.image.source="https://github.com/modvolt/Site-Logbook" \
-      org.opencontainers.image.revision="$BUILD_SHA"
 ENV NODE_ENV=production
 ENV PORT=5000
-ENV BUILD_SHA=$BUILD_SHA
 # Location of the committed SQL migrations applied on startup.
 ENV MIGRATIONS_DIR=/app/migrations
 
@@ -67,6 +63,13 @@ RUN apt-get update \
   && apt-get purge -y wget gnupg \
   && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
+
+# Keep revision metadata after the expensive package layer so exact-SHA builds
+# reuse the PostgreSQL client installation without changing runtime provenance.
+ARG BUILD_SHA=dev
+LABEL org.opencontainers.image.source="https://github.com/modvolt/Site-Logbook" \
+      org.opencontainers.image.revision="$BUILD_SHA"
+ENV BUILD_SHA=$BUILD_SHA
 
 # Runtime deps that esbuild keeps external (e.g. @aws-sdk, nodemailer).
 COPY --from=builder /app/node_modules ./node_modules
