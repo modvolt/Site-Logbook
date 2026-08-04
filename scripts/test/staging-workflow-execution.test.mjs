@@ -303,8 +303,8 @@ test("maps a POSIX harness to the owner of its private bind mount", () => {
     () =>
       resolveContainerUser({
         platform: "linux",
-        getuid: undefined,
-        getgid: undefined,
+        getuid: null,
+        getgid: null,
       }),
     /numeric host UID and GID/u,
   );
