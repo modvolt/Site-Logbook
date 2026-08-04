@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { createManualMovement } from "../src/lib/warehouse-service";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 const HAS_TEST_DB = Boolean(process.env.DATABASE_URL) && process.env.ATOMIC_JOB_DB_TEST_ENABLED === "true";
 const TAG = `atomic-job-${Date.now()}`;
@@ -62,6 +63,7 @@ describe.skipIf(!HAS_TEST_DB)("POST /api/jobs atomic persistence", () => {
     agent = request.agent(app);
     const login = await agent.post("/api/auth/login").send({ username: `${TAG}-admin`, password: PASSWORD });
     expect(login.status).toBe(200);
+    await bindAuthenticatedAgent(agent);
   });
 
   afterAll(async () => {

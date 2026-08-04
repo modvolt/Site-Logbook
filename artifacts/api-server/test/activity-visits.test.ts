@@ -10,6 +10,7 @@ import {
   activityVisitsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Activity visits (výjezdy) CRUD + invariant tests.
@@ -59,6 +60,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-user`, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
 });
 
 afterAll(async () => {

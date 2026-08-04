@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable, jobsTable } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Regression test: the secret `signatureToken` (a bearer credential for the
@@ -99,6 +100,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {

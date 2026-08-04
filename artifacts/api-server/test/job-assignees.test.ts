@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable, peopleTable, jobsTable, jobAssigneesTable, employeeLeavesTable } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Tests for PUT /api/jobs/:id/assignees — assigning additional workers to a
@@ -122,6 +123,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(adminLogin.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {

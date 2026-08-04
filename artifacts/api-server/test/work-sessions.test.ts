@@ -12,6 +12,7 @@ import {
   workSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 const TAG = `test-work-sessions-${Date.now()}`;
 const PASSWORD = "test-work-session-password";
@@ -47,6 +48,7 @@ async function createLinkedAdmin(label: string, personId: number): Promise<Agent
   userIds.push(user.id);
   const agent = request.agent(app);
   expect((await agent.post("/api/auth/login").send({ username: user.username, password: PASSWORD })).status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return agent;
 }
 
@@ -64,6 +66,7 @@ beforeAll(async () => {
   userIds.push(user.id);
   admin = request.agent(app);
   expect((await admin.post("/api/auth/login").send({ username: user.username, password: PASSWORD })).status).toBe(200);
+  await bindAuthenticatedAgent(admin);
 });
 
 afterAll(async () => {

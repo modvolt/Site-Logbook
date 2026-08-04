@@ -2,6 +2,16 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { activateApiCacheScope, clearApiCache, debugLog } from "@/lib/pwa";
+import {
+  publishAuthTransition,
+  resetIdentityQueries,
+  subscribeAuthTransitions,
+} from "@/lib/auth-coordination";
+import {
+  beginIdentityRequestTransition,
+  completeIdentityRequestTransition,
+  setIdentityRequestScope,
+} from "@/lib/identity-fetch";
 
 export type Role = "guest" | "master" | "admin";
 export type Permission =
@@ -85,9 +95,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     if (data?.authenticated && offlineScope) {
+      setIdentityRequestScope(offlineScope);
       void activateApiCacheScope(offlineScope);
       return;
     }
+    setIdentityRequestScope(null);
     void clearApiCache();
   }, [isLoading, data?.authenticated, offlineScope]);
 
@@ -99,16 +111,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           type: "SET_IDENTITY_SCOPE",
           scope: offlineScope,
         });
+        return;
+      }
+      if (event.data?.type === "AUTH_SCOPE_MISMATCH") {
+        beginIdentityRequestTransition();
+        const reset = resetIdentityQueries(queryClient);
+        void Promise.allSettled([reset, clearApiCache()]).then(() => {
+          completeIdentityRequestTransition();
+          publishAuthTransition("changed");
+          void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+        });
       }
     };
     navigator.serviceWorker.addEventListener("message", handleMessage);
     return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
-  }, [offlineScope]);
+  }, [offlineScope, queryClient]);
+
+  useEffect(() => {
+    let transitionWork = Promise.resolve();
+    return subscribeAuthTransitions((event) => {
+      beginIdentityRequestTransition();
+      const reset = resetIdentityQueries(queryClient);
+      transitionWork = transitionWork.then(async () => {
+        await Promise.allSettled([reset, clearApiCache()]);
+        if (event.stage === "changed") {
+          completeIdentityRequestTransition();
+          await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+        }
+      });
+    });
+  }, [queryClient]);
 
   useEffect(() => {
     const handleInvalidated = () => {
-      void clearApiCache();
-      void queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      beginIdentityRequestTransition();
+      const reset = resetIdentityQueries(queryClient);
+      void Promise.allSettled([reset, clearApiCache()]).then(async () => {
+        completeIdentityRequestTransition();
+        publishAuthTransition("changed");
+        await queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+      });
     };
     window.addEventListener("stavba:auth-invalidated", handleInvalidated);
     return () => window.removeEventListener("stavba:auth-invalidated", handleInvalidated);

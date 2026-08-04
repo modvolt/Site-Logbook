@@ -23,7 +23,9 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "typecheck:e2e:staging": "tsc -p e2e/tsconfig.staging.json",
+    "typecheck:e2e:pwa-isolation": "tsc -p e2e/tsconfig.pwa-isolation.json",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "test:e2e:pwa-isolation": "node ./scripts/run-pwa-isolation-gate.mjs",
     "test:e2e:staging": "playwright test --config=e2e/playwright.staging.config.ts"
   },
   "packageManager": "pnpm@11.9.0",

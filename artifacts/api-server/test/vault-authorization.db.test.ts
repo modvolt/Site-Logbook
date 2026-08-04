@@ -13,6 +13,7 @@ import {
   userSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 if (process.env.AUTHORIZATION_DB_TEST_ENABLED !== "true") {
   throw new Error(
@@ -59,6 +60,7 @@ async function createActor(
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return { agent, userId: user.id, username };
 }
 
@@ -68,6 +70,7 @@ async function loginActor(username: string): Promise<SuperAgentTest> {
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return agent;
 }
 

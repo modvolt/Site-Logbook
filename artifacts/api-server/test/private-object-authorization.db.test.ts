@@ -26,6 +26,7 @@ import {
   resolvePrivateObjectPermissions,
 } from "../src/lib/private-object-access";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 if (process.env.AUTHORIZATION_DB_TEST_ENABLED !== "true") {
   throw new Error(
@@ -143,6 +144,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: deniedUser.username, password: "Private-Object-Test-42" });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(deniedAgent);
 });
 
 afterAll(async () => {

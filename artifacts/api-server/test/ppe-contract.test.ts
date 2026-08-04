@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable, publicAccessTokensTable } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * HTTP-level contract tests for the PPE (OOPP) API.
@@ -74,10 +75,12 @@ beforeAll(async () => {
   adminAgent = request.agent(app);
   let res = await adminAgent.post("/api/auth/login").send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(res.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 
   guestAgent = request.agent(app);
   res = await guestAgent.post("/api/auth/login").send({ username: `${TAG}-guest`, password: PASSWORD });
   expect(res.status).toBe(200);
+  await bindAuthenticatedAgent(guestAgent);
 });
 
 afterAll(async () => {
