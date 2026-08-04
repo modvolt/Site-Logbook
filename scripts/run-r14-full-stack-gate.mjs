@@ -29,10 +29,23 @@ const windowsDocker = path.join(
   "bin",
   "docker.exe",
 );
+const windowsCompose = path.join(
+  process.env.ProgramFiles ?? "C:\\Program Files",
+  "Docker",
+  "Docker",
+  "resources",
+  "bin",
+  "docker-compose.exe",
+);
 const dockerCommand =
   process.platform === "win32" && existsSync(windowsDocker)
     ? windowsDocker
     : "docker";
+const composeCommand =
+  process.platform === "win32" && existsSync(windowsCompose)
+    ? windowsCompose
+    : dockerCommand;
+const composePrefix = composeCommand === dockerCommand ? ["compose"] : [];
 
 if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
   throw new Error(
@@ -151,14 +164,14 @@ const composeEnv = {
   R14_PROVIDER_CONTROL_TOKEN: controlToken,
 };
 const composeArgs = [
-  "compose",
+  ...composePrefix,
   "--project-name",
   project,
   "--file",
   composeFile,
 ];
 const compose = (args, options = {}) =>
-  spawnResult(dockerCommand, [...composeArgs, ...args], {
+  spawnResult(composeCommand, [...composeArgs, ...args], {
     ...options,
     env: composeEnv,
   });
@@ -340,7 +353,7 @@ async function proveDatabaseRestore(browserEvidence) {
   );
   const migrationCount = Number(
     await captureText(
-      dockerCommand,
+      composeCommand,
       [
         ...composeArgs,
         "exec",
@@ -357,7 +370,7 @@ async function proveDatabaseRestore(browserEvidence) {
   );
   const markerCount = Number(
     await captureText(
-      dockerCommand,
+      composeCommand,
       [
         ...composeArgs,
         "exec",
@@ -593,7 +606,7 @@ try {
   await verifySourceProvenance();
   await spawnResult(dockerCommand, ["version"]);
   dockerAvailable = true;
-  await spawnResult(dockerCommand, ["compose", "version"]);
+  await spawnResult(composeCommand, [...composePrefix, "version"]);
   composeAvailable = true;
   for (const port of [webPort, minioPort, providerPort]) {
     if (await portIsOpen(port))
