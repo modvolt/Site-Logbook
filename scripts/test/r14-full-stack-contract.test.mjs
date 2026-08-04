@@ -27,14 +27,21 @@ const workflowPath = path.join(
   "quality-gate.yml",
 );
 const dockerignorePath = path.join(root, ".dockerignore");
+const apiDockerfilePath = path.join(
+  root,
+  "artifacts",
+  "api-server",
+  "Dockerfile",
+);
 
-const [composeSource, runner, provider, workflow, dockerignore] =
+const [composeSource, runner, provider, workflow, dockerignore, apiDockerfile] =
   await Promise.all([
     readFile(composePath, "utf8"),
     readFile(runnerPath, "utf8"),
     readFile(providerPath, "utf8"),
     readFile(workflowPath, "utf8"),
     readFile(dockerignorePath, "utf8"),
+    readFile(apiDockerfilePath, "utf8"),
   ]);
 const compose = YAML.parse(composeSource);
 
@@ -101,6 +108,11 @@ test("all public R14 images are immutable and app images are exact-SHA inputs", 
   );
   assert.equal(compose.services.api.pull_policy, "never");
   assert.equal(compose.services.web.pull_policy, "never");
+  assert.ok(
+    apiDockerfile.indexOf("apt-get install") <
+      apiDockerfile.indexOf("ARG BUILD_SHA=dev"),
+    "exact-SHA metadata must not invalidate the PostgreSQL client layer",
+  );
 });
 
 test("runtime uses only synthetic test configuration and test-only provider boundaries", () => {
