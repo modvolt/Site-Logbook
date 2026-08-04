@@ -751,14 +751,20 @@ async function injectStorageAndDatabaseFaults() {
   };
 
   await setServiceNetworkConnected("postgres", false);
+  const degradedDbStartedAt = Date.now();
   const degradedDb = await fetch(`${baseURL}/api/healthz`, {
     cache: "no-store",
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(6_000),
   });
+  const degradedDbLatencyMs = Date.now() - degradedDbStartedAt;
   const degradedDbBody = await degradedDb.json();
-  if (degradedDb.status !== 503 || degradedDbBody.status !== "degraded") {
+  if (
+    degradedDb.status !== 503 ||
+    degradedDbBody.status !== "degraded" ||
+    degradedDbLatencyMs >= 5_000
+  ) {
     throw new Error(
-      `PostgreSQL outage was not reported as degraded readiness: HTTP ${degradedDb.status}.`,
+      `PostgreSQL outage readiness was invalid: HTTP ${degradedDb.status} after ${degradedDbLatencyMs} ms.`,
     );
   }
   await setServiceNetworkConnected("postgres", true);
@@ -781,6 +787,7 @@ async function injectStorageAndDatabaseFaults() {
     passed: true,
     outageMode: "network-disconnect",
     readinessStatus: 503,
+    readinessLatencyMs: degradedDbLatencyMs,
     markerJobPreserved: true,
     recovered: true,
   };
