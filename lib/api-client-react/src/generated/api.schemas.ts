@@ -179,6 +179,161 @@ export interface AdminHealthStatus {
   lastBackupError?: AdminHealthLastBackup | null;
 }
 
+export type OperationalSnapshotStatus = typeof OperationalSnapshotStatus[keyof typeof OperationalSnapshotStatus];
+
+
+export const OperationalSnapshotStatus = {
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
+} as const;
+
+export type OperationalSnapshotAlertTransport = typeof OperationalSnapshotAlertTransport[keyof typeof OperationalSnapshotAlertTransport];
+
+
+export const OperationalSnapshotAlertTransport = {
+  local_log_only: 'local_log_only',
+} as const;
+
+export type OperationalQueueSignalId = typeof OperationalQueueSignalId[keyof typeof OperationalQueueSignalId];
+
+
+export const OperationalQueueSignalId = {
+  extraction: 'extraction',
+  switchboard: 'switchboard',
+  email_import: 'email_import',
+} as const;
+
+export type OperationalQueueSignalStatus = typeof OperationalQueueSignalStatus[keyof typeof OperationalQueueSignalStatus];
+
+
+export const OperationalQueueSignalStatus = {
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
+} as const;
+
+export interface OperationalQueueSignal {
+  id: OperationalQueueSignalId;
+  available: boolean;
+  status: OperationalQueueSignalStatus;
+  /** @minimum 0 */
+  readyDepth: number;
+  /** @minimum 0 */
+  runningDepth: number;
+  /** @minimum 0 */
+  failedDepth: number;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  oldestReadyAgeSeconds: number | null;
+  /** @minimum 1 */
+  warningAgeSeconds: number;
+  /** @minimum 1 */
+  criticalAgeSeconds: number;
+}
+
+export type OperationalBackupSignalStatus = typeof OperationalBackupSignalStatus[keyof typeof OperationalBackupSignalStatus];
+
+
+export const OperationalBackupSignalStatus = {
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
+  not_configured: 'not_configured',
+} as const;
+
+export interface OperationalBackupSignal {
+  available: boolean;
+  enabled: boolean;
+  status: OperationalBackupSignalStatus;
+  /** @nullable */
+  lastSuccessAt: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  lastSuccessAgeSeconds: number | null;
+  /** @nullable */
+  lastAttemptStatus: string | null;
+  /** @nullable */
+  lastRestoreTestAt: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  lastRestoreTestAgeSeconds: number | null;
+  /** @nullable */
+  lastRestoreStatus: string | null;
+  /** @minimum 1 */
+  warningAgeSeconds: number;
+  /** @minimum 1 */
+  criticalAgeSeconds: number;
+  /** @minimum 1 */
+  restoreWarningAgeSeconds: number;
+  /** @minimum 1 */
+  restoreCriticalAgeSeconds: number;
+}
+
+export type OperationalSecuritySignalStatus = typeof OperationalSecuritySignalStatus[keyof typeof OperationalSecuritySignalStatus];
+
+
+export const OperationalSecuritySignalStatus = {
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
+} as const;
+
+export interface OperationalSecuritySignal {
+  available: boolean;
+  status: OperationalSecuritySignalStatus;
+  /** @minimum 1 */
+  windowSeconds: number;
+  /** @minimum 0 */
+  sensitiveEventCount: number;
+  /** @minimum 1 */
+  warningEvents: number;
+  /** @minimum 1 */
+  criticalEvents: number;
+}
+
+export type OperationalAlertSeverity = typeof OperationalAlertSeverity[keyof typeof OperationalAlertSeverity];
+
+
+export const OperationalAlertSeverity = {
+  warning: 'warning',
+  critical: 'critical',
+} as const;
+
+export interface OperationalAlert {
+  fingerprint: string;
+  code: string;
+  severity: OperationalAlertSeverity;
+  owner: string;
+  runbook: string;
+  summary: string;
+  metric: string;
+  /** @nullable */
+  observed: number | null;
+  /** @nullable */
+  threshold: number | null;
+}
+
+export interface OperationalSnapshot {
+  generatedAt: string;
+  status: OperationalSnapshotStatus;
+  alertTransport: OperationalSnapshotAlertTransport;
+  queues: OperationalQueueSignal[];
+  backup: OperationalBackupSignal;
+  security: OperationalSecuritySignal;
+  activeAlerts: OperationalAlert[];
+}
+
 export type WatchdogStatusOverallStatus = typeof WatchdogStatusOverallStatus[keyof typeof WatchdogStatusOverallStatus];
 
 
@@ -188,11 +343,34 @@ export const WatchdogStatusOverallStatus = {
   unknown: 'unknown',
 } as const;
 
+export type WatchdogStatusOperationalStatus = typeof WatchdogStatusOperationalStatus[keyof typeof WatchdogStatusOperationalStatus];
+
+
+export const WatchdogStatusOperationalStatus = {
+  ok: 'ok',
+  warning: 'warning',
+  critical: 'critical',
+  unknown: 'unknown',
+} as const;
+
+export type WatchdogStatusAlertTransport = typeof WatchdogStatusAlertTransport[keyof typeof WatchdogStatusAlertTransport];
+
+
+export const WatchdogStatusAlertTransport = {
+  local_log_only: 'local_log_only',
+} as const;
+
 export interface WatchdogStatus {
   overallStatus: WatchdogStatusOverallStatus;
   /** @nullable */
   lastAlertAt?: string | null;
   consecutiveFailures: number;
+  operationalStatus: WatchdogStatusOperationalStatus;
+  /** @minimum 0 */
+  activeOperationalAlerts: number;
+  /** @nullable */
+  lastOperationalAlertAt?: string | null;
+  alertTransport: WatchdogStatusAlertTransport;
 }
 
 export type HealthLogEntryOverallStatus = typeof HealthLogEntryOverallStatus[keyof typeof HealthLogEntryOverallStatus];

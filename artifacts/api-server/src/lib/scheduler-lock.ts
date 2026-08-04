@@ -43,6 +43,8 @@ export const SCHEDULER_LOCK_KEYS = {
   emailImport: 1_004,
   invoiceReminders: 1_005,
   ppeOverdue: 1_006,
+  healthWatchdog: 1_007,
+  healthWatchdogPurge: 1_008,
 } as const;
 
 /**

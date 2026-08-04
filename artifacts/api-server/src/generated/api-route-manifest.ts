@@ -35,6 +35,7 @@ export const API_ROUTE_MANIFEST = [
   { method: "GET", template: "/activities/visits/calendar", source: "activity-visits.ts" },
   { method: "GET", template: "/admin/health", source: "health.ts" },
   { method: "GET", template: "/admin/health/log", source: "health.ts" },
+  { method: "GET", template: "/admin/health/operational", source: "health.ts" },
   { method: "GET", template: "/admin/health/watchdog", source: "health.ts" },
   { method: "GET", template: "/admin/sessions", source: "sessions.ts" },
   { method: "DELETE", template: "/admin/sessions/expired", source: "sessions.ts" },

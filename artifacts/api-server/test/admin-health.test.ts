@@ -97,6 +97,38 @@ describe("GET /api/admin/health – authorization", () => {
   });
 });
 
+describe("GET /api/admin/health/operational – authorization and redaction", () => {
+  it("returns 401 when unauthenticated", async () => {
+    const res = await request(app).get("/api/admin/health/operational");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for guest role", async () => {
+    const agent = await loginAs(`${TAG}-guest`);
+    const res = await agent.get("/api/admin/health/operational");
+    expect(res.status).toBe(403);
+  });
+
+  it("returns only aggregate operational signals for an admin", async () => {
+    const agent = await loginAs(`${TAG}-admin`);
+    const res = await agent.get("/api/admin/health/operational");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      alertTransport: "local_log_only",
+      queues: expect.any(Array),
+      backup: expect.any(Object),
+      security: expect.any(Object),
+      activeAlerts: expect.any(Array),
+    });
+    expect(res.body.queues).toHaveLength(3);
+
+    const raw = JSON.stringify(res.body);
+    expect(raw).not.toMatch(
+      /password|secret|recipient|emailAddress|objectPath|fileName|actorName|sessionId|ipAddress|userAgent/i,
+    );
+  });
+});
+
 describe("GET /api/admin/health – response shape", () => {
   let agent: Agent;
   let body: Record<string, unknown>;

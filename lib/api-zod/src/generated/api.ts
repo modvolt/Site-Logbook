@@ -79,12 +79,102 @@ export const GetAdminHealthResponse = zod.object({
 
 
 /**
+ * Returns DB-backed aggregate signals only. This endpoint never runs an object-storage write probe or returns raw worker errors, identities, recipients, object paths or provider secrets.
+
+ * @summary Redacted operational queues, backup and security snapshot (admin only)
+ */
+export const getAdminOperationalSnapshotResponseQueuesItemReadyDepthMin = 0;
+
+export const getAdminOperationalSnapshotResponseQueuesItemRunningDepthMin = 0;
+
+export const getAdminOperationalSnapshotResponseQueuesItemFailedDepthMin = 0;
+
+export const getAdminOperationalSnapshotResponseQueuesItemOldestReadyAgeSecondsMin = 0;
+
+
+
+export const getAdminOperationalSnapshotResponseBackupLastSuccessAgeSecondsMin = 0;
+
+export const getAdminOperationalSnapshotResponseBackupLastRestoreTestAgeSecondsMin = 0;
+
+
+
+
+
+
+export const getAdminOperationalSnapshotResponseSecuritySensitiveEventCountMin = 0;
+
+
+
+
+
+export const GetAdminOperationalSnapshotResponse = zod.object({
+  "generatedAt": zod.string(),
+  "status": zod.enum(['ok', 'warning', 'critical', 'unknown']),
+  "alertTransport": zod.enum(['local_log_only']),
+  "queues": zod.array(zod.object({
+  "id": zod.enum(['extraction', 'switchboard', 'email_import']),
+  "available": zod.boolean(),
+  "status": zod.enum(['ok', 'warning', 'critical', 'unknown']),
+  "readyDepth": zod.number().min(getAdminOperationalSnapshotResponseQueuesItemReadyDepthMin),
+  "runningDepth": zod.number().min(getAdminOperationalSnapshotResponseQueuesItemRunningDepthMin),
+  "failedDepth": zod.number().min(getAdminOperationalSnapshotResponseQueuesItemFailedDepthMin),
+  "oldestReadyAgeSeconds": zod.number().min(getAdminOperationalSnapshotResponseQueuesItemOldestReadyAgeSecondsMin).nullable(),
+  "warningAgeSeconds": zod.number().min(1),
+  "criticalAgeSeconds": zod.number().min(1)
+})),
+  "backup": zod.object({
+  "available": zod.boolean(),
+  "enabled": zod.boolean(),
+  "status": zod.enum(['ok', 'warning', 'critical', 'unknown', 'not_configured']),
+  "lastSuccessAt": zod.string().nullable(),
+  "lastSuccessAgeSeconds": zod.number().min(getAdminOperationalSnapshotResponseBackupLastSuccessAgeSecondsMin).nullable(),
+  "lastAttemptStatus": zod.string().nullable(),
+  "lastRestoreTestAt": zod.string().nullable(),
+  "lastRestoreTestAgeSeconds": zod.number().min(getAdminOperationalSnapshotResponseBackupLastRestoreTestAgeSecondsMin).nullable(),
+  "lastRestoreStatus": zod.string().nullable(),
+  "warningAgeSeconds": zod.number().min(1),
+  "criticalAgeSeconds": zod.number().min(1),
+  "restoreWarningAgeSeconds": zod.number().min(1),
+  "restoreCriticalAgeSeconds": zod.number().min(1)
+}),
+  "security": zod.object({
+  "available": zod.boolean(),
+  "status": zod.enum(['ok', 'warning', 'critical', 'unknown']),
+  "windowSeconds": zod.number().min(1),
+  "sensitiveEventCount": zod.number().min(getAdminOperationalSnapshotResponseSecuritySensitiveEventCountMin),
+  "warningEvents": zod.number().min(1),
+  "criticalEvents": zod.number().min(1)
+}),
+  "activeAlerts": zod.array(zod.object({
+  "fingerprint": zod.string(),
+  "code": zod.string(),
+  "severity": zod.enum(['warning', 'critical']),
+  "owner": zod.string(),
+  "runbook": zod.string(),
+  "summary": zod.string(),
+  "metric": zod.string(),
+  "observed": zod.number().nullable(),
+  "threshold": zod.number().nullable()
+}))
+})
+
+
+/**
  * @summary Lightweight watchdog status for the nav indicator (admin only)
  */
+export const getWatchdogStatusResponseActiveOperationalAlertsMin = 0;
+
+
+
 export const GetWatchdogStatusResponse = zod.object({
   "overallStatus": zod.enum(['ok', 'degraded', 'unknown']),
   "lastAlertAt": zod.string().nullish(),
-  "consecutiveFailures": zod.number()
+  "consecutiveFailures": zod.number(),
+  "operationalStatus": zod.enum(['ok', 'warning', 'critical', 'unknown']),
+  "activeOperationalAlerts": zod.number().min(getWatchdogStatusResponseActiveOperationalAlertsMin),
+  "lastOperationalAlertAt": zod.string().nullish(),
+  "alertTransport": zod.enum(['local_log_only'])
 })
 
 

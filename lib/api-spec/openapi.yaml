@@ -104,6 +104,27 @@ paths:
         "403":
           description: Forbidden
 
+  /admin/health/operational:
+    get:
+      operationId: getAdminOperationalSnapshot
+      tags: [admin]
+      summary: Redacted operational queues, backup and security snapshot (admin only)
+      description: >
+        Returns DB-backed aggregate signals only. This endpoint never runs an
+        object-storage write probe or returns raw worker errors, identities,
+        recipients, object paths or provider secrets.
+      responses:
+        "200":
+          description: Redacted operational snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalSnapshot"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+
   /admin/health/watchdog:
     get:
       operationId: getWatchdogStatus
@@ -9137,7 +9158,12 @@ components:
 
     WatchdogStatus:
       type: object
-      required: [overallStatus, consecutiveFailures]
+      required:
+        - overallStatus
+        - consecutiveFailures
+        - operationalStatus
+        - activeOperationalAlerts
+        - alertTransport
       properties:
         overallStatus:
           type: string
@@ -9146,6 +9172,201 @@ components:
           type: ["string", "null"]
         consecutiveFailures:
           type: integer
+        operationalStatus:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        activeOperationalAlerts:
+          type: integer
+          minimum: 0
+        lastOperationalAlertAt:
+          type: ["string", "null"]
+        alertTransport:
+          type: string
+          enum: [local_log_only]
+
+    OperationalAlert:
+      type: object
+      required:
+        - fingerprint
+        - code
+        - severity
+        - owner
+        - runbook
+        - summary
+        - metric
+        - observed
+        - threshold
+      properties:
+        fingerprint:
+          type: string
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [warning, critical]
+        owner:
+          type: string
+        runbook:
+          type: string
+        summary:
+          type: string
+        metric:
+          type: string
+        observed:
+          type: ["integer", "null"]
+        threshold:
+          type: ["integer", "null"]
+
+    OperationalQueueSignal:
+      type: object
+      required:
+        - id
+        - available
+        - status
+        - readyDepth
+        - runningDepth
+        - failedDepth
+        - oldestReadyAgeSeconds
+        - warningAgeSeconds
+        - criticalAgeSeconds
+      properties:
+        id:
+          type: string
+          enum: [extraction, switchboard, email_import]
+        available:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        readyDepth:
+          type: integer
+          minimum: 0
+        runningDepth:
+          type: integer
+          minimum: 0
+        failedDepth:
+          type: integer
+          minimum: 0
+        oldestReadyAgeSeconds:
+          type: ["integer", "null"]
+          minimum: 0
+        warningAgeSeconds:
+          type: integer
+          minimum: 1
+        criticalAgeSeconds:
+          type: integer
+          minimum: 1
+
+    OperationalBackupSignal:
+      type: object
+      required:
+        - available
+        - enabled
+        - status
+        - lastSuccessAt
+        - lastSuccessAgeSeconds
+        - lastAttemptStatus
+        - lastRestoreTestAt
+        - lastRestoreTestAgeSeconds
+        - lastRestoreStatus
+        - warningAgeSeconds
+        - criticalAgeSeconds
+        - restoreWarningAgeSeconds
+        - restoreCriticalAgeSeconds
+      properties:
+        available:
+          type: boolean
+        enabled:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown, not_configured]
+        lastSuccessAt:
+          type: ["string", "null"]
+        lastSuccessAgeSeconds:
+          type: ["integer", "null"]
+          minimum: 0
+        lastAttemptStatus:
+          type: ["string", "null"]
+        lastRestoreTestAt:
+          type: ["string", "null"]
+        lastRestoreTestAgeSeconds:
+          type: ["integer", "null"]
+          minimum: 0
+        lastRestoreStatus:
+          type: ["string", "null"]
+        warningAgeSeconds:
+          type: integer
+          minimum: 1
+        criticalAgeSeconds:
+          type: integer
+          minimum: 1
+        restoreWarningAgeSeconds:
+          type: integer
+          minimum: 1
+        restoreCriticalAgeSeconds:
+          type: integer
+          minimum: 1
+
+    OperationalSecuritySignal:
+      type: object
+      required:
+        - available
+        - status
+        - windowSeconds
+        - sensitiveEventCount
+        - warningEvents
+        - criticalEvents
+      properties:
+        available:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        windowSeconds:
+          type: integer
+          minimum: 1
+        sensitiveEventCount:
+          type: integer
+          minimum: 0
+        warningEvents:
+          type: integer
+          minimum: 1
+        criticalEvents:
+          type: integer
+          minimum: 1
+
+    OperationalSnapshot:
+      type: object
+      required:
+        - generatedAt
+        - status
+        - alertTransport
+        - queues
+        - backup
+        - security
+        - activeAlerts
+      properties:
+        generatedAt:
+          type: string
+        status:
+          type: string
+          enum: [ok, warning, critical, unknown]
+        alertTransport:
+          type: string
+          enum: [local_log_only]
+        queues:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationalQueueSignal"
+        backup:
+          $ref: "#/components/schemas/OperationalBackupSignal"
+        security:
+          $ref: "#/components/schemas/OperationalSecuritySignal"
+        activeAlerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationalAlert"
 
     HealthLogEntry:
       type: object

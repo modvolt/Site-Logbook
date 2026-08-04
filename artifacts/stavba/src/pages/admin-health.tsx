@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useGetAdminHealth,
   getGetAdminHealthQueryKey,
@@ -6,11 +6,18 @@ import {
   getGetWatchdogStatusQueryKey,
   useListHealthLog,
   getListHealthLogQueryKey,
+  useGetAdminOperationalSnapshot,
+  getGetAdminOperationalSnapshotQueryKey,
 } from "@workspace/api-client-react";
-import type { AdminHealthStatus, HealthLogEntry, ServerErrorEntry } from "@workspace/api-client-react";
+import type {
+  AdminHealthStatus,
+  HealthLogEntry,
+  OperationalSnapshot,
+  ServerErrorEntry,
+} from "@workspace/api-client-react";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle,
-  RefreshCw, Minus, Info, PackageSearch,
+  RefreshCw, Minus, Info, PackageSearch, BellRing,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -97,6 +104,142 @@ function useSwInfo() {
 
 function formatDate(iso: string) {
   return format(parseISO(iso), "d. M. yyyy HH:mm", { locale: cs });
+}
+
+function formatDuration(seconds: number | null) {
+  if (seconds === null) return "—";
+  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)} min`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} h`;
+  return `${Math.floor(seconds / 86_400)} d`;
+}
+
+function operationalCardStatus(
+  status: "ok" | "warning" | "critical" | "unknown" | "not_configured",
+): CardStatus {
+  if (status === "ok") return "ok";
+  if (status === "warning") return "warning";
+  if (status === "critical") return "error";
+  return "info";
+}
+
+function operationalStatusLabel(
+  status: "ok" | "warning" | "critical" | "unknown" | "not_configured",
+) {
+  if (status === "ok") return "V pořádku";
+  if (status === "warning") return "Varování";
+  if (status === "critical") return "Kritické";
+  if (status === "not_configured") return "Vypnuto";
+  return "Bez dat";
+}
+
+const queueLabels = {
+  extraction: "Extrakce dokladů",
+  switchboard: "Zpracování rozvaděčů",
+  email_import: "E-mailový import",
+} as const;
+
+function CompactMetric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 sm:block sm:min-w-0">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="font-mono text-xs sm:mt-0.5 sm:block sm:truncate">{value}</span>
+    </div>
+  );
+}
+
+function OperationalSnapshotSection({ data }: { data: OperationalSnapshot }) {
+  const sectionStatus = operationalCardStatus(data.status);
+  return (
+    <section
+      className={cn("rounded-xl border p-4 mb-4", statusBg(sectionStatus))}
+      aria-labelledby="operational-snapshot-title"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div className="min-w-0">
+            <h2 id="operational-snapshot-title" className="font-semibold text-sm">
+              Provozní fronty a limity
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Redigované agregace bez identit, názvů souborů a textů chyb.
+            </p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-background/70 px-2.5 py-1 text-xs font-semibold">
+          <StatusIcon status={sectionStatus} />
+          {operationalStatusLabel(data.status)}
+        </span>
+      </div>
+
+      <div className="mt-4 divide-y divide-border/70 rounded-lg border bg-background/60">
+        {data.queues.map((queue) => (
+          <div
+            key={queue.id}
+            className="grid min-w-0 gap-2 px-3 py-3 text-sm sm:grid-cols-[minmax(0,1.5fr)_repeat(4,minmax(70px,1fr))] sm:items-center"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <StatusIcon status={operationalCardStatus(queue.status)} />
+              <span className="min-w-0 font-medium break-words">{queueLabels[queue.id]}</span>
+            </div>
+            <CompactMetric label="Čeká" value={String(queue.readyDepth)} />
+            <CompactMetric label="Běží" value={String(queue.runningDepth)} />
+            <CompactMetric label="Chyby" value={String(queue.failedDepth)} />
+            <CompactMetric label="Nejstarší" value={formatDuration(queue.oldestReadyAgeSeconds)} />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="min-w-0 rounded-lg border bg-background/60 p-3 text-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <StatusIcon status={operationalCardStatus(data.backup.status)} />
+            Zálohy a ověřovací obnova
+          </div>
+          <div className="mt-2 space-y-1">
+            <Row label="Poslední záloha" value={formatDuration(data.backup.lastSuccessAgeSeconds)} />
+            <Row label="Restore test" value={formatDuration(data.backup.lastRestoreTestAgeSeconds)} />
+          </div>
+        </div>
+        <div className="min-w-0 rounded-lg border bg-background/60 p-3 text-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <StatusIcon status={operationalCardStatus(data.security.status)} />
+            Bezpečnostní změny
+          </div>
+          <div className="mt-2 space-y-1">
+            <Row label="Události / 15 min" value={String(data.security.sensitiveEventCount)} />
+            <Row label="Varování od" value={String(data.security.warningEvents)} />
+          </div>
+        </div>
+      </div>
+
+      {data.activeAlerts.length > 0 && (
+        <div className="mt-4" aria-live="polite">
+          <p className="text-sm font-semibold">Aktivní provozní alerty</p>
+          <ul className="mt-2 space-y-2">
+            {data.activeAlerts.map((alert) => (
+              <li key={alert.fingerprint} className="min-w-0 rounded-lg border bg-background/70 px-3 py-2">
+                <div className="flex min-w-0 items-start gap-2">
+                  <StatusIcon status={alert.severity === "critical" ? "error" : "warning"} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium break-words">{alert.summary}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground break-words">
+                      Vlastník: {alert.owner} · Kód: <span className="font-mono">{alert.code}</span>
+                    </p>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        Alert transport: pouze strukturovaný lokální log. Nezávislý externí kanál zatím není aktivován.
+      </p>
+    </section>
+  );
 }
 
 function BackupRow({ label, b }: {
@@ -508,19 +651,37 @@ export default function AdminHealth() {
     },
   });
 
-  const doRefresh = () => {
+  const {
+    data: operational,
+    isLoading: operationalIsLoading,
+    isError: operationalIsError,
+    refetch: refetchOperational,
+    isFetching: operationalIsFetching,
+  } = useGetAdminOperationalSnapshot({
+    query: {
+      queryKey: getGetAdminOperationalSnapshotQueryKey(),
+      refetchInterval: false,
+      staleTime: 25_000,
+    },
+  });
+
+  const doRefresh = useCallback(() => {
     void refetch();
+    void refetchOperational();
     setLastRefreshed(new Date());
-  };
+  }, [refetch, refetchOperational]);
 
   useEffect(() => {
     intervalRef.current = setInterval(doRefresh, AUTO_REFRESH_INTERVAL);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, []);
+  }, [doRefresh]);
 
-  const isDegraded = watchdog?.overallStatus === "degraded";
+  const isDegraded =
+    watchdog?.overallStatus === "degraded" ||
+    operational?.status === "warning" ||
+    operational?.status === "critical";
 
   return (
     <div className="p-4 md:p-6 w-full">
@@ -543,10 +704,10 @@ export default function AdminHealth() {
               variant="outline"
               size="sm"
               onClick={doRefresh}
-              disabled={isFetching}
+              disabled={isFetching || operationalIsFetching}
               className="h-8"
             >
-              <RefreshCw className={cn("w-4 h-4 mr-1.5", isFetching && "animate-spin")} />
+              <RefreshCw className={cn("w-4 h-4 mr-1.5", (isFetching || operationalIsFetching) && "animate-spin")} />
               Obnovit
             </Button>
           </div>
@@ -569,6 +730,22 @@ export default function AdminHealth() {
             )}
           </div>
         )}
+
+        {operationalIsLoading && !operational && (
+          <div className="mb-4 h-48 animate-pulse rounded-xl border bg-muted/30" />
+        )}
+
+        {operationalIsError && !operational && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+            <div>
+              <p className="font-semibold">Provozní agregace nejsou dostupné</p>
+              <p className="mt-1 text-xs opacity-80">Zkuste ruční obnovení. Ostatní diagnostika zůstává dostupná.</p>
+            </div>
+          </div>
+        )}
+
+        {operational && <OperationalSnapshotSection data={operational} />}
 
         {isLoading && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
