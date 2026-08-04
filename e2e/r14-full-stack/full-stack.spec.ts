@@ -266,6 +266,13 @@ test.describe.serial("R14 isolated full-stack acceptance", () => {
     page,
   }) => {
     const diagnostics = evidence.diagnostics as Record<string, unknown[]>;
+    const browserLogin = await page.context().request.post("/api/auth/login", {
+      data: {
+        username: r14Environment.adminUsername,
+        password: r14Environment.adminPassword,
+      },
+    });
+    expect(browserLogin.status()).toBe(200);
     page.on("console", (message) => {
       if (message.type() === "error")
         diagnostics.consoleProblems.push(message.text());
@@ -309,6 +316,10 @@ test.describe.serial("R14 isolated full-stack acceptance", () => {
     expect(diagnostics.consoleProblems).toEqual([]);
     expect(diagnostics.pageErrors).toEqual([]);
     expect(diagnostics.nonLoopbackRequests).toEqual([]);
-    recordScenario("pwaBrowser", { passed: true, serviceWorkerActive: true });
+    recordScenario("pwaBrowser", {
+      passed: true,
+      freshBrowserLogin: true,
+      serviceWorkerActive: true,
+    });
   });
 });
