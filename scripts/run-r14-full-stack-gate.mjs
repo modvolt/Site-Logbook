@@ -419,14 +419,28 @@ async function proveDatabaseRestore(browserEvidence) {
 }
 
 async function sessionEnvelope() {
-  const storage = JSON.parse(
-    await readFile(path.join(resultsDir, "admin-storage-state.json"), "utf8"),
-  );
-  const cookie = (storage.cookies ?? [])
-    .map((item) => `${item.name}=${item.value}`)
+  const login = await fetch(`${baseURL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: adminUsername,
+      password: adminPassword,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (login.status !== 200) {
+    throw new Error(
+      `R14 fault-session login failed with HTTP ${login.status}.`,
+    );
+  }
+  const setCookies = login.headers.getSetCookie();
+  const cookie = setCookies
+    .map((value) => value.split(";", 1)[0])
+    .filter((value) => value.startsWith("stavba.sid="))
     .join("; ");
   if (!cookie)
-    throw new Error("R14 admin storage state has no session cookie.");
+    throw new Error("R14 fault-session login returned no session cookie.");
   const me = await fetch(`${baseURL}/api/auth/me`, {
     headers: { Cookie: cookie },
     cache: "no-store",
