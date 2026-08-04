@@ -25,6 +25,9 @@ const EXPECTED_BASE_IMAGES = Object.freeze({
   "deploy/staging/preflight/Dockerfile": [
     "alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
   ],
+  "deploy/operational-alert-receiver/Dockerfile": [
+    "node:24-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+  ],
 });
 
 const EXPECTED_RESOURCES = Object.freeze({
@@ -44,6 +47,11 @@ const EXPECTED_RESOURCES = Object.freeze({
     memReservation: "128m",
   },
   api: { cpus: "1.00", memLimit: "1g", memReservation: "768m" },
+  "alert-receiver": {
+    cpus: "0.25",
+    memLimit: "128m",
+    memReservation: "64m",
+  },
   web: { cpus: "0.25", memLimit: "128m", memReservation: "64m" },
 });
 
@@ -52,6 +60,7 @@ const REQUIRED_IMAGE_VARIABLES = Object.freeze([
   "STAGING_MAILPIT_IMAGE",
   "STAGING_API_IMAGE",
   "STAGING_WEB_IMAGE",
+  "STAGING_ALERT_RECEIVER_IMAGE",
 ]);
 
 const PINNED_ACTIONS = Object.freeze([
@@ -75,19 +84,19 @@ function fail(code, message) {
 }
 
 export function classifyStagingPublicationState(stage, state) {
-  if (!/^[01]{4}$/.test(state)) {
+  if (!/^[01]{5}$/.test(state)) {
     return Object.freeze({ decision: "STOP", reason: "invalid-state" });
   }
-  if (stage === "preflight-only" && state === "0000") {
+  if (stage === "preflight-only" && state === "00000") {
     return Object.freeze({ decision: "PUBLISH_PREFLIGHT" });
   }
-  if (stage === "preflight-only" && state === "1000") {
+  if (stage === "preflight-only" && state === "10000") {
     return Object.freeze({ decision: "VERIFIED_PREFLIGHT_NOOP" });
   }
-  if (stage === "complete" && state === "1000") {
+  if (stage === "complete" && state === "10000") {
     return Object.freeze({ decision: "PUBLISH_REMAINING" });
   }
-  if (stage === "complete" && state === "1111") {
+  if (stage === "complete" && state === "11111") {
     return Object.freeze({ decision: "VERIFIED_COMPLETE_NOOP" });
   }
   return Object.freeze({ decision: "STOP", reason: "partial-or-wrong-stage" });
@@ -113,12 +122,15 @@ function requirePublicationText(source, expected, code, field) {
 }
 
 function serviceBlock(compose, service) {
-  const marker = `  ${service}:\n`;
-  const start = compose.indexOf(marker);
-  if (start < 0) {
+  const escapedService = service.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const marker = new RegExp(`^  ${escapedService}:\\r?$`, "m");
+  const match = marker.exec(compose);
+  if (!match) {
     fail("STAGING_SERVICE_MISSING", `${service} is missing from Compose.`);
   }
-  const remainder = compose.slice(start + marker.length);
+  const remainder = compose
+    .slice(match.index + match[0].length)
+    .replace(/^\r?\n/, "");
   const nextService = remainder.search(/^ {2}[a-zA-Z0-9_-]+:\s*$/m);
   return nextService < 0 ? remainder : remainder.slice(0, nextService);
 }
@@ -214,6 +226,41 @@ export function validateStagingRuntimeContract(overrides = {}) {
 
   for (const relativePath of Object.keys(EXPECTED_BASE_IMAGES)) {
     validateDockerfile(relativePath, readSource(relativePath, overrides));
+  }
+  const receiverDockerfile = readSource(
+    "deploy/operational-alert-receiver/Dockerfile",
+    overrides,
+  );
+  requireText(
+    receiverDockerfile,
+    "RECEIVER_BUILD_SHA=$BUILD_SHA",
+    "receiver exact-SHA runtime identity",
+  );
+  requireText(
+    receiverDockerfile,
+    "HEALTHCHECK",
+    "receiver container healthcheck",
+  );
+  const receiverBlock = serviceBlock(compose, "alert-receiver");
+  for (const boundary of [
+    "    read_only: true",
+    "      - ALL",
+    "      - no-new-privileges:true",
+    "      - staging_alert_receipts:/var/lib/operational-alert-receiver",
+    "      RECEIVER_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}",
+    "      RECEIVER_BEARER_TOKEN: ${STAGING_OPERATIONAL_ALERT_BEARER_TOKEN:?set a staging-only operational alert bearer token}",
+    "      DEAD_MAN_TARGET_URL: ${STAGING_PUBLIC_APP_URL:?set STAGING_PUBLIC_APP_URL}/api/healthz",
+  ]) {
+    requireText(receiverBlock, boundary, `alert receiver boundary ${boundary}`);
+  }
+  const apiBlock = serviceBlock(compose, "api");
+  for (const boundary of [
+    "      OPERATIONAL_ALERT_TRANSPORT: https_webhook",
+    "      OPERATIONAL_ALERT_WEBHOOK_URL: ${STAGING_OPERATIONAL_ALERT_RECEIVER_URL:?set the public staging alert receiver HTTPS URL}",
+    "      OPERATIONAL_ALERT_WEBHOOK_ALLOWED_HOSTS: ${STAGING_OPERATIONAL_ALERT_RECEIVER_HOST:?set the exact staging alert receiver hostname}",
+    "      OPERATIONAL_ALERT_WEBHOOK_BEARER_TOKEN: ${STAGING_OPERATIONAL_ALERT_BEARER_TOKEN:?set a staging-only operational alert bearer token}",
+  ]) {
+    requireText(apiBlock, boundary, `API alert transport boundary ${boundary}`);
   }
 
   const exampleEnv = readSource(".env.staging.example", overrides);
@@ -493,10 +540,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
   for (const stateTransition of [
-    "preflight-only:0000",
-    "preflight-only:1000",
-    "complete:1000",
-    "complete:1111",
+    "preflight-only:00000",
+    "preflight-only:10000",
+    "complete:10000",
+    "complete:11111",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -567,6 +614,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "Recheck Mailpit tag absence immediately before publication",
     "Recheck API tag absence immediately before publication",
     "Recheck web tag absence immediately before publication",
+    "Recheck alert receiver tag absence immediately before publication",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -580,6 +628,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "site-logbook-staging-mailpit",
     "site-logbook-staging-api",
     "site-logbook-staging-web",
+    "site-logbook-staging-alert-receiver",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -593,6 +642,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "Verify Mailpit package is private and digest-bound",
     "Verify API package is private and digest-bound",
     "Verify web package is private and digest-bound",
+    "Verify alert receiver package is private and digest-bound",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -618,11 +668,11 @@ export function validateStagingRuntimeContract(overrides = {}) {
       publishWorkflow.match(
         /org\.opencontainers\.image\.source=\$\{\{ github\.server_url \}\}\/\$\{\{ github\.repository \}\}/g,
       ) ?? []
-    ).length !== 4
+    ).length !== 5
   ) {
     fail(
       "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
-      "all four images must link to the private caller repository.",
+      "all five images must link to the private caller repository.",
     );
   }
   if (
@@ -630,11 +680,11 @@ export function validateStagingRuntimeContract(overrides = {}) {
       publishWorkflow.match(
         /org\.opencontainers\.image\.url=https:\/\/github\.com\/modvolt\/Site-Logbook\/commit\/\$\{\{ inputs\.source_sha \}\}/g,
       ) ?? []
-    ).length !== 4
+    ).length !== 5
   ) {
     fail(
       "STAGING_IMAGE_SOURCE_GUARD_MISSING",
-      "all four images must preserve the exact public source commit URL.",
+      "all five images must preserve the exact public source commit URL.",
     );
   }
   requirePublicationText(
@@ -648,6 +698,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "site-logbook-staging-mailpit",
     "site-logbook-staging-api",
     "site-logbook-staging-web",
+    "site-logbook-staging-alert-receiver",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -666,13 +717,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const action of PINNED_ACTIONS) {
     requireText(publishWorkflow, action, `pinned action ${action}`);
   }
-  if ((publishWorkflow.match(/\bpush: true\b/g) ?? []).length !== 4) {
+  if ((publishWorkflow.match(/\bpush: true\b/g) ?? []).length !== 5) {
     fail(
       "STAGING_IMAGE_PUBLICATION_INCOMPLETE",
-      "the manual workflow must publish exactly four custom images.",
+      "the manual workflow must publish exactly five custom images.",
     );
   }
-  if ((publishWorkflow.match(/\bpush: false\b/g) ?? []).length !== 4) {
+  if ((publishWorkflow.match(/\bpush: false\b/g) ?? []).length !== 5) {
     fail(
       "STAGING_IMAGE_PREBUILD_GUARD_MISSING",
       "each image publication stage must validate builds without a registry write first.",
@@ -683,6 +734,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "Validate Mailpit image build without registry write",
     "Validate API image build without registry write",
     "Validate web image build without registry write",
+    "Validate alert receiver image build without registry write",
   ]) {
     requireText(
       publishWorkflow,
@@ -690,22 +742,22 @@ export function validateStagingRuntimeContract(overrides = {}) {
       `complete-stage no-write prebuild ${buildValidation}`,
     );
   }
-  if ((publishWorkflow.match(/platforms: linux\/amd64/g) ?? []).length !== 8) {
+  if ((publishWorkflow.match(/platforms: linux\/amd64/g) ?? []).length !== 10) {
     fail(
       "STAGING_IMAGE_PLATFORM_DRIFT",
-      "all eight validation and publication builds must target the approved linux/amd64 host.",
+      "all ten validation and publication builds must target the approved linux/amd64 host.",
     );
   }
-  if ((publishWorkflow.match(/provenance: mode=max/g) ?? []).length !== 4) {
+  if ((publishWorkflow.match(/provenance: mode=max/g) ?? []).length !== 5) {
     fail(
       "STAGING_IMAGE_ATTESTATION_MISSING",
-      "all four custom images must publish maximum BuildKit provenance.",
+      "all five custom images must publish maximum BuildKit provenance.",
     );
   }
-  if ((publishWorkflow.match(/\bsbom: true\b/g) ?? []).length !== 4) {
+  if ((publishWorkflow.match(/\bsbom: true\b/g) ?? []).length !== 5) {
     fail(
       "STAGING_IMAGE_ATTESTATION_MISSING",
-      "all four custom images must publish an SBOM attestation.",
+      "all five custom images must publish an SBOM attestation.",
     );
   }
   requireText(
@@ -724,6 +776,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "remaining-mailpit-package.sha256",
     "remaining-api-package.sha256",
     "remaining-web-package.sha256",
+    "remaining-alert-receiver-package.sha256",
   ]) {
     requireText(publishWorkflow, checksum, `${checksum} evidence checksum`);
   }
@@ -738,6 +791,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "Build and publish web image",
     "Verify web package is private and digest-bound",
     "Upload web partial-publication recovery evidence",
+    "Recheck alert receiver tag absence immediately before publication",
+    "Build and publish alert receiver image",
+    "Verify alert receiver package is private and digest-bound",
+    "Upload alert receiver partial-publication recovery evidence",
     "Verify all published packages remain private",
     "Create and validate secret-free immutable image manifest",
   ];
@@ -790,8 +847,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     decision: "PASS",
     runtimeBuildDefinitions: 0,
     services: Object.keys(EXPECTED_RESOURCES),
-    totalCpuLimit: 2.25,
-    totalMemoryLimitMiB: 2304,
+    totalCpuLimit: 2.5,
+    totalMemoryLimitMiB: 2432,
     immutableCustomImages: REQUIRED_IMAGE_VARIABLES.length,
     pinnedBaseImageFamilies: 5,
     publicationMode: "private-caller-ghcr-no-deploy",

@@ -33,8 +33,12 @@ services:
       STAGING_MAILPIT_IMAGE: ${STAGING_MAILPIT_IMAGE:?set immutable Mailpit image repository@sha256:<64 hex digest>}
       STAGING_API_IMAGE: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
       STAGING_WEB_IMAGE: ${STAGING_WEB_IMAGE:?set immutable web image repository@sha256:<64 hex digest>}
+      STAGING_ALERT_RECEIVER_IMAGE: ${STAGING_ALERT_RECEIVER_IMAGE:?set immutable alert receiver image repository@sha256:<64 hex digest>}
       STAGING_POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:?set a staging-only PostgreSQL password}
       STAGING_SESSION_SECRET: ${STAGING_SESSION_SECRET:?set a staging-only session secret}
+      STAGING_OPERATIONAL_ALERT_RECEIVER_URL: ${STAGING_OPERATIONAL_ALERT_RECEIVER_URL:?set the public staging alert receiver HTTPS URL}
+      STAGING_OPERATIONAL_ALERT_RECEIVER_HOST: ${STAGING_OPERATIONAL_ALERT_RECEIVER_HOST:?set the exact staging alert receiver hostname}
+      STAGING_OPERATIONAL_ALERT_BEARER_TOKEN: ${STAGING_OPERATIONAL_ALERT_BEARER_TOKEN:?set a staging-only operational alert bearer token}
       STAGING_S3_ENDPOINT: ${STAGING_S3_ENDPOINT:?set the staging S3 HTTPS endpoint}
       STAGING_S3_REGION: ${STAGING_S3_REGION:?set the staging S3 region}
       STAGING_S3_BUCKET: ${STAGING_S3_BUCKET:?set a staging-only S3 bucket}
@@ -116,6 +120,8 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+      alert-receiver:
+        condition: service_healthy
     environment:
       PORT: "5000"
       BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
@@ -156,11 +162,63 @@ services:
       PPE_CONFIRM_EXPIRY_DAYS: "30"
       QUOTE_SHARE_EXPIRY_DAYS: "30"
       WORK_SESSION_REVIEW_HOURS: "12"
+      OPERATIONAL_ALERT_TRANSPORT: https_webhook
+      OPERATIONAL_ALERT_WEBHOOK_URL: ${STAGING_OPERATIONAL_ALERT_RECEIVER_URL:?set the public staging alert receiver HTTPS URL}
+      OPERATIONAL_ALERT_WEBHOOK_ALLOWED_HOSTS: ${STAGING_OPERATIONAL_ALERT_RECEIVER_HOST:?set the exact staging alert receiver hostname}
+      OPERATIONAL_ALERT_WEBHOOK_BEARER_TOKEN: ${STAGING_OPERATIONAL_ALERT_BEARER_TOKEN:?set a staging-only operational alert bearer token}
+      OPERATIONAL_ALERT_WEBHOOK_TIMEOUT_MS: "4000"
+      OPERATIONAL_ALERT_WEBHOOK_COOLDOWN_SECONDS: "60"
       OCR_CACHE_PATH: /tmp/tesseract-cache
     expose:
       - "5000"
     volumes:
       - staging_mailca:/run/staging-mail-ca:ro
+    logging: *staging-logging
+
+  alert-receiver:
+    # Coolify must assign a separate public TLS domain only to this service on
+    # container port 8080. The API always calls that public HTTPS boundary.
+    image: ${STAGING_ALERT_RECEIVER_IMAGE:?set immutable alert receiver image repository@sha256:<64 hex digest>}
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.25"
+    mem_limit: 128m
+    mem_reservation: 64m
+    depends_on:
+      staging-preflight:
+        condition: service_completed_successfully
+    environment:
+      PORT: "8080"
+      RECEIVER_BIND_HOST: 0.0.0.0
+      RECEIVER_TRUSTED_TLS_PROXY: "true"
+      RECEIVER_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+      RECEIVER_BEARER_TOKEN: ${STAGING_OPERATIONAL_ALERT_BEARER_TOKEN:?set a staging-only operational alert bearer token}
+      RECEIVER_STATE_DIR: /var/lib/operational-alert-receiver
+      DEAD_MAN_TARGET_URL: ${STAGING_PUBLIC_APP_URL:?set STAGING_PUBLIC_APP_URL}/api/healthz
+      DEAD_MAN_INTERVAL_SECONDS: "60"
+      DEAD_MAN_TIMEOUT_MS: "5000"
+      DEAD_MAN_FAILURE_THRESHOLD: "3"
+    volumes:
+      - staging_alert_receipts:/var/lib/operational-alert-receiver
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/healthz').then(async r=>{const b=await r.json();process.exit(r.ok&&b.ok===true&&b.buildSha===process.env.RECEIVER_BUILD_SHA?0:1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     logging: *staging-logging
 
   web:
@@ -185,3 +243,4 @@ volumes:
   staging_pgdata:
   staging_mailtls:
   staging_mailca:
+  staging_alert_receipts:

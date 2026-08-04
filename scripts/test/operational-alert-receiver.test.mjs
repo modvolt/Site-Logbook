@@ -12,12 +12,21 @@ import {
 
 const TOKEN = "A".repeat(43);
 const KEY = "b".repeat(64);
+const BUILD_SHA = "c".repeat(40);
 const temporaryPaths = [];
 const servers = [];
 
 afterEach(async () => {
-  await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))));
-  await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(
+    servers
+      .splice(0)
+      .map((server) => new Promise((resolve) => server.close(resolve))),
+  );
+  await Promise.all(
+    temporaryPaths
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true })),
+  );
 });
 
 function envelope(extra = {}) {
@@ -48,17 +57,31 @@ test("receiver config fails closed at the network and secret boundary", () => {
     () =>
       loadReceiverConfig({
         RECEIVER_BEARER_TOKEN: TOKEN,
+        RECEIVER_BUILD_SHA: BUILD_SHA,
         RECEIVER_STATE_DIR: join(tmpdir(), "receiver"),
         RECEIVER_BIND_HOST: "0.0.0.0",
         DEAD_MAN_TARGET_URL: "https://staging.example.com/healthz",
       }),
     /TRUSTED_TLS_PROXY/,
   );
+  assert.throws(
+    () =>
+      loadReceiverConfig({
+        RECEIVER_BEARER_TOKEN: TOKEN,
+        RECEIVER_BUILD_SHA: "short",
+        RECEIVER_STATE_DIR: join(tmpdir(), "receiver"),
+        DEAD_MAN_TARGET_URL: "https://staging.example.com/healthz",
+      }),
+    /RECEIVER_BUILD_SHA/,
+  );
 });
 
 test("receiver rejects non-allowlisted payload fields", () => {
   assert.equal(validateEnvelope(envelope()), true);
-  assert.equal(validateEnvelope(envelope({ summary: "must not cross boundary" })), false);
+  assert.equal(
+    validateEnvelope(envelope({ summary: "must not cross boundary" })),
+    false,
+  );
 });
 
 test("receiver persists and acknowledges the same idempotency key only once", async () => {
@@ -67,6 +90,7 @@ test("receiver persists and acknowledges the same idempotency key only once", as
   const logs = [];
   const config = {
     bearerToken: TOKEN,
+    buildSha: BUILD_SHA,
     stateDir,
     bindHost: "127.0.0.1",
     port: 0,
@@ -75,11 +99,20 @@ test("receiver persists and acknowledges the same idempotency key only once", as
     probeTimeoutMs: 1_000,
     failureThreshold: 2,
   };
-  const server = createReceiverServer(config, { log: (entry) => logs.push(entry) });
+  const server = createReceiverServer(config, {
+    log: (entry) => logs.push(entry),
+  });
   servers.push(server);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   const url = `http://127.0.0.1:${address.port}/v1/operational-alerts`;
+  const health = await fetch(`http://127.0.0.1:${address.port}/healthz`);
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), {
+    ok: true,
+    service: "operational-alert-receiver",
+    buildSha: BUILD_SHA,
+  });
   const send = () =>
     fetch(url, {
       method: "POST",
@@ -94,7 +127,10 @@ test("receiver persists and acknowledges the same idempotency key only once", as
   const duplicate = await send();
   assert.equal(first.status, 202);
   assert.equal(duplicate.status, 200);
-  assert.deepEqual(logs.map((entry) => entry.event), ["alert_received", "alert_duplicate_acknowledged"]);
+  assert.deepEqual(
+    logs.map((entry) => entry.event),
+    ["alert_received", "alert_duplicate_acknowledged"],
+  );
 });
 
 test("dead-man emits one threshold alert and one recovery", async () => {
@@ -115,5 +151,8 @@ test("dead-man emits one threshold alert and one recovery", async () => {
   assert.equal(await monitor.probeOnce(), false);
   assert.equal(await monitor.probeOnce(), false);
   assert.equal(await monitor.probeOnce(), true);
-  assert.deepEqual(logs.map((entry) => entry.event), ["dead_man_triggered", "dead_man_recovered"]);
+  assert.deepEqual(
+    logs.map((entry) => entry.event),
+    ["dead_man_triggered", "dead_man_recovered"],
+  );
 });
