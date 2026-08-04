@@ -183,6 +183,7 @@ test.describe.serial("R14 isolated full-stack acceptance", () => {
     recordScenario("postgresAndS3DataPath", {
       passed: true,
       markerJobId,
+      objectPath,
       objectSha256: sha256,
     });
   });

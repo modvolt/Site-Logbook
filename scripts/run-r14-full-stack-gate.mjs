@@ -69,6 +69,7 @@ if (!Number.isInteger(webPort) || webPort < 1024 || webPort > 65_535) {
 }
 
 const project = `site-logbook-r14-${sourceSha.slice(0, 12)}`;
+const internalNetwork = `${project}_r14_internal`;
 const apiImage = `site-logbook-api:r14-${sourceSha}`;
 const webImage = `site-logbook-web:r14-${sourceSha}`;
 const baseURL = `http://127.0.0.1:${webPort}`;
@@ -649,9 +650,42 @@ async function waitForStorageHealth(session, timeoutMs = 30_000) {
   );
 }
 
+async function setServiceNetworkConnected(service, connected) {
+  const container = await compose(["ps", "-q", service], { capture: true });
+  const containerId = container.stdout.toString("utf8").trim();
+  if (!/^[0-9a-f]{12,64}$/.test(containerId)) {
+    throw new Error(`Cannot resolve the isolated ${service} container ID.`);
+  }
+  const args = connected
+    ? [
+        "network",
+        "connect",
+        "--alias",
+        service,
+        internalNetwork,
+        containerId,
+      ]
+    : ["network", "disconnect", internalNetwork, containerId];
+  await spawnResult(dockerCommand, args, { timeoutMs: 60_000 });
+}
+
 async function injectStorageAndDatabaseFaults() {
   const session = await sessionEnvelope();
-  await compose(["stop", "--timeout", "5", "minio"]);
+  const dataPath = evidence.scenarios.browserAcceptance?.scenarios
+    ?.postgresAndS3DataPath;
+  const markerJobId = Number(dataPath?.markerJobId);
+  const markerObjectPath = String(dataPath?.objectPath ?? "");
+  const markerObjectSha256 = String(dataPath?.objectSha256 ?? "");
+  if (
+    !Number.isInteger(markerJobId) ||
+    markerJobId < 1 ||
+    !/^\/objects\/uploads\/v2\/[0-9a-f-]+$/.test(markerObjectPath) ||
+    !/^[0-9a-f]{64}$/.test(markerObjectSha256)
+  ) {
+    throw new Error("Browser evidence lacks stateful fault-recovery markers.");
+  }
+
+  await setServiceNetworkConnected("minio", false);
   const degradedStorage = await scopedFetch("/api/admin/health", session);
   const degradedStorageBody = await degradedStorage.json();
   if (
@@ -687,7 +721,7 @@ async function injectStorageAndDatabaseFaults() {
       `S3 outage upload produced a false or unexpected result: HTTP ${failedUpload.status}.`,
     );
   }
-  await compose(["start", "minio"]);
+  await setServiceNetworkConnected("minio", true);
   await waitForMinio();
   await waitForHttp(
     `${baseURL}/api/healthz`,
@@ -695,14 +729,28 @@ async function injectStorageAndDatabaseFaults() {
       response.status === 200 && JSON.parse(body).status === "ok",
   );
   await waitForStorageHealth(session);
+  const recoveredObject = await scopedFetch(
+    `/api/storage${markerObjectPath}`,
+    session,
+  );
+  const recoveredObjectBytes = Buffer.from(await recoveredObject.arrayBuffer());
+  if (
+    recoveredObject.status !== 200 ||
+    createHash("sha256").update(recoveredObjectBytes).digest("hex") !==
+      markerObjectSha256
+  ) {
+    throw new Error("The marker object did not survive the S3 network outage.");
+  }
   evidence.scenarios.storageFault = {
     passed: true,
+    outageMode: "network-disconnect",
     degradedStatus: "error",
     uploadStatus: 500,
+    markerObjectPreserved: true,
     recovered: true,
   };
 
-  await compose(["stop", "--timeout", "5", "postgres"]);
+  await setServiceNetworkConnected("postgres", false);
   const degradedDb = await fetch(`${baseURL}/api/healthz`, {
     cache: "no-store",
     signal: AbortSignal.timeout(25_000),
@@ -713,16 +761,27 @@ async function injectStorageAndDatabaseFaults() {
       `PostgreSQL outage was not reported as degraded readiness: HTTP ${degradedDb.status}.`,
     );
   }
-  await compose(["start", "postgres"]);
+  await setServiceNetworkConnected("postgres", true);
   await waitForHttp(
     `${baseURL}/api/healthz`,
     (response, body) =>
       response.status === 200 && JSON.parse(body).status === "ok",
     120_000,
   );
+  const recoveredJob = await scopedFetch(`/api/jobs/${markerJobId}`, session);
+  const recoveredJobBody = await recoveredJob.json();
+  if (
+    recoveredJob.status !== 200 ||
+    recoveredJobBody.id !== markerJobId ||
+    !String(recoveredJobBody.title).startsWith("R14 full-stack marker ")
+  ) {
+    throw new Error("The marker job did not survive the PostgreSQL outage.");
+  }
   evidence.scenarios.databaseFault = {
     passed: true,
+    outageMode: "network-disconnect",
     readinessStatus: 503,
+    markerJobPreserved: true,
     recovered: true,
   };
 }
