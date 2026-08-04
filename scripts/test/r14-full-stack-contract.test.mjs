@@ -172,6 +172,8 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
   assert.ok(runner.includes('"docker-buildx.exe"'));
   assert.ok(runner.includes('["build", "--load"]'));
   assert.doesNotMatch(runner, /"--no-privileges",\s*"-",/);
+  assert.ok(runner.includes('options.input !== undefined'));
+  assert.ok(runner.includes('["pipe", "inherit", "inherit"]'));
   assert.match(dockerignore, /^\/tmp$/m);
   assert.match(dockerignore, /^\/e2e\/test-results$/m);
   assert.ok(runner.indexOf("finally {") < runner.indexOf("await cleanup();"));

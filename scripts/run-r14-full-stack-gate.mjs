@@ -119,12 +119,16 @@ function spawnResult(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: repoRoot,
       env: childEnvironment(options.env),
-      stdio: options.capture ? ["pipe", "pipe", "pipe"] : "inherit",
+      stdio: options.capture
+        ? ["pipe", "pipe", "pipe"]
+        : options.input !== undefined
+          ? ["pipe", "inherit", "inherit"]
+          : "inherit",
       shell: false,
     });
     const stdout = [];
     const stderr = [];
-    if (options.input) child.stdin?.end(options.input);
+    if (options.input !== undefined) child.stdin?.end(options.input);
     else if (options.capture) child.stdin?.end();
     child.stdout?.on("data", (chunk) => stdout.push(chunk));
     child.stderr?.on("data", (chunk) => stderr.push(chunk));
