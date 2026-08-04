@@ -1,9 +1,15 @@
 # FÁZE R15-C – checkpoint
 
 - **Datum:** 2026-08-05
-- **Stav:** REPO-LEVEL ROLLOUT PACK DOKONČEN; EXTERNÍ STAGING AKTIVACE ČEKÁ
+- **Stav:** REPO-LEVEL ROLLOUT PACK DOKONČEN A PUBLIKOVÁN JAKO DRAFT PR; EXTERNÍ STAGING AKTIVACE ČEKÁ
 - **Větev:** `agent/phase15c-staging-alert-drill`
 - **Základ:** `782194c19ca11776ba83d71643a96d7b0078659a`
+- **Draft PR:** [#8](https://github.com/modvolt/Site-Logbook/pull/8), stacked na
+  `agent/phase15b2-durable-incident-outbox`
+- **Implementační commit:** `74e3885b544912306ac5998365de69556c07400e`
+- **GitHub CI implementačního commitu:**
+  [Quality gate 30958832116](https://github.com/modvolt/Site-Logbook/actions/runs/30958832116),
+  PASS
 - **Produkce:** beze změny
 - **Migrace:** žádná změna ani aplikace; `0103` zůstává nenasazena a `0100` nezařazena
 
@@ -25,6 +31,8 @@
 - workspace TypeScript check: PASS;
 - diff, migration scope a hard-coded token pattern: PASS;
 - plný Docker publisher harness: delegován GitHub Quality gate kvůli stabilitě PC.
+- GitHub Quality gate přesného implementačního SHA včetně publisher harnessu,
+  izolovaných API DB, recovery a R14 full-stack/fault gate: PASS.
 
 ## Nejasnosti a zbytková rizika
 
