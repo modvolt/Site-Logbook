@@ -222,6 +222,7 @@ import type {
   MyStats,
   MyVisit,
   OkResult,
+  OperationalSnapshot,
   Person,
   PersonHourlyRate,
   PersonHourlyRateInput,
@@ -484,6 +485,85 @@ export function useGetAdminHealth<TData = Awaited<ReturnType<typeof getAdminHeal
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAdminHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetAdminOperationalSnapshotUrl = () => {
+
+
+
+
+  return `/api/admin/health/operational`
+}
+
+/**
+ * Returns DB-backed aggregate signals only. This endpoint never runs an object-storage write probe or returns raw worker errors, identities, recipients, object paths or provider secrets.
+
+ * @summary Redacted operational queues, backup and security snapshot (admin only)
+ */
+export const getAdminOperationalSnapshot = async ( options?: RequestInit): Promise<OperationalSnapshot> => {
+
+  return customFetch<OperationalSnapshot>(getGetAdminOperationalSnapshotUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAdminOperationalSnapshotQueryKey = () => {
+    return [
+    `/api/admin/health/operational`
+    ] as const;
+    }
+
+
+export const getGetAdminOperationalSnapshotQueryOptions = <TData = Awaited<ReturnType<typeof getAdminOperationalSnapshot>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminOperationalSnapshot>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAdminOperationalSnapshotQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminOperationalSnapshot>>> = ({ signal }) => getAdminOperationalSnapshot({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAdminOperationalSnapshot>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAdminOperationalSnapshotQueryResult = NonNullable<Awaited<ReturnType<typeof getAdminOperationalSnapshot>>>
+export type GetAdminOperationalSnapshotQueryError = ErrorType<void>
+
+
+/**
+ * @summary Redacted operational queues, backup and security snapshot (admin only)
+ */
+
+export function useGetAdminOperationalSnapshot<TData = Awaited<ReturnType<typeof getAdminOperationalSnapshot>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAdminOperationalSnapshot>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAdminOperationalSnapshotQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

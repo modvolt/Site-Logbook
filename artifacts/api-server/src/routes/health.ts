@@ -1,5 +1,9 @@
 import { Router, type IRouter } from "express";
-import { HealthCheckResponse, GetAdminHealthResponse } from "@workspace/api-zod";
+import {
+  HealthCheckResponse,
+  GetAdminHealthResponse,
+  GetAdminOperationalSnapshotResponse,
+} from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
 import {
@@ -21,6 +25,10 @@ import { resolveOpenAiConfig } from "../lib/openai-extraction";
 import { resolveImapConfig } from "../lib/email-import";
 import { countServerErrors, getRecentServerErrors } from "../lib/server-errors";
 import { probeDatabaseReadiness } from "../lib/db-health-probe";
+import {
+  collectOperationalSnapshot,
+  unavailableOperationalSnapshot,
+} from "../lib/operational-signals";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
 
@@ -451,6 +459,45 @@ router.get(
         server5xxErrors24h,
       },
       "admin health check",
+    );
+    res.json(payload);
+  },
+);
+
+router.get(
+  "/admin/health/operational",
+  requireAuth,
+  requirePermission("diagnostics.view"),
+  async (req, res) => {
+    const dbPing = await checkDbLatency();
+    const providers = [
+      {
+        id: "database" as const,
+        state: dbPing.status === "ok" ? ("ok" as const) : ("error" as const),
+        required: true,
+      },
+    ];
+    let snapshot = unavailableOperationalSnapshot({ providers });
+    if (dbPing.status === "ok") {
+      try {
+        snapshot = await collectOperationalSnapshot({ providers });
+      } catch (err) {
+        req.log.warn(
+          { errorName: err instanceof Error ? err.name : "unknown" },
+          "Operational snapshot DB aggregates unavailable",
+        );
+      }
+    }
+
+    const payload = GetAdminOperationalSnapshotResponse.parse(snapshot);
+    req.log.info(
+      {
+        status: payload.status,
+        alertCount: payload.activeAlerts.length,
+        queueCount: payload.queues.length,
+        alertTransport: payload.alertTransport,
+      },
+      "admin operational snapshot",
     );
     res.json(payload);
   },
