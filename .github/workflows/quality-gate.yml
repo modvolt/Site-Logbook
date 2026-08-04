@@ -68,6 +68,22 @@ jobs:
           done
           docker logs modvolt-phase12-minio
           exit 1
+      - name: Isolated encrypted backup restore and concurrency gate
+        run: pnpm --filter @workspace/api-server test:backup-restore:isolated
+        env:
+          TEST_DATABASE_URL: postgresql://site_logbook_ci:site-logbook-ci-only@127.0.0.1:5432/site_logbook_ci_test
+          BACKUP_RESTORE_TEST_ENABLED: "true"
+          BACKUP_RESTORE_TEST_CONFIRM_ISOLATED: "true"
+          BACKUP_RESTORE_TEST_TIMEOUT_MS: "180000"
+          FULL_OBJECT_RESTORE_TEST_ENABLED: "false"
+          S3_ENDPOINT: http://127.0.0.1:19000
+          S3_REGION: us-east-1
+          S3_BUCKET: site-logbook-ci-backup-test
+          S3_ACCESS_KEY_ID: phase12-ci-access
+          S3_SECRET_ACCESS_KEY: phase12-ci-secret-only
+          S3_FORCE_PATH_STYLE: "true"
+          BACKUP_ENCRYPTION_KEYRING: '{"ci-backup":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+          BACKUP_ENCRYPTION_ACTIVE_KEY_ID: ci-backup
       - name: Encrypted streaming object recovery drill
         run: pnpm --filter @workspace/api-server objects:recovery:drill
         env:

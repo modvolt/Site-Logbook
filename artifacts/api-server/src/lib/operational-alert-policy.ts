@@ -96,7 +96,7 @@ export interface EvaluatedOperationalSecurity extends OperationalSecurityMetric 
 export interface OperationalSnapshot {
   generatedAt: string;
   status: Exclude<OperationalStatus, "not_configured">;
-  alertTransport: "local_log_only";
+  alertTransport: "local_log_only" | "local_log_and_https_webhook";
   queues: EvaluatedOperationalQueue[];
   backup: EvaluatedOperationalBackup;
   security: EvaluatedOperationalSecurity;
@@ -434,6 +434,7 @@ function evaluateProviders(providers: OperationalProviderMetric[]): OperationalA
 export function evaluateOperationalMetrics(
   metrics: OperationalMetrics,
   thresholds: OperationalThresholds = loadOperationalThresholds(),
+  alertTransport: OperationalSnapshot["alertTransport"] = "local_log_only",
 ): OperationalSnapshot {
   const queueAlerts = metrics.queues.flatMap((queue) => evaluateQueue(queue, thresholds));
   const backupAlerts = evaluateBackup(metrics.backup, thresholds);
@@ -462,7 +463,7 @@ export function evaluateOperationalMetrics(
         : hasUnknownProvider || hasUnavailableMetric
           ? "unknown"
           : "ok",
-    alertTransport: "local_log_only",
+    alertTransport,
     queues: metrics.queues.map((queue) => ({
       ...queue,
       status: queue.available

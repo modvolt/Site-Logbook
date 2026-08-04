@@ -111,7 +111,7 @@ export const getAdminOperationalSnapshotResponseSecuritySensitiveEventCountMin =
 export const GetAdminOperationalSnapshotResponse = zod.object({
   "generatedAt": zod.string(),
   "status": zod.enum(['ok', 'warning', 'critical', 'unknown']),
-  "alertTransport": zod.enum(['local_log_only']),
+  "alertTransport": zod.enum(['local_log_only', 'local_log_and_https_webhook']),
   "queues": zod.array(zod.object({
   "id": zod.enum(['extraction', 'switchboard', 'email_import']),
   "available": zod.boolean(),
@@ -174,7 +174,7 @@ export const GetWatchdogStatusResponse = zod.object({
   "operationalStatus": zod.enum(['ok', 'warning', 'critical', 'unknown']),
   "activeOperationalAlerts": zod.number().min(getWatchdogStatusResponseActiveOperationalAlertsMin),
   "lastOperationalAlertAt": zod.string().nullish(),
-  "alertTransport": zod.enum(['local_log_only'])
+  "alertTransport": zod.enum(['local_log_only', 'local_log_and_https_webhook'])
 })
 
 

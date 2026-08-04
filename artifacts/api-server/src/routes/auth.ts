@@ -11,6 +11,11 @@ import {
 } from "../lib/auth-session";
 import { establishVaultStepUp } from "../lib/vault-step-up";
 import { createOfflineIdentityScope } from "../lib/offline-identity";
+import {
+  recordRateLimitAuditEvent,
+  recordSecurityAuditEvent,
+  SECURITY_AUDIT_CODES,
+} from "../lib/security-audit";
 
 const router: IRouter = Router();
 
@@ -24,7 +29,10 @@ const authLimiter = rateLimit({
   limit: 20,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." },
+  handler: async (req, res) => {
+    await recordRateLimitAuditEvent(req, "password_auth");
+    res.status(429).json({ error: "Příliš mnoho pokusů. Zkuste to prosím za chvíli." });
+  },
   skip: (req) => {
     const ip = req.ip ?? "";
     return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
@@ -36,7 +44,12 @@ const vaultPasswordLimiter = rateLimit({
   limit: 10,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "Příliš mnoho pokusů o ověření. Zkuste to prosím za chvíli." },
+  handler: async (req, res) => {
+    await recordRateLimitAuditEvent(req, "vault_password");
+    res.status(429).json({
+      error: "Příliš mnoho pokusů o ověření. Zkuste to prosím za chvíli.",
+    });
+  },
   skip: (req) => {
     const ip = req.ip ?? "";
     return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
@@ -126,28 +139,49 @@ router.get("/auth/me", async (req, res): Promise<void> => {
 router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.passwordLoginDenied,
+      outcome: "denied",
+      reason: "invalid_request",
+    });
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const { username, password } = parsed.data;
   const [user] = await db.select().from(usersTable).where(eq(usersTable.username, username));
   if (!user || !user.isActive) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.passwordLoginDenied,
+      outcome: "denied",
+      reason: "invalid_credentials",
+    });
     res.status(401).json({ error: "Neplatné přihlašovací údaje" });
     return;
   }
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.passwordLoginDenied,
+      outcome: "denied",
+      reason: "invalid_credentials",
+    });
     res.status(401).json({ error: "Neplatné přihlašovací údaje" });
     return;
   }
   const overrides = await getPermissionOverrides(user.id);
   await establishAuthenticatedSession(req, user);
+  await recordSecurityAuditEvent(req, {
+    code: SECURITY_AUDIT_CODES.passwordLoginSucceeded,
+    outcome: "succeeded",
+    actorUserId: user.id,
+  });
   res.json(serializeUser(user, overrides));
 });
 
 router.post("/auth/logout", async (req, res, next): Promise<void> => {
+  const actorUserId = req.auth?.userId ?? null;
   try {
-    await destroySessionOrRevokeIdentity(req, async (userId) => {
+    const logoutResult = await destroySessionOrRevokeIdentity(req, async (userId) => {
       const [revoked] = await db
         .update(usersTable)
         .set({ sessionGeneration: sql`${usersTable.sessionGeneration} + 1` })
@@ -155,9 +189,24 @@ router.post("/auth/logout", async (req, res, next): Promise<void> => {
         .returning({ id: usersTable.id });
       if (!revoked) throw new Error("Authenticated user disappeared during logout");
     });
+    await recordSecurityAuditEvent(req, {
+      code:
+        logoutResult === "identity-revoked"
+          ? SECURITY_AUDIT_CODES.logoutIdentityRevoked
+          : SECURITY_AUDIT_CODES.logoutSucceeded,
+      outcome: logoutResult === "identity-revoked" ? "failed" : "succeeded",
+      actorUserId,
+      reason: logoutResult === "identity-revoked" ? "session_store_failure" : undefined,
+    });
     res.clearCookie("stavba.sid");
     res.sendStatus(204);
   } catch (error) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.logoutFailed,
+      outcome: "failed",
+      actorUserId,
+      reason: "session_store_failure",
+    });
     res.clearCookie("stavba.sid");
     next(error);
   }
@@ -168,12 +217,23 @@ router.post(
   vaultPasswordLimiter,
   async (req, res): Promise<void> => {
     if (!req.auth) {
+      await recordSecurityAuditEvent(req, {
+        code: SECURITY_AUDIT_CODES.vaultPasswordDenied,
+        outcome: "denied",
+        reason: "invalid_credentials",
+      });
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
     const parsed = VerifyVaultPasswordBody.safeParse(req.body);
     if (!parsed.success) {
+      await recordSecurityAuditEvent(req, {
+        code: SECURITY_AUDIT_CODES.vaultPasswordDenied,
+        outcome: "denied",
+        actorUserId: req.auth.userId,
+        reason: "invalid_request",
+      });
       res.status(400).json({ error: parsed.error.message });
       return;
     }
@@ -184,11 +244,22 @@ router.post(
       .where(eq(usersTable.id, req.auth.userId));
     const verified = !!user?.isActive && await bcrypt.compare(parsed.data.password, user.passwordHash);
     if (!verified) {
+      await recordSecurityAuditEvent(req, {
+        code: SECURITY_AUDIT_CODES.vaultPasswordDenied,
+        outcome: "denied",
+        actorUserId: req.auth.userId,
+        reason: "invalid_credentials",
+      });
       res.status(401).json({ error: "Ověření se nezdařilo" });
       return;
     }
 
     const result = await establishVaultStepUp(req, "password");
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.vaultPasswordSucceeded,
+      outcome: "succeeded",
+      actorUserId: req.auth.userId,
+    });
     res.json({
       verified: true,
       method: "password",
@@ -200,6 +271,11 @@ router.post(
 router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
   const parsed = SetupFirstAdminBody.safeParse(req.body);
   if (!parsed.success) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.setupDenied,
+      outcome: "denied",
+      reason: "invalid_request",
+    });
     res.status(400).json({ error: parsed.error.message });
     return;
   }
@@ -207,11 +283,21 @@ router.post("/auth/setup", authLimiter, async (req, res): Promise<void> => {
   const passwordHash = await bcrypt.hash(password, 12);
   const user = await createFirstAdmin({ username, passwordHash, name, email });
   if (!user) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.setupDenied,
+      outcome: "denied",
+      reason: "setup_already_completed",
+    });
     res.status(409).json({ error: "Setup již proběhl" });
     return;
   }
   const overrides = await getPermissionOverrides(user.id);
   await establishAuthenticatedSession(req, user);
+  await recordSecurityAuditEvent(req, {
+    code: SECURITY_AUDIT_CODES.setupSucceeded,
+    outcome: "succeeded",
+    actorUserId: user.id,
+  });
   res.status(201).json(serializeUser(user, overrides));
 });
 

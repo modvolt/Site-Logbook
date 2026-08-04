@@ -14,6 +14,7 @@ import {
   getBackupStatus,
   triggerAutoBackupIfDue,
   readBackupDump,
+  BackupAlreadyRunningError,
 } from "../lib/backup";
 import type { BackupLog } from "@workspace/db";
 
@@ -62,6 +63,10 @@ router.post("/backups", async (req, res): Promise<void> => {
     const row = await createBackup({ trigger: "manual", actor: req.auth?.name ?? null });
     res.status(201).json(serialize(row));
   } catch (err) {
+    if (err instanceof BackupAlreadyRunningError) {
+      res.status(409).json({ error: "Jiná záloha databáze již probíhá." });
+      return;
+    }
     req.log.error({ err }, "Manual backup failed");
     res.status(500).json({
       error: err instanceof Error ? err.message : "Vytvoření zálohy selhalo.",

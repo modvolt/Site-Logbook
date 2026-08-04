@@ -61,4 +61,48 @@ describe("R15-A operational snapshot contract", () => {
     expect(policy).toContain('? "unknown"');
     expect(policy).toContain("hasUnavailableMetric");
   });
+
+  it("keeps exact legacy emergency and credential-access events without prefix matching", () => {
+    const signals = source("artifacts/api-server/src/lib/operational-signals.ts");
+    const audit = source("artifacts/api-server/src/lib/security-audit.ts");
+
+    expect(signals).toContain("SECURITY_OPERATIONAL_ALERT_ACTIONS");
+    expect(signals).not.toContain('like(auditLogTable.action, "security%")');
+    expect(audit).toContain('"security_admin_password_reset"');
+    expect(audit).toContain('"security"');
+    expect(signals).not.toContain('"vault-step-up",');
+  });
+
+  it("keeps webhook delivery non-blocking so health persistence and lock release can continue", () => {
+    const watchdog = source("artifacts/api-server/src/lib/health-watchdog.ts");
+    const delivery = watchdog.indexOf("void deliverOperationalAlertTransitions(");
+    const stateUpdate = watchdog.indexOf("operationalStatus = operational.status", delivery);
+
+    expect(delivery).toBeGreaterThan(0);
+    expect(stateUpdate).toBeGreaterThan(delivery);
+    expect(watchdog).not.toContain("await deliverOperationalAlertTransitions(");
+    expect(watchdog).toContain("operational alert transport unavailable");
+  });
+
+  it("loads fail-closed transport configuration before the server can listen", () => {
+    const index = source("artifacts/api-server/src/index.ts");
+    const watchdog = source("artifacts/api-server/src/lib/health-watchdog.ts");
+    const transport = source(
+      "artifacts/api-server/src/lib/operational-alert-transport.ts",
+    );
+
+    expect(index).toContain('from "./lib/health-watchdog"');
+    expect(index.indexOf('from "./lib/health-watchdog"')).toBeLessThan(
+      index.indexOf("app.listen("),
+    );
+    expect(watchdog).toContain('from "./operational-alert-transport"');
+    expect(transport).toContain(
+      "const configuredTransport = loadOperationalAlertTransportConfig()",
+    );
+    const bootstrapValidation = index.indexOf(
+      "validateOperationalAlertTransportConfiguration();",
+    );
+    expect(bootstrapValidation).toBeGreaterThan(0);
+    expect(bootstrapValidation).toBeLessThan(index.indexOf("app.listen("));
+  });
 });

@@ -16,6 +16,7 @@ const testDirectory = join(apiDirectory, "test");
 const vitestCli = join(apiDirectory, "node_modules", "vitest", "vitest.mjs");
 const tsxCli = join(root, "scripts", "node_modules", "tsx", "dist", "cli.mjs");
 const migrateCli = join(root, "lib", "db", "src", "migrate-cli.ts");
+const isolatedBackupRestore = process.argv.includes("--backup-restore-isolated");
 
 const testDatabaseUrl = new URL(assertSafeLocalTestDatabase(process.env));
 const adminUrl = new URL(testDatabaseUrl);
@@ -39,6 +40,51 @@ Object.assign(childEnv, {
   JOB_STATUS_DB_TEST_ENABLED: "true",
   SECRET_PERSISTENCE_DB_TEST_ENABLED: "true",
 });
+
+function isLoopbackHostname(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
+function configureIsolatedBackupRestoreEnvironment() {
+  if (!isolatedBackupRestore) return;
+  const endpoint = new URL(process.env.S3_ENDPOINT ?? "");
+  const bucket = process.env.S3_BUCKET ?? "";
+  if (
+    process.env.BACKUP_RESTORE_TEST_ENABLED !== "true" ||
+    process.env.BACKUP_RESTORE_TEST_CONFIRM_ISOLATED !== "true" ||
+    endpoint.protocol !== "http:" ||
+    endpoint.search !== "" ||
+    !isLoopbackHostname(endpoint.hostname) ||
+    !bucket.toLowerCase().includes("test") ||
+    process.env.S3_FORCE_PATH_STYLE !== "true"
+  ) {
+    throw new Error(
+      "Isolated backup restore runner requires explicit opt-in, a loopback HTTP S3 endpoint, " +
+        "a bucket containing 'test', and S3_FORCE_PATH_STYLE=true.",
+    );
+  }
+
+  const allowed = [
+    "BACKUP_RESTORE_TEST_ENABLED",
+    "BACKUP_RESTORE_TEST_CONFIRM_ISOLATED",
+    "BACKUP_RESTORE_TEST_TIMEOUT_MS",
+    "FULL_OBJECT_RESTORE_TEST_ENABLED",
+    "S3_ENDPOINT",
+    "S3_REGION",
+    "S3_BUCKET",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+    "S3_FORCE_PATH_STYLE",
+    "BACKUP_ENCRYPTION_KEYRING",
+    "BACKUP_ENCRYPTION_ACTIVE_KEY_ID",
+  ];
+  for (const key of allowed) {
+    const value = process.env[key];
+    if (value) childEnv[key] = value;
+  }
+}
+
+configureIsolatedBackupRestoreEnvironment();
 
 function quoteIdentifier(value) {
   return `"${value.replaceAll('"', '""')}"`;
@@ -68,7 +114,9 @@ function runNode(args, options) {
 }
 
 function selectedTestFiles() {
-  const selectors = process.argv.slice(2).filter((arg) => arg !== "--all");
+  const selectors = process.argv
+    .slice(2)
+    .filter((arg) => arg !== "--all" && arg !== "--backup-restore-isolated");
   const files = readdirSync(testDirectory)
     .filter((name) => name.endsWith(".test.ts"))
     .sort();

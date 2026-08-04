@@ -47,6 +47,98 @@ export const SCHEDULER_LOCK_KEYS = {
   healthWatchdogPurge: 1_008,
 } as const;
 
+export interface SchedulerLockLease {
+  isValid(): boolean;
+  release(): Promise<void>;
+}
+
+/**
+ * Try to acquire a session-level advisory lock and return an explicit lease.
+ *
+ * The caller owns the lease until release(). PostgreSQL also drops the lock if
+ * the process or connection dies, which makes this suitable for work that is
+ * scheduled after the request which reserved it has already returned.
+ */
+export async function tryAcquireSchedulerLock(
+  lockKey: number,
+): Promise<SchedulerLockLease | null> {
+  const client = await getLockPool().connect();
+  let released = false;
+  let valid = true;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let heartbeatPromise: Promise<unknown> | null = null;
+  const onLeaseError = (error: Error): void => {
+    valid = false;
+    if (heartbeat) clearInterval(heartbeat);
+    logger.warn(
+      { errorName: error.name, lockKey },
+      "Scheduler lock lease connection failed",
+    );
+  };
+  // pg-pool removes its idle error handler while a client is checked out. A
+  // long-lived lease therefore needs its own listener for the full checkout.
+  client.on("error", onLeaseError);
+  try {
+    const { rows } = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
+      [lockKey],
+    );
+    if (!(rows[0]?.acquired ?? false)) {
+      client.removeListener("error", onLeaseError);
+      client.release();
+      return null;
+    }
+    if (!valid) throw new Error("Scheduler lock connection failed during acquisition.");
+
+    heartbeat = setInterval(() => {
+      if (released || heartbeatPromise) return;
+      heartbeatPromise = client
+        .query("SELECT 1")
+        .catch(() => {
+          valid = false;
+          if (heartbeat) clearInterval(heartbeat);
+        })
+        .finally(() => {
+          heartbeatPromise = null;
+        });
+    }, 30_000);
+    heartbeat.unref();
+
+    return {
+      isValid(): boolean {
+        return valid && !released;
+      },
+      async release(): Promise<void> {
+        if (released) return;
+        released = true;
+        if (heartbeat) clearInterval(heartbeat);
+        await heartbeatPromise?.catch(() => undefined);
+        if (!valid) {
+          client.removeListener("error", onLeaseError);
+          client.release(true);
+          return;
+        }
+        let destroyConnection = false;
+        try {
+          await client.query("SELECT pg_advisory_unlock($1::bigint)", [lockKey]);
+        } catch (error) {
+          // A pooled session must never be returned while it may still own an
+          // advisory lock. Destroying it lets PostgreSQL release the lock.
+          destroyConnection = true;
+          throw error;
+        } finally {
+          client.removeListener("error", onLeaseError);
+          client.release(destroyConnection);
+        }
+      },
+    };
+  } catch (error) {
+    client.removeListener("error", onLeaseError);
+    client.release(true);
+    throw error;
+  }
+}
+
 /**
  * Acquire a PostgreSQL session-level advisory lock, run fn(), then release.
  *
@@ -60,22 +152,12 @@ export async function withSchedulerLock(
   lockKey: number,
   fn: () => Promise<void>,
 ): Promise<boolean> {
-  const pool = getLockPool();
-  const client = await pool.connect();
+  const lease = await tryAcquireSchedulerLock(lockKey);
+  if (!lease) return false;
   try {
-    const { rows } = await client.query<{ acquired: boolean }>(
-      "SELECT pg_try_advisory_lock($1::bigint) AS acquired",
-      [lockKey],
-    );
-    const acquired = rows[0]?.acquired ?? false;
-    if (!acquired) return false;
-    try {
-      await fn();
-    } finally {
-      await client.query("SELECT pg_advisory_unlock($1::bigint)", [lockKey]);
-    }
+    await fn();
     return true;
   } finally {
-    client.release();
+    await lease.release();
   }
 }

@@ -11,6 +11,7 @@ import { startHealthWatchdog } from "./lib/health-watchdog";
 import { startRecurringInvoiceScheduler } from "./lib/recurring-templates";
 import { startLiveEventsService, shutdownLiveEventsService } from "./lib/live-events-service";
 import { startSwitchboardWorker } from "./lib/switchboard-worker";
+import { validateOperationalAlertTransportConfiguration } from "./lib/operational-alert-transport";
 
 const rawPort = process.env["PORT"];
 
@@ -25,6 +26,10 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+// Fail before opening the port when an explicitly enabled external transport
+// has an incomplete or unsafe trust-boundary configuration.
+validateOperationalAlertTransportConfiguration();
 
 const server = app.listen(port, (err) => {
   if (err) {

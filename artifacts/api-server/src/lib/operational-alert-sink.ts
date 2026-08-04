@@ -1,13 +1,15 @@
 import { logger } from "./logger";
 import type { OperationalAlertTransition } from "./operational-alert-policy";
+import type { OperationalAlertTransportMode } from "./operational-alert-transport";
 
 /**
- * R15-A deliberately has no network transport. The local structured event is
- * redacted and stable so the platform log collector can index it without
- * receiving provider secrets, recipients, object paths or raw worker errors.
+ * The local structured event remains the always-on fallback. It is redacted
+ * and stable so the platform log collector can index it without receiving
+ * provider secrets, recipients, object paths or raw worker errors.
  */
 export function emitLocalOperationalAlertTransitions(
   transitions: OperationalAlertTransition[],
+  transport: OperationalAlertTransportMode = "local_log_only",
 ): void {
   for (const transition of transitions) {
     const data = {
@@ -22,7 +24,7 @@ export function emitLocalOperationalAlertTransitions(
       metric: transition.alert.metric,
       observed: transition.alert.observed,
       threshold: transition.alert.threshold,
-      transport: "local_log_only",
+      transport,
     } as const;
 
     if (transition.kind === "recovered" || transition.kind === "deescalated") {

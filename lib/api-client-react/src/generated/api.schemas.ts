@@ -194,6 +194,7 @@ export type OperationalSnapshotAlertTransport = typeof OperationalSnapshotAlertT
 
 export const OperationalSnapshotAlertTransport = {
   local_log_only: 'local_log_only',
+  local_log_and_https_webhook: 'local_log_and_https_webhook',
 } as const;
 
 export type OperationalQueueSignalId = typeof OperationalQueueSignalId[keyof typeof OperationalQueueSignalId];
@@ -358,6 +359,7 @@ export type WatchdogStatusAlertTransport = typeof WatchdogStatusAlertTransport[k
 
 export const WatchdogStatusAlertTransport = {
   local_log_only: 'local_log_only',
+  local_log_and_https_webhook: 'local_log_and_https_webhook',
 } as const;
 
 export interface WatchdogStatus {
