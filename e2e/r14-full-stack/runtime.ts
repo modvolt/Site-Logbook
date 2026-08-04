@@ -25,9 +25,7 @@ function loopbackHttpUrl(name: string): string {
 
 export const r14Environment = {
   baseURL: loopbackHttpUrl("R14_BASE_URL"),
-  providerURL: loopbackHttpUrl("R14_PROVIDER_URL"),
   sourceSha: required("R14_SOURCE_SHA"),
-  controlToken: required("R14_PROVIDER_CONTROL_TOKEN"),
   adminUsername: required("R14_ADMIN_USERNAME"),
   adminPassword: required("R14_ADMIN_PASSWORD"),
   guestUsername: required("R14_GUEST_USERNAME"),
@@ -68,8 +66,4 @@ export function asRecord(
     throw new Error(`${label} returned an invalid JSON object.`);
   }
   return value as Record<string, unknown>;
-}
-
-export function providerHeaders(): Record<string, string> {
-  return { "X-R14-Control-Token": r14Environment.controlToken };
 }

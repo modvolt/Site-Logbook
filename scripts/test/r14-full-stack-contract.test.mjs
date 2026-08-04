@@ -38,12 +38,16 @@ const [composeSource, runner, provider, workflow, dockerignore] =
   ]);
 const compose = YAML.parse(composeSource);
 
-test("R14 stack contains only disposable, internally networked services", () => {
+test("R14 stateful/application services remain internal and only web binds loopback", () => {
   assert.deepEqual(
     Object.keys(compose.services).sort(),
     ["api", "minio", "minio-init", "postgres", "provider-fakes", "web"].sort(),
   );
   assert.equal(compose.networks.r14_internal.internal, true);
+  assert.deepEqual(Object.keys(compose.networks).sort(), [
+    "r14_host",
+    "r14_internal",
+  ]);
   assert.equal(
     compose.volumes,
     undefined,
@@ -66,6 +70,21 @@ test("R14 stack contains only disposable, internally networked services", () => 
     compose.services.postgres.tmpfs.includes("/var/lib/postgresql/data"),
   );
   assert.ok(compose.services.minio.tmpfs.includes("/data"));
+  for (const name of [
+    "api",
+    "postgres",
+    "minio",
+    "minio-init",
+    "provider-fakes",
+  ]) {
+    assert.equal(
+      compose.services[name].ports,
+      undefined,
+      `${name} must not publish a host port`,
+    );
+    assert.ok(!compose.services[name].networks.includes("r14_host"));
+  }
+  assert.ok(compose.services.web.networks.includes("r14_host"));
 });
 
 test("all public R14 images are immutable and app images are exact-SHA inputs", () => {
@@ -126,6 +145,7 @@ test("runner enforces exact provenance, restore/fault proof, and unconditional t
     '"pg_restore"',
     'compose(["stop", "--timeout", "5", "minio"])',
     'compose(["stop", "--timeout", "5", "postgres"])',
+    "await injectProviderFaults()",
     '"down", "--volumes", "--remove-orphans"',
     "loopbackPortsClosed",
     "syntheticCredentialsOnly: true",

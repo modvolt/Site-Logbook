@@ -19,8 +19,6 @@ const browserEvidenceFile = path.join(resultsDir, "browser-evidence.json");
 const evidenceFile = path.join(resultsDir, "evidence.json");
 const sourceSha = process.env.R14_SOURCE_SHA?.trim() ?? "";
 const webPort = Number(process.env.R14_WEB_PORT ?? "4194");
-const minioPort = Number(process.env.R14_MINIO_PORT ?? "19014");
-const providerPort = Number(process.env.R14_PROVIDER_PORT ?? "14010");
 const windowsDocker = path.join(
   process.env.ProgramFiles ?? "C:\\Program Files",
   "Docker",
@@ -66,24 +64,14 @@ if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
     "R14_SOURCE_SHA must be the exact lowercase 40-character Git HEAD SHA.",
   );
 }
-for (const [name, value] of Object.entries({
-  webPort,
-  minioPort,
-  providerPort,
-})) {
-  if (!Number.isInteger(value) || value < 1024 || value > 65_535) {
-    throw new Error(`Invalid R14 ${name}: ${value}`);
-  }
-}
-if (new Set([webPort, minioPort, providerPort]).size !== 3) {
-  throw new Error("R14 loopback ports must be distinct.");
+if (!Number.isInteger(webPort) || webPort < 1024 || webPort > 65_535) {
+  throw new Error(`Invalid R14 webPort: ${webPort}`);
 }
 
 const project = `site-logbook-r14-${sourceSha.slice(0, 12)}`;
 const apiImage = `site-logbook-api:r14-${sourceSha}`;
 const webImage = `site-logbook-web:r14-${sourceSha}`;
 const baseURL = `http://127.0.0.1:${webPort}`;
-const providerURL = `http://127.0.0.1:${providerPort}`;
 const controlToken = `r14-control-${sourceSha}-${randomUUID()}`;
 const adminUsername = `r14-admin-${sourceSha.slice(0, 8)}`;
 const adminPassword = `R14-admin-${sourceSha.slice(0, 12)}-synthetic!`;
@@ -94,10 +82,10 @@ const evidence = {
   composeProject: project,
   startedAt: new Date().toISOString(),
   isolation: {
-    loopbackPorts: [webPort, minioPort, providerPort],
+    loopbackPorts: [webPort],
     syntheticCredentialsOnly: true,
     persistentVolumes: false,
-    runtimeEgressDisabled: true,
+    applicationAndStatefulEgressDisabled: true,
   },
   scenarios: {},
   cleanup: {},
@@ -173,8 +161,6 @@ const composeEnv = {
   R14_API_IMAGE: apiImage,
   R14_WEB_IMAGE: webImage,
   R14_WEB_PORT: String(webPort),
-  R14_MINIO_PORT: String(minioPort),
-  R14_PROVIDER_PORT: String(providerPort),
   R14_PROVIDER_CONTROL_TOKEN: controlToken,
 };
 const composeArgs = [
@@ -288,9 +274,8 @@ async function runBrowserAcceptance() {
     "cli.js",
   );
   const testEnv = {
-    ...composeEnv,
+    R14_SOURCE_SHA: sourceSha,
     R14_BASE_URL: baseURL,
-    R14_PROVIDER_URL: providerURL,
     R14_ADMIN_USERNAME: adminUsername,
     R14_ADMIN_PASSWORD: adminPassword,
     R14_GUEST_USERNAME: guestUsername,
@@ -468,6 +453,149 @@ async function scopedFetch(urlPath, session, init = {}, timeoutMs = 35_000) {
   });
 }
 
+async function providerControl(route, method = "GET", body) {
+  const script = `
+    const [route, method, body] = process.argv.slice(1);
+    const response = await fetch('http://127.0.0.1:4010' + route, {
+      method,
+      headers: {
+        'X-R14-Control-Token': process.env.R14_PROVIDER_CONTROL_TOKEN,
+        'Content-Type': 'application/json'
+      },
+      ...(body ? { body } : {})
+    });
+    const text = await response.text();
+    process.stdout.write(text);
+    if (!response.ok) process.exit(1);
+  `;
+  const result = await compose(
+    [
+      "exec",
+      "-T",
+      "provider-fakes",
+      "node",
+      "-e",
+      script,
+      route,
+      method,
+      body === undefined ? "" : JSON.stringify(body),
+    ],
+    { capture: true },
+  );
+  return JSON.parse(result.stdout.toString("utf8"));
+}
+
+async function setProviderModes(modes) {
+  await providerControl("/__test/modes", "POST", modes);
+}
+
+async function scopedJsonMutation(urlPath, session, data) {
+  return scopedFetch(urlPath, session, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": `r14:${randomUUID()}`,
+    },
+    body: data === undefined ? undefined : JSON.stringify(data),
+  });
+}
+
+async function waitForMinio(timeoutMs = 90_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await compose(
+      ["exec", "-T", "minio", "mc", "ready", "local"],
+      { capture: true, allowFailure: true },
+    );
+    if (result.code === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error("Timed out waiting for isolated MinIO health.");
+}
+
+async function injectProviderFaults() {
+  const session = await sessionEnvelope();
+  const initial = await providerControl("/__test/state");
+  const smtp = initial.smtp ?? {};
+  const imap = initial.imap ?? {};
+  const ai = initial.ai ?? {};
+  if (
+    !Array.isArray(smtp.messages) ||
+    smtp.messages.length !== 1 ||
+    Number(imap.connections) < 1 ||
+    Number(ai.calls) !== 1
+  ) {
+    throw new Error(
+      "Healthy provider evidence does not match the browser/API acceptance path.",
+    );
+  }
+
+  try {
+    await setProviderModes({ smtp: "fail" });
+    const failed = await scopedJsonMutation(
+      "/api/email-settings/test",
+      session,
+      {
+        to: "r14-recipient@site-logbook.invalid",
+      },
+    );
+    if (failed.status !== 502)
+      throw new Error(`SMTP fault returned HTTP ${failed.status}.`);
+  } finally {
+    await setProviderModes({ smtp: "healthy" });
+  }
+
+  try {
+    await setProviderModes({ imap: "fail" });
+    const failed = await scopedJsonMutation(
+      "/api/email-import-settings/test",
+      session,
+    );
+    if (failed.status !== 502)
+      throw new Error(`IMAP fault returned HTTP ${failed.status}.`);
+  } finally {
+    await setProviderModes({ imap: "healthy" });
+  }
+
+  for (const mode of ["http500", "timeout"]) {
+    try {
+      await setProviderModes({ ai: mode });
+      const failed = await scopedJsonMutation(
+        "/api/billing/ai-extraction/test",
+        session,
+      );
+      const result = await failed.json();
+      if (failed.status !== 200 || result.ok !== false) {
+        throw new Error(
+          `AI ${mode} fault produced a false or unexpected success.`,
+        );
+      }
+    } finally {
+      await setProviderModes({ ai: "healthy" });
+    }
+  }
+
+  const recovered = await scopedJsonMutation(
+    "/api/billing/ai-extraction/test",
+    session,
+  );
+  if (recovered.status !== 200 || (await recovered.json()).ok !== true) {
+    throw new Error("AI provider did not recover after synthetic faults.");
+  }
+  const final = await providerControl("/__test/state");
+  evidence.scenarios.providerFaults = {
+    passed: true,
+    faults: ["smtp-fail", "imap-fail", "ai-http500", "ai-timeout"],
+    healthyEvidence: {
+      smtpMessages: smtp.messages.length,
+      smtpMessageSha256: smtp.messages[0]?.sha256 ?? null,
+      imapConnections: imap.connections,
+      aiCallsBeforeFaults: ai.calls,
+      aiCallsAfterRecovery: final.ai?.calls ?? null,
+    },
+  };
+}
+
 async function injectStorageAndDatabaseFaults() {
   const session = await sessionEnvelope();
   await compose(["stop", "--timeout", "5", "minio"]);
@@ -507,10 +635,7 @@ async function injectStorageAndDatabaseFaults() {
     );
   }
   await compose(["start", "minio"]);
-  await waitForHttp(
-    `http://127.0.0.1:${minioPort}/minio/health/ready`,
-    (response) => response.status === 200,
-  );
+  await waitForMinio();
   await waitForHttp(
     `${baseURL}/api/healthz`,
     (response, body) =>
@@ -604,8 +729,7 @@ async function cleanup() {
       ])
     : "";
   const openPorts = [];
-  for (const port of [webPort, minioPort, providerPort])
-    if (await portIsOpen(port)) openPorts.push(port);
+  if (await portIsOpen(webPort)) openPorts.push(webPort);
   if (containers) cleanupErrors.push("project containers remain");
   if (networks) cleanupErrors.push("project networks remain");
   if (volumes) cleanupErrors.push("project volumes remain");
@@ -630,16 +754,10 @@ try {
   dockerAvailable = true;
   await spawnResult(composeCommand, [...composePrefix, "version"]);
   composeAvailable = true;
-  for (const port of [webPort, minioPort, providerPort]) {
-    if (await portIsOpen(port))
-      throw new Error(`R14 requires free loopback port ${port}.`);
-  }
+  if (await portIsOpen(webPort))
+    throw new Error(`R14 requires free loopback port ${webPort}.`);
   await dockerBuilds();
   await compose(["up", "--detach", "--remove-orphans"]);
-  await waitForHttp(
-    `${providerURL}/healthz`,
-    (response) => response.status === 200,
-  );
   await waitForHttp(
     `${baseURL}/api/healthz`,
     (response, body) =>
@@ -647,6 +765,7 @@ try {
     180_000,
   );
   const browserEvidence = await runBrowserAcceptance();
+  await injectProviderFaults();
   await proveDatabaseRestore(browserEvidence);
   await injectStorageAndDatabaseFaults();
   evidence.completedAt = new Date().toISOString();

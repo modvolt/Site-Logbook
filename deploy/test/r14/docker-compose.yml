@@ -29,8 +29,6 @@ services:
       MINIO_BROWSER: "off"
     expose:
       - "9000"
-    ports:
-      - "127.0.0.1:${R14_MINIO_PORT:-19014}:9000"
     tmpfs:
       - /data
     healthcheck:
@@ -65,8 +63,6 @@ services:
       - "4010"
       - "1025"
       - "1143"
-    ports:
-      - "127.0.0.1:${R14_PROVIDER_PORT:-14010}:4010"
     read_only: true
     tmpfs:
       - /tmp
@@ -171,8 +167,11 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-    networks: [r14_internal]
+    # The browser reaches only nginx over a loopback-published test bridge.
+    # API, PostgreSQL, S3 and provider protocols remain internal-only.
+    networks: [r14_internal, r14_host]
 
 networks:
   r14_internal:
     internal: true
+  r14_host:
