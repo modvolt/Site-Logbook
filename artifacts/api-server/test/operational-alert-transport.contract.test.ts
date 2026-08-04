@@ -186,6 +186,28 @@ describe("operational alert HTTPS webhook", () => {
     ]);
   });
 
+  it("uses the durable event key unchanged across transport retries", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({ status: 204 });
+    const transport = new OperationalAlertWebhookTransport(config(), {
+      fetch: fetchMock,
+      sleep: vi.fn(),
+    });
+    const durableKey = "b".repeat(64);
+
+    await expect(
+      transport.deliverDurable(transition(), durableKey),
+    ).resolves.toMatchObject({ state: "delivered", transitionCount: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect((init as RequestInit).headers).toMatchObject({
+        "idempotency-key": durableKey,
+      });
+    }
+  });
+
   it("retries retryable statuses with fixed bounded backoff", async () => {
     const fetchMock = vi
       .fn()

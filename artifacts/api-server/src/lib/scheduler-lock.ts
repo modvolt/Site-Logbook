@@ -45,6 +45,7 @@ export const SCHEDULER_LOCK_KEYS = {
   ppeOverdue: 1_006,
   healthWatchdog: 1_007,
   healthWatchdogPurge: 1_008,
+  operationalIncidentReconcile: 1_009,
 } as const;
 
 export interface SchedulerLockLease {

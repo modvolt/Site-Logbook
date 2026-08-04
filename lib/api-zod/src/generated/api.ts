@@ -165,6 +165,12 @@ export const GetAdminOperationalSnapshotResponse = zod.object({
  */
 export const getWatchdogStatusResponseActiveOperationalAlertsMin = 0;
 
+export const getWatchdogStatusResponseDeliveryPendingMin = 0;
+
+export const getWatchdogStatusResponseDeliveryDeliveringMin = 0;
+
+export const getWatchdogStatusResponseDeliveryDeadLetterMin = 0;
+
 
 
 export const GetWatchdogStatusResponse = zod.object({
@@ -174,7 +180,15 @@ export const GetWatchdogStatusResponse = zod.object({
   "operationalStatus": zod.enum(['ok', 'warning', 'critical', 'unknown']),
   "activeOperationalAlerts": zod.number().min(getWatchdogStatusResponseActiveOperationalAlertsMin),
   "lastOperationalAlertAt": zod.string().nullish(),
-  "alertTransport": zod.enum(['local_log_only', 'local_log_and_https_webhook'])
+  "alertTransport": zod.enum(['local_log_only', 'local_log_and_https_webhook']),
+  "delivery": zod.object({
+  "status": zod.enum(['available', 'unavailable']),
+  "pending": zod.number().min(getWatchdogStatusResponseDeliveryPendingMin).nullable(),
+  "delivering": zod.number().min(getWatchdogStatusResponseDeliveryDeliveringMin).nullable(),
+  "deadLetter": zod.number().min(getWatchdogStatusResponseDeliveryDeadLetterMin).nullable(),
+  "oldestPendingAt": zod.coerce.date().nullable(),
+  "lastDeliveredAt": zod.coerce.date().nullable()
+})
 })
 
 

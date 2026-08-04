@@ -12,6 +12,10 @@ import { startRecurringInvoiceScheduler } from "./lib/recurring-templates";
 import { startLiveEventsService, shutdownLiveEventsService } from "./lib/live-events-service";
 import { startSwitchboardWorker } from "./lib/switchboard-worker";
 import { validateOperationalAlertTransportConfiguration } from "./lib/operational-alert-transport";
+import {
+  startOperationalAlertOutboxWorker,
+  stopOperationalAlertOutboxWorker,
+} from "./lib/operational-alert-outbox-worker";
 
 const rawPort = process.env["PORT"];
 
@@ -49,6 +53,7 @@ const server = app.listen(port, (err) => {
   startClientErrorPurgeScheduler();
   startPpeOverdueScheduler();
   startHealthWatchdog();
+  startOperationalAlertOutboxWorker();
   startRecurringInvoiceScheduler();
 
   // Start the PG LISTEN service for cross-instance SSE event broadcasting.
@@ -60,8 +65,12 @@ const server = app.listen(port, (err) => {
 // Graceful shutdown: give in-flight requests 10s to finish, then close.
 const shutdown = () => {
   logger.info("SIGTERM received — shutting down gracefully");
-  void shutdownLiveEventsService();
-  server.close(() => {
+  const serviceShutdown = Promise.allSettled([
+    shutdownLiveEventsService(),
+    stopOperationalAlertOutboxWorker(),
+  ]);
+  server.close(async () => {
+    await serviceShutdown;
     logger.info("HTTP server closed");
     process.exit(0);
   });

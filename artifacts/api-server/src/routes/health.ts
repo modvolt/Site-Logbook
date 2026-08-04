@@ -3,6 +3,7 @@ import {
   HealthCheckResponse,
   GetAdminHealthResponse,
   GetAdminOperationalSnapshotResponse,
+  GetWatchdogStatusResponse,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { requirePermission } from "../middlewares/permissions";
@@ -29,6 +30,7 @@ import {
   collectOperationalSnapshot,
   unavailableOperationalSnapshot,
 } from "../lib/operational-signals";
+import { getOperationalAlertDeliverySummary } from "../lib/operational-incident-store";
 
 const WINDOW_24H = 24 * 60 * 60 * 1000;
 
@@ -507,8 +509,12 @@ router.get(
   "/admin/health/watchdog",
   requireAuth,
   requirePermission("diagnostics.view"),
-  (_req, res) => {
-    res.json(getWatchdogState());
+  async (_req, res) => {
+    const payload = GetWatchdogStatusResponse.parse({
+      ...getWatchdogState(),
+      delivery: await getOperationalAlertDeliverySummary(),
+    });
+    res.json(payload);
   },
 );
 

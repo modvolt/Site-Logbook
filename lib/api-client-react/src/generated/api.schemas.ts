@@ -362,6 +362,37 @@ export const WatchdogStatusAlertTransport = {
   local_log_and_https_webhook: 'local_log_and_https_webhook',
 } as const;
 
+export type OperationalAlertDeliveryStatusStatus = typeof OperationalAlertDeliveryStatusStatus[keyof typeof OperationalAlertDeliveryStatusStatus];
+
+
+export const OperationalAlertDeliveryStatusStatus = {
+  available: 'available',
+  unavailable: 'unavailable',
+} as const;
+
+export interface OperationalAlertDeliveryStatus {
+  status: OperationalAlertDeliveryStatusStatus;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  pending: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  delivering: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  deadLetter: number | null;
+  /** @nullable */
+  oldestPendingAt: string | null;
+  /** @nullable */
+  lastDeliveredAt: string | null;
+}
+
 export interface WatchdogStatus {
   overallStatus: WatchdogStatusOverallStatus;
   /** @nullable */
@@ -373,6 +404,7 @@ export interface WatchdogStatus {
   /** @nullable */
   lastOperationalAlertAt?: string | null;
   alertTransport: WatchdogStatusAlertTransport;
+  delivery: OperationalAlertDeliveryStatus;
 }
 
 export type HealthLogEntryOverallStatus = typeof HealthLogEntryOverallStatus[keyof typeof HealthLogEntryOverallStatus];
