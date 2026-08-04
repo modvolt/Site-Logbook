@@ -343,8 +343,25 @@ router.get("/healthz", async (_req, res) => {
   const apiVersion = resolveApiVersion();
   const uptimeSeconds = process.uptime();
 
-  const [dbPing, smtp, migration] = await Promise.all([
-    checkDbLatency(),
+  // The DB probe is a prerequisite for every DB-backed secondary diagnostic.
+  // Short-circuiting here prevents an expired migration cache or DB-backed
+  // SMTP settings lookup from outliving the platform's five-second probe.
+  const dbPing = await checkDbLatency();
+  if (dbPing.status === "error") {
+    const data = HealthCheckResponse.parse({
+      status: "degraded",
+      version: apiVersion,
+      uptimeSeconds,
+      dbStatus: dbPing.status,
+      dbLatencyMs: dbPing.latencyMs,
+      storageStatus: "ok",
+      migrationParity: null,
+    });
+    res.status(503).json(data);
+    return;
+  }
+
+  const [smtp, migration] = await Promise.all([
     checkSmtp(),
     getCachedMigrationParity(),
   ]);
