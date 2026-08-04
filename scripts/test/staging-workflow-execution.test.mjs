@@ -569,6 +569,8 @@ test("keeps every registry push behind an immediate guard and ordered recovery e
   for (const index of publishIndexes) {
     const guard = steps[index - 1];
     const publication = steps[index];
+    const packageSuffix = publication.id.replaceAll("_", "-");
+    const outputKey = publication.id.replaceAll("-", "_");
     assert.match(
       guard.name,
       /^Recheck .* tag absence immediately before publication$/u,
@@ -580,11 +582,11 @@ test("keeps every registry push behind an immediate guard and ordered recovery e
     assert.ok(![true, "true"].includes(publication["continue-on-error"]));
     assert.match(
       guard.run,
-      new RegExp(`site-logbook-staging-${publication.id}`, "iu"),
+      new RegExp(`site-logbook-staging-${packageSuffix}`, "iu"),
     );
     assert.match(
       String(publication.with.tags),
-      new RegExp(`steps\\.names\\.outputs\\.${publication.id}`, "u"),
+      new RegExp(`steps\\.names\\.outputs\\.${outputKey}`, "u"),
     );
     assert.match(String(publication.with.tags), /inputs\.source_sha/u);
     const verificationWindow = steps.slice(index + 1, index + 5);
