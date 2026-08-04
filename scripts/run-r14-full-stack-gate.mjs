@@ -354,7 +354,6 @@ async function proveDatabaseRestore(browserEvidence) {
       "--dbname=site_logbook_r14_restore",
       "--no-owner",
       "--no-privileges",
-      "-",
     ],
     { input: dump.stdout },
   );
