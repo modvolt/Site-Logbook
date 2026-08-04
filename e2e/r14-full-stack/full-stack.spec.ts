@@ -286,7 +286,7 @@ test.describe.serial("R14 isolated full-stack acceptance", () => {
     const response = await page.goto("/", { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(200);
     await expect(page.locator("#root")).toBeVisible();
-    await expect(page).toHaveTitle(/Modvolt Site Logbook/i);
+    await expect(page).toHaveTitle(/Stavba.*Evidence zakázek/i);
     const authenticated = await page.evaluate(async () =>
       fetch("/api/auth/me", { credentials: "same-origin" }).then((r) =>
         r.json(),
