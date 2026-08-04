@@ -12,6 +12,7 @@ import {
 } from "@workspace/db";
 import app from "../src/app";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Concurrent PPE handover signing — double-sign race guard.
@@ -100,6 +101,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {

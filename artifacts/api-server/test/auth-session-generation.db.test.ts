@@ -10,6 +10,7 @@ import {
   userSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 if (process.env.AUTH_DB_TEST_ENABLED !== "true") {
   throw new Error("Refusing to run auth DB tests without AUTH_DB_TEST_ENABLED=true.");
@@ -41,6 +42,7 @@ async function login(username: string) {
   const agent = request.agent(app);
   const response = await agent.post("/api/auth/login").send({ username, password: PASSWORD });
   expect(response.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return { agent, response, sid: sessionIdFrom(response) };
 }
 

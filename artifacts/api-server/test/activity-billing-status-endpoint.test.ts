@@ -9,6 +9,7 @@ import {
   activitiesTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Endpoint-level invariant: a client can never mark an activity billed.
@@ -72,6 +73,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-user`, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
 });
 
 afterAll(async () => {

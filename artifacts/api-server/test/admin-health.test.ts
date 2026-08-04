@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Tests for GET /api/admin/health
@@ -68,6 +69,7 @@ async function loginAs(username: string): Promise<Agent> {
     .post("/api/auth/login")
     .send({ username, password: PASSWORD });
   expect(res.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
   return agent;
 }
 

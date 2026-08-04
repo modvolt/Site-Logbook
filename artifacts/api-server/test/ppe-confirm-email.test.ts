@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable, publicAccessTokensTable } from "@workspace/db";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Integration tests for POST /ppe/assignments/:id/request-confirm
@@ -65,6 +66,7 @@ beforeAll(async () => {
     password: PASSWORD,
   });
   expect(res.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {

@@ -13,6 +13,7 @@ import {
 import app from "../src/app";
 import { hashPublicAccessToken } from "../src/lib/public-access-token";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 const TAG = `job-public-sign-${Date.now()}`;
 const PASSWORD = "job-public-sign-test-password";
@@ -50,6 +51,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(admin);
 });
 
 afterAll(async () => {

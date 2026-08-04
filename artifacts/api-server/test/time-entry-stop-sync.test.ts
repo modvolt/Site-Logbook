@@ -11,6 +11,7 @@ import {
   workSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Guards the three-hop sync chain from stopping a job timer to the job's
@@ -92,6 +93,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-user`, password: PASSWORD });
   expect(login.status).toBe(200);
+  await bindAuthenticatedAgent(agent);
 });
 
 afterAll(async () => {

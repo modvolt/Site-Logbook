@@ -14,6 +14,7 @@ import {
   workSessionsTable,
 } from "@workspace/db";
 import app from "../src/app";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 import {
   createDraft,
   deleteDraft,
@@ -108,6 +109,7 @@ beforeAll(async () => {
         .send({ username: `${TAG}-admin`, password: PASSWORD })
     ).status,
   ).toBe(200);
+  await bindAuthenticatedAgent(admin);
   expect(
     (
       await master
@@ -115,6 +117,7 @@ beforeAll(async () => {
         .send({ username: `${TAG}-master`, password: PASSWORD })
     ).status,
   ).toBe(200);
+  await bindAuthenticatedAgent(master);
 });
 
 afterEach(async () => {

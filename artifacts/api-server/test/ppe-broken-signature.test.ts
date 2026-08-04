@@ -3,6 +3,7 @@ import { inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import request, { type Agent } from "supertest";
 import { db, usersTable, ppeItemsTable, ppeAssignmentsTable, peopleTable } from "@workspace/db";
+import { bindAuthenticatedAgent } from "./scoped-test-agent";
 
 /**
  * Tests that a broken or missing signature object in object storage never
@@ -123,6 +124,7 @@ beforeAll(async () => {
     .post("/api/auth/login")
     .send({ username: `${TAG}-admin`, password: PASSWORD });
   expect(loginRes.status).toBe(200);
+  await bindAuthenticatedAgent(adminAgent);
 });
 
 afterAll(async () => {
