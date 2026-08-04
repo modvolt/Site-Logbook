@@ -23,6 +23,7 @@ import { z } from "zod/v4";
 import { eq } from "drizzle-orm";
 import { db, openaiSettingsTable } from "@workspace/db";
 import { readStoredSecret } from "./stored-secret";
+import { resolveOpenAiTestBaseUrl } from "./openai-test-base-url";
 
 // ---------------------------------------------------------------------------
 // Configuration (DB singleton with environment fallback)
@@ -62,7 +63,10 @@ interface ResolvedOpenAiConfig extends OpenAiConfig {
   apiKey: string | null;
 }
 
-function parsePositiveNumber(raw: string | undefined, fallback: number): number {
+function parsePositiveNumber(
+  raw: string | undefined,
+  fallback: number,
+): number {
   if (!raw) return fallback;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -120,7 +124,10 @@ export async function resolveOpenAiConfig(): Promise<ResolvedOpenAiConfig> {
   const maxFileMb =
     row?.maxFileMb && row.maxFileMb > 0
       ? row.maxFileMb
-      : parsePositiveNumber(process.env.OPENAI_MAX_FILE_MB, DEFAULT_MAX_FILE_MB);
+      : parsePositiveNumber(
+          process.env.OPENAI_MAX_FILE_MB,
+          DEFAULT_MAX_FILE_MB,
+        );
 
   const timeoutMs =
     row?.requestTimeoutMs && row.requestTimeoutMs > 0
@@ -163,7 +170,12 @@ function getClient(cfg: ResolvedOpenAiConfig): OpenAI {
   if (!cfg.apiKey) {
     throw new Error("OPENAI_API_KEY není nastaven.");
   }
-  return new OpenAI({ apiKey: cfg.apiKey, timeout: cfg.timeoutMs });
+  const baseURL = resolveOpenAiTestBaseUrl();
+  return new OpenAI({
+    apiKey: cfg.apiKey,
+    timeout: cfg.timeoutMs,
+    ...(baseURL ? { baseURL } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +190,10 @@ const IMAGE_MIME = new Set([
   "image/gif",
 ]);
 
-export function isSupportedForAi(contentType: string | null | undefined, fileName: string | null | undefined): boolean {
+export function isSupportedForAi(
+  contentType: string | null | undefined,
+  fileName: string | null | undefined,
+): boolean {
   const ct = (contentType ?? "").toLowerCase();
   if (ct === "application/pdf") return true;
   if (IMAGE_MIME.has(ct)) return true;
@@ -187,7 +202,10 @@ export function isSupportedForAi(contentType: string | null | undefined, fileNam
   return /\.(jpe?g|png|webp|gif)$/.test(name);
 }
 
-function detectMime(contentType: string | null | undefined, fileName: string | null | undefined): "application/pdf" | string {
+function detectMime(
+  contentType: string | null | undefined,
+  fileName: string | null | undefined,
+): "application/pdf" | string {
   const ct = (contentType ?? "").toLowerCase();
   if (ct === "application/pdf" || IMAGE_MIME.has(ct)) return ct;
   const name = (fileName ?? "").toLowerCase();
@@ -203,7 +221,12 @@ function detectMime(contentType: string | null | undefined, fileName: string | n
 // ---------------------------------------------------------------------------
 
 const LINE_TYPES = ["material", "work", "transport", "other"] as const;
-const DOC_TYPES = ["receipt", "delivery_note", "invoice", "credit_note"] as const;
+const DOC_TYPES = [
+  "receipt",
+  "delivery_note",
+  "invoice",
+  "credit_note",
+] as const;
 
 const nullableString = z
   .union([z.string(), z.null()])
@@ -215,7 +238,10 @@ const nullableNumber = z
   .optional()
   .transform((v) => {
     if (v === null || v === undefined) return null;
-    const n = typeof v === "string" ? Number(v.replace(/\s/g, "").replace(",", ".")) : v;
+    const n =
+      typeof v === "string"
+        ? Number(v.replace(/\s/g, "").replace(",", "."))
+        : v;
     return Number.isFinite(n) ? n : null;
   });
 
@@ -280,7 +306,9 @@ export const ExtractionResultSchema = z.object({
   currency: z
     .union([z.string(), z.null()])
     .optional()
-    .transform((v) => (typeof v === "string" && v.trim() ? v.trim().toUpperCase() : "CZK")),
+    .transform((v) =>
+      typeof v === "string" && v.trim() ? v.trim().toUpperCase() : "CZK",
+    ),
   subtotalWithoutVat: nullableNumber,
   totalVat: nullableNumber,
   totalWithVat: nullableNumber,
@@ -310,7 +338,9 @@ export const ExtractionResultSchema = z.object({
           referenceNumber: z
             .union([z.string(), z.null()])
             .optional()
-            .transform((v) => (typeof v === "string" && v.trim() ? v.trim() : "")),
+            .transform((v) =>
+              typeof v === "string" && v.trim() ? v.trim() : "",
+            ),
         }),
       ),
       z.null(),
@@ -495,7 +525,9 @@ export interface ExtractionFileInput {
  * unsupported types, oversized files, missing config, or API/parse errors — the
  * worker translates a throw into a retryable failure.
  */
-export async function extractFromFiles(files: ExtractionFileInput[]): Promise<ExtractionRaw> {
+export async function extractFromFiles(
+  files: ExtractionFileInput[],
+): Promise<ExtractionRaw> {
   if (!files.length) {
     throw new Error("Žádný soubor k vytěžení.");
   }
@@ -533,7 +565,10 @@ export async function extractFromFiles(files: ExtractionFileInput[]): Promise<Ex
     const mime = detectMime(f.contentType, f.fileName);
     const base64 = f.buffer.toString("base64");
     if (multi) {
-      userContent.push({ type: "text", text: `Strana ${idx + 1}/${files.length}:` });
+      userContent.push({
+        type: "text",
+        text: `Strana ${idx + 1}/${files.length}:`,
+      });
     }
     if (mime === "application/pdf") {
       userContent.push({
@@ -574,7 +609,9 @@ export async function extractFromFiles(files: ExtractionFileInput[]): Promise<Ex
 
   const validated = ExtractionResultSchema.safeParse(parsedJson);
   if (!validated.success) {
-    throw new Error(`Odpověď OpenAI neodpovídá očekávanému tvaru: ${validated.error.message}`);
+    throw new Error(
+      `Odpověď OpenAI neodpovídá očekávanému tvaru: ${validated.error.message}`,
+    );
   }
 
   return {
