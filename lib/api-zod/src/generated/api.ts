@@ -193,6 +193,74 @@ export const GetWatchdogStatusResponse = zod.object({
 
 
 /**
+ * Returns at most 50 newest dead-letter rows with stable operational metadata and optimistic-concurrency fields. Payload bodies, fingerprints, recipients, identities, object paths and secrets are never returned.
+
+ * @summary List redacted operational alert dead letters (admin only)
+ */
+
+export const listOperationalAlertDeadLettersResponseItemsItemCodeMax = 160;
+
+
+export const listOperationalAlertDeadLettersResponseItemsItemLastFailureCategoryMax = 80;
+
+export const listOperationalAlertDeadLettersResponseItemsItemLastHttpStatusMin = 100;
+export const listOperationalAlertDeadLettersResponseItemsItemLastHttpStatusMax = 599;
+
+export const listOperationalAlertDeadLettersResponseItemsMax = 50;
+
+
+
+export const ListOperationalAlertDeadLettersResponse = zod.object({
+  "items": zod.array(zod.object({
+  "outboxId": zod.number().min(1),
+  "code": zod.string().max(listOperationalAlertDeadLettersResponseItemsItemCodeMax),
+  "severity": zod.enum(['warning', 'critical']),
+  "transitionKind": zod.enum(['triggered', 'escalated', 'deescalated', 'recovered']),
+  "attemptCount": zod.number().min(1),
+  "lastFailureCategory": zod.string().max(listOperationalAlertDeadLettersResponseItemsItemLastFailureCategoryMax).nullable(),
+  "lastHttpStatus": zod.number().min(listOperationalAlertDeadLettersResponseItemsItemLastHttpStatusMin).max(listOperationalAlertDeadLettersResponseItemsItemLastHttpStatusMax).nullable(),
+  "deadLetteredAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date()
+})).max(listOperationalAlertDeadLettersResponseItemsMax)
+})
+
+
+/**
+ * Atomically returns exactly one dead-lettered delivery to the pending queue. The request must match the current attempt count and dead-letter timestamp. Identity-scoped Idempotency-Key handling is enforced by the API middleware; bulk requeue is intentionally absent.
+
+ * @summary Requeue one dead-lettered operational alert (admin only)
+ */
+
+
+
+export const RequeueOperationalAlertDeadLetterParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+
+
+
+export const RequeueOperationalAlertDeadLetterBody = zod.object({
+  "expectedAttemptCount": zod.number().min(1),
+  "expectedDeadLetteredAt": zod.coerce.date(),
+  "reason": zod.enum(['receiver_configuration_corrected', 'receiver_recovered', 'transient_provider_outage_resolved', 'operator_verified_safe_retry'])
+})
+
+
+export const requeueOperationalAlertDeadLetterResponseAttemptCountMin = 0;
+
+
+
+export const RequeueOperationalAlertDeadLetterResponse = zod.object({
+  "outboxId": zod.number().min(1),
+  "state": zod.enum(['pending']),
+  "attemptCount": zod.number().min(requeueOperationalAlertDeadLetterResponseAttemptCountMin),
+  "availableAt": zod.coerce.date(),
+  "requeued": zod.boolean()
+})
+
+
+/**
  * @summary Health check history for the last 24 hours (admin only)
  */
 export const ListHealthLogResponseItem = zod.object({

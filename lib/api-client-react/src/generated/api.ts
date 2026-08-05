@@ -222,6 +222,9 @@ import type {
   MyStats,
   MyVisit,
   OkResult,
+  OperationalAlertDeadLetterList,
+  OperationalAlertDeadLetterRequeueInput,
+  OperationalAlertDeadLetterRequeueResult,
   OperationalSnapshot,
   Person,
   PersonHourlyRate,
@@ -652,6 +655,159 @@ export function useGetWatchdogStatus<TData = Awaited<ReturnType<typeof getWatchd
 
 
 
+
+export const getListOperationalAlertDeadLettersUrl = () => {
+
+
+
+
+  return `/api/admin/health/operational-alert-outbox/dead-letters`
+}
+
+/**
+ * Returns at most 50 newest dead-letter rows with stable operational metadata and optimistic-concurrency fields. Payload bodies, fingerprints, recipients, identities, object paths and secrets are never returned.
+
+ * @summary List redacted operational alert dead letters (admin only)
+ */
+export const listOperationalAlertDeadLetters = async ( options?: RequestInit): Promise<OperationalAlertDeadLetterList> => {
+
+  return customFetch<OperationalAlertDeadLetterList>(getListOperationalAlertDeadLettersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListOperationalAlertDeadLettersQueryKey = () => {
+    return [
+    `/api/admin/health/operational-alert-outbox/dead-letters`
+    ] as const;
+    }
+
+
+export const getListOperationalAlertDeadLettersQueryOptions = <TData = Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListOperationalAlertDeadLettersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>> = ({ signal }) => listOperationalAlertDeadLetters({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListOperationalAlertDeadLettersQueryResult = NonNullable<Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>>
+export type ListOperationalAlertDeadLettersQueryError = ErrorType<void>
+
+
+/**
+ * @summary List redacted operational alert dead letters (admin only)
+ */
+
+export function useListOperationalAlertDeadLetters<TData = Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOperationalAlertDeadLetters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListOperationalAlertDeadLettersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getRequeueOperationalAlertDeadLetterUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/health/operational-alert-outbox/${id}/requeue`
+}
+
+/**
+ * Atomically returns exactly one dead-lettered delivery to the pending queue. The request must match the current attempt count and dead-letter timestamp. Identity-scoped Idempotency-Key handling is enforced by the API middleware; bulk requeue is intentionally absent.
+
+ * @summary Requeue one dead-lettered operational alert (admin only)
+ */
+export const requeueOperationalAlertDeadLetter = async (id: number,
+    operationalAlertDeadLetterRequeueInput: OperationalAlertDeadLetterRequeueInput, options?: RequestInit): Promise<OperationalAlertDeadLetterRequeueResult> => {
+
+  return customFetch<OperationalAlertDeadLetterRequeueResult>(getRequeueOperationalAlertDeadLetterUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      operationalAlertDeadLetterRequeueInput,)
+  }
+);}
+
+
+
+
+export const getRequeueOperationalAlertDeadLetterMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requeueOperationalAlertDeadLetter>>, TError,{id: number;data: BodyType<OperationalAlertDeadLetterRequeueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requeueOperationalAlertDeadLetter>>, TError,{id: number;data: BodyType<OperationalAlertDeadLetterRequeueInput>}, TContext> => {
+
+const mutationKey = ['requeueOperationalAlertDeadLetter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requeueOperationalAlertDeadLetter>>, {id: number;data: BodyType<OperationalAlertDeadLetterRequeueInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  requeueOperationalAlertDeadLetter(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequeueOperationalAlertDeadLetterMutationResult = NonNullable<Awaited<ReturnType<typeof requeueOperationalAlertDeadLetter>>>
+    export type RequeueOperationalAlertDeadLetterMutationBody = BodyType<OperationalAlertDeadLetterRequeueInput>
+    export type RequeueOperationalAlertDeadLetterMutationError = ErrorType<void>
+
+    /**
+ * @summary Requeue one dead-lettered operational alert (admin only)
+ */
+export const useRequeueOperationalAlertDeadLetter = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requeueOperationalAlertDeadLetter>>, TError,{id: number;data: BodyType<OperationalAlertDeadLetterRequeueInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requeueOperationalAlertDeadLetter>>,
+        TError,
+        {id: number;data: BodyType<OperationalAlertDeadLetterRequeueInput>},
+        TContext
+      > => {
+      return useMutation(getRequeueOperationalAlertDeadLetterMutationOptions(options));
+    }
 
 export const getListHealthLogUrl = () => {
 

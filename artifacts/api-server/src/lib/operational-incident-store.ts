@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
+  auditLogTable,
   db,
   operationalAlertOutboxTable,
   operationalIncidentEventsTable,
@@ -15,6 +16,7 @@ import { SCHEDULER_LOCK_KEYS } from "./scheduler-lock";
 
 const OUTBOX_LEASE_MS = 45_000;
 const MAX_DELIVERY_CYCLES = 8;
+const DEAD_LETTER_LIST_LIMIT = 50;
 
 function eventKey(
   fingerprint: string,
@@ -36,6 +38,17 @@ function asDate(iso: string): Date {
     throw new Error("Operational snapshot timestamp is invalid");
   }
   return parsed;
+}
+
+function toIso(value: unknown, field: string): string {
+  if (!(value instanceof Date) && typeof value !== "string") {
+    throw new Error(`${field} timestamp is invalid`);
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new Error(`${field} timestamp is invalid`);
+  }
+  return parsed.toISOString();
 }
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -346,6 +359,204 @@ export async function markOperationalAlertFailed(
   return deadLetter ? "dead_letter" : "pending";
 }
 
+export interface OperationalAlertDeadLetterListItem {
+  outboxId: number;
+  code: string;
+  severity: "warning" | "critical";
+  transitionKind: OperationalAlertTransition["kind"];
+  attemptCount: number;
+  lastFailureCategory: string | null;
+  lastHttpStatus: number | null;
+  deadLetteredAt: string;
+  createdAt: string;
+}
+
+/** Redacted operator view; incident payloads, identities and delivery targets stay private. */
+export async function listOperationalAlertDeadLetters(): Promise<
+  OperationalAlertDeadLetterListItem[]
+> {
+  const rows = await db
+    .select({
+      outboxId: operationalAlertOutboxTable.id,
+      code: operationalIncidentEventsTable.code,
+      severity: operationalIncidentEventsTable.severity,
+      transitionKind: operationalIncidentEventsTable.kind,
+      attemptCount: operationalAlertOutboxTable.attemptCount,
+      lastFailureCategory: operationalAlertOutboxTable.lastFailureCategory,
+      lastHttpStatus: operationalAlertOutboxTable.lastHttpStatus,
+      deadLetteredAt: operationalAlertOutboxTable.deadLetteredAt,
+      createdAt: operationalAlertOutboxTable.createdAt,
+    })
+    .from(operationalAlertOutboxTable)
+    .innerJoin(
+      operationalIncidentEventsTable,
+      eq(
+        operationalIncidentEventsTable.id,
+        operationalAlertOutboxTable.incidentEventId,
+      ),
+    )
+    .where(eq(operationalAlertOutboxTable.state, "dead_letter"))
+    .orderBy(
+      desc(operationalAlertOutboxTable.deadLetteredAt),
+      desc(operationalAlertOutboxTable.id),
+    )
+    .limit(DEAD_LETTER_LIST_LIMIT);
+
+  return rows.map((row) => {
+    if (row.deadLetteredAt === null) {
+      throw new Error("Dead-letter row is missing its terminal timestamp");
+    }
+    if (row.severity !== "warning" && row.severity !== "critical") {
+      throw new Error("Dead-letter severity is invalid");
+    }
+    if (
+      row.transitionKind !== "triggered" &&
+      row.transitionKind !== "escalated" &&
+      row.transitionKind !== "deescalated" &&
+      row.transitionKind !== "recovered"
+    ) {
+      throw new Error("Dead-letter transition kind is invalid");
+    }
+    return {
+      ...row,
+      severity: row.severity,
+      transitionKind: row.transitionKind,
+      deadLetteredAt: toIso(row.deadLetteredAt, "Dead-letter"),
+      createdAt: toIso(row.createdAt, "Dead-letter creation"),
+    };
+  });
+}
+
+export type OperationalAlertDeadLetterRequeueReason =
+  | "receiver_configuration_corrected"
+  | "receiver_recovered"
+  | "transient_provider_outage_resolved"
+  | "operator_verified_safe_retry";
+
+export interface OperationalAlertDeadLetterRequeueInput {
+  outboxId: number;
+  expectedAttemptCount: number;
+  expectedDeadLetteredAt: string;
+  reason: OperationalAlertDeadLetterRequeueReason;
+  actor: {
+    userId: number;
+    name: string;
+  };
+}
+
+export type OperationalAlertDeadLetterRequeueResult =
+  | {
+      status: "requeued";
+      value: {
+        outboxId: number;
+        state: "pending";
+        attemptCount: 0;
+        availableAt: string;
+        requeued: true;
+      };
+    }
+  | { status: "not_found" }
+  | { status: "conflict"; reason: "not_dead_letter" | "precondition_failed" };
+
+/**
+ * Requeues one row and writes its operator audit entry atomically. The worker
+ * remains the only component allowed to claim or deliver the row.
+ */
+export async function requeueOperationalAlertDeadLetter(
+  input: OperationalAlertDeadLetterRequeueInput,
+): Promise<OperationalAlertDeadLetterRequeueResult> {
+  return db.transaction(async (tx) => {
+    const locked = await tx.execute(sql<{
+      id: number;
+      state: string;
+      attempt_count: number;
+      dead_lettered_at: Date | string | null;
+    }>`
+      select id, state, attempt_count, dead_lettered_at
+      from operational_alert_outbox
+      where id = ${input.outboxId}
+      for update
+    `);
+    const raw = locked.rows[0];
+    if (!raw) return { status: "not_found" } as const;
+
+    const current = {
+      id: Number(raw.id),
+      state: String(raw.state),
+      attemptCount: Number(raw.attempt_count),
+      deadLetteredAt:
+        raw.dead_lettered_at === null
+          ? null
+          : toIso(raw.dead_lettered_at, "Dead-letter"),
+    };
+    if (
+      !Number.isInteger(current.id) ||
+      !Number.isInteger(current.attemptCount)
+    ) {
+      throw new Error("Dead-letter row is invalid");
+    }
+    if (current.state !== "dead_letter" || current.deadLetteredAt === null) {
+      return { status: "conflict", reason: "not_dead_letter" } as const;
+    }
+    if (
+      current.attemptCount !== input.expectedAttemptCount ||
+      current.deadLetteredAt !== input.expectedDeadLetteredAt
+    ) {
+      return { status: "conflict", reason: "precondition_failed" } as const;
+    }
+
+    const availableAt = new Date();
+    const updated = await tx
+      .update(operationalAlertOutboxTable)
+      .set({
+        state: "pending",
+        attemptCount: 0,
+        availableAt,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        deliveredAt: null,
+        deadLetteredAt: null,
+        updatedAt: availableAt,
+      })
+      .where(
+        and(
+          eq(operationalAlertOutboxTable.id, current.id),
+          eq(operationalAlertOutboxTable.state, "dead_letter"),
+        ),
+      )
+      .returning({ id: operationalAlertOutboxTable.id });
+    if (updated.length !== 1) {
+      throw new Error("Dead-letter row was not requeued");
+    }
+
+    await tx.insert(auditLogTable).values({
+      actorUserId: input.actor.userId,
+      actorName: input.actor.name,
+      action: "operational_alert.dead_letter.requeued",
+      entityType: "operational_alert_outbox",
+      entityId: current.id,
+      summary: JSON.stringify({
+        reason: input.reason,
+        previousAttemptCount: current.attemptCount,
+        previousDeadLetteredAt: current.deadLetteredAt,
+      }),
+      method: "POST",
+      path: `/admin/health/operational-alert-outbox/${current.id}/requeue`,
+    });
+
+    return {
+      status: "requeued",
+      value: {
+        outboxId: current.id,
+        state: "pending",
+        attemptCount: 0,
+        availableAt: availableAt.toISOString(),
+        requeued: true,
+      },
+    } as const;
+  });
+}
+
 export interface OperationalAlertDeliverySummary {
   status: "available" | "unavailable";
   pending: number | null;
@@ -375,20 +586,20 @@ export async function getOperationalAlertDeliverySummary(): Promise<OperationalA
     `);
     const row = result.rows[0];
     if (!row) throw new Error("Operational delivery summary is missing");
-    const toIso = (value: unknown): string | null => {
+    const toNullableIso = (value: unknown): string | null => {
       if (value === null) return null;
       if (!(value instanceof Date) && typeof value !== "string") {
         throw new Error("Operational delivery timestamp is invalid");
       }
-      return new Date(value).toISOString();
+      return toIso(value, "Operational delivery");
     };
     return {
       status: "available",
       pending: Number(row.pending),
       delivering: Number(row.delivering),
       deadLetter: Number(row.dead_letter),
-      oldestPendingAt: toIso(row.oldest_pending_at),
-      lastDeliveredAt: toIso(row.last_delivered_at),
+      oldestPendingAt: toNullableIso(row.oldest_pending_at),
+      lastDeliveredAt: toNullableIso(row.last_delivered_at),
     };
   } catch {
     return {
