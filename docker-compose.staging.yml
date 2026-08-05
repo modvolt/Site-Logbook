@@ -28,6 +28,7 @@ services:
       STAGING_COMPOSE_PROJECT_NAME: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}
       STAGING_PUBLIC_APP_URL: ${STAGING_PUBLIC_APP_URL:?set STAGING_PUBLIC_APP_URL}
       STAGING_NGINX_SERVER_NAME: ${STAGING_NGINX_SERVER_NAME:?set STAGING_NGINX_SERVER_NAME}
+      STAGING_API_TRUSTED_PROXY_CIDRS: ${STAGING_API_TRUSTED_PROXY_CIDRS:?set exact staging nginx/edge proxy CIDRs}
       STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
       STAGING_PREFLIGHT_IMAGE: ${STAGING_PREFLIGHT_IMAGE:?set immutable preflight image repository@sha256:<64 hex digest>}
       STAGING_MAILPIT_IMAGE: ${STAGING_MAILPIT_IMAGE:?set immutable Mailpit image repository@sha256:<64 hex digest>}
@@ -128,6 +129,7 @@ services:
       DATABASE_URL: postgres://site_logbook_staging:${STAGING_POSTGRES_PASSWORD:?set a staging-only PostgreSQL password}@postgres:5432/site_logbook_staging
       SESSION_SECRET: ${STAGING_SESSION_SECRET:?set a staging-only session secret}
       PUBLIC_APP_URL: ${STAGING_PUBLIC_APP_URL:?set STAGING_PUBLIC_APP_URL}
+      API_TRUSTED_PROXY_CIDRS: ${STAGING_API_TRUSTED_PROXY_CIDRS:?set exact staging nginx/edge proxy CIDRs}
       S3_ENDPOINT: ${STAGING_S3_ENDPOINT:?set the staging S3 HTTPS endpoint}
       S3_REGION: ${STAGING_S3_REGION:?set the staging S3 region}
       S3_BUCKET: ${STAGING_S3_BUCKET:?set a staging-only S3 bucket}

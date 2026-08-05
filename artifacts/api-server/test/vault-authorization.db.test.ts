@@ -331,7 +331,10 @@ describe("internal API boundary integration", () => {
   it("keeps the documented PPE confirmation endpoint public without widening near-misses", async () => {
     const getResponse = await request(app).get("/api/ppe/confirm");
     const postResponse = await request(app).post("/api/ppe/confirm").send({});
-    expect(getResponse.status).toBe(400);
-    expect(postResponse.status).toBe(400);
+    for (const response of [getResponse, postResponse]) {
+      expect(response.status).toBe(401);
+      expect(response.headers["www-authenticate"]).toBe("Bearer");
+      expect(response.body.code).toBe("public_bearer_required");
+    }
   });
 });

@@ -11,7 +11,7 @@ describe("versioned Modvolt switchboard label", () => {
     expect(validateLabelSnapshot(snapshot)).toEqual([]);
   });
   it("renders a 300 DPI PNG and an exact 100 × 60 mm PDF", async () => {
-    const output = await generateSwitchboardLabel(snapshot, "https://modvoltapp.cz/q/board/abcdefghijklmnopqrstuvwxyzABCDEFGH123456789");
+    const output = await generateSwitchboardLabel(snapshot, "https://modvoltapp.cz/q/board#token=abcdefghijklmnopqrstuvwxyzABCDEFGH123456789");
     const image = await loadImage(output.png); expect(image.width).toBe(1181); expect(image.height).toBe(709);
     const pdf = await getDocument({ data: new Uint8Array(output.pdf) }).promise; const page = await pdf.getPage(1); const viewport = page.getViewport({ scale: 1 });
     expect(viewport.width * 25.4 / 72).toBeCloseTo(100, 1); expect(viewport.height * 25.4 / 72).toBeCloseTo(60, 1);

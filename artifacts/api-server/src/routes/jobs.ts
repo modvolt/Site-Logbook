@@ -53,7 +53,7 @@ import {
   UpdateJobAssigneesParams,
   UpdateJobAssigneesBody,
 } from "@workspace/api-zod";
-import { publicAppUrl } from "../lib/public-origin";
+import { publicAppGrantUrl } from "../lib/public-origin";
 import { publicTokenExpiry, revokePublicAccessTokens } from "../lib/public-access-token";
 import {
   issueJobSignatureVersion,
@@ -1850,7 +1850,7 @@ router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
     }
     throw error;
   }
-  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
+  const signUrl = publicAppGrantUrl("/sign", token);
 
   res.json({ signUrl, expiresAt: expiresAt.toISOString(), documentVersion: version, snapshotSha256 });
 });
@@ -1930,7 +1930,7 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
     }
     throw error;
   }
-  const signUrl = publicAppUrl(`/sign/${encodeURIComponent(token)}`);
+  const signUrl = publicAppGrantUrl("/sign", token);
 
   const jobLabel = job.title ?? `Zakázka #${job.id}`;
 

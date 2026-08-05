@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fmtKc, fmtDate } from "@/lib/billing-format";
+import { clearPublicGrant, publicGrantToken } from "@/lib/public-grant-bootstrap";
+import { publicGrantFetch } from "@/lib/public-grant-fetch";
 
 interface PublicQuoteItem {
   id: number;
@@ -82,19 +83,21 @@ function StatusBanner({ status }: { status: PublicQuoteDetail["status"] }) {
 }
 
 export default function QuoteShare() {
-  const [location] = useLocation();
-  const token = location.replace(/^\/quote-share\//, "").split("?")[0];
+  const hasGrant = useRef(publicGrantToken("quote") !== null).current;
 
   const [pageState, setPageState] = useState<PageState>("loading");
   const [quote, setQuote] = useState<PublicQuoteDetail | null>(null);
   const [error, setError] = useState<string>("");
   const [actionPending, setActionPending] = useState(false);
   const [respondentName, setRespondentName] = useState("");
-  const [fetchDone, setFetchDone] = useState(false);
-
-  if (!fetchDone) {
-    setFetchDone(true);
-    fetch(`/api/quotes/public/${encodeURIComponent(token)}`)
+  useEffect(() => {
+    if (!hasGrant) {
+      setError("Otevřete původní odkaz nabídky znovu.");
+      setPageState("error");
+      return;
+    }
+    const controller = new AbortController();
+    void publicGrantFetch("quote", "/api/quotes/public", { signal: controller.signal })
       .then(async (r) => {
         if (!r.ok) {
           const body = await r.json().catch(() => ({}));
@@ -106,20 +109,23 @@ export default function QuoteShare() {
         setQuote(data);
         if (["accepted", "rejected", "expired"].includes(data.status)) {
           setPageState("already_done");
+          clearPublicGrant("quote");
         } else {
           setPageState("loaded");
         }
       })
       .catch(() => {
+        if (controller.signal.aborted) return;
         setError("Nepodařilo se načíst nabídku. Zkuste to prosím znovu.");
         setPageState("error");
       });
-  }
+    return () => controller.abort();
+  }, [hasGrant]);
 
   async function handleAccept() {
     setActionPending(true);
     try {
-      const r = await fetch(`/api/quotes/public/${encodeURIComponent(token)}/accept`, {
+      const r = await publicGrantFetch("quote", "/api/quotes/public/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ respondentName: respondentName.trim() }),
@@ -131,6 +137,7 @@ export default function QuoteShare() {
         return;
       }
       setPageState("accepted");
+      clearPublicGrant("quote");
     } catch {
       setError("Přijetí nabídky selhalo. Zkuste to prosím znovu.");
       setPageState("error");
@@ -142,7 +149,7 @@ export default function QuoteShare() {
   async function handleReject() {
     setActionPending(true);
     try {
-      const r = await fetch(`/api/quotes/public/${encodeURIComponent(token)}/reject`, {
+      const r = await publicGrantFetch("quote", "/api/quotes/public/reject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ respondentName: respondentName.trim() }),
@@ -154,6 +161,7 @@ export default function QuoteShare() {
         return;
       }
       setPageState("rejected");
+      clearPublicGrant("quote");
     } catch {
       setError("Odmítnutí nabídky selhalo. Zkuste to prosím znovu.");
       setPageState("error");

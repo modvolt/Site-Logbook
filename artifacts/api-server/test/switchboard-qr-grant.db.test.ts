@@ -76,7 +76,7 @@ describe("isolated switchboard QR grant lifecycle", () => {
       switchboardId: boardId,
       actorUserId: activeActorId,
     });
-    expect(rotated.publicUrl).toMatch(/^https:\/\/qr\.example\.test\/q\/board\/[A-Za-z0-9_-]{43}$/);
+    expect(rotated.publicUrl).toMatch(/^https:\/\/qr\.example\.test\/q\/board#token=[A-Za-z0-9_-]{43}$/);
     expect(rotated.board).toMatchObject({
       qrEnabled: true,
       qrOwnerKind: "resource",
@@ -88,7 +88,7 @@ describe("isolated switchboard QR grant lifecycle", () => {
     expect(rotated.board.qrExpiresAt!.getTime()).toBeGreaterThan(before + 4 * 365 * 24 * 60 * 60_000);
     expect(rotated.board.qrExpiresAt!.getTime()).toBeLessThanOrEqual(before + 5 * 366 * 24 * 60 * 60_000);
     expect(rotated.board.qrTokenHash).toMatch(/^[a-f0-9]{64}$/);
-    const rawToken = rotated.publicUrl.split("/").at(-1)!;
+    const rawToken = new URLSearchParams(new URL(rotated.publicUrl).hash.slice(1)).get("token")!;
     expect(rotated.board.qrTokenCiphertext).not.toContain(rawToken);
 
     const ownerAssignedAt = rotated.board.qrOwnerAssignedAt;

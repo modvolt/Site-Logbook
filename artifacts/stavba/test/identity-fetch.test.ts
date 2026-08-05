@@ -39,5 +39,9 @@ describe("identity fetch guard", () => {
     expect(calls).toHaveLength(callCount);
 
     await expect(window.fetch("/api/auth/logout", { method: "POST" })).resolves.toBeInstanceOf(Response);
+    await expect(window.fetch("/api/sign", {
+      headers: { Authorization: `Bearer ${"x".repeat(43)}` },
+    })).resolves.toBeInstanceOf(Response);
+    expect(new Headers(calls.at(-1)?.init?.headers).has("x-stavba-offline-scope")).toBe(false);
   });
 });

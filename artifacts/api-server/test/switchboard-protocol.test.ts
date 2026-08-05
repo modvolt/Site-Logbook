@@ -64,7 +64,7 @@ describe("switchboard protocol readiness", () => {
 describe("switchboard A4 protocol PDF", () => {
   it("renders a versioned multipage A4 snapshot with Czech text and signature fields", async () => {
     const snapshot = protocolSnapshot(); const before = JSON.stringify(snapshot);
-    const output = await generateSwitchboardProtocolPdf(snapshot, "https://modvoltapp.cz/q/board/abcdefghijklmnopqrstuvwxyzABCDEFGH123456789");
+    const output = await generateSwitchboardProtocolPdf(snapshot, "https://modvoltapp.cz/q/board#token=abcdefghijklmnopqrstuvwxyzABCDEFGH123456789");
     if (process.env.SWITCHBOARD_PROTOCOL_PREVIEW === "1") { const directory = resolve(process.cwd(), "../../tmp/pdfs"); mkdirSync(directory, { recursive: true }); writeFileSync(resolve(directory, "switchboard-protocol-preview.pdf"), output); }
     expect(JSON.stringify(snapshot)).toBe(before);
     expect(output.subarray(0, 4).toString()).toBe("%PDF");

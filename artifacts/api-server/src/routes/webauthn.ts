@@ -27,6 +27,7 @@ import {
   lockAndAuthorizeUserManager,
   UserOffboardingError,
 } from "../lib/user-offboarding-service";
+import { webauthnRelyingParty } from "../lib/webauthn-rp";
 
 const router: IRouter = Router();
 
@@ -45,16 +46,12 @@ const webauthnLimiter = rateLimit({
   },
 });
 
-function getRpId(req: { hostname: string }): string {
-  const h = req.hostname;
-  return h === "localhost" || h === "127.0.0.1" ? "localhost" : h;
+function getRpId(req: Parameters<typeof webauthnRelyingParty>[0]): string {
+  return webauthnRelyingParty(req).rpId;
 }
 
-function getRpOrigin(req: { protocol: string; hostname: string; get: (h: string) => string | undefined }): string {
-  const forwarded = req.get("x-forwarded-proto") ?? req.protocol;
-  const proto = forwarded === "https" ? "https" : "http";
-  const host = req.get("host") ?? req.hostname;
-  return `${proto}://${host}`;
+function getRpOrigin(req: Parameters<typeof webauthnRelyingParty>[0]): string {
+  return webauthnRelyingParty(req).origin;
 }
 
 function serializeCred(c: typeof webauthnCredentialsTable.$inferSelect) {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   PublicOriginConfigError,
+  publicAppGrantUrl,
   publicAppOrigin,
   publicAppUrl,
 } from "../src/lib/public-origin";
@@ -23,6 +24,10 @@ describe("trusted public application origin", () => {
     expect(publicAppUrl("/sign/opaque-token")).toBe(
       "https://modvoltapp.cz/sign/opaque-token",
     );
+    const grantUrl = publicAppGrantUrl("/sign", "A".repeat(43));
+    expect(grantUrl).toBe(`https://modvoltapp.cz/sign#token=${"A".repeat(43)}`);
+    expect(new URL(grantUrl).pathname).toBe("/sign");
+    expect(new URL(grantUrl).search).toBe("");
   });
 
   it.each([
@@ -54,6 +59,10 @@ describe("trusted public application origin", () => {
     expect(() => publicAppUrl("https://evil.example/sign/token")).toThrowError(
       PublicOriginConfigError,
     );
+    expect(() => publicAppGrantUrl("/sign?token=legacy", "A".repeat(43)))
+      .toThrowError(PublicOriginConfigError);
+    expect(() => publicAppGrantUrl("/sign", "short"))
+      .toThrowError(PublicOriginConfigError);
   });
 
   it("keeps the web edge fail-closed for unknown Host values", () => {

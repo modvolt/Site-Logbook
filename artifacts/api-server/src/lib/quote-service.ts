@@ -15,7 +15,7 @@ import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
 import { sendEmailWithPdf } from "./email";
 import { ObjectStorageService } from "./objectStorage";
 import { randomUUID } from "node:crypto";
-import { publicAppOrigin } from "./public-origin";
+import { publicAppGrantUrl, publicAppOrigin } from "./public-origin";
 import {
   consumePublicAccessToken,
   isPlausiblePublicAccessToken,
@@ -492,7 +492,7 @@ export async function sendQuote(
 ) {
   // Validate the canonical external origin before generating or storing a PDF.
   // Request Host headers are never accepted as link input.
-  const shareBaseUrl = publicAppOrigin();
+  publicAppOrigin();
   const quote = await getQuoteDetail(id);
   if (!quote) throw appError(404, "Nabídka nenalezena.");
   if (!["draft", "sent"].includes(quote.status))
@@ -531,7 +531,7 @@ export async function sendQuote(
   // Build share link line
   const shareLine =
     `\n\nPro zobrazení a potvrzení nabídky online klikněte zde:\n` +
-    `${shareBaseUrl}/quote-share/${encodeURIComponent(shareToken)}`;
+    publicAppGrantUrl("/quote-share", shareToken);
 
   const message =
     (opts.message ?? "").trim() ||

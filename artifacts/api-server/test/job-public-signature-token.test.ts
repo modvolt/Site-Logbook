@@ -26,7 +26,10 @@ let originalPublicUrl: string | undefined;
 
 function tokenFromSignUrl(value: unknown): string {
   expect(typeof value).toBe("string");
-  return new URL(value as string).pathname.split("/").at(-1) ?? "";
+  const url = new URL(value as string);
+  expect(url.pathname).toBe("/sign");
+  expect(url.search).toBe("");
+  return new URLSearchParams(url.hash.slice(1)).get("token") ?? "";
 }
 
 beforeAll(async () => {

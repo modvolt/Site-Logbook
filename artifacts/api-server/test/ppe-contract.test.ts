@@ -37,6 +37,13 @@ const personIds: number[] = [];
 const itemIds: number[] = [];
 const assignmentIds: number[] = [];
 
+function tokenFromGrantUrl(value: string, pathname: string): string {
+  const url = new URL(value);
+  expect(url.pathname).toBe(pathname);
+  expect(url.search).toBe("");
+  return new URLSearchParams(url.hash.slice(1)).get("token") ?? "";
+}
+
 beforeAll(async () => {
   process.env.PUBLIC_APP_URL = "https://ppe-contract.test";
   const [admin] = await db
@@ -412,7 +419,7 @@ describe("employee confirmation signature flow", () => {
     expect(res.status).toBe(200);
     expect(res.body.token).toBeUndefined();
     expect(typeof res.body.confirmUrl).toBe("string");
-    confirmToken = new URL(res.body.confirmUrl).searchParams.get("token") ?? "";
+    confirmToken = tokenFromGrantUrl(res.body.confirmUrl, "/oopp/potvrdit");
     expect(confirmToken.length).toBeGreaterThan(30);
   });
 
@@ -424,14 +431,18 @@ describe("employee confirmation signature flow", () => {
     expect(res.body.confirmToken).toBeUndefined();
   });
 
-  it("GET /api/ppe/confirm with malformed token → 400", async () => {
+  it("GET /api/ppe/confirm with malformed token → 401 Bearer challenge", async () => {
     const res = await adminAgent.get("/api/ppe/confirm?token=definitely-not-a-real-token-xyz");
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(res.headers["www-authenticate"]).toBe("Bearer");
+    expect(res.body.code).toBe("public_bearer_required");
   });
 
-  it("GET /api/ppe/confirm with missing token → 400", async () => {
+  it("GET /api/ppe/confirm with missing token → 401 Bearer challenge", async () => {
     const res = await adminAgent.get("/api/ppe/confirm");
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(res.headers["www-authenticate"]).toBe("Bearer");
+    expect(res.body.code).toBe("public_bearer_required");
   });
 
   it("POST /api/ppe/confirm with valid token → 200, sets employeeConfirmedAt", async () => {
@@ -449,14 +460,18 @@ describe("employee confirmation signature flow", () => {
     expect(res.body.code).toBe("public_token_consumed");
   });
 
-  it("POST /api/ppe/confirm with missing token → 400", async () => {
+  it("POST /api/ppe/confirm with missing token → 401 Bearer challenge", async () => {
     const res = await request(app).post("/api/ppe/confirm").send({});
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(res.headers["www-authenticate"]).toBe("Bearer");
+    expect(res.body.code).toBe("public_bearer_required");
   });
 
-  it("POST /api/ppe/confirm with malformed token → 400", async () => {
+  it("POST /api/ppe/confirm with malformed token → 401 Bearer challenge", async () => {
     const res = await request(app).post("/api/ppe/confirm").send({ token: "bad-token-xyz" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
+    expect(res.headers["www-authenticate"]).toBe("Bearer");
+    expect(res.body.code).toBe("public_bearer_required");
   });
 
   it("POST /api/ppe/assignments/:id/request-confirm on already-confirmed → 409", async () => {
@@ -518,12 +533,12 @@ describe("employee signature-link lifecycle", () => {
     const first = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
     expect(first.status).toBe(200);
     expect(first.body.token).toBeUndefined();
-    const firstToken = new URL(first.body.signUrl).pathname.split("/").at(-1) ?? "";
+    const firstToken = tokenFromGrantUrl(first.body.signUrl, "/oopp/sign");
     expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
     const second = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
     expect(second.status).toBe(200);
-    const secondToken = new URL(second.body.signUrl).pathname.split("/").at(-1) ?? "";
+    const secondToken = tokenFromGrantUrl(second.body.signUrl, "/oopp/sign");
     expect(secondToken).not.toBe(firstToken);
     expect((await request(app).get(`/api/ppe/sign/${firstToken}`)).status).toBe(410);
     expect((await request(app).get(`/api/ppe/sign/${secondToken}`)).status).toBe(200);
@@ -613,8 +628,8 @@ describe("request-confirm guards", () => {
     expect(first.status).toBe(200);
     const second = await adminAgent.post(`/api/ppe/assignments/${assignment.id}/request-confirm`);
     expect(second.status).toBe(200);
-    const firstToken = new URL(first.body.confirmUrl).searchParams.get("token");
-    const secondToken = new URL(second.body.confirmUrl).searchParams.get("token");
+    const firstToken = tokenFromGrantUrl(first.body.confirmUrl, "/oopp/potvrdit");
+    const secondToken = tokenFromGrantUrl(second.body.confirmUrl, "/oopp/potvrdit");
     expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(secondToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(secondToken).not.toBe(firstToken);

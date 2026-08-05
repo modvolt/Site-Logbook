@@ -4033,102 +4033,158 @@ export const RequestPpeConfirmResponse = zod.object({
 
 
 /**
- * @summary Fetch assignment details by confirmation token (public)
+ * @summary Fetch the immutable PPE handover snapshot using a public Bearer credential
  */
-export const GetPpeConfirmDetailsQueryParams = zod.object({
-  "token": zod.coerce.string()
-})
-
-export const GetPpeConfirmDetailsResponse = zod.object({
+export const GetPublicPpeSignatureResponse = zod.object({
   "id": zod.number(),
-  "ppeItemId": zod.number(),
-  "personId": zod.number(),
   "ppeNameSnapshot": zod.string(),
   "personNameSnapshot": zod.string(),
-  "ppeCategorySnapshot": zod.string().nullish(),
-  "ppeStandardSnapshot": zod.string().nullish(),
-  "ppeProtectionClassSnapshot": zod.string().nullish(),
-  "ppeRiskDescriptionSnapshot": zod.string().nullish(),
+  "ppeCategorySnapshot": zod.string().nullable(),
+  "ppeStandardSnapshot": zod.string().nullable(),
+  "ppeProtectionClassSnapshot": zod.string().nullable(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullable(),
   "quantity": zod.number(),
-  "size": zod.string().nullish(),
-  "serialNumber": zod.string().nullish(),
+  "size": zod.string().nullable(),
+  "serialNumber": zod.string().nullable(),
   "issuedAt": zod.string(),
-  "replaceBy": zod.string().nullish(),
-  "nextInspectionAt": zod.string().nullish(),
-  "returnedAt": zod.string().nullish(),
-  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
-  "employeeConfirmedAt": zod.string().nullish(),
-  "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
-  "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
-  "confirmEmailSentAt": zod.string().nullish().describe('ISO timestamp when the confirmation link was emailed to the employee'),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.string(),
-  "handoverDocument": zod.union([zod.object({
-  "id": zod.number(),
-  "assignmentId": zod.number(),
-  "version": zod.number(),
-  "documentNumber": zod.string(),
-  "signatoryName": zod.string(),
-  "signedAt": zod.string(),
+  "replaceBy": zod.string().nullable(),
+  "nextInspectionAt": zod.string().nullable(),
   "confirmationText": zod.string(),
-  "pngObjectPath": zod.string(),
-  "pngSha256": zod.string(),
-  "pdfObjectPath": zod.string(),
-  "pdfSha256": zod.string(),
-  "issuerSnapshot": zod.string(),
-  "createdAt": zod.string()
-}),zod.null()]).optional()
+  "status": zod.enum(['issued']),
+  "closed": zod.boolean(),
+  "alreadySigned": zod.boolean(),
+  "employeeConfirmedAt": zod.coerce.date().nullable()
 })
 
 
 /**
- * @summary Confirm PPE receipt by token (public — no login required)
+ * @summary Sign the immutable PPE handover snapshot using a public Bearer credential
+ */
+export const signPublicPpeSignatureBodySignatureDataUrlRegExp = new RegExp('^data:image\/png;base64,');
+
+
+export const SignPublicPpeSignatureBody = zod.object({
+  "signatureDataUrl": zod.string().regex(signPublicPpeSignatureBodySignatureDataUrlRegExp)
+})
+
+export const SignPublicPpeSignatureResponse = zod.object({
+  "ok": zod.boolean(),
+  "employeeConfirmedAt": zod.coerce.date(),
+  "personNameSnapshot": zod.string(),
+  "ppeNameSnapshot": zod.string()
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token PPE signature snapshot adapter
+ */
+export const GetPublicPpeSignatureLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GetPublicPpeSignatureLegacyResponse = zod.object({
+  "id": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullable(),
+  "ppeStandardSnapshot": zod.string().nullable(),
+  "ppeProtectionClassSnapshot": zod.string().nullable(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullable(),
+  "quantity": zod.number(),
+  "size": zod.string().nullable(),
+  "serialNumber": zod.string().nullable(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullable(),
+  "nextInspectionAt": zod.string().nullable(),
+  "confirmationText": zod.string(),
+  "status": zod.enum(['issued']),
+  "closed": zod.boolean(),
+  "alreadySigned": zod.boolean(),
+  "employeeConfirmedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token PPE signature adapter
+ */
+export const SignPublicPpeSignatureLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const signPublicPpeSignatureLegacyBodySignatureDataUrlRegExp = new RegExp('^data:image\/png;base64,');
+
+
+export const SignPublicPpeSignatureLegacyBody = zod.object({
+  "signatureDataUrl": zod.string().regex(signPublicPpeSignatureLegacyBodySignatureDataUrlRegExp)
+})
+
+export const SignPublicPpeSignatureLegacyResponse = zod.object({
+  "ok": zod.boolean(),
+  "employeeConfirmedAt": zod.coerce.date(),
+  "personNameSnapshot": zod.string(),
+  "ppeNameSnapshot": zod.string()
+})
+
+
+/**
+ * @summary Fetch assignment details using Bearer or the deprecated query token
+ */
+export const GetPpeConfirmDetailsQueryParams = zod.object({
+  "token": zod.coerce.string().optional()
+})
+
+export const GetPpeConfirmDetailsResponse = zod.object({
+  "id": zod.number(),
+  "ppeNameSnapshot": zod.string(),
+  "personNameSnapshot": zod.string(),
+  "ppeCategorySnapshot": zod.string().nullable(),
+  "ppeStandardSnapshot": zod.string().nullable(),
+  "ppeProtectionClassSnapshot": zod.string().nullable(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullable(),
+  "quantity": zod.number(),
+  "size": zod.string().nullable(),
+  "serialNumber": zod.string().nullable(),
+  "issuedAt": zod.string(),
+  "replaceBy": zod.string().nullable(),
+  "nextInspectionAt": zod.string().nullable(),
+  "confirmationText": zod.string(),
+  "status": zod.enum(['issued']),
+  "closed": zod.boolean(),
+  "alreadySigned": zod.boolean(),
+  "employeeConfirmedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Confirm PPE receipt using Bearer or the deprecated body token
  */
 export const ConfirmPpeAssignmentBody = zod.object({
-  "token": zod.string()
+  "token": zod.string().optional().describe('Deprecated body credential. Use Authorization Bearer instead.')
 })
 
 export const ConfirmPpeAssignmentResponse = zod.object({
   "already": zod.boolean().describe('True if the assignment was already confirmed before this request'),
   "assignment": zod.object({
   "id": zod.number(),
-  "ppeItemId": zod.number(),
-  "personId": zod.number(),
   "ppeNameSnapshot": zod.string(),
   "personNameSnapshot": zod.string(),
-  "ppeCategorySnapshot": zod.string().nullish(),
-  "ppeStandardSnapshot": zod.string().nullish(),
-  "ppeProtectionClassSnapshot": zod.string().nullish(),
-  "ppeRiskDescriptionSnapshot": zod.string().nullish(),
+  "ppeCategorySnapshot": zod.string().nullable(),
+  "ppeStandardSnapshot": zod.string().nullable(),
+  "ppeProtectionClassSnapshot": zod.string().nullable(),
+  "ppeRiskDescriptionSnapshot": zod.string().nullable(),
   "quantity": zod.number(),
-  "size": zod.string().nullish(),
-  "serialNumber": zod.string().nullish(),
+  "size": zod.string().nullable(),
+  "serialNumber": zod.string().nullable(),
   "issuedAt": zod.string(),
-  "replaceBy": zod.string().nullish(),
-  "nextInspectionAt": zod.string().nullish(),
-  "returnedAt": zod.string().nullish(),
-  "status": zod.enum(['issued', 'returned', 'damaged', 'lost', 'disposed']),
-  "employeeConfirmedAt": zod.string().nullish(),
-  "hasConfirmToken": zod.boolean().describe('True when a confirmation link has been generated for this assignment'),
-  "hasSignToken": zod.boolean().optional().describe('True when an active signature link exists for this assignment'),
-  "confirmEmailSentAt": zod.string().nullish().describe('ISO timestamp when the confirmation link was emailed to the employee'),
-  "notes": zod.string().nullish(),
-  "createdAt": zod.string(),
-  "handoverDocument": zod.union([zod.object({
-  "id": zod.number(),
-  "assignmentId": zod.number(),
-  "version": zod.number(),
-  "documentNumber": zod.string(),
-  "signatoryName": zod.string(),
-  "signedAt": zod.string(),
+  "replaceBy": zod.string().nullable(),
+  "nextInspectionAt": zod.string().nullable(),
   "confirmationText": zod.string(),
-  "pngObjectPath": zod.string(),
-  "pngSha256": zod.string(),
-  "pdfObjectPath": zod.string(),
-  "pdfSha256": zod.string(),
-  "issuerSnapshot": zod.string(),
-  "createdAt": zod.string()
-}),zod.null()]).optional()
+  "status": zod.enum(['issued']),
+  "closed": zod.boolean(),
+  "alreadySigned": zod.boolean(),
+  "employeeConfirmedAt": zod.coerce.date().nullable()
 })
 })
 
@@ -13158,12 +13214,8 @@ export const ConvertQuoteToJobResponse = zod.object({
 
 
 /**
- * @summary Get quote details via public share token (no auth required)
+ * @summary Get quote details using a public Bearer credential
  */
-export const GetPublicQuoteParams = zod.object({
-  "token": zod.coerce.string()
-})
-
 
 export const getPublicQuoteResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
 export const getPublicQuoteResponsePdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
@@ -13205,12 +13257,8 @@ export const GetPublicQuoteResponse = zod.object({
 
 
 /**
- * @summary Customer accepts a quote via share token (no auth required)
+ * @summary Customer accepts a quote using a public Bearer credential
  */
-export const AcceptPublicQuoteParams = zod.object({
-  "token": zod.coerce.string()
-})
-
 export const acceptPublicQuoteBodyRespondentNameMin = 2;
 export const acceptPublicQuoteBodyRespondentNameMax = 120;
 
@@ -13233,12 +13281,8 @@ export const AcceptPublicQuoteResponse = zod.object({
 
 
 /**
- * @summary Customer rejects a quote via share token (no auth required)
+ * @summary Customer rejects a quote using a public Bearer credential
  */
-export const RejectPublicQuoteParams = zod.object({
-  "token": zod.coerce.string()
-})
-
 export const rejectPublicQuoteBodyRespondentNameMin = 2;
 export const rejectPublicQuoteBodyRespondentNameMax = 120;
 
@@ -13261,6 +13305,112 @@ export const RejectPublicQuoteResponse = zod.object({
 
 
 /**
+ * @deprecated
+ * @summary Legacy path-token quote adapter
+ */
+export const GetPublicQuoteLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+
+export const getPublicQuoteLegacyResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const getPublicQuoteLegacyResponsePdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetPublicQuoteLegacyResponse = zod.object({
+  "quoteNumber": zod.string().nullish(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(getPublicQuoteLegacyResponseSnapshotSha256RegExp),
+  "pdfSha256": zod.string().regex(getPublicQuoteLegacyResponsePdfSha256RegExp),
+  "confirmationText": zod.string(),
+  "title": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'accepted', 'rejected', 'expired']),
+  "validUntil": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "customerCompanyName": zod.string().nullish(),
+  "supplierName": zod.string().nullish(),
+  "supplierAddress": zod.string().nullish(),
+  "supplierEmail": zod.string().nullish(),
+  "supplierPhone": zod.string().nullish(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "position": zod.number(),
+  "description": zod.string(),
+  "quantity": zod.number(),
+  "unit": zod.string().nullish(),
+  "unitPrice": zod.number(),
+  "vatRate": zod.number().nullish(),
+  "totalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number()
+})),
+  "subtotalWithoutVat": zod.number(),
+  "totalVat": zod.number(),
+  "totalWithVat": zod.number(),
+  "vatPayer": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token quote acceptance adapter
+ */
+export const AcceptPublicQuoteLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const acceptPublicQuoteLegacyBodyRespondentNameMin = 2;
+export const acceptPublicQuoteLegacyBodyRespondentNameMax = 120;
+
+
+
+export const AcceptPublicQuoteLegacyBody = zod.object({
+  "respondentName": zod.string().min(acceptPublicQuoteLegacyBodyRespondentNameMin).max(acceptPublicQuoteLegacyBodyRespondentNameMax).describe('Self-declared identity of the person accepting or rejecting this exact version')
+})
+
+
+export const acceptPublicQuoteLegacyResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const AcceptPublicQuoteLegacyResponse = zod.object({
+  "accepted": zod.boolean().optional(),
+  "rejected": zod.boolean().optional(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(acceptPublicQuoteLegacyResponseSnapshotSha256RegExp)
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token quote rejection adapter
+ */
+export const RejectPublicQuoteLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const rejectPublicQuoteLegacyBodyRespondentNameMin = 2;
+export const rejectPublicQuoteLegacyBodyRespondentNameMax = 120;
+
+
+
+export const RejectPublicQuoteLegacyBody = zod.object({
+  "respondentName": zod.string().min(rejectPublicQuoteLegacyBodyRespondentNameMin).max(rejectPublicQuoteLegacyBodyRespondentNameMax).describe('Self-declared identity of the person accepting or rejecting this exact version')
+})
+
+
+export const rejectPublicQuoteLegacyResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const RejectPublicQuoteLegacyResponse = zod.object({
+  "accepted": zod.boolean().optional(),
+  "rejected": zod.boolean().optional(),
+  "quoteVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(rejectPublicQuoteLegacyResponseSnapshotSha256RegExp)
+})
+
+
+/**
  * @summary Download the quote PDF
  */
 export const DownloadQuotePdfParams = zod.object({
@@ -13269,12 +13419,8 @@ export const DownloadQuotePdfParams = zod.object({
 
 
 /**
- * @summary Read the exact immutable job-document version bound to a one-time token
+ * @summary Read the immutable job-document version using a public Bearer credential
  */
-export const GetPublicJobDocumentForSignatureParams = zod.object({
-  "token": zod.coerce.string()
-})
-
 
 export const getPublicJobDocumentForSignatureResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
 
@@ -13295,12 +13441,8 @@ export const GetPublicJobDocumentForSignatureResponse = zod.object({
 
 
 /**
- * @summary Sign the exact immutable job-document version bound to a one-time token
+ * @summary Sign the immutable job-document version using a public Bearer credential
  */
-export const SignPublicJobDocumentParams = zod.object({
-  "token": zod.coerce.string()
-})
-
 export const signPublicJobDocumentBodySignatoryNameMin = 2;
 export const signPublicJobDocumentBodySignatoryNameMax = 120;
 
@@ -13322,6 +13464,152 @@ export const SignPublicJobDocumentResponse = zod.object({
   "documentVersion": zod.number().min(1),
   "snapshotSha256": zod.string().regex(signPublicJobDocumentResponseSnapshotSha256RegExp),
   "pdfSha256": zod.string().regex(signPublicJobDocumentResponsePdfSha256RegExp)
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token job signature adapter
+ */
+export const GetPublicJobDocumentForSignatureLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+
+export const getPublicJobDocumentForSignatureLegacyResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetPublicJobDocumentForSignatureLegacyResponse = zod.object({
+  "jobId": zod.number(),
+  "documentVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(getPublicJobDocumentForSignatureLegacyResponseSnapshotSha256RegExp),
+  "title": zod.string(),
+  "date": zod.string(),
+  "customerCompanyName": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "confirmationText": zod.string(),
+  "alreadySigned": zod.boolean(),
+  "signedAt": zod.coerce.date().nullish(),
+  "expired": zod.boolean()
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token job signature adapter
+ */
+export const SignPublicJobDocumentLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const signPublicJobDocumentLegacyBodySignatoryNameMin = 2;
+export const signPublicJobDocumentLegacyBodySignatoryNameMax = 120;
+
+export const signPublicJobDocumentLegacyBodySignatureDataUrlRegExp = new RegExp('^data:image\/png;base64,');
+
+
+export const SignPublicJobDocumentLegacyBody = zod.object({
+  "signatoryName": zod.string().min(signPublicJobDocumentLegacyBodySignatoryNameMin).max(signPublicJobDocumentLegacyBodySignatoryNameMax).describe('Self-declared identity of the person signing the immutable version'),
+  "signatureDataUrl": zod.string().regex(signPublicJobDocumentLegacyBodySignatureDataUrlRegExp)
+})
+
+
+export const signPublicJobDocumentLegacyResponseSnapshotSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+export const signPublicJobDocumentLegacyResponsePdfSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const SignPublicJobDocumentLegacyResponse = zod.object({
+  "signedAt": zod.coerce.date(),
+  "documentVersion": zod.number().min(1),
+  "snapshotSha256": zod.string().regex(signPublicJobDocumentLegacyResponseSnapshotSha256RegExp),
+  "pdfSha256": zod.string().regex(signPublicJobDocumentLegacyResponsePdfSha256RegExp)
+})
+
+
+/**
+ * @summary Fetch public switchboard documentation using a public Bearer credential
+ */
+export const getPublicSwitchboardResponsePublicDocumentsItemSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+
+export const GetPublicSwitchboardResponse = zod.object({
+  "designation": zod.string(),
+  "serialNumber": zod.string().nullable(),
+  "manufacturer": zod.string(),
+  "productionDate": zod.string().nullable(),
+  "documentationStatus": zod.string(),
+  "contact": zod.object({
+  "name": zod.string(),
+  "address": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish()
+}),
+  "publicDocuments": zod.array(zod.object({
+  "sha256": zod.string().regex(getPublicSwitchboardResponsePublicDocumentsItemSha256RegExp),
+  "documentType": zod.string(),
+  "version": zod.number().min(1),
+  "originalFileName": zod.string(),
+  "uploadedAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Download a public switchboard document using a public Bearer credential
+ */
+export const getPublicSwitchboardDocumentPathSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetPublicSwitchboardDocumentParams = zod.object({
+  "sha256": zod.coerce.string().regex(getPublicSwitchboardDocumentPathSha256RegExp)
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token switchboard documentation adapter
+ */
+export const GetPublicSwitchboardLegacyParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const getPublicSwitchboardLegacyResponsePublicDocumentsItemSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+
+export const GetPublicSwitchboardLegacyResponse = zod.object({
+  "designation": zod.string(),
+  "serialNumber": zod.string().nullable(),
+  "manufacturer": zod.string(),
+  "productionDate": zod.string().nullable(),
+  "documentationStatus": zod.string(),
+  "contact": zod.object({
+  "name": zod.string(),
+  "address": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "email": zod.string().nullish()
+}),
+  "publicDocuments": zod.array(zod.object({
+  "sha256": zod.string().regex(getPublicSwitchboardLegacyResponsePublicDocumentsItemSha256RegExp),
+  "documentType": zod.string(),
+  "version": zod.number().min(1),
+  "originalFileName": zod.string(),
+  "uploadedAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @deprecated
+ * @summary Legacy path-token public switchboard document adapter
+ */
+export const getPublicSwitchboardDocumentLegacyPathSha256RegExp = new RegExp('^[0-9a-f]{64}$');
+
+
+export const GetPublicSwitchboardDocumentLegacyParams = zod.object({
+  "token": zod.coerce.string(),
+  "sha256": zod.coerce.string().regex(getPublicSwitchboardDocumentLegacyPathSha256RegExp)
 })
 
 

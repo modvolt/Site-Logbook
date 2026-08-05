@@ -33,13 +33,15 @@ import {
   isRequestBodyTooLarge,
   parseApiRequestBody,
 } from "./middlewares/request-body";
+import { limitPublicBearerRequests } from "./middlewares/public-bearer-rate-limit";
+import { trustedProxyRanges } from "./lib/trusted-proxy";
 
 const app: Express = express();
 
-// In production the app sits behind a TLS-terminating reverse proxy (Coolify /
-// Traefik, nginx). Trust the first proxy hop so secure cookies are set and the
-// client IP (for rate limiting) is read from X-Forwarded-For.
-app.set("trust proxy", 1);
+// A fixed hop count is unsafe because production and local ingress paths differ.
+// Production must declare the exact proxy addresses/CIDRs; tests and local
+// direct runs trust loopback only.
+app.set("trust proxy", trustedProxyRanges());
 
 const PgStore = connectPgSimple(session);
 const sessionSecret = process.env.SESSION_SECRET;
@@ -182,6 +184,7 @@ app.use("/api", (req: Request, res: Response, next: NextFunction) => {
 
 // Authentication and permission checks run before any structured body is
 // buffered. Only named base64 workflows receive the larger authenticated cap.
+app.use("/api", limitPublicBearerRequests);
 app.use("/api", parseApiRequestBody);
 
 app.use("/api", enforceOfflineIdempotency);

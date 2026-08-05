@@ -37,6 +37,7 @@ esac
 
 [ "$STAGING_NGINX_SERVER_NAME" = "$staging_host" ] \
   || fail "nginx host must exactly match the staging origin"
+. /usr/local/lib/staging-proxy-cidrs.sh
 [ "${#STAGING_BUILD_SHA}" -eq 40 ] \
   || fail "build SHA must be 40 lowercase hexadecimal characters"
 case "$STAGING_BUILD_SHA" in *[!0-9a-f]*) fail "build SHA must be 40 lowercase hexadecimal characters" ;; esac

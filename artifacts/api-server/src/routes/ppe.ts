@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { and, count, eq, gte, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -19,7 +19,7 @@ import { generatePpePdf, generatePpeCsv, type PpeExportRow } from "../lib/ppe-pd
 import { ensureBillingSettings } from "../lib/invoice-service";
 import { sendPlainEmail } from "../lib/email";
 import { decodeSignatureImage } from "../lib/signature-image";
-import { publicAppUrl } from "../lib/public-origin";
+import { publicAppGrantUrl } from "../lib/public-origin";
 import {
   PublicAccessTokenError,
   publicAccessTokenHttpStatus,
@@ -33,6 +33,12 @@ import {
   PPE_PUBLIC_SIGNATURE_CONFIRMATION_TEXT,
   resolvePpePublicEvidenceToken,
 } from "../lib/ppe-public-evidence";
+import {
+  assertNoAuthorizationCredential,
+  readPublicBearerOrLegacyToken,
+  readPublicBearerToken,
+  sendPublicBearerCredentialError,
+} from "../lib/public-bearer-auth";
 
 const objectStorage = new ObjectStorageService();
 
@@ -333,7 +339,7 @@ router.post("/ppe/assignments/:id/sign-token", requireRole("admin", "master"), a
   }
 
   res.json({
-    signUrl: publicAppUrl(`/oopp/sign/${encodeURIComponent(token)}`),
+    signUrl: publicAppGrantUrl("/oopp/sign", token),
     expiresAt: expiresAt.toISOString(),
   });
 });
@@ -367,14 +373,29 @@ router.delete("/ppe/assignments/:id/sign-token", requireRole("admin", "master"),
   res.status(204).end();
 });
 
-// Public: fetch assignment info for signing (by token)
-router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
-  const token = req.params.token;
-  if (!token) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
+function ppeSignatureToken(
+  req: Request,
+  res: Response,
+  legacyToken?: string,
+): string | null {
+  try {
+    if (legacyToken !== undefined) {
+      assertNoAuthorizationCredential(req);
+      return legacyToken;
+    }
+    return readPublicBearerToken(req);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
   }
+}
 
+// Public: fetch assignment info for signing (by token)
+async function getPublicPpeSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
   try {
     const { snapshot } = await resolvePpePublicEvidenceToken(
       "ppe_signature",
@@ -392,16 +413,14 @@ router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
     }
     throw error;
   }
-});
+}
 
 // Public: submit signature PNG (base64) — sets employeeConfirmedAt + uploads to storage
-router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
-  const token = req.params.token;
-  if (!token) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
-  }
-
+async function postPublicPpeSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
   const body = z.object({
     signatureDataUrl: z.string().startsWith("data:image/png;base64,"),
   }).safeParse(req.body);
@@ -482,6 +501,26 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
     req.log?.error({ err }, "PPE signature save failed");
     res.status(500).json({ error: "Nepodařilo se uložit podpis" });
   }
+}
+
+router.get("/ppe/sign", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res);
+  if (token) await getPublicPpeSignature(req, res, token);
+});
+
+router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res, req.params.token);
+  if (token) await getPublicPpeSignature(req, res, token);
+});
+
+router.post("/ppe/sign", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res);
+  if (token) await postPublicPpeSignature(req, res, token);
+});
+
+router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
+  const token = ppeSignatureToken(req, res, req.params.token);
+  if (token) await postPublicPpeSignature(req, res, token);
 });
 
 // ─────────── Export ───────────
@@ -1065,9 +1104,7 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     throw error;
   }
   const { token, assignment: existing, snapshot } = issued;
-  const confirmUrl = publicAppUrl(
-    `/oopp/potvrdit?token=${encodeURIComponent(token)}`,
-  );
+  const confirmUrl = publicAppGrantUrl("/oopp/potvrdit", token);
 
   const [person] = await db.select().from(peopleTable).where(eq(peopleTable.id, existing.personId));
   let emailSent = false;
@@ -1096,17 +1133,27 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
   res.json({ confirmUrl, expiresAt: expiresAt.toISOString(), emailSent });
 });
 
-router.post("/ppe/confirm", async (req, res): Promise<void> => {
-  const parsed = z.object({ token: z.string().min(1) }).safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Chybí token" });
-    return;
+function ppeConfirmationToken(
+  req: Request,
+  res: Response,
+  legacyToken: unknown,
+): string | null {
+  try {
+    return readPublicBearerOrLegacyToken(req, legacyToken);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
   }
+}
 
+async function postPublicPpeConfirmation(
+  res: Response,
+  token: string,
+): Promise<void> {
   try {
     const consumed = await consumePpePublicEvidenceToken({
       purpose: "ppe_confirmation",
-      token: parsed.data.token,
+      token,
       action: "confirmed",
     });
     res.json({
@@ -1127,15 +1174,12 @@ router.post("/ppe/confirm", async (req, res): Promise<void> => {
     }
     throw error;
   }
-});
+}
 
-router.get("/ppe/confirm", async (req, res): Promise<void> => {
-  const token = typeof req.query.token === "string" ? req.query.token : null;
-  if (!token) {
-    res.status(400).json({ error: "Chybí token" });
-    return;
-  }
-
+async function getPublicPpeConfirmation(
+  res: Response,
+  token: string,
+): Promise<void> {
   try {
     const { snapshot } = await resolvePpePublicEvidenceToken(
       "ppe_confirmation",
@@ -1153,6 +1197,19 @@ router.get("/ppe/confirm", async (req, res): Promise<void> => {
     }
     throw error;
   }
+}
+
+router.post("/ppe/confirm", async (req, res): Promise<void> => {
+  const body = req.body && typeof req.body === "object"
+    ? req.body as Record<string, unknown>
+    : {};
+  const token = ppeConfirmationToken(req, res, body.token);
+  if (token) await postPublicPpeConfirmation(res, token);
+});
+
+router.get("/ppe/confirm", async (req, res): Promise<void> => {
+  const token = ppeConfirmationToken(req, res, req.query.token);
+  if (token) await getPublicPpeConfirmation(res, token);
 });
 
 export default router;

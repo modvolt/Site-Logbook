@@ -255,6 +255,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
   const apiBlock = serviceBlock(compose, "api");
   for (const boundary of [
+    "      API_TRUSTED_PROXY_CIDRS: ${STAGING_API_TRUSTED_PROXY_CIDRS:?set exact staging nginx/edge proxy CIDRs}",
     "      OPERATIONAL_ALERT_TRANSPORT: https_webhook",
     "      OPERATIONAL_ALERT_WEBHOOK_URL: ${STAGING_OPERATIONAL_ALERT_RECEIVER_URL:?set the public staging alert receiver HTTPS URL}",
     "      OPERATIONAL_ALERT_WEBHOOK_ALLOWED_HOSTS: ${STAGING_OPERATIONAL_ALERT_RECEIVER_HOST:?set the exact staging alert receiver hostname}",
@@ -264,6 +265,11 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
 
   const exampleEnv = readSource(".env.staging.example", overrides);
+  requireText(
+    exampleEnv,
+    "STAGING_API_TRUSTED_PROXY_CIDRS=",
+    "staging trusted proxy input",
+  );
   for (const variable of REQUIRED_IMAGE_VARIABLES) {
     if (!new RegExp(`^${variable}=$`, "m").test(exampleEnv)) {
       fail(
@@ -276,6 +282,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
   const preflight = readSource(
     "deploy/staging/preflight/preflight.sh",
     overrides,
+  );
+  requireText(preflight, ". /usr/local/lib/staging-proxy-cidrs.sh", "staging trusted proxy preflight");
+  const proxyPreflight = readSource(
+    "deploy/staging/preflight/validate-proxy-cidrs.sh",
+    overrides,
+  );
+  requireText(
+    proxyPreflight,
+    "trusted proxy address is invalid or has a leading zero",
+    "staging trusted proxy canonical IPv4 preflight",
   );
   for (const variable of REQUIRED_IMAGE_VARIABLES) {
     requireText(

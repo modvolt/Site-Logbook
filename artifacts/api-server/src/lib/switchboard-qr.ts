@@ -1,7 +1,7 @@
 import { createDecipheriv, createHash, randomBytes } from "node:crypto";
 import QRCode from "qrcode";
 import { decryptSecretValue, encryptSecretValue } from "./secret-envelope";
-import { publicAppUrl } from "./public-origin";
+import { publicAppGrantUrl } from "./public-origin";
 
 // Keep the historical argument order used by automatic label generation so a
 // rolling deployment cannot split the per-board critical section.
@@ -92,7 +92,7 @@ export function decryptQrToken(payload: string, switchboardId: number): string {
 }
 
 export function publicQrUrl(token: string): string {
-  return publicAppUrl(`/q/board/${encodeURIComponent(token)}`);
+  return publicAppGrantUrl("/q/board", token);
 }
 
 export async function renderQrPng(token: string): Promise<Buffer> {

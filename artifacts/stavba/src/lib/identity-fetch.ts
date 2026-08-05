@@ -1,21 +1,8 @@
 import { isValidOfflineScope } from "@/lib/offline-cache-policy";
+import { isPublicApiRequest } from "@/lib/public-api-policy";
 
 const OFFLINE_SCOPE_HEADER = "x-stavba-offline-scope";
 const AUTH_INVALIDATED_EVENT = "stavba:auth-invalidated";
-
-const PUBLIC_API_ROUTES: ReadonlyArray<{ methods: ReadonlySet<string>; path: RegExp }> = [
-  { methods: new Set(["GET", "HEAD"]), path: /^\/api\/healthz$/ },
-  { methods: new Set(["GET", "HEAD"]), path: /^\/api\/auth\/me$/ },
-  { methods: new Set(["POST"]), path: /^\/api\/auth\/(?:login|logout|setup)$/ },
-  { methods: new Set(["POST"]), path: /^\/api\/auth\/webauthn\/login\/(?:begin|complete)$/ },
-  { methods: new Set(["GET", "HEAD"]), path: /^\/api\/storage\/public-objects\/.+$/ },
-  { methods: new Set(["GET", "HEAD", "POST"]), path: /^\/api\/(?:ppe\/sign|sign)\/[^/]+$/ },
-  { methods: new Set(["GET", "HEAD", "POST"]), path: /^\/api\/ppe\/confirm$/ },
-  { methods: new Set(["GET", "HEAD"]), path: /^\/api\/quotes\/public\/[^/]+$/ },
-  { methods: new Set(["POST"]), path: /^\/api\/quotes\/public\/[^/]+\/(?:accept|reject)$/ },
-  { methods: new Set(["GET", "HEAD"]), path: /^\/api\/q\/board\/[^/]+(?:\/documents\/[^/]+)?$/ },
-  { methods: new Set(["POST"]), path: /^\/api\/internal\/backup-trigger$/ },
-];
 
 let activeScope: string | null = null;
 let transitionActive = false;
@@ -42,13 +29,6 @@ function requestUrl(input: RequestInfo | URL): URL {
       ? input.toString()
       : input.url;
   return new URL(value, window.location.href);
-}
-
-function isPublicApiRequest(method: string, pathname: string): boolean {
-  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  return PUBLIC_API_ROUTES.some(
-    (route) => route.methods.has(method) && route.path.test(normalized),
-  );
 }
 
 function withScopeHeader(

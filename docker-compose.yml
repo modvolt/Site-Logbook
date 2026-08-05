@@ -132,6 +132,10 @@ services:
       # Canonical origin for every externally shared bearer link. The API
       # refuses to derive links from request Host / X-Forwarded-Host headers.
       PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+      # Exact comma-separated nginx/edge IPs or bounded CIDRs. Production API
+      # startup fails closed when this is absent; do not use hop counts or broad
+      # private aliases. Record the real Coolify network topology first.
+      API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
 
   web:
     build:

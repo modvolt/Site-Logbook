@@ -15,6 +15,11 @@ export default defineConfig({
   test: {
     include: [
       "test/**/*contract.test.ts",
+      "test/public-bearer-auth.test.ts",
+      "test/public-bearer-route-policy.test.ts",
+      "test/public-bearer-rate-limit.test.ts",
+      "test/trusted-proxy.test.ts",
+      "test/webauthn-rp.test.ts",
       "test/permission-resolution.test.ts",
       "test/auth-session.test.ts",
       "test/file-signature.test.ts",

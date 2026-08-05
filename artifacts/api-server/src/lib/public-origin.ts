@@ -1,4 +1,5 @@
 const SUPPORTED_PROTOCOLS = new Set(["http:", "https:"]);
+const PUBLIC_GRANT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
 export class PublicOriginConfigError extends Error {
   readonly code = "public_origin_invalid";
@@ -15,7 +16,7 @@ export class PublicOriginConfigError extends Error {
  * Request Host / X-Forwarded-Host values are deliberately not accepted here:
  * links carrying bearer credentials must never be derived from request input.
  */
-export function publicAppOrigin(): string {
+export function publicAppOrigin(nodeEnv = process.env.NODE_ENV): string {
   const raw = process.env.PUBLIC_APP_URL?.trim();
   if (!raw) throw new PublicOriginConfigError("PUBLIC_APP_URL is required.");
 
@@ -36,7 +37,7 @@ export function publicAppOrigin(): string {
   ) {
     throw new PublicOriginConfigError();
   }
-  if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {
+  if (nodeEnv === "production" && parsed.protocol !== "https:") {
     throw new PublicOriginConfigError("PUBLIC_APP_URL must use HTTPS in production.");
   }
 
@@ -52,5 +53,19 @@ export function publicAppUrl(path: string): string {
   if (result.origin !== origin) {
     throw new PublicOriginConfigError("Public application path is invalid.");
   }
+  return result.toString();
+}
+
+/** Build a browser-only credential link; URL fragments never reach HTTP logs. */
+export function publicAppGrantUrl(path: string, token: string): string {
+  if (
+    path.includes("?") ||
+    path.includes("#") ||
+    !PUBLIC_GRANT_TOKEN_PATTERN.test(token)
+  ) {
+    throw new PublicOriginConfigError("Public grant link is invalid.");
+  }
+  const result = new URL(publicAppUrl(path));
+  result.hash = `token=${encodeURIComponent(token)}`;
   return result.toString();
 }

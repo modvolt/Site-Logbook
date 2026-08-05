@@ -1,3 +1,5 @@
+import { classifyPublicBearerRoute } from "./public-bearer-route-policy";
+
 type PublicApiRoute = {
   methods: ReadonlySet<string>;
   path: RegExp;
@@ -16,12 +18,6 @@ const PUBLIC_API_ROUTES: readonly PublicApiRoute[] = [
   { methods: POST_ONLY, path: /^\/api\/auth\/(?:login|logout|setup)$/ },
   { methods: POST_ONLY, path: /^\/api\/auth\/webauthn\/login\/(?:begin|complete)$/ },
   { methods: READ_METHODS, path: /^\/api\/storage\/public-objects\/.+$/ },
-  { methods: new Set(["GET", "HEAD", "POST"]), path: /^\/api\/(?:ppe\/sign|sign)\/[^/]+$/ },
-  { methods: new Set(["GET", "HEAD", "POST"]), path: /^\/api\/ppe\/confirm$/ },
-  { methods: READ_METHODS, path: /^\/api\/quotes\/public\/[^/]+$/ },
-  { methods: POST_ONLY, path: /^\/api\/quotes\/public\/[^/]+\/(?:accept|reject)$/ },
-  { methods: READ_METHODS, path: /^\/api\/q\/board\/[^/]+$/ },
-  { methods: READ_METHODS, path: /^\/api\/q\/board\/[^/]+\/documents\/[^/]+$/ },
   { methods: POST_ONLY, path: /^\/api\/internal\/backup-trigger$/ },
 ];
 
@@ -31,6 +27,7 @@ function normalizePath(originalUrl: string): string {
 }
 
 export function isPublicApiRequest(method: string, originalUrl: string): boolean {
+  if (classifyPublicBearerRoute(method, originalUrl)) return true;
   const normalizedMethod = method.toUpperCase();
   const path = normalizePath(originalUrl);
   return PUBLIC_API_ROUTES.some(

@@ -9,6 +9,7 @@ RUN apk add --no-cache jq \
   && adduser -S -D -H -u 10001 -G preflight preflight
 
 COPY deploy/staging/preflight/preflight.sh /usr/local/bin/staging-preflight
+COPY deploy/staging/preflight/validate-proxy-cidrs.sh /usr/local/lib/staging-proxy-cidrs.sh
 RUN chmod 0555 /usr/local/bin/staging-preflight
 
 USER preflight
