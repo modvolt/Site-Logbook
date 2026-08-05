@@ -121,3 +121,16 @@ nespouštěl.
   pořadí login-versus-cutoff zůstává P2 test-hardening bodem;
 - R15-E2 staging aktivace zůstává externě NO-GO a není tímto checkpointem
   nahrazena ani autorizována.
+
+## Exact-SHA GitHub quality gate
+
+- první běh na implementačním SHA `9637623507083e16b6cc89b08d2d6a1fc0a3e06a`
+  odhalil jediný zastaralý před-R16-A regresní test: self permission lockout už
+  správně vracel konfliktní `409`, zatímco test očekával původní `400`;
+- opravný commit `1d8ccd09f119d6db76d2b4726bd8ed91d6035a6d` nemění produkční
+  logiku a zpřesňuje test také na kód `self_permission_lockout_forbidden`;
+- [Quality gate 30967957139](https://github.com/modvolt/Site-Logbook/actions/runs/30967957139)
+  na přesném opravném SHA prošel: quality/release gate, všech 156 izolovaných API
+  DB souborů, encrypted restore/recovery a R14 full-stack/fault gate jsou PASS;
+- obecná GitHub Actions anotace o přechodu actions z Node 20 na Node 24 není
+  aplikační selhání ani otevřený R16-A bezpečnostní nález.
