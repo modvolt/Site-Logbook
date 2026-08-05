@@ -238,6 +238,54 @@ export function validateStagingRuntimeContract(overrides = {}) {
     'path.resolve(artifactDir, "src/external-schema-preflight.ts")',
     "API external schema preflight bundle entrypoint",
   );
+  for (const entrypoint of [
+    "external-schema-inventory.ts",
+    "external-schema-steady-state.ts",
+    "external-schema-gate.ts",
+  ]) {
+    requireText(
+      apiBuild,
+      `path.resolve(artifactDir, "src/${entrypoint}")`,
+      `API ${entrypoint} bundle entrypoint`,
+    );
+  }
+  const schemaGateRunner = readSource(
+    "artifacts/api-server/src/external-schema-gate.ts",
+    overrides,
+  );
+  for (const boundary of [
+    'if (action === "steady-0105")',
+    'if (action !== "apply-0105")',
+    'error.code !== "APPLIED_COUNT_MISMATCH"',
+    'inventory.decision !== "READY_0104"',
+    "await runMigrator();",
+    "runExternalSchemaPreflight(post)",
+    "runExternalSchemaSteadyState",
+  ]) {
+    requireText(
+      schemaGateRunner,
+      boundary,
+      `state-aware external schema gate ${boundary}`,
+    );
+  }
+  const schemaInventoryRunner = readSource(
+    "artifacts/api-server/src/external-schema-inventory.ts",
+    overrides,
+  );
+  requireText(
+    schemaInventoryRunner,
+    "runExternalSchemaInventory",
+    "read-only external schema inventory runner",
+  );
+  const schemaSteadyStateRunner = readSource(
+    "artifacts/api-server/src/external-schema-steady-state.ts",
+    overrides,
+  );
+  requireText(
+    schemaSteadyStateRunner,
+    "runExternalSchemaSteadyState",
+    "external schema steady-state runner",
+  );
   const receiverDockerfile = readSource(
     "deploy/operational-alert-receiver/Dockerfile",
     overrides,
@@ -280,17 +328,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "    read_only: true",
     "      - ALL",
     "      - no-new-privileges:true",
-    "      EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION:?set only after separate approval of the isolated 0105 staging migration}",
+    "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?set inspect, apply-0105 or steady-0105}",
+    "      EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}",
     "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
     "      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
     "      STAGING_DATABASE_HOST: postgres",
     "      STAGING_DATABASE_NAME: site_logbook_staging",
     "      STAGING_DATABASE_USER: site_logbook_staging",
-    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID:?set the newest successful and restore-tested backup_log id}",
-    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:?set an approved integer from 1 through 168}",
-    "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=pre node dist/external-schema-preflight.mjs",
-    "        node dist/migrate.mjs",
-    "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=post node dist/external-schema-preflight.mjs",
+    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}",
+    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS-}",
+    "      - dist/external-schema-gate.mjs",
     "      disable: true",
   ]) {
     requireText(
@@ -302,11 +349,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const boundary of [
     "      external-schema-gate:",
     "        condition: service_completed_successfully",
-    "      EXTERNAL_SCHEMA_PREFLIGHT_MODE: post",
     "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
-    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID:?set the newest successful and restore-tested backup_log id}",
-    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:?set an approved integer from 1 through 168}",
-    "        node dist/external-schema-preflight.mjs &&",
+    "        node dist/external-schema-steady-state.mjs &&",
     "        exec node --enable-source-maps dist/index.mjs",
   ]) {
     requireText(apiBlock, boundary, `API postflight boundary ${boundary}`);
@@ -316,6 +360,18 @@ export function validateStagingRuntimeContract(overrides = {}) {
       "STAGING_API_BUILD_SHA_OVERRIDE_FORBIDDEN",
       "The API must keep the immutable image's baked BUILD_SHA.",
     );
+  }
+  for (const forbidden of [
+    "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION:",
+    "STAGING_BACKUP_EVIDENCE_ID:",
+    "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:",
+  ]) {
+    if (apiBlock.includes(forbidden)) {
+      fail(
+        "STAGING_API_TRANSITION_EVIDENCE_COUPLED",
+        `Routine API startup must not retain ${forbidden}`,
+      );
+    }
   }
 
   const exampleEnv = readSource(".env.staging.example", overrides);
@@ -331,6 +387,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
   for (const input of [
+    "STAGING_SCHEMA_ACTION=inspect",
     "STAGING_IMAGE_MANIFEST_SOURCE_SHA=",
     "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION=",
     "STAGING_BACKUP_EVIDENCE_ID=",
@@ -358,10 +415,11 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "staging preflight external-account flag input",
   );
   for (const boundary of [
+    "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?set inspect, apply-0105 or steady-0105}",
     "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
-    "      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION:?set only after separate approval of the isolated 0105 staging migration}",
-    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID:?set the newest successful and restore-tested backup_log id}",
-    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:?set an approved integer from 1 through 168}",
+    "      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}",
+    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}",
+    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS-}",
   ]) {
     requireText(
       preflightBlock,
@@ -376,7 +434,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   for (const boundary of [
     '[ "$STAGING_IMAGE_MANIFEST_SOURCE_SHA" = "$STAGING_BUILD_SHA" ]',
+    'case "$STAGING_SCHEMA_ACTION" in',
+    "  inspect)",
+    "  apply-0105)",
+    "  steady-0105)",
+    "inspect mode forbids a mutation confirmation",
     '[ "$STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION" = "APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING" ]',
+    "steady mode must not depend on historical transition backup evidence",
     'case "$STAGING_BACKUP_EVIDENCE_ID" in',
     '"$STAGING_BACKUP_RESTORE_MAX_AGE_HOURS" -le 168',
   ]) {

@@ -97,3 +97,43 @@ nebyly změněny. Migrace `0105` nebyla spuštěna a feature flag nebyl zapnut.
 
 Podrobný operační postup je v
 [16-c3-staging-schema-gate-runbook.md](16-c3-staging-schema-gate-runbook.md).
+
+## R16-C3B1 – provisioning a restart gate
+
+Následná kontrola odhalila, že původní Compose vyžadoval confirmation `0105`
+ještě před PostgreSQL. Nebylo proto možné splnit krok runbooku „obnovit a pouze
+přečíst journal“. Původní gate navíc po úspěšné `0105` při redeployi znovu
+vyžadoval pre-state `0104` a startup API zůstal svázaný s ID a stářím přechodové
+zálohy.
+
+Repo kontrakt nyní odděluje:
+
+- `inspect` – izolovaný PostgreSQL a read-only klasifikace exact migration
+  prefixu jako `BASELINE_0104_REQUIRED`, `READY_0104` nebo `ALREADY_0105`;
+- `apply-0105` – jediný režim s confirmation, backup bindem a standardním
+  migrátorem;
+- `steady-0105` – idempotentní redeploy a API restart s exact 105/105,
+  kompletním schema stavem, `flag=false` a nulou externích dat, ale bez závislosti
+  na historické backup freshness.
+
+Inventory odmítá mezery, unknown/extra řádky, duplicate `created_at`, hash drift,
+`0100` i journal za `0105`. Gate při exact `0105` provede bezpečný no-op; stav za
+`0104` nikdy automaticky nedobaselinovává.
+
+Aktuální ověření R16-C3B1:
+
+- DB-free schema testy: 13/13 PASS;
+- staging runtime kontrakty: 17/17 PASS;
+- library a API TypeScript: PASS;
+- API esbuild s `external-schema-inventory`, `external-schema-gate` a
+  `external-schema-steady-state`: PASS;
+- cílený external-account API kontrakt: 5/5 PASS;
+- Docker harness: lokálně záměrně nespouštěn; Docker daemon neodpovídá,
+  `com.docker.service` je zastavená a bylo zjištěno 39 visících `docker.exe`
+  procesů. Tři čistě statické harness scénáře prošly 3/3.
+
+GitHub connector potvrzuje, že remote branch
+`agent/phase16c3-staging-preflight`, commity `09e9f08`/`b651b40` ani odpovídající
+PR dosud neexistují. Lokální `gh` účet je označen jako aktivní, ale token je
+neplatný; nízkoúrovňová rekonstrukce Git objectů přes connector nebyla použita,
+protože by nezachovala exact lokální commity.

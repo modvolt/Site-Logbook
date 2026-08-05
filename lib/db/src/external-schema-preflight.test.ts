@@ -8,8 +8,11 @@ import {
   EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
   EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION,
   ExternalSchemaPreflightError,
+  classifyExternalSchemaAppliedMigrations,
   loadAndValidateExternalSchemaMigrationBundle,
+  readExternalSchemaInventoryEnvironment,
   readExternalSchemaPreflightEnvironment,
+  readExternalSchemaRuntimeEnvironment,
   validateExactAppliedMigrationSet,
   validateExternalSchemaDatabaseState,
   validateExternalSchemaMigrationBundle,
@@ -175,6 +178,22 @@ describe("external schema preflight environment", () => {
       }),
     );
   });
+
+  it("keeps inventory and steady-state reads independent of mutation confirmation", () => {
+    const withoutConfirmation = { ...validEnv() };
+    delete withoutConfirmation.EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION;
+    assert.equal(
+      readExternalSchemaInventoryEnvironment(withoutConfirmation)
+        .backupEvidenceId,
+      42,
+    );
+
+    delete withoutConfirmation.STAGING_BACKUP_EVIDENCE_ID;
+    delete withoutConfirmation.STAGING_BACKUP_RESTORE_MAX_AGE_HOURS;
+    const runtime = readExternalSchemaRuntimeEnvironment(withoutConfirmation);
+    assert.equal(runtime.environmentId, "site-logbook-staging");
+    assert.equal(runtime.buildSha, fullSha);
+  });
 });
 
 describe("external schema migration bundle", () => {
@@ -319,6 +338,49 @@ describe("exact live migration set", () => {
         preRows.map((row, index) =>
           index === 0 ? { ...row, hash: "0".repeat(64) } : row,
         ),
+        bundle,
+      ),
+    );
+  });
+
+  it("classifies only an exact prefix as baseline, 0104-ready or 0105-ready", () => {
+    const bundle = loadAndValidateExternalSchemaMigrationBundle(migrationsDir);
+    const rows = bundle.post.map((migration) => ({
+      created_at: migration.when,
+      hash: migration.hash,
+    }));
+
+    assert.deepEqual(
+      classifyExternalSchemaAppliedMigrations(rows.slice(0, 103), bundle),
+      {
+        decision: "BASELINE_0104_REQUIRED",
+        appliedMigrations: 103,
+        predecessorMigrations: 104,
+        latestAppliedTag: bundle.post[102]!.tag,
+        missingToPredecessor: 1,
+      },
+    );
+    assert.equal(
+      classifyExternalSchemaAppliedMigrations(rows.slice(0, 104), bundle)
+        .decision,
+      "READY_0104",
+    );
+    assert.equal(
+      classifyExternalSchemaAppliedMigrations(rows, bundle).decision,
+      "ALREADY_0105",
+    );
+
+    expectCode("APPLIED_PREFIX_MISMATCH", () =>
+      classifyExternalSchemaAppliedMigrations(
+        rows
+          .slice(0, 104)
+          .map((row, index) => (index === 50 ? { ...rows[104]! } : row)),
+        bundle,
+      ),
+    );
+    expectCode("APPLIED_COUNT_EXCEEDS_BUNDLE", () =>
+      classifyExternalSchemaAppliedMigrations(
+        [...rows, { created_at: 9999999999999, hash: "f".repeat(64) }],
         bundle,
       ),
     );

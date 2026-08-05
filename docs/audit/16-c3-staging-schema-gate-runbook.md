@@ -58,28 +58,55 @@ Do prázdného staging secret store se doplní hodnoty podle
 - `STAGING_BUILD_SHA` – exact candidate SHA;
 - `STAGING_IMAGE_MANIFEST_SOURCE_SHA` – `sourceSha` z immutable manifestu;
 - `STAGING_EXTERNAL_ACCOUNTS_ENABLED=false`;
+- `STAGING_SCHEMA_ACTION` – přesně jeden z režimů níže;
 - `STAGING_BACKUP_EVIDENCE_ID` – ID nejnovějšího svázaného backup řádku;
 - `STAGING_BACKUP_RESTORE_MAX_AGE_HOURS` – celé číslo 1 až 168, doporučeně 24;
 - `STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION` – ponechat prázdné až do
   samostatného schválení migrace; poté pouze přesná fráze
   `APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING`.
 
+Režimy jsou záměrně oddělené:
+
+- `inspect` – confirmation musí být prázdné, backup ID/age jsou povinné a smí se
+  spustit pouze PostgreSQL plus read-only inventory;
+- `apply-0105` – vyžaduje přesnou confirmation frázi a čerstvě svázaný backup;
+  pouze tento režim smí spustit standardní migrátor;
+- `steady-0105` – confirmation i historické backup ID/age musí být prázdné;
+  povolí pouze exact-0105 read-only restart gate.
+
 Staging boundary preflight ověří formát, přesnou shodu SHA, explicitní
-`flag=false` a potvrzení ještě před startem PostgreSQL. DB schema gate následně
-porovná také `BUILD_SHA` zapečené v immutable API image.
+`flag=false` a kontrakt zvoleného režimu ještě před startem PostgreSQL. DB schema
+gate následně porovná také `BUILD_SHA` zapečené v immutable API image.
+
+Pro read-only inventuru se nastaví `STAGING_SCHEMA_ACTION=inspect`, spustí se jen
+izolovaný PostgreSQL a po obnovení schválené kopie se zavolá:
+
+```powershell
+docker compose --env-file .env.staging -f docker-compose.staging.yml up -d postgres
+docker compose --env-file .env.staging -f docker-compose.staging.yml run --rm --no-deps external-schema-gate node dist/external-schema-inventory.mjs
+```
+
+Výsledek může být pouze `BASELINE_0104_REQUIRED`, `READY_0104` nebo
+`ALREADY_0105`. Neznámý řádek, mezera uprostřed journalu, duplicate, hash drift,
+`0100` nebo řádek za `0105` končí chybou. Inventory nevypisuje DB URL, object
+path, hash zálohy ani key ID.
 
 ## Bezpečné pořadí
 
 1. Ověřit izolaci DNS/TLS, DB, storage, mailu, alert receiveru a credentials.
 2. Ověřit exact-SHA CI a immutable image manifest; nespoléhat na tag bez digestu.
-3. Obnovit schválenou produkční kopii do samostatného staging volume a read-only
-   ověřit její exact journal. Pokud je za `0104`, použít výše popsaný oddělený
-   predecessor baseline rollout.
+3. V režimu `inspect` obnovit schválenou produkční kopii do samostatného staging
+   volume a výše uvedeným příkazem read-only ověřit její exact journal. Pokud
+   inventory vrátí `BASELINE_0104_REQUIRED`, použít oddělený predecessor baseline
+   rollout; jiný drift je stop.
 4. Na exact stavu `0104` vytvořit novou staging-only zálohu, restore-testovat
    stejné ID a toto nejnovější ID nastavit jako schema-gate evidence.
-5. Teprve po výslovném souhlasu nastavit přesnou confirmation frázi a spustit
-   staging Compose.
-6. One-shot `external-schema-gate` pod advisory lockem `911072468` v pre-mode
+5. Teprve po výslovném souhlasu nastavit `STAGING_SCHEMA_ACTION=apply-0105`,
+   přesnou confirmation frázi a spustit pouze `external-schema-gate` včetně jeho
+   závislostí.
+6. State-aware one-shot `external-schema-gate` pod advisory lockem `911072468`
+   nejprve přijme idempotentní exact-0105 stav jako read-only no-op. Pro nový
+   přechod v pre-mode
    vyžaduje:
    - přesných 104 DB migration řádků a přesné hashe do `0104`;
    - žádné extra nebo duplicitní řádky a žádnou `0105`;
@@ -92,9 +119,11 @@ porovná také `BUILD_SHA` zapečené v immutable API image.
 8. Post-mode vyžaduje přesných 105 migration řádků, kompletní validované
    constraints/indexy/funkce a povolené triggery `0105`, všechny existující
    uživatele typu `internal` a nulu externích users/profilů/scopes/events.
-9. API smí startovat až po úspěšném one-shot gate. Při každém restartu ještě
-   jednou provede read-only postflight a teprve potom spustí server; startup API
-   již žádnou migraci automaticky neprovádí.
+9. Po úspěšném přechodu se nastaví `STAGING_SCHEMA_ACTION=steady-0105` a vymaže
+   confirmation i obě backup evidence proměnné. API smí startovat až po
+   úspěšném one-shot gate. Při každém restartu provede exact-0105 read-only
+   steady-state kontrolu a teprve potom spustí server; startup API již žádnou
+   migraci automaticky neprovádí a není svázaný se stářím historické zálohy.
 10. Ruční staging smoke ověří exact SHA, admin health, `0105`, 105/105,
     `runtimeEnabled=false`, prázdný inventář, interní login, desktop/mobile/PWA,
     S3 write/delete sondu a alert drill.

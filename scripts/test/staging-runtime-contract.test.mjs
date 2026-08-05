@@ -126,28 +126,33 @@ test("requires external accounts to stay explicitly disabled before staging star
   );
 });
 
-test("requires the exact 0105 schema gate before every staging API start", () => {
+test("separates inventory, transition and steady-state restart gates", () => {
   const compose = source("docker-compose.staging.yml");
   for (const [needle, replacement, expectedCode] of [
     [
-      "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=pre node dist/external-schema-preflight.mjs",
-      "        true",
+      "      - dist/external-schema-gate.mjs",
+      "      - dist/migrate.mjs",
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
-      "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=post node dist/external-schema-preflight.mjs",
-      "        true",
-      "STAGING_RUNTIME_CONTRACT_MISSING",
-    ],
-    [
-      "        node dist/external-schema-preflight.mjs &&",
+      "        node dist/external-schema-steady-state.mjs &&",
       "        true &&",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?set inspect, apply-0105 or steady-0105}",
+      "",
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
       '      PORT: "5000"',
       '      PORT: "5000"\n      BUILD_SHA: ${STAGING_BUILD_SHA}',
       "STAGING_API_BUILD_SHA_OVERRIDE_FORBIDDEN",
+    ],
+    [
+      '      PORT: "5000"',
+      '      PORT: "5000"\n      STAGING_BACKUP_EVIDENCE_ID: stale-transition-id',
+      "STAGING_API_TRANSITION_EVIDENCE_COUPLED",
     ],
   ]) {
     assert.throws(
@@ -162,12 +167,33 @@ test("requires the exact 0105 schema gate before every staging API start", () =>
   }
 
   const apiBuild = source("artifacts/api-server/build.mjs");
+  for (const entrypoint of [
+    "external-schema-preflight.ts",
+    "external-schema-inventory.ts",
+    "external-schema-steady-state.ts",
+    "external-schema-gate.ts",
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "artifacts/api-server/build.mjs": apiBuild.replace(
+            `      path.resolve(artifactDir, "src/${entrypoint}"),\n`,
+            "",
+          ),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
+
+  const gateRunner = source("artifacts/api-server/src/external-schema-gate.ts");
   assert.throws(
     () =>
       validateStagingRuntimeContract({
-        "artifacts/api-server/build.mjs": apiBuild.replace(
-          '      path.resolve(artifactDir, "src/external-schema-preflight.ts"),\n',
-          "",
+        "artifacts/api-server/src/external-schema-gate.ts": gateRunner.replace(
+          'if (action === "steady-0105")',
+          'if (action === "apply-0105")',
         ),
       }),
     (error) =>

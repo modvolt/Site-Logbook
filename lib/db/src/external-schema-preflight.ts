@@ -58,8 +58,7 @@ function requiredRaw(env: NodeJS.ProcessEnv, key: string): string {
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
 const STAGING_ID_PATTERN = /(^|[-_.])staging([-_.]|$)/i;
 
-export interface ExternalSchemaPreflightEnvironment {
-  mode: ExternalSchemaPreflightMode;
+export interface ExternalSchemaRuntimeEnvironment {
   databaseUrl: string;
   migrationsDir: string;
   environmentId: string;
@@ -67,32 +66,22 @@ export interface ExternalSchemaPreflightEnvironment {
   expectedDatabaseName: string;
   expectedDatabaseUser: string;
   buildSha: string;
+}
+
+export interface ExternalSchemaEnvironment extends ExternalSchemaRuntimeEnvironment {
   backupEvidenceId: number;
   backupRestoreMaxAgeHours: number;
 }
 
-/**
- * Validate the explicit, secret-free deployment identity before opening a DB
- * connection. The returned URL is for the runner only and must never be logged.
- */
-export function readExternalSchemaPreflightEnvironment(
+export interface ExternalSchemaPreflightEnvironment extends ExternalSchemaEnvironment {
+  mode: ExternalSchemaPreflightMode;
+}
+
+export type ExternalSchemaInventoryEnvironment = ExternalSchemaEnvironment;
+
+export function readExternalSchemaRuntimeEnvironment(
   env: NodeJS.ProcessEnv = process.env,
-): ExternalSchemaPreflightEnvironment {
-  const mode = requiredRaw(env, "EXTERNAL_SCHEMA_PREFLIGHT_MODE");
-  if (mode !== "pre" && mode !== "post") {
-    fail("MODE_INVALID", "EXTERNAL_SCHEMA_PREFLIGHT_MODE must be pre or post.");
-  }
-
-  if (
-    requiredRaw(env, "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION") !==
-    EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION
-  ) {
-    fail(
-      "CONFIRMATION_INVALID",
-      "The exact isolated-staging confirmation phrase is required.",
-    );
-  }
-
+): ExternalSchemaRuntimeEnvironment {
   const environmentId = requiredRaw(env, "STAGING_ENVIRONMENT_ID");
   if (environmentId !== "site-logbook-staging") {
     fail(
@@ -178,6 +167,21 @@ export function readExternalSchemaPreflightEnvironment(
   }
 
   const migrationsDir = path.resolve(required(env, "MIGRATIONS_DIR"));
+  return {
+    databaseUrl,
+    migrationsDir,
+    environmentId,
+    expectedDatabaseHost,
+    expectedDatabaseName,
+    expectedDatabaseUser,
+    buildSha,
+  };
+}
+
+function readExternalSchemaEnvironment(
+  env: NodeJS.ProcessEnv,
+): ExternalSchemaEnvironment {
+  const runtime = readExternalSchemaRuntimeEnvironment(env);
   const backupEvidenceId = Number(required(env, "STAGING_BACKUP_EVIDENCE_ID"));
   if (!Number.isSafeInteger(backupEvidenceId) || backupEvidenceId <= 0) {
     fail(
@@ -199,17 +203,50 @@ export function readExternalSchemaPreflightEnvironment(
     );
   }
   return {
-    mode,
-    databaseUrl,
-    migrationsDir,
-    environmentId,
-    expectedDatabaseHost,
-    expectedDatabaseName,
-    expectedDatabaseUser,
-    buildSha,
+    ...runtime,
     backupEvidenceId,
     backupRestoreMaxAgeHours,
   };
+}
+
+/**
+ * Validate the explicit, secret-free deployment identity before opening a DB
+ * connection. The returned URL is for the runner only and must never be logged.
+ */
+export function readExternalSchemaPreflightEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+): ExternalSchemaPreflightEnvironment {
+  const mode = requiredRaw(env, "EXTERNAL_SCHEMA_PREFLIGHT_MODE");
+  if (mode !== "pre" && mode !== "post") {
+    fail("MODE_INVALID", "EXTERNAL_SCHEMA_PREFLIGHT_MODE must be pre or post.");
+  }
+
+  if (
+    requiredRaw(env, "EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION") !==
+    EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION
+  ) {
+    fail(
+      "CONFIRMATION_INVALID",
+      "The exact isolated-staging confirmation phrase is required.",
+    );
+  }
+
+  const common = readExternalSchemaEnvironment(env);
+  return {
+    mode,
+    ...common,
+  };
+}
+
+/**
+ * Read-only inventory validates the same staging identity, image provenance,
+ * dark feature flag and backup binding as rollout preflight, but deliberately
+ * does not accept or require the 0105 mutation confirmation.
+ */
+export function readExternalSchemaInventoryEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+): ExternalSchemaInventoryEnvironment {
+  return readExternalSchemaEnvironment(env);
 }
 
 export interface MigrationJournalEntry {
@@ -463,6 +500,92 @@ export function validateExactAppliedMigrationSet(
       );
     }
   }
+}
+
+export type ExternalSchemaInventoryDecision =
+  | "BASELINE_0104_REQUIRED"
+  | "READY_0104"
+  | "ALREADY_0105";
+
+export interface ExternalSchemaInventoryClassification {
+  decision: ExternalSchemaInventoryDecision;
+  appliedMigrations: number;
+  predecessorMigrations: number;
+  latestAppliedTag: string | null;
+  missingToPredecessor: number;
+}
+
+/**
+ * Classify only an exact journal prefix. Missing middle entries, unknown rows,
+ * duplicate timestamps, hash drift and rows beyond 0105 are all hard stops.
+ */
+export function classifyExternalSchemaAppliedMigrations(
+  rows: readonly AppliedMigrationRow[],
+  bundle: ValidatedExternalSchemaBundle,
+): ExternalSchemaInventoryClassification {
+  if (rows.length > bundle.post.length) {
+    fail(
+      "APPLIED_COUNT_EXCEEDS_BUNDLE",
+      "Database migration journal contains rows beyond the approved 0105 bundle.",
+    );
+  }
+
+  const actualByWhen = new Map<number, string>();
+  for (const row of rows) {
+    const when = Number(row.created_at);
+    if (!Number.isSafeInteger(when) || typeof row.hash !== "string") {
+      fail(
+        "APPLIED_ROW_INVALID",
+        "Applied migration rows must have finite timestamps and hashes.",
+      );
+    }
+    if (actualByWhen.has(when)) {
+      fail(
+        "APPLIED_DUPLICATE",
+        "Applied migration created_at values must be unique.",
+      );
+    }
+    actualByWhen.set(when, row.hash.toLowerCase());
+  }
+
+  const expectedPrefix = bundle.post.slice(0, rows.length);
+  for (const migration of expectedPrefix) {
+    if (actualByWhen.get(migration.when) !== migration.hash) {
+      fail(
+        "APPLIED_PREFIX_MISMATCH",
+        `Database migration prefix/hash mismatch at ${migration.tag}.`,
+      );
+    }
+  }
+
+  const appliedMigrations = rows.length;
+  const predecessorMigrations = bundle.pre.length;
+  const latestAppliedTag = expectedPrefix.at(-1)?.tag ?? null;
+  if (appliedMigrations === bundle.post.length) {
+    return {
+      decision: "ALREADY_0105",
+      appliedMigrations,
+      predecessorMigrations,
+      latestAppliedTag,
+      missingToPredecessor: 0,
+    };
+  }
+  if (appliedMigrations === predecessorMigrations) {
+    return {
+      decision: "READY_0104",
+      appliedMigrations,
+      predecessorMigrations,
+      latestAppliedTag,
+      missingToPredecessor: 0,
+    };
+  }
+  return {
+    decision: "BASELINE_0104_REQUIRED",
+    appliedMigrations,
+    predecessorMigrations,
+    latestAppliedTag,
+    missingToPredecessor: predecessorMigrations - appliedMigrations,
+  };
 }
 
 const EXPECTED_TABLES = Object.freeze([
@@ -880,6 +1003,160 @@ export interface ExternalSchemaPreflightSummary {
   externalStateRows: number;
   backupEvidenceId: number;
   backupRestoreAgeHours: number;
+}
+
+export interface ExternalSchemaInventorySummary extends ExternalSchemaInventoryClassification {
+  environmentId: string;
+  databaseName: string;
+  databaseUser: string;
+  buildSha: string;
+  backupEvidenceId: number | null;
+  backupRestoreAgeHours: number | null;
+}
+
+export interface ExternalSchemaSteadyStateSummary {
+  decision: "ALREADY_0105";
+  environmentId: string;
+  databaseName: string;
+  databaseUser: string;
+  buildSha: string;
+  expectedMigrations: number;
+  latestExpectedTag: string;
+  externalStateRows: number;
+}
+
+/**
+ * Read-only restored-database inventory for R16-C3B. A valid prefix behind
+ * 0104 is reported as a separate baseline requirement; drift is never
+ * reinterpreted as a baseline candidate.
+ */
+export async function runExternalSchemaInventory(
+  config: ExternalSchemaInventoryEnvironment,
+): Promise<ExternalSchemaInventorySummary> {
+  const bundle = loadAndValidateExternalSchemaMigrationBundle(
+    config.migrationsDir,
+  );
+  const client = new Client({ connectionString: config.databaseUrl });
+  await client.connect();
+  let transactionOpen = false;
+  try {
+    await client.query("SELECT pg_advisory_lock($1)", [
+      EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+    ]);
+    try {
+      await client.query(
+        "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+      );
+      transactionOpen = true;
+      const applied = await client.query<AppliedMigrationRow>(
+        "SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id",
+      );
+      const classification = classifyExternalSchemaAppliedMigrations(
+        applied.rows,
+        bundle,
+      );
+      const stateMode =
+        classification.decision === "ALREADY_0105" ? "post" : "pre";
+      const state = await readDatabaseState(client, stateMode);
+      validateExternalSchemaDatabaseState(stateMode, state, config);
+
+      let backup: ValidatedStagingBackupEvidence | null = null;
+      if (classification.decision !== "ALREADY_0105") {
+        backup = validateStagingBackupEvidence(
+          await readLatestBackupEvidence(client),
+          config,
+        );
+      }
+
+      await client.query("COMMIT");
+      transactionOpen = false;
+      return {
+        ...classification,
+        environmentId: config.environmentId,
+        databaseName: state.databaseName,
+        databaseUser: state.databaseUser,
+        buildSha: config.buildSha,
+        backupEvidenceId: backup?.id ?? null,
+        backupRestoreAgeHours:
+          backup === null
+            ? null
+            : Math.round(backup.restoreAgeHours * 1000) / 1000,
+      };
+    } catch (error) {
+      if (transactionOpen)
+        await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      await client
+        .query("SELECT pg_advisory_unlock($1)", [
+          EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+        ])
+        .catch(() => undefined);
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Steady-state restart gate. It proves exact 0105, schema completeness, dark
+ * runtime and zero external rows without coupling routine restarts to the
+ * historical transition backup ID or its freshness window.
+ */
+export async function runExternalSchemaSteadyState(
+  config: ExternalSchemaRuntimeEnvironment,
+): Promise<ExternalSchemaSteadyStateSummary> {
+  const bundle = loadAndValidateExternalSchemaMigrationBundle(
+    config.migrationsDir,
+  );
+  const client = new Client({ connectionString: config.databaseUrl });
+  await client.connect();
+  let transactionOpen = false;
+  try {
+    await client.query("SELECT pg_advisory_lock($1)", [
+      EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+    ]);
+    try {
+      await client.query(
+        "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+      );
+      transactionOpen = true;
+      const applied = await client.query<AppliedMigrationRow>(
+        "SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id",
+      );
+      validateExactAppliedMigrationSet("post", applied.rows, bundle);
+      const state = await readDatabaseState(client, "post");
+      validateExternalSchemaDatabaseState("post", state, config);
+      await client.query("COMMIT");
+      transactionOpen = false;
+      return {
+        decision: "ALREADY_0105",
+        environmentId: config.environmentId,
+        databaseName: state.databaseName,
+        databaseUser: state.databaseUser,
+        buildSha: config.buildSha,
+        expectedMigrations: bundle.post.length,
+        latestExpectedTag: bundle.post.at(-1)?.tag ?? "",
+        externalStateRows:
+          state.externalUsers +
+          state.externalAccounts +
+          state.externalScopes +
+          state.externalEvents,
+      };
+    } catch (error) {
+      if (transactionOpen)
+        await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      await client
+        .query("SELECT pg_advisory_unlock($1)", [
+          EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+        ])
+        .catch(() => undefined);
+    }
+  } finally {
+    await client.end();
+  }
 }
 
 export async function runExternalSchemaPreflight(

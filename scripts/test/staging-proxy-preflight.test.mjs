@@ -7,16 +7,27 @@ import test from "node:test";
 
 function shellExecutable() {
   if (process.platform !== "win32") return "sh";
-  const execPath = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim();
+  const execPath = execFileSync("git", ["--exec-path"], {
+    encoding: "utf8",
+  }).trim();
   const candidate = path.resolve(execPath, "../../../usr/bin/sh.exe");
-  assert.equal(existsSync(candidate), true, "Git for Windows sh.exe is required");
+  assert.equal(
+    existsSync(candidate),
+    true,
+    "Git for Windows sh.exe is required",
+  );
   return candidate;
 }
 
-const validator = fileURLToPath(new URL(
-  "../../deploy/staging/preflight/validate-proxy-cidrs.sh",
-  import.meta.url,
-));
+const validator = fileURLToPath(
+  new URL(
+    "../../deploy/staging/preflight/validate-proxy-cidrs.sh",
+    import.meta.url,
+  ),
+);
+const boundaryPreflight = fileURLToPath(
+  new URL("../../deploy/staging/preflight/preflight.sh", import.meta.url),
+);
 
 function validate(value) {
   return spawnSync(shellExecutable(), [validator.replaceAll("\\", "/")], {
@@ -26,10 +37,7 @@ function validate(value) {
 }
 
 test("staging proxy preflight accepts explicit canonical IPv4 values", () => {
-  for (const value of [
-    "172.20.0.2",
-    "172.20.0.0/28,192.0.2.40",
-  ]) {
+  for (const value of ["172.20.0.2", "172.20.0.0/28,192.0.2.40"]) {
     const result = validate(value);
     assert.equal(result.status, 0, `${value}: ${result.stderr}`);
   }
@@ -53,4 +61,13 @@ test("staging proxy preflight rejects values the API would reject", () => {
     assert.notEqual(result.status, 0, value);
     assert.match(result.stderr, /STAGING PREFLIGHT FAILED/);
   }
+});
+
+test("staging boundary preflight remains valid POSIX shell", () => {
+  const result = spawnSync(
+    shellExecutable(),
+    ["-n", boundaryPreflight.replaceAll("\\", "/")],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
 });

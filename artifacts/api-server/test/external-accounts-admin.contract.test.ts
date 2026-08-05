@@ -8,11 +8,15 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 describe("R16-C2 authenticated external account surface", () => {
   it("keeps management internal, step-up protected, strict and idempotent", () => {
     const route = read("artifacts/api-server/src/routes/external-accounts.ts");
-    const policy = read("artifacts/api-server/src/lib/api-route-access-policy.ts");
+    const policy = read(
+      "artifacts/api-server/src/lib/api-route-access-policy.ts",
+    );
 
     expect(policy).toContain('prefixes: ["/external-accounts"]');
     expect(route).toContain('requirePermission("users.manage")');
-    expect(route.match(/requireVaultStepUp/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(route.match(/requireVaultStepUp/g)?.length).toBeGreaterThanOrEqual(
+      6,
+    );
     expect(route).toContain('req.get("Idempotency-Key")');
     expect(route).not.toContain("crypto.randomUUID");
     expect(route).toContain("z.strictObject");
@@ -21,7 +25,9 @@ describe("R16-C2 authenticated external account surface", () => {
   });
 
   it("scopes portal data in SQL and exposes only a redacted network-only DTO", () => {
-    const service = read("artifacts/api-server/src/lib/external-portal-service.ts");
+    const service = read(
+      "artifacts/api-server/src/lib/external-portal-service.ts",
+    );
     const route = read("artifacts/api-server/src/routes/external-portal.ts");
 
     expect(service).toContain("a.user_id = ${externalUserId}");
@@ -43,7 +49,9 @@ describe("R16-C2 authenticated external account surface", () => {
     const portal = read("artifacts/stavba/src/pages/external-portal.tsx");
 
     expect(app).toContain('user?.accountType === "external"');
-    expect(app.indexOf('user?.accountType === "external"')).toBeGreaterThan(app.indexOf("if (!isAuthenticated)"));
+    expect(app.indexOf('user?.accountType === "external"')).toBeGreaterThan(
+      app.indexOf("if (!isAuthenticated)"),
+    );
     expect(portal).not.toContain("useLiveUpdates");
     expect(portal).not.toContain("OfflineQueueProvider");
     expect(portal).not.toContain("<Layout");
@@ -69,13 +77,17 @@ describe("R16-C2 authenticated external account surface", () => {
     const stagingEnv = read(".env.staging.example");
     const compose = read("docker-compose.yml");
     const stagingCompose = read("docker-compose.staging.yml");
-    const manifest = read("artifacts/api-server/src/generated/api-route-manifest.ts");
+    const manifest = read(
+      "artifacts/api-server/src/generated/api-route-manifest.ts",
+    );
     const openapi = read("lib/api-spec/openapi.yaml");
 
     expect(env).toContain("EXTERNAL_ACCOUNTS_ENABLED=false");
     expect(stagingEnv).toContain("STAGING_EXTERNAL_ACCOUNTS_ENABLED=false");
     expect(compose).toContain("${EXTERNAL_ACCOUNTS_ENABLED:-false}");
-    expect(stagingCompose).toContain("${STAGING_EXTERNAL_ACCOUNTS_ENABLED:-false}");
+    expect(stagingCompose).toContain(
+      "${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
+    );
     expect(manifest).toContain('template: "/external-accounts"');
     expect(manifest).toContain('template: "/portal/resources"');
     expect(openapi).toContain("/external-accounts/{id}/activate:");
