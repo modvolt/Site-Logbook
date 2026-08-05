@@ -44,7 +44,7 @@ jobs:
       - name: Require exact green public source candidate
         shell: bash
         env:
-          APPROVED_SOURCE_REF: agent/phase13-staging-gate
+          APPROVED_SOURCE_REF: agent/phase16c3-staging-preflight
           PUBLICATION_CONFIRMED: ${{ inputs.confirm_registry_publication }}
           PUBLICATION_STAGE: ${{ inputs.publication_stage }}
           EXPECTED_PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}

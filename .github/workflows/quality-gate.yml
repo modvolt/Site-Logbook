@@ -46,6 +46,8 @@ jobs:
         run: pnpm prepare:staging-workflow-harness
       - name: Test staging guard, evidence, and runtime contracts
         run: pnpm test:staging-contract
+      - name: Test fail-closed external schema preflight
+        run: pnpm --filter @workspace/db test:external-schema-preflight
       - name: Isolated API database suites
         run: pnpm --filter @workspace/api-server test:db
         env:

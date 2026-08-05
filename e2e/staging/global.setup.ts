@@ -62,6 +62,51 @@ export default async function globalSetup() {
       );
     }
 
+    const adminHealthResponse = await context.get("/api/admin/health");
+    if (adminHealthResponse.status() !== 200) {
+      throw new Error(
+        `Staging bootstrap: admin diagnostics failed with HTTP ${adminHealthResponse.status()}.`,
+      );
+    }
+    const adminHealth = asRecord(
+      await adminHealthResponse.json(),
+      "Staging admin diagnostics",
+    );
+    if (
+      adminHealth.latestExpectedTag !== "0105_smooth_nitro" ||
+      adminHealth.expectedMigrations !== 105 ||
+      adminHealth.appliedMigrations !== 105 ||
+      adminHealth.migrationParity !== true ||
+      !Array.isArray(adminHealth.missingMigrationTags) ||
+      adminHealth.missingMigrationTags.length !== 0
+    ) {
+      throw new Error(
+        "Staging bootstrap: migration 0105 is not the exact applied dark-rollout schema.",
+      );
+    }
+
+    const externalAccountsResponse = await context.get(
+      "/api/external-accounts?status=all&limit=1",
+    );
+    if (externalAccountsResponse.status() !== 200) {
+      throw new Error(
+        `Staging bootstrap: external account inventory failed with HTTP ${externalAccountsResponse.status()}.`,
+      );
+    }
+    const externalAccounts = asRecord(
+      await externalAccountsResponse.json(),
+      "Staging external account inventory",
+    );
+    if (
+      externalAccounts.runtimeEnabled !== false ||
+      !Array.isArray(externalAccounts.items) ||
+      externalAccounts.items.length !== 0
+    ) {
+      throw new Error(
+        "Staging bootstrap: external accounts must remain disabled and empty during dark rollout.",
+      );
+    }
+
     await context.storageState({ path: stagingAuthFile });
     fs.writeFileSync(
       stagingBootstrapSummaryFile,
@@ -74,6 +119,14 @@ export default async function globalSetup() {
             dbStatus: health.dbStatus,
             migrationParity: health.migrationParity,
             version: health.version,
+            latestExpectedTag: adminHealth.latestExpectedTag,
+            expectedMigrations: adminHealth.expectedMigrations,
+            appliedMigrations: adminHealth.appliedMigrations,
+            missingMigrationTags: [],
+          },
+          darkRollout: {
+            externalAccountsEnabled: false,
+            externalAccountCount: 0,
           },
           authenticated: true,
         },

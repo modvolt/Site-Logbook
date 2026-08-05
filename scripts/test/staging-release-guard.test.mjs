@@ -10,6 +10,7 @@ const VALID_ENV = Object.freeze({
   STAGING_RELEASE_CONFIRM_ISOLATED: "true",
   STAGING_DEEP_STORAGE_PROBE_CONFIRMED: "true",
   STAGING_MAIL_SANDBOX_CONFIRMED: "true",
+  STAGING_EXTERNAL_ACCOUNTS_ENABLED: "false",
   STAGING_ENVIRONMENT_ID: "modvolt-staging-eu1",
   STAGING_BASE_URL: "https://stage-173.example.test",
   STAGING_EXPECTED_BUILD_SHA: "0123456789abcdef0123456789abcdef01234567",
@@ -21,6 +22,7 @@ test("accepts an explicitly isolated external staging target", () => {
   const config = readStagingReleaseEnvironment({ ...VALID_ENV });
   assert.equal(config.baseURL, "https://stage-173.example.test");
   assert.equal(config.expectedBuildSha, VALID_ENV.STAGING_EXPECTED_BUILD_SHA);
+  assert.equal(config.externalAccountsEnabled, false);
 });
 
 test("safe summary never exposes staging credentials", () => {
@@ -29,6 +31,23 @@ test("safe summary never exposes staging credentials", () => {
   assert.doesNotMatch(serialized, /staging-release-admin/);
   assert.doesNotMatch(serialized, /phase13-only-password/);
   assert.match(serialized, /adminPasswordConfigured/);
+  assert.equal(
+    safeStagingReleaseSummary(config).externalAccountsEnabled,
+    false,
+  );
+});
+
+test("requires the external accounts dark-rollout flag to equal exactly false", () => {
+  for (const value of [undefined, "", "true", "False", "0", " false "]) {
+    assert.throws(
+      () =>
+        readStagingReleaseEnvironment({
+          ...VALID_ENV,
+          STAGING_EXTERNAL_ACCOUNTS_ENABLED: value,
+        }),
+      /STAGING_EXTERNAL_ACCOUNTS_FLAG_UNSAFE/,
+    );
+  }
 });
 
 test("requires all explicit safety confirmations", () => {

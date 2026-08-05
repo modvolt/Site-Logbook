@@ -32,8 +32,25 @@ test("isolated admin identity and deep diagnostics pass", async ({
   expect(health.storageStatus).toBe("ok");
   expect(health.storageIsDevFallback).toBe(false);
   expect(health.smtpStatus).toBe("configured");
-  expect(health.appliedMigrations).toBe(health.expectedMigrations);
+  expect(health.latestExpectedTag).toBe("0105_smooth_nitro");
+  expect(health.expectedMigrations).toBe(105);
+  expect(health.appliedMigrations).toBe(105);
   expect(health.missingMigrationTags).toEqual([]);
+});
+
+test("external accounts remain disabled and empty during dark rollout", async ({
+  request,
+}) => {
+  const response = await request.get(
+    "/api/external-accounts?status=all&limit=1",
+  );
+  expect(response.status()).toBe(200);
+  const inventory = asRecord(
+    await response.json(),
+    "External account dark-rollout inventory",
+  );
+  expect(inventory.runtimeEnabled).toBe(false);
+  expect(inventory.items).toEqual([]);
 });
 
 test("deployed PWA manifest and service worker assets are reachable", async ({

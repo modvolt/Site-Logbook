@@ -35,8 +35,8 @@ test("accepts the immutable pull-only staging runtime", () => {
   const summary = validateStagingRuntimeContract();
   assert.equal(summary.decision, "PASS");
   assert.equal(summary.runtimeBuildDefinitions, 0);
-  assert.equal(summary.totalCpuLimit, 2.5);
-  assert.equal(summary.totalMemoryLimitMiB, 2432);
+  assert.equal(summary.totalCpuLimit, 2.75);
+  assert.equal(summary.totalMemoryLimitMiB, 2816);
   assert.equal(summary.immutableCustomImages, 5);
   assert.equal(summary.publicationMode, "private-caller-ghcr-no-deploy");
 });
@@ -66,6 +66,129 @@ test("rejects a Coolify host build or resource-limit drift", () => {
     (error) =>
       error instanceof StagingRuntimeContractError &&
       error.code === "STAGING_RESOURCE_LIMIT_DRIFT",
+  );
+});
+
+test("requires external accounts to stay explicitly disabled before staging starts", () => {
+  const compose = source("docker-compose.staging.yml");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "docker-compose.staging.yml": compose.replace(
+          "      STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
+          "",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+
+  const exampleEnv = source(".env.staging.example");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        ".env.staging.example": exampleEnv.replace(
+          "STAGING_EXTERNAL_ACCOUNTS_ENABLED=false",
+          "STAGING_EXTERNAL_ACCOUNTS_ENABLED=true",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_EXTERNAL_ACCOUNTS_DARK_ROLLOUT_BROKEN",
+  );
+
+  const preflight = source("deploy/staging/preflight/preflight.sh");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "deploy/staging/preflight/preflight.sh": preflight.replace(
+          '[ "$STAGING_EXTERNAL_ACCOUNTS_ENABLED" = "false" ]',
+          '[ "$STAGING_EXTERNAL_ACCOUNTS_ENABLED" = "true" ]',
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "deploy/staging/preflight/preflight.sh": preflight.replace(
+          "APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING",
+          "ALLOW_ANY_SCHEMA_CHANGE",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+});
+
+test("requires the exact 0105 schema gate before every staging API start", () => {
+  const compose = source("docker-compose.staging.yml");
+  for (const [needle, replacement, expectedCode] of [
+    [
+      "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=pre node dist/external-schema-preflight.mjs",
+      "        true",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=post node dist/external-schema-preflight.mjs",
+      "        true",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "        node dist/external-schema-preflight.mjs &&",
+      "        true &&",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      '      PORT: "5000"',
+      '      PORT: "5000"\n      BUILD_SHA: ${STAGING_BUILD_SHA}',
+      "STAGING_API_BUILD_SHA_OVERRIDE_FORBIDDEN",
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "docker-compose.staging.yml": compose.replace(needle, replacement),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === expectedCode,
+    );
+  }
+
+  const apiBuild = source("artifacts/api-server/build.mjs");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "artifacts/api-server/build.mjs": apiBuild.replace(
+          '      path.resolve(artifactDir, "src/external-schema-preflight.ts"),\n',
+          "",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+});
+
+test("keeps the external schema preflight in the exact-SHA Quality gate", () => {
+  const workflow = source(".github/workflows/quality-gate.yml");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        ".github/workflows/quality-gate.yml": workflow.replace(
+          "pnpm --filter @workspace/db test:external-schema-preflight",
+          "true",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
   );
 });
 
@@ -156,7 +279,7 @@ test("requires exact source branch, PR head, and checkout coupling", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
     workflow.replace(
-      "APPROVED_SOURCE_REF: agent/phase13-staging-gate",
+      "APPROVED_SOURCE_REF: agent/phase16c3-staging-preflight",
       "APPROVED_SOURCE_REF: arbitrary-ref",
     ),
     "STAGING_IMAGE_SOURCE_GUARD_MISSING",

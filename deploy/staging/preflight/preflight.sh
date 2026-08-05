@@ -41,6 +41,20 @@ esac
 [ "${#STAGING_BUILD_SHA}" -eq 40 ] \
   || fail "build SHA must be 40 lowercase hexadecimal characters"
 case "$STAGING_BUILD_SHA" in *[!0-9a-f]*) fail "build SHA must be 40 lowercase hexadecimal characters" ;; esac
+[ "${#STAGING_IMAGE_MANIFEST_SOURCE_SHA}" -eq 40 ] \
+  || fail "image manifest source SHA must be 40 lowercase hexadecimal characters"
+case "$STAGING_IMAGE_MANIFEST_SOURCE_SHA" in *[!0-9a-f]*) fail "image manifest source SHA must be 40 lowercase hexadecimal characters" ;; esac
+[ "$STAGING_IMAGE_MANIFEST_SOURCE_SHA" = "$STAGING_BUILD_SHA" ] \
+  || fail "image manifest source SHA must match the deployed build SHA"
+[ "$STAGING_EXTERNAL_ACCOUNTS_ENABLED" = "false" ] \
+  || fail "external accounts must stay explicitly disabled during the dark rollout"
+[ "$STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION" = "APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING" ] \
+  || fail "the exact isolated 0105 staging confirmation is required"
+case "$STAGING_BACKUP_EVIDENCE_ID" in ''|*[!0-9]*|0) fail "backup evidence id must be a positive integer" ;; esac
+case "$STAGING_BACKUP_RESTORE_MAX_AGE_HOURS" in ''|*[!0-9]*) fail "backup restore maximum age must be an integer from 1 through 168" ;; esac
+[ "$STAGING_BACKUP_RESTORE_MAX_AGE_HOURS" -ge 1 ] 2>/dev/null \
+  && [ "$STAGING_BACKUP_RESTORE_MAX_AGE_HOURS" -le 168 ] 2>/dev/null \
+  || fail "backup restore maximum age must be an integer from 1 through 168"
 
 validate_immutable_image() {
   image_ref=$1

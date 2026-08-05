@@ -25,6 +25,7 @@ async function buildAll() {
     entryPoints: [
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/migrate.ts"),
+      path.resolve(artifactDir, "src/external-schema-preflight.ts"),
     ],
     platform: "node",
     bundle: true,

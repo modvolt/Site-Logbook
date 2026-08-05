@@ -103,6 +103,12 @@ function readStagingReleaseEnvironment(env = process.env) {
     "STAGING_MAIL_SANDBOX_CONFIRMED",
     "confirm outbound mail is trapped by a sandbox",
   );
+  if (env.STAGING_EXTERNAL_ACCOUNTS_ENABLED !== "false") {
+    fail(
+      "STAGING_EXTERNAL_ACCOUNTS_FLAG_UNSAFE",
+      "STAGING_EXTERNAL_ACCOUNTS_ENABLED must equal exactly false for the dark rollout.",
+    );
+  }
 
   const environmentId = required(env, "STAGING_ENVIRONMENT_ID");
   if (!STAGING_NAME_PATTERN.test(environmentId)) {
@@ -137,6 +143,7 @@ function readStagingReleaseEnvironment(env = process.env) {
     environmentId,
     baseURL,
     expectedBuildSha,
+    externalAccountsEnabled: false,
     adminUsername,
     adminPassword,
   });
@@ -151,6 +158,7 @@ function safeStagingReleaseSummary(config) {
     isolationConfirmed: true,
     deepStorageProbeConfirmed: true,
     mailSandboxConfirmed: true,
+    externalAccountsEnabled: config.externalAccountsEnabled,
     adminUsernameConfigured: Boolean(config.adminUsername),
     adminPasswordConfigured: Boolean(config.adminPassword),
   };

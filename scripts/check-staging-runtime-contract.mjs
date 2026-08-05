@@ -41,6 +41,11 @@ const EXPECTED_RESOURCES = Object.freeze({
     memLimit: "768m",
     memReservation: "512m",
   },
+  "external-schema-gate": {
+    cpus: "0.25",
+    memLimit: "384m",
+    memReservation: "192m",
+  },
   mailpit: {
     cpus: "0.25",
     memLimit: "256m",
@@ -227,6 +232,12 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const relativePath of Object.keys(EXPECTED_BASE_IMAGES)) {
     validateDockerfile(relativePath, readSource(relativePath, overrides));
   }
+  const apiBuild = readSource("artifacts/api-server/build.mjs", overrides);
+  requireText(
+    apiBuild,
+    'path.resolve(artifactDir, "src/external-schema-preflight.ts")',
+    "API external schema preflight bundle entrypoint",
+  );
   const receiverDockerfile = readSource(
     "deploy/operational-alert-receiver/Dockerfile",
     overrides,
@@ -256,12 +267,55 @@ export function validateStagingRuntimeContract(overrides = {}) {
   const apiBlock = serviceBlock(compose, "api");
   for (const boundary of [
     "      API_TRUSTED_PROXY_CIDRS: ${STAGING_API_TRUSTED_PROXY_CIDRS:?set exact staging nginx/edge proxy CIDRs}",
+    "      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
     "      OPERATIONAL_ALERT_TRANSPORT: https_webhook",
     "      OPERATIONAL_ALERT_WEBHOOK_URL: ${STAGING_OPERATIONAL_ALERT_RECEIVER_URL:?set the public staging alert receiver HTTPS URL}",
     "      OPERATIONAL_ALERT_WEBHOOK_ALLOWED_HOSTS: ${STAGING_OPERATIONAL_ALERT_RECEIVER_HOST:?set the exact staging alert receiver hostname}",
     "      OPERATIONAL_ALERT_WEBHOOK_BEARER_TOKEN: ${STAGING_OPERATIONAL_ALERT_BEARER_TOKEN:?set a staging-only operational alert bearer token}",
   ]) {
     requireText(apiBlock, boundary, `API alert transport boundary ${boundary}`);
+  }
+  const schemaGateBlock = serviceBlock(compose, "external-schema-gate");
+  for (const boundary of [
+    "    read_only: true",
+    "      - ALL",
+    "      - no-new-privileges:true",
+    "      EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION:?set only after separate approval of the isolated 0105 staging migration}",
+    "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
+    "      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
+    "      STAGING_DATABASE_HOST: postgres",
+    "      STAGING_DATABASE_NAME: site_logbook_staging",
+    "      STAGING_DATABASE_USER: site_logbook_staging",
+    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID:?set the newest successful and restore-tested backup_log id}",
+    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:?set an approved integer from 1 through 168}",
+    "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=pre node dist/external-schema-preflight.mjs",
+    "        node dist/migrate.mjs",
+    "        EXTERNAL_SCHEMA_PREFLIGHT_MODE=post node dist/external-schema-preflight.mjs",
+    "      disable: true",
+  ]) {
+    requireText(
+      schemaGateBlock,
+      boundary,
+      `external schema gate boundary ${boundary}`,
+    );
+  }
+  for (const boundary of [
+    "      external-schema-gate:",
+    "        condition: service_completed_successfully",
+    "      EXTERNAL_SCHEMA_PREFLIGHT_MODE: post",
+    "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
+    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID:?set the newest successful and restore-tested backup_log id}",
+    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:?set an approved integer from 1 through 168}",
+    "        node dist/external-schema-preflight.mjs &&",
+    "        exec node --enable-source-maps dist/index.mjs",
+  ]) {
+    requireText(apiBlock, boundary, `API postflight boundary ${boundary}`);
+  }
+  if (/^ {6}BUILD_SHA:/m.test(apiBlock)) {
+    fail(
+      "STAGING_API_BUILD_SHA_OVERRIDE_FORBIDDEN",
+      "The API must keep the immutable image's baked BUILD_SHA.",
+    );
   }
 
   const exampleEnv = readSource(".env.staging.example", overrides);
@@ -270,6 +324,20 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "STAGING_API_TRUSTED_PROXY_CIDRS=",
     "staging trusted proxy input",
   );
+  if (!/^STAGING_EXTERNAL_ACCOUNTS_ENABLED=false$/m.test(exampleEnv)) {
+    fail(
+      "STAGING_EXTERNAL_ACCOUNTS_DARK_ROLLOUT_BROKEN",
+      "STAGING_EXTERNAL_ACCOUNTS_ENABLED must be explicitly false in .env.staging.example.",
+    );
+  }
+  for (const input of [
+    "STAGING_IMAGE_MANIFEST_SOURCE_SHA=",
+    "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION=",
+    "STAGING_BACKUP_EVIDENCE_ID=",
+    "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS=24",
+  ]) {
+    requireText(exampleEnv, input, `external schema staging input ${input}`);
+  }
   for (const variable of REQUIRED_IMAGE_VARIABLES) {
     if (!new RegExp(`^${variable}=$`, "m").test(exampleEnv)) {
       fail(
@@ -283,7 +351,46 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "deploy/staging/preflight/preflight.sh",
     overrides,
   );
-  requireText(preflight, ". /usr/local/lib/staging-proxy-cidrs.sh", "staging trusted proxy preflight");
+  const preflightBlock = serviceBlock(compose, "staging-preflight");
+  requireText(
+    preflightBlock,
+    "      STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
+    "staging preflight external-account flag input",
+  );
+  for (const boundary of [
+    "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
+    "      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION:?set only after separate approval of the isolated 0105 staging migration}",
+    "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID:?set the newest successful and restore-tested backup_log id}",
+    "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS:?set an approved integer from 1 through 168}",
+  ]) {
+    requireText(
+      preflightBlock,
+      boundary,
+      `staging preflight input ${boundary}`,
+    );
+  }
+  requireText(
+    preflight,
+    '[ "$STAGING_EXTERNAL_ACCOUNTS_ENABLED" = "false" ]',
+    "staging preflight external-account dark-rollout guard",
+  );
+  for (const boundary of [
+    '[ "$STAGING_IMAGE_MANIFEST_SOURCE_SHA" = "$STAGING_BUILD_SHA" ]',
+    '[ "$STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION" = "APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING" ]',
+    'case "$STAGING_BACKUP_EVIDENCE_ID" in',
+    '"$STAGING_BACKUP_RESTORE_MAX_AGE_HOURS" -le 168',
+  ]) {
+    requireText(
+      preflight,
+      boundary,
+      `staging preflight fail-closed guard ${boundary}`,
+    );
+  }
+  requireText(
+    preflight,
+    ". /usr/local/lib/staging-proxy-cidrs.sh",
+    "staging trusted proxy preflight",
+  );
   const proxyPreflight = readSource(
     "deploy/staging/preflight/validate-proxy-cidrs.sh",
     overrides,
@@ -370,7 +477,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   requirePublicationText(
     publishWorkflow,
-    "APPROVED_SOURCE_REF: agent/phase13-staging-gate",
+    "APPROVED_SOURCE_REF: agent/phase16c3-staging-preflight",
     "STAGING_IMAGE_SOURCE_GUARD_MISSING",
     "approved candidate ref",
   );
@@ -857,14 +964,19 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "pnpm test:staging-contract",
     "Quality gate staging contract tests",
   );
+  requireText(
+    qualityWorkflow,
+    "pnpm --filter @workspace/db test:external-schema-preflight",
+    "Quality gate external schema preflight tests",
+  );
 
   return Object.freeze({
     schemaVersion: 1,
     decision: "PASS",
     runtimeBuildDefinitions: 0,
     services: Object.keys(EXPECTED_RESOURCES),
-    totalCpuLimit: 2.5,
-    totalMemoryLimitMiB: 2432,
+    totalCpuLimit: 2.75,
+    totalMemoryLimitMiB: 2816,
     immutableCustomImages: REQUIRED_IMAGE_VARIABLES.length,
     pinnedBaseImageFamilies: 5,
     publicationMode: "private-caller-ghcr-no-deploy",

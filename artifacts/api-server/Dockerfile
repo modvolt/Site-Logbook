@@ -33,7 +33,7 @@ COPY attached_assets ./attached_assets
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 
-# Bundle the API (produces dist/index.mjs and dist/migrate.mjs).
+# Bundle the API, migrator and read-only external-schema pre/postflight.
 RUN pnpm --filter @workspace/api-server run build
 
 # Produce a pruned, production-only node_modules at /app. Reuse the same warm
@@ -73,7 +73,7 @@ ENV BUILD_SHA=$BUILD_SHA
 
 # Runtime deps that esbuild keeps external (e.g. @aws-sdk, nodemailer).
 COPY --from=builder /app/node_modules ./node_modules
-# Bundled server + migrator + pino transport workers.
+# Bundled server + migrator + external-schema pre/postflight + pino workers.
 COPY --from=builder /repo/artifacts/api-server/dist ./dist
 # SQL migrations (read at startup by dist/migrate.mjs).
 COPY --from=builder /repo/lib/db/migrations ./migrations
