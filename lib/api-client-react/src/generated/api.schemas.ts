@@ -3405,16 +3405,6 @@ export interface PpeConfirmLinkResponse {
   emailSent: boolean;
 }
 
-export interface PpeConfirmInput {
-  token: string;
-}
-
-export interface PpeConfirmResult {
-  /** True if the assignment was already confirmed before this request */
-  already: boolean;
-  assignment: PpeAssignment;
-}
-
 export interface PpeSignHandoverInput {
   /** PNG signature as data URL (data:image/png;base64,...) */
   signatureDataUrl: string;
@@ -7071,118 +7061,6 @@ export interface ConvertQuoteToJobResult {
   jobGroupId: number;
 }
 
-export type PublicQuoteDetailStatus = typeof PublicQuoteDetailStatus[keyof typeof PublicQuoteDetailStatus];
-
-
-export const PublicQuoteDetailStatus = {
-  draft: 'draft',
-  sent: 'sent',
-  accepted: 'accepted',
-  rejected: 'rejected',
-  expired: 'expired',
-} as const;
-
-export interface PublicQuoteItem {
-  id: number;
-  position: number;
-  description: string;
-  quantity: number;
-  /** @nullable */
-  unit?: string | null;
-  unitPrice: number;
-  /** @nullable */
-  vatRate?: number | null;
-  totalWithoutVat: number;
-  totalVat: number;
-  totalWithVat: number;
-}
-
-export interface PublicQuoteDetail {
-  /** @nullable */
-  quoteNumber?: string | null;
-  /** @minimum 1 */
-  quoteVersion: number;
-  snapshotSha256: Sha256Hex;
-  pdfSha256: Sha256Hex;
-  confirmationText: string;
-  title: string;
-  status: PublicQuoteDetailStatus;
-  /** @nullable */
-  validUntil?: string | null;
-  /** @nullable */
-  notes?: string | null;
-  /** @nullable */
-  customerCompanyName?: string | null;
-  /** @nullable */
-  supplierName?: string | null;
-  /** @nullable */
-  supplierAddress?: string | null;
-  /** @nullable */
-  supplierEmail?: string | null;
-  /** @nullable */
-  supplierPhone?: string | null;
-  items: PublicQuoteItem[];
-  subtotalWithoutVat: number;
-  totalVat: number;
-  totalWithVat: number;
-  vatPayer: boolean;
-  createdAt: string;
-}
-
-export interface PublicQuoteDecisionInput {
-  /**
-     * Self-declared identity of the person accepting or rejecting this exact version
-     * @minLength 2
-     * @maxLength 120
-     */
-  respondentName: string;
-}
-
-export interface QuotePublicActionResult {
-  accepted?: boolean;
-  rejected?: boolean;
-  /** @minimum 1 */
-  quoteVersion: number;
-  snapshotSha256: Sha256Hex;
-}
-
-export interface PublicJobDocument {
-  jobId: number;
-  /** @minimum 1 */
-  documentVersion: number;
-  snapshotSha256: Sha256Hex;
-  title: string;
-  date: string;
-  /** @nullable */
-  customerCompanyName?: string | null;
-  /** @nullable */
-  notes?: string | null;
-  confirmationText: string;
-  alreadySigned: boolean;
-  /** @nullable */
-  signedAt?: string | null;
-  expired: boolean;
-}
-
-export interface PublicJobSignatureInput {
-  /**
-     * Self-declared identity of the person signing the immutable version
-     * @minLength 2
-     * @maxLength 120
-     */
-  signatoryName: string;
-  /** @pattern ^data:image/png;base64, */
-  signatureDataUrl: string;
-}
-
-export interface PublicJobSignatureResult {
-  signedAt: string;
-  /** @minimum 1 */
-  documentVersion: number;
-  snapshotSha256: Sha256Hex;
-  pdfSha256: Sha256Hex;
-}
-
 export type ListJobsParams = {
 /**
  * ISO date string (YYYY-MM-DD)
@@ -7467,10 +7345,6 @@ export const ExportPpeAssignmentsFormat = {
   pdf: 'pdf',
   csv: 'csv',
 } as const;
-
-export type GetPpeConfirmDetailsParams = {
-token: string;
-};
 
 export type ListClientErrorsParams = {
 limit?: number;

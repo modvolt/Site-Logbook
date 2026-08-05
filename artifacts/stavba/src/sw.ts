@@ -18,6 +18,7 @@ import {
   isOfflineCacheableApiPath,
   isValidOfflineScope,
 } from "./lib/offline-cache-policy";
+import { publicGrantApiFamily } from "./lib/public-api-policy";
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -173,6 +174,10 @@ registerRoute(
     sameOrigin && url.pathname.startsWith("/api/") && url.pathname !== "/api/events",
   async (options) => {
     const event = options.event as FetchEvent;
+    const requestUrl = new URL(options.request.url);
+    if (publicGrantApiFamily(options.request.method, requestUrl.pathname)) {
+      return fetch(options.request);
+    }
     const clientId = eventClientId(event);
     const scope = clientId ? clientScopes.get(clientId) : undefined;
     if (!scope) {

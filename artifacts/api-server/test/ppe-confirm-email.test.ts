@@ -119,6 +119,11 @@ describe("request-confirm: person WITH email", () => {
     expect(res.body.confirmUrl.length).toBeGreaterThan(0);
     expect(res.body.confirmUrl).toMatch(/^https:\/\/ppe\.test\//);
     expect(res.body.confirmUrl).not.toContain("attacker.example");
+    const confirmUrl = new URL(res.body.confirmUrl);
+    expect(confirmUrl.pathname).toBe("/oopp/potvrdit");
+    expect(confirmUrl.search).toBe("");
+    expect(new URLSearchParams(confirmUrl.hash.slice(1)).get("token"))
+      .toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
   it("calls sendPlainEmail once with the person's email address", async () => {

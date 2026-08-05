@@ -54,6 +54,19 @@ describe("public bearer request-log redaction", () => {
     expect(redactPublicBearerPath("/api/quotes/42/send")).toBe("/api/quotes/42/send");
   });
 
+  it("never serializes the Authorization header on canonical public routes", () => {
+    const serialized = serializeRequestForLog({
+      id: "request-id",
+      method: "GET",
+      url: "/api/sign",
+      headers: { authorization: `Bearer ${RAW_TOKEN}` },
+    } as Parameters<typeof serializeRequestForLog>[0]);
+
+    expect(serialized.url).toBe("/api/sign");
+    expect(JSON.stringify(serialized)).not.toContain(RAW_TOKEN);
+    expect(serialized).not.toHaveProperty("headers");
+  });
+
   it("wires the sanitizer into request logging, the 5xx ring buffer, and explicit error logs", () => {
     const appSource = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
 

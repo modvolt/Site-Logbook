@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { useSearch } from "wouter";
+import { useEffect, useRef, useState } from "react";
 import { ShieldCheck, CheckCircle2, AlertCircle, Loader2, ClipboardCheck, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { clearPublicGrant, publicGrantToken } from "@/lib/public-grant-bootstrap";
+import { publicGrantFetch } from "@/lib/public-grant-fetch";
 
 interface AssignmentDetails {
   id: number;
@@ -30,20 +31,20 @@ function formatDate(dateStr: string): string {
 }
 
 export default function PpeConfirm() {
-  const search = useSearch();
-  const token = new URLSearchParams(search).get("token") ?? "";
+  const hasGrant = useRef(publicGrantToken("ppe_confirmation") !== null).current;
 
   const [state, setState] = useState<PageState>({ kind: "loading" });
 
   useEffect(() => {
-    if (!token) {
-      setState({ kind: "error", message: "Odkaz neobsahuje platný token." });
+    if (!hasGrant) {
+      setState({ kind: "error", message: "Otevřete původní potvrzovací odkaz znovu." });
       return;
     }
-    fetch(`/api/ppe/confirm?token=${encodeURIComponent(token)}`)
+    publicGrantFetch("ppe_confirmation", "/api/ppe/confirm")
       .then(async (r) => {
         if (r.status === 410) {
           setState({ kind: "expired" });
+          clearPublicGrant("ppe_confirmation");
           return null;
         }
         if (!r.ok) {
@@ -56,24 +57,26 @@ export default function PpeConfirm() {
         if (!assignment) return;
         if (assignment.employeeConfirmedAt) {
           setState({ kind: "done", alreadyConfirmed: true, assignment });
+          clearPublicGrant("ppe_confirmation");
         } else {
           setState({ kind: "ready", assignment });
         }
       })
       .catch((err) => setState({ kind: "error", message: err.message }));
-  }, [token]);
+  }, [hasGrant]);
 
   const handleConfirm = async () => {
     if (state.kind !== "ready") return;
     setState({ kind: "confirming", assignment: state.assignment });
     try {
-      const r = await fetch("/api/ppe/confirm", {
+      const r = await publicGrantFetch("ppe_confirmation", "/api/ppe/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({}),
       });
       if (r.status === 410) {
         setState({ kind: "expired" });
+        clearPublicGrant("ppe_confirmation");
         return;
       }
       if (!r.ok) {
@@ -83,6 +86,7 @@ export default function PpeConfirm() {
       }
       const result = await r.json() as { already: boolean; assignment: AssignmentDetails };
       setState({ kind: "done", alreadyConfirmed: result.already, assignment: result.assignment });
+      clearPublicGrant("ppe_confirmation");
     } catch {
       setState({ kind: "error", message: "Nepodařilo se odeslat potvrzení. Zkuste to znovu." });
     }

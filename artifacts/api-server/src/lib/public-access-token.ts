@@ -16,6 +16,9 @@ import {
   type PublicAccessTokenPurpose,
   type UserRole,
 } from "@workspace/db";
+import { isPlausiblePublicAccessToken } from "./public-access-token-format";
+
+export { isPlausiblePublicAccessToken } from "./public-access-token-format";
 import { SESSION_ISSUANCE_LOCK_NAMESPACE } from "./auth-session";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -28,7 +31,6 @@ const RESOURCE_TYPE: Record<PublicAccessTokenPurpose, string> = {
   quote_decision: "quote",
 };
 
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKEN_LIFETIME_MS = 365 * DAY_MS;
 
@@ -97,10 +99,6 @@ export class PublicAccessTokenIssuanceError extends Error {
     super(`Public access token issuance rejected: ${code}.`);
     this.name = "PublicAccessTokenIssuanceError";
   }
-}
-
-export function isPlausiblePublicAccessToken(token: string): boolean {
-  return TOKEN_PATTERN.test(token);
 }
 
 export function hashPublicAccessToken(token: string): string {

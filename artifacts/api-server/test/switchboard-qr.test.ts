@@ -81,7 +81,7 @@ describe("opaque switchboard QR tokens", () => {
   it("builds only the opaque public path and hashes audit IPs deterministically", () => {
     const token = createQrToken();
     expect(publicQrUrl(token)).toBe(
-      `https://example.test/q/board/${token}`,
+      `https://example.test/q/board#token=${token}`,
     );
     expect(hashAuditIp("192.0.2.1")).toBe(hashAuditIp("192.0.2.1"));
     expect(hashAuditIp("192.0.2.1")).not.toContain("192.0.2.1");

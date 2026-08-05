@@ -37,6 +37,13 @@ const personIds: number[] = [];
 const itemIds: number[] = [];
 const assignmentIds: number[] = [];
 
+function tokenFromGrantUrl(value: string, pathname: string): string {
+  const url = new URL(value);
+  expect(url.pathname).toBe(pathname);
+  expect(url.search).toBe("");
+  return new URLSearchParams(url.hash.slice(1)).get("token") ?? "";
+}
+
 beforeAll(async () => {
   process.env.PUBLIC_APP_URL = "https://ppe-contract.test";
   const [admin] = await db
@@ -412,7 +419,7 @@ describe("employee confirmation signature flow", () => {
     expect(res.status).toBe(200);
     expect(res.body.token).toBeUndefined();
     expect(typeof res.body.confirmUrl).toBe("string");
-    confirmToken = new URL(res.body.confirmUrl).searchParams.get("token") ?? "";
+    confirmToken = tokenFromGrantUrl(res.body.confirmUrl, "/oopp/potvrdit");
     expect(confirmToken.length).toBeGreaterThan(30);
   });
 
@@ -518,12 +525,12 @@ describe("employee signature-link lifecycle", () => {
     const first = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
     expect(first.status).toBe(200);
     expect(first.body.token).toBeUndefined();
-    const firstToken = new URL(first.body.signUrl).pathname.split("/").at(-1) ?? "";
+    const firstToken = tokenFromGrantUrl(first.body.signUrl, "/oopp/sign");
     expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
     const second = await adminAgent.post(`/api/ppe/assignments/${signAssignmentId}/sign-token`);
     expect(second.status).toBe(200);
-    const secondToken = new URL(second.body.signUrl).pathname.split("/").at(-1) ?? "";
+    const secondToken = tokenFromGrantUrl(second.body.signUrl, "/oopp/sign");
     expect(secondToken).not.toBe(firstToken);
     expect((await request(app).get(`/api/ppe/sign/${firstToken}`)).status).toBe(410);
     expect((await request(app).get(`/api/ppe/sign/${secondToken}`)).status).toBe(200);
@@ -613,8 +620,8 @@ describe("request-confirm guards", () => {
     expect(first.status).toBe(200);
     const second = await adminAgent.post(`/api/ppe/assignments/${assignment.id}/request-confirm`);
     expect(second.status).toBe(200);
-    const firstToken = new URL(first.body.confirmUrl).searchParams.get("token");
-    const secondToken = new URL(second.body.confirmUrl).searchParams.get("token");
+    const firstToken = tokenFromGrantUrl(first.body.confirmUrl, "/oopp/potvrdit");
+    const secondToken = tokenFromGrantUrl(second.body.confirmUrl, "/oopp/potvrdit");
     expect(firstToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(secondToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(secondToken).not.toBe(firstToken);

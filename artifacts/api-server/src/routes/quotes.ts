@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod/v4";
 import {
   CreateQuoteBody,
@@ -35,6 +35,11 @@ import {
   listQuoteEvidence,
   reopenQuoteRevision,
 } from "../lib/quote-version-service";
+import {
+  assertNoAuthorizationCredential,
+  readPublicBearerToken,
+  sendPublicBearerCredentialError,
+} from "../lib/public-bearer-auth";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -102,12 +107,34 @@ function handleError(err: unknown, fallback: string, res: import("express").Resp
 // These MUST be declared before the requireRole("admin") middleware below.
 // ---------------------------------------------------------------------------
 
-router.get("/quotes/public/:token", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token || !isValidToken(token)) {
-    res.status(400).json({ error: "Neplatný token nabídky." });
-    return;
+function publicQuoteToken(
+  req: Request,
+  res: Response,
+  legacyToken?: string,
+): string | null {
+  try {
+    if (legacyToken !== undefined) {
+      assertNoAuthorizationCredential(req);
+      return legacyToken;
+    }
+    return readPublicBearerToken(req);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
   }
+}
+
+function isUsableQuoteToken(token: string, res: Response): boolean {
+  if (isValidToken(token)) return true;
+  res.status(400).json({ error: "Neplatný token nabídky." });
+  return false;
+}
+
+async function getPublicQuote(
+  res: Response,
+  token: string,
+): Promise<void> {
+  if (!isUsableQuoteToken(token, res)) return;
   try {
     const quote = await getQuoteByShareToken(token);
     if (!quote) {
@@ -118,14 +145,14 @@ router.get("/quotes/public/:token", async (req, res): Promise<void> => {
   } catch (err) {
     handleError(err, "Načtení nabídky selhalo.", res);
   }
-});
+}
 
-router.post("/quotes/public/:token/accept", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token || !isValidToken(token)) {
-    res.status(400).json({ error: "Neplatný token nabídky." });
-    return;
-  }
+async function acceptPublicQuote(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
+  if (!isUsableQuoteToken(token, res)) return;
   const body = z.object({ respondentName: z.string().trim().min(2).max(120) }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
@@ -140,14 +167,14 @@ router.post("/quotes/public/:token/accept", async (req, res): Promise<void> => {
   } catch (err) {
     handleError(err, "Přijetí nabídky selhalo.", res);
   }
-});
+}
 
-router.post("/quotes/public/:token/reject", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token || !isValidToken(token)) {
-    res.status(400).json({ error: "Neplatný token nabídky." });
-    return;
-  }
+async function rejectPublicQuote(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
+  if (!isUsableQuoteToken(token, res)) return;
   const body = z.object({ respondentName: z.string().trim().min(2).max(120) }).safeParse(req.body);
   if (!body.success) {
     res.status(400).json({ error: "Uveďte jméno osoby, která o nabídce rozhoduje." });
@@ -162,6 +189,36 @@ router.post("/quotes/public/:token/reject", async (req, res): Promise<void> => {
   } catch (err) {
     handleError(err, "Odmítnutí nabídky selhalo.", res);
   }
+}
+
+router.get("/quotes/public", async (req, res): Promise<void> => {
+  const token = publicQuoteToken(req, res);
+  if (token) await getPublicQuote(res, token);
+});
+
+router.get("/quotes/public/:token", async (req, res): Promise<void> => {
+  const token = publicQuoteToken(req, res, req.params.token);
+  if (token) await getPublicQuote(res, token);
+});
+
+router.post("/quotes/public/accept", async (req, res): Promise<void> => {
+  const token = publicQuoteToken(req, res);
+  if (token) await acceptPublicQuote(req, res, token);
+});
+
+router.post("/quotes/public/:token/accept", async (req, res): Promise<void> => {
+  const token = publicQuoteToken(req, res, req.params.token);
+  if (token) await acceptPublicQuote(req, res, token);
+});
+
+router.post("/quotes/public/reject", async (req, res): Promise<void> => {
+  const token = publicQuoteToken(req, res);
+  if (token) await rejectPublicQuote(req, res, token);
+});
+
+router.post("/quotes/public/:token/reject", async (req, res): Promise<void> => {
+  const token = publicQuoteToken(req, res, req.params.token);
+  if (token) await rejectPublicQuote(req, res, token);
 });
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,10 @@ import { useLiveUpdates } from "@/hooks/use-live-updates";
 import { OfflineQueueProvider } from "@/hooks/use-offline-queue";
 import { OfflineBanner } from "@/components/offline-banner";
 import PwaUpdatePrompt from "@/components/pwa-update-prompt";
+import {
+  isPublicGrantRoutePath,
+  retainPublicGrantForRoutePath,
+} from "@/lib/public-grant-bootstrap";
 
 const NotFound = lazy(() => import("@/pages/not-found"));
 const OoppSign = lazy(() => import("@/pages/oopp-sign"));
@@ -276,20 +280,22 @@ function AuthenticatedApp() {
 function Router() {
   const [path] = useLocation();
   const { isAuthenticated, isLoading } = useAuth();
-  // Public pages — accessible without authentication
-  if (path.startsWith("/sign/")) {
+  const pathname = path.split("?", 1)[0];
+  retainPublicGrantForRoutePath(pathname);
+  // Public pages — credentials were captured before React mounted.
+  if (pathname === "/sign") {
     return <JobSign />;
   }
-  if (path.startsWith("/oopp/sign/")) {
+  if (pathname === "/oopp/sign") {
     return <OoppSign />;
   }
-  if (path.startsWith("/quote-share/")) {
+  if (pathname === "/quote-share") {
     return <QuoteShare />;
   }
-  if (path.startsWith("/q/board/")) {
+  if (pathname === "/q/board") {
     return <SwitchboardPublic />;
   }
-  if (path === "/oopp/potvrdit" || path.startsWith("/oopp/potvrdit?")) {
+  if (pathname === "/oopp/potvrdit") {
     return <PpeConfirm />;
   }
   if (isLoading) {
@@ -301,6 +307,13 @@ function Router() {
   }
   if (!isAuthenticated) return <Login />;
   return <AuthenticatedApp />;
+}
+
+function PublicAwarePwaUpdatePrompt() {
+  const [path] = useLocation();
+  return isPublicGrantRoutePath(path.split("?", 1)[0])
+    ? null
+    : <PwaUpdatePrompt />;
 }
 
 function App() {
@@ -321,9 +334,9 @@ function App() {
                 </Suspense>
               </PageErrorBoundary>
             </AuthProvider>
+            <PublicAwarePwaUpdatePrompt />
           </WouterRouter>
           <Toaster />
-          <PwaUpdatePrompt />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

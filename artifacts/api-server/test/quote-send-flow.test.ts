@@ -286,8 +286,13 @@ describe("sendQuote", () => {
     };
     expect(emailCall.to).toBe("zakaznik@example.com");
     expect(emailCall.subject).toContain("Cenová nabídka");
-    expect(emailCall.text).toContain("https://quotes.test/quote-share/");
-    const emailedToken = /quote-share\/([A-Za-z0-9_-]{43})/.exec(emailCall.text)?.[1];
+    const emailedUrl = /https:\/\/quotes\.test\/quote-share#token=[A-Za-z0-9_-]{43}/
+      .exec(emailCall.text)?.[0];
+    expect(emailedUrl).toBeTruthy();
+    const parsedEmailUrl = new URL(emailedUrl!);
+    expect(parsedEmailUrl.pathname).toBe("/quote-share");
+    expect(parsedEmailUrl.search).toBe("");
+    const emailedToken = new URLSearchParams(parsedEmailUrl.hash.slice(1)).get("token");
     expect(emailedToken).toBeTruthy();
     const [tokenRow] = await db
       .select({

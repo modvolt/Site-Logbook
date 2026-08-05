@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "crypto";
 import { z } from "zod/v4";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -16,6 +16,11 @@ import {
   publicAccessTokenHttpStatus,
   resolvePublicAccessToken,
 } from "../lib/public-access-token";
+import {
+  assertNoAuthorizationCredential,
+  readPublicBearerToken,
+  sendPublicBearerCredentialError,
+} from "../lib/public-bearer-auth";
 
 const router: IRouter = Router();
 const objectStorage = new ObjectStorageService();
@@ -27,7 +32,7 @@ function fmtDate(iso: string): string {
 }
 
 function sendTokenError(
-  res: import("express").Response,
+  res: Response,
   error: PublicAccessTokenError,
 ): void {
   const status = publicAccessTokenHttpStatus(error);
@@ -39,12 +44,28 @@ function sendTokenError(
   res.status(status).json({ error: message, code: `public_token_${error.code}` });
 }
 
-router.get("/sign/:token", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
+function jobSignatureToken(
+  req: Request,
+  res: Response,
+  legacyToken?: string,
+): string | null {
+  try {
+    if (legacyToken !== undefined) {
+      assertNoAuthorizationCredential(req);
+      return legacyToken;
+    }
+    return readPublicBearerToken(req);
+  } catch (error) {
+    if (sendPublicBearerCredentialError(res, error)) return null;
+    throw error;
   }
+}
+
+async function getPublicJobSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
 
   let tokenRecord;
   try {
@@ -85,15 +106,13 @@ router.get("/sign/:token", async (req, res): Promise<void> => {
     signedAt: version.signedAt ? version.signedAt.toISOString() : null,
     expired: false,
   });
-});
+}
 
-router.post("/sign/:token", async (req, res): Promise<void> => {
-  const { token } = req.params;
-  if (!token) {
-    res.status(400).json({ error: "Neplatný token" });
-    return;
-  }
-
+async function postPublicJobSignature(
+  req: Request,
+  res: Response,
+  token: string,
+): Promise<void> {
   const body = z
     .object({
       signatoryName: z.string().trim().min(2).max(120),
@@ -227,6 +246,26 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
     req.log?.error({ err: error }, "Job signature save failed");
     res.status(500).json({ error: "Nepodařilo se uložit podpis. Zkuste to prosím znovu." });
   }
+}
+
+router.get("/sign", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res);
+  if (token) await getPublicJobSignature(req, res, token);
+});
+
+router.get("/sign/:token", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res, req.params.token);
+  if (token) await getPublicJobSignature(req, res, token);
+});
+
+router.post("/sign", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res);
+  if (token) await postPublicJobSignature(req, res, token);
+});
+
+router.post("/sign/:token", async (req, res): Promise<void> => {
+  const token = jobSignatureToken(req, res, req.params.token);
+  if (token) await postPublicJobSignature(req, res, token);
 });
 
 export default router;
