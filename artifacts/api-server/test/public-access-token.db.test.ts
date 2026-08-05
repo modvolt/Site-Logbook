@@ -154,27 +154,24 @@ afterAll(async () => {
     .where(inArray(usersTable.id, [issuerId, inactiveIssuerId, permissionRaceIssuerId]));
 });
 
-async function waitForBlockedQuery(
-  observer: Awaited<ReturnType<typeof pool.connect>>,
-  tableFragment: string,
+async function waitForTransactionBlockedBy(
+  blocker: Awaited<ReturnType<typeof pool.connect>>,
 ): Promise<void> {
   const deadline = Date.now() + 3_000;
   while (Date.now() < deadline) {
-    const result = await observer.query<{ blocked: boolean }>(
+    const result = await blocker.query<{ blocked: boolean }>(
       `select exists (
          select 1
            from pg_stat_activity
           where pid <> pg_backend_pid()
             and datname = current_database()
-            and wait_event_type = 'Lock'
-            and query ilike $1
+            and pg_backend_pid() = any(pg_blocking_pids(pid))
        ) as blocked`,
-      [`%${tableFragment}%`],
     );
     if (result.rows[0]?.blocked) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`Timed out waiting for blocked ${tableFragment} query.`);
+  throw new Error("Timed out waiting for a transaction blocked by the fixture.");
 }
 
 describe("hash-only public access token lifecycle", () => {
@@ -395,7 +392,7 @@ describe("hash-only public access token lifecycle", () => {
           return "ok";
         },
       });
-      await waitForBlockedQuery(holder, "ppe_assignments");
+      await waitForTransactionBlockedBy(holder);
       expect(transitionEntered).toBe(false);
       await holder.query("commit");
       await expect(pendingConsume).resolves.toBe("ok");
@@ -423,7 +420,7 @@ describe("hash-only public access token lifecycle", () => {
         expiresAt: future(),
         createdByUserId: permissionRaceIssuerId,
       });
-      await waitForBlockedQuery(holder, "pg_advisory_xact_lock");
+      await waitForTransactionBlockedBy(holder);
       await holder.query("commit");
       await expect(pendingIssue).rejects.toMatchObject({
         code: "issuer_permission_revoked",
