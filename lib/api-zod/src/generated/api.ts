@@ -4698,10 +4698,153 @@ export const UpdateUserResponse = zod.object({
 
 
 /**
- * @summary Delete user (admin only)
+ * @summary Retired hard-delete endpoint; users are preserved for audit history
  */
 export const DeleteUserParams = zod.object({
   "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Preview access revocation and handover obligations before offboarding a user
+ */
+export const GetUserOffboardingPreviewParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+export const getUserOffboardingPreviewResponseAccessSessionsMin = 0;
+
+export const getUserOffboardingPreviewResponseAccessWebauthnCredentialsMin = 0;
+
+export const getUserOffboardingPreviewResponseAccessPermissionOverridesMin = 0;
+
+export const getUserOffboardingPreviewResponseAccessSecurityQuestionsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverPrimaryJobsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverAdditionalJobsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverPlannedJobVisitsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverPlannedActivityVisitsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverMachinesMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverIssuedPpeMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverSwitchboardAssignmentsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverOpenResponsibleSwitchboardDefectsMin = 0;
+
+export const getUserOffboardingPreviewResponseHandoverActiveWorkSessionsMin = 0;
+
+
+
+export const GetUserOffboardingPreviewResponse = zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "personId": zod.number().nullable(),
+  "isActive": zod.boolean(),
+  "sessionGeneration": zod.number().min(1),
+  "access": zod.object({
+  "sessions": zod.number().min(getUserOffboardingPreviewResponseAccessSessionsMin),
+  "webauthnCredentials": zod.number().min(getUserOffboardingPreviewResponseAccessWebauthnCredentialsMin),
+  "permissionOverrides": zod.number().min(getUserOffboardingPreviewResponseAccessPermissionOverridesMin),
+  "securityQuestions": zod.number().min(getUserOffboardingPreviewResponseAccessSecurityQuestionsMin)
+}),
+  "handover": zod.object({
+  "primaryJobs": zod.number().min(getUserOffboardingPreviewResponseHandoverPrimaryJobsMin),
+  "additionalJobs": zod.number().min(getUserOffboardingPreviewResponseHandoverAdditionalJobsMin),
+  "plannedJobVisits": zod.number().min(getUserOffboardingPreviewResponseHandoverPlannedJobVisitsMin),
+  "plannedActivityVisits": zod.number().min(getUserOffboardingPreviewResponseHandoverPlannedActivityVisitsMin),
+  "machines": zod.number().min(getUserOffboardingPreviewResponseHandoverMachinesMin),
+  "issuedPpe": zod.number().min(getUserOffboardingPreviewResponseHandoverIssuedPpeMin),
+  "switchboardAssignments": zod.number().min(getUserOffboardingPreviewResponseHandoverSwitchboardAssignmentsMin),
+  "openResponsibleSwitchboardDefects": zod.number().min(getUserOffboardingPreviewResponseHandoverOpenResponsibleSwitchboardDefectsMin),
+  "activeWorkSessions": zod.number().min(getUserOffboardingPreviewResponseHandoverActiveWorkSessionsMin)
+})
+})
+
+
+/**
+ * @summary Atomically revoke a user's access and report retained handover obligations
+ */
+export const OffboardUserParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const offboardUserHeaderIdempotencyKeyMin = 8;
+export const offboardUserHeaderIdempotencyKeyMax = 100;
+
+
+
+export const OffboardUserHeader = zod.object({
+  "Idempotency-Key": zod.string().min(offboardUserHeaderIdempotencyKeyMin).max(offboardUserHeaderIdempotencyKeyMax)
+})
+
+
+
+
+
+export const OffboardUserBody = zod.object({
+  "expectedUsername": zod.string().min(1),
+  "expectedSessionGeneration": zod.number().min(1),
+  "reason": zod.enum(['employment_ended', 'contract_ended', 'access_no_longer_required', 'security_response']),
+  "confirmation": zod.enum(['offboard_user'])
+})
+
+export const offboardUserResponseNewSessionGenerationMin = 2;
+
+export const offboardUserResponseRevokedAccessSessionsMin = 0;
+
+export const offboardUserResponseRevokedAccessWebauthnCredentialsMin = 0;
+
+export const offboardUserResponseRevokedAccessPermissionOverridesMin = 0;
+
+export const offboardUserResponseRevokedAccessSecurityQuestionsMin = 0;
+
+export const offboardUserResponseHandoverPrimaryJobsMin = 0;
+
+export const offboardUserResponseHandoverAdditionalJobsMin = 0;
+
+export const offboardUserResponseHandoverPlannedJobVisitsMin = 0;
+
+export const offboardUserResponseHandoverPlannedActivityVisitsMin = 0;
+
+export const offboardUserResponseHandoverMachinesMin = 0;
+
+export const offboardUserResponseHandoverIssuedPpeMin = 0;
+
+export const offboardUserResponseHandoverSwitchboardAssignmentsMin = 0;
+
+export const offboardUserResponseHandoverOpenResponsibleSwitchboardDefectsMin = 0;
+
+export const offboardUserResponseHandoverActiveWorkSessionsMin = 0;
+
+
+
+export const OffboardUserResponse = zod.object({
+  "userId": zod.number(),
+  "isActive": zod.literal(false),
+  "newSessionGeneration": zod.number().min(offboardUserResponseNewSessionGenerationMin),
+  "revokedAccess": zod.object({
+  "sessions": zod.number().min(offboardUserResponseRevokedAccessSessionsMin),
+  "webauthnCredentials": zod.number().min(offboardUserResponseRevokedAccessWebauthnCredentialsMin),
+  "permissionOverrides": zod.number().min(offboardUserResponseRevokedAccessPermissionOverridesMin),
+  "securityQuestions": zod.number().min(offboardUserResponseRevokedAccessSecurityQuestionsMin)
+}),
+  "handover": zod.object({
+  "primaryJobs": zod.number().min(offboardUserResponseHandoverPrimaryJobsMin),
+  "additionalJobs": zod.number().min(offboardUserResponseHandoverAdditionalJobsMin),
+  "plannedJobVisits": zod.number().min(offboardUserResponseHandoverPlannedJobVisitsMin),
+  "plannedActivityVisits": zod.number().min(offboardUserResponseHandoverPlannedActivityVisitsMin),
+  "machines": zod.number().min(offboardUserResponseHandoverMachinesMin),
+  "issuedPpe": zod.number().min(offboardUserResponseHandoverIssuedPpeMin),
+  "switchboardAssignments": zod.number().min(offboardUserResponseHandoverSwitchboardAssignmentsMin),
+  "openResponsibleSwitchboardDefects": zod.number().min(offboardUserResponseHandoverOpenResponsibleSwitchboardDefectsMin),
+  "activeWorkSessions": zod.number().min(offboardUserResponseHandoverActiveWorkSessionsMin)
+})
 })
 
 

@@ -298,6 +298,9 @@ import type {
   UploadJobDocumentPageParams,
   UpsertMaterialMarkupRuleInput,
   UserInput,
+  UserOffboardingInput,
+  UserOffboardingPreview,
+  UserOffboardingResult,
   UserPermissionUpdate,
   UserPreferences,
   UserPreferencesInput,
@@ -12982,7 +12985,7 @@ export const updateUser = async (id: number,
 
 
 
-export const getUpdateUserMutationOptions = <TError = ErrorType<unknown>,
+export const getUpdateUserMutationOptions = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: number;data: BodyType<UserUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: number;data: BodyType<UserUpdate>}, TContext> => {
 
@@ -13011,12 +13014,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateUserMutationResult = NonNullable<Awaited<ReturnType<typeof updateUser>>>
     export type UpdateUserMutationBody = BodyType<UserUpdate>
-    export type UpdateUserMutationError = ErrorType<unknown>
+    export type UpdateUserMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Update user (admin only)
  */
-export const useUpdateUser = <TError = ErrorType<unknown>,
+export const useUpdateUser = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUser>>, TError,{id: number;data: BodyType<UserUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateUser>>,
@@ -13036,11 +13039,11 @@ export const getDeleteUserUrl = (id: number,) => {
 }
 
 /**
- * @summary Delete user (admin only)
+ * @summary Retired hard-delete endpoint; users are preserved for audit history
  */
-export const deleteUser = async (id: number, options?: RequestInit): Promise<void> => {
+export const deleteUser = async (id: number, options?: RequestInit): Promise<unknown> => {
 
-  return customFetch<void>(getDeleteUserUrl(id),
+  return customFetch<unknown>(getDeleteUserUrl(id),
   {
     ...options,
     method: 'DELETE'
@@ -13052,7 +13055,7 @@ export const deleteUser = async (id: number, options?: RequestInit): Promise<voi
 
 
 
-export const getDeleteUserMutationOptions = <TError = ErrorType<unknown>,
+export const getDeleteUserMutationOptions = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUser>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteUser>>, TError,{id: number}, TContext> => {
 
@@ -13081,12 +13084,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type DeleteUserMutationResult = NonNullable<Awaited<ReturnType<typeof deleteUser>>>
 
-    export type DeleteUserMutationError = ErrorType<unknown>
+    export type DeleteUserMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Delete user (admin only)
+ * @summary Retired hard-delete endpoint; users are preserved for audit history
  */
-export const useDeleteUser = <TError = ErrorType<unknown>,
+export const useDeleteUser = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUser>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteUser>>,
@@ -13095,6 +13098,155 @@ export const useDeleteUser = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteUserMutationOptions(options));
+    }
+
+export const getGetUserOffboardingPreviewUrl = (id: number,) => {
+
+
+
+
+  return `/api/users/${id}/offboarding-preview`
+}
+
+/**
+ * @summary Preview access revocation and handover obligations before offboarding a user
+ */
+export const getUserOffboardingPreview = async (id: number, options?: RequestInit): Promise<UserOffboardingPreview> => {
+
+  return customFetch<UserOffboardingPreview>(getGetUserOffboardingPreviewUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetUserOffboardingPreviewQueryKey = (id: number,) => {
+    return [
+    `/api/users/${id}/offboarding-preview`
+    ] as const;
+    }
+
+
+export const getGetUserOffboardingPreviewQueryOptions = <TData = Awaited<ReturnType<typeof getUserOffboardingPreview>>, TError = ErrorType<ErrorEnvelope>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUserOffboardingPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetUserOffboardingPreviewQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUserOffboardingPreview>>> = ({ signal }) => getUserOffboardingPreview(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUserOffboardingPreview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetUserOffboardingPreviewQueryResult = NonNullable<Awaited<ReturnType<typeof getUserOffboardingPreview>>>
+export type GetUserOffboardingPreviewQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Preview access revocation and handover obligations before offboarding a user
+ */
+
+export function useGetUserOffboardingPreview<TData = Awaited<ReturnType<typeof getUserOffboardingPreview>>, TError = ErrorType<ErrorEnvelope>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUserOffboardingPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetUserOffboardingPreviewQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getOffboardUserUrl = (id: number,) => {
+
+
+
+
+  return `/api/users/${id}/offboard`
+}
+
+/**
+ * @summary Atomically revoke a user's access and report retained handover obligations
+ */
+export const offboardUser = async (id: number,
+    userOffboardingInput: UserOffboardingInput, options?: RequestInit): Promise<UserOffboardingResult> => {
+
+  return customFetch<UserOffboardingResult>(getOffboardUserUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      userOffboardingInput,)
+  }
+);}
+
+
+
+
+export const getOffboardUserMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof offboardUser>>, TError,{id: number;data: BodyType<UserOffboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof offboardUser>>, TError,{id: number;data: BodyType<UserOffboardingInput>}, TContext> => {
+
+const mutationKey = ['offboardUser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof offboardUser>>, {id: number;data: BodyType<UserOffboardingInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  offboardUser(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OffboardUserMutationResult = NonNullable<Awaited<ReturnType<typeof offboardUser>>>
+    export type OffboardUserMutationBody = BodyType<UserOffboardingInput>
+    export type OffboardUserMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Atomically revoke a user's access and report retained handover obligations
+ */
+export const useOffboardUser = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof offboardUser>>, TError,{id: number;data: BodyType<UserOffboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof offboardUser>>,
+        TError,
+        {id: number;data: BodyType<UserOffboardingInput>},
+        TContext
+      > => {
+      return useMutation(getOffboardUserMutationOptions(options));
     }
 
 export const getUpdateUserPermissionsUrl = (id: number,) => {
@@ -13495,7 +13647,7 @@ export const deleteUserSessions = async (id: number, options?: RequestInit): Pro
 
 
 
-export const getDeleteUserSessionsMutationOptions = <TError = ErrorType<unknown>,
+export const getDeleteUserSessionsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserSessions>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteUserSessions>>, TError,{id: number}, TContext> => {
 
@@ -13524,12 +13676,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type DeleteUserSessionsMutationResult = NonNullable<Awaited<ReturnType<typeof deleteUserSessions>>>
 
-    export type DeleteUserSessionsMutationError = ErrorType<unknown>
+    export type DeleteUserSessionsMutationError = ErrorType<ErrorEnvelope>
 
     /**
  * @summary Terminate all sessions for a user (admin only)
  */
-export const useDeleteUserSessions = <TError = ErrorType<unknown>,
+export const useDeleteUserSessions = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserSessions>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteUserSessions>>,

@@ -30,6 +30,7 @@ const SKIP_SUFFIXES = [
 // Exact route shapes whose domain mutation and audit row share one transaction.
 const SKIP_PATTERNS = [
   /^\/admin\/health\/operational-alert-outbox\/\d+\/requeue$/,
+  /^\/users\/\d+\/offboard$/,
 ];
 
 const REDACT_KEYS = new Set([

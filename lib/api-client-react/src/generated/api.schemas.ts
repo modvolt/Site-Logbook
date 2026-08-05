@@ -3837,6 +3837,85 @@ export interface UserUpdate {
   password?: string;
 }
 
+export interface UserOffboardingAccessInventory {
+  /** @minimum 0 */
+  sessions: number;
+  /** @minimum 0 */
+  webauthnCredentials: number;
+  /** @minimum 0 */
+  permissionOverrides: number;
+  /** @minimum 0 */
+  securityQuestions: number;
+}
+
+export interface UserOffboardingHandoverInventory {
+  /** @minimum 0 */
+  primaryJobs: number;
+  /** @minimum 0 */
+  additionalJobs: number;
+  /** @minimum 0 */
+  plannedJobVisits: number;
+  /** @minimum 0 */
+  plannedActivityVisits: number;
+  /** @minimum 0 */
+  machines: number;
+  /** @minimum 0 */
+  issuedPpe: number;
+  /** @minimum 0 */
+  switchboardAssignments: number;
+  /** @minimum 0 */
+  openResponsibleSwitchboardDefects: number;
+  /** @minimum 0 */
+  activeWorkSessions: number;
+}
+
+export interface UserOffboardingPreview {
+  userId: number;
+  username: string;
+  /** @nullable */
+  personId: number | null;
+  isActive: boolean;
+  /** @minimum 1 */
+  sessionGeneration: number;
+  access: UserOffboardingAccessInventory;
+  handover: UserOffboardingHandoverInventory;
+}
+
+export type UserOffboardingInputReason = typeof UserOffboardingInputReason[keyof typeof UserOffboardingInputReason];
+
+
+export const UserOffboardingInputReason = {
+  employment_ended: 'employment_ended',
+  contract_ended: 'contract_ended',
+  access_no_longer_required: 'access_no_longer_required',
+  security_response: 'security_response',
+} as const;
+
+export type UserOffboardingInputConfirmation = typeof UserOffboardingInputConfirmation[keyof typeof UserOffboardingInputConfirmation];
+
+
+export const UserOffboardingInputConfirmation = {
+  offboard_user: 'offboard_user',
+} as const;
+
+export interface UserOffboardingInput {
+  /** @minLength 1 */
+  expectedUsername: string;
+  /** @minimum 1 */
+  expectedSessionGeneration: number;
+  reason: UserOffboardingInputReason;
+  confirmation: UserOffboardingInputConfirmation;
+}
+
+export interface UserOffboardingResult {
+  userId: number;
+  isActive: false;
+  /** @minimum 2 */
+  newSessionGeneration: number;
+  revokedAccess: UserOffboardingAccessInventory;
+  handover: UserOffboardingHandoverInventory;
+}
+
 export interface UserPermissionUpdate {
   overrides: UserPermissionOverride[];
 }
