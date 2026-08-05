@@ -8,6 +8,7 @@ import {
   runStagingOperationalAlertDrill,
   StagingOperationalAlertDrillError,
 } from "../staging-operational-alert-drill.mjs";
+import { parseWorkflow } from "../workflow-execution-harness.mjs";
 
 const SHA = "a".repeat(40);
 const TOKEN = "B".repeat(43);
@@ -148,6 +149,22 @@ test("rejects a stale receiver image before sending a synthetic event", async ()
 
 test("manual staging smoke wires the guarded receiver drill and secret-free evidence", async () => {
   const workflow = await readFile(WORKFLOW_URL, "utf8");
+  const parsed = parseWorkflow(workflow, ".github/workflows/staging-smoke.yml");
+  const job = parsed.jobs["authenticated-staging-smoke"];
+  const drillSteps = job.steps.filter(
+    (step) =>
+      step.name ===
+      "Prove exact-SHA alert receiver acceptance and persistent deduplication",
+  );
+
+  assert.deepEqual(Object.keys(parsed.on), ["workflow_dispatch"]);
+  assert.doesNotMatch(JSON.stringify(job.env), /\$\{\{\s*runner\./);
+  assert.equal(job.env.STAGING_ALERT_DRILL_EVIDENCE_FILE, undefined);
+  assert.equal(drillSteps.length, 1);
+  assert.deepEqual(drillSteps[0].env, {
+    STAGING_ALERT_DRILL_EVIDENCE_FILE:
+      "${{ runner.temp }}/staging-operational-alert-evidence.json",
+  });
   assert.match(workflow, /confirm_operational_alert_drill:/);
   assert.match(
     workflow,
