@@ -68,6 +68,26 @@ Izolovaný PostgreSQL test je připraven pro GitHub Quality gate a ověřuje:
 Lokální DB běh úmyslně neproběhl: Docker/PostgreSQL test se deleguje na izolované
 CI databáze, aby se zachovala stabilita uživatelova počítače.
 
+## GitHub ověření
+
+- draft PR [#9](https://github.com/modvolt/Site-Logbook/pull/9) je stacked na
+  `agent/phase15c-staging-alert-drill`;
+- implementační SHA `b173cd7951ab7e033be0605019a6821d1e68ae2e`;
+- [Quality gate 30961549402](https://github.com/modvolt/Site-Logbook/actions/runs/30961549402):
+  PASS za 10 minut 10 sekund;
+- quality/release, immutable staging runtime, publisher harness a staging
+  guard/evidence/runtime kontrakty: PASS;
+- izolované API DB sady včetně R15-D one-winner souběhu a atomického auditu:
+  PASS;
+- encrypted backup/restore, streaming object recovery a R14 full-stack/fault
+  gate: PASS.
+
+Samostatný push run `staging-smoke.yml` nevytvořil žádný job. Stejný stav je na
+všech pěti předchozích R15-C pushech a workflow se v R15-D nezměnilo, proto nejde
+o regresi této změny ani o PR Quality gate. Znamená však, že manuální staging
+workflow musí být v R15-E nejdříve opraveno a znovu staticky ověřeno, než lze
+provést externí staging drill.
+
 ## Externí hranice
 
 Endpoint nesmí být použit, dokud cílové prostředí nemá aplikovanou migraci `0103`
