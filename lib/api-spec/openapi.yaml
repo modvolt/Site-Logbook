@@ -4182,10 +4182,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUser"
+        "409":
+          description: Offboarding is required to deactivate an active user, and reactivation requires a dedicated confirmed workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
     delete:
       operationId: deleteUser
       tags: [users]
-      summary: Delete user (admin only)
+      summary: Retired hard-delete endpoint; users are preserved for audit history
       parameters:
         - name: id
           in: path
@@ -4193,8 +4199,99 @@ paths:
           schema:
             type: integer
       responses:
-        "204":
-          description: Deleted
+        "409":
+          description: Hard deletion is retired; returns user_deletion_retired and preserves audit history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users/{id}/offboarding-preview:
+    get:
+      operationId: getUserOffboardingPreview
+      tags: [users]
+      summary: Preview access revocation and handover obligations before offboarding a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Current access and handover inventory for the target user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOffboardingPreview"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /users/{id}/offboard:
+    post:
+      operationId: offboardUser
+      tags: [users]
+      summary: Atomically revoke a user's access and report retained handover obligations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 100
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserOffboardingInput"
+      responses:
+        "200":
+          description: User access was revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOffboardingResult"
+        "400":
+          description: Invalid offboarding request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Offboarding precondition failed or the user was already offboarded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /users/{id}/permissions:
     put:
@@ -4221,13 +4318,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuthUser"
         "400":
-          description: Invalid permission override or self-lockout attempt
+          description: Invalid permission override
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Permission replacement targets an inactive user or would lock out the current administrator
           content:
             application/json:
               schema:
@@ -4332,6 +4441,18 @@ paths:
       responses:
         "204":
           description: All user sessions terminated
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The target user is already inactive; returns user_inactive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /audit-logs:
     get:
@@ -11781,6 +11902,123 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/UserPermissionOverride"
+
+    UserOffboardingAccessInventory:
+      type: object
+      additionalProperties: false
+      required: [sessions, webauthnCredentials, permissionOverrides, securityQuestions]
+      properties:
+        sessions:
+          type: integer
+          minimum: 0
+        webauthnCredentials:
+          type: integer
+          minimum: 0
+        permissionOverrides:
+          type: integer
+          minimum: 0
+        securityQuestions:
+          type: integer
+          minimum: 0
+
+    UserOffboardingHandoverInventory:
+      type: object
+      additionalProperties: false
+      required:
+        - primaryJobs
+        - additionalJobs
+        - plannedJobVisits
+        - plannedActivityVisits
+        - machines
+        - issuedPpe
+        - switchboardAssignments
+        - openResponsibleSwitchboardDefects
+        - activeWorkSessions
+      properties:
+        primaryJobs:
+          type: integer
+          minimum: 0
+        additionalJobs:
+          type: integer
+          minimum: 0
+        plannedJobVisits:
+          type: integer
+          minimum: 0
+        plannedActivityVisits:
+          type: integer
+          minimum: 0
+        machines:
+          type: integer
+          minimum: 0
+        issuedPpe:
+          type: integer
+          minimum: 0
+        switchboardAssignments:
+          type: integer
+          minimum: 0
+        openResponsibleSwitchboardDefects:
+          type: integer
+          minimum: 0
+        activeWorkSessions:
+          type: integer
+          minimum: 0
+
+    UserOffboardingPreview:
+      type: object
+      additionalProperties: false
+      required: [userId, username, personId, isActive, sessionGeneration, access, handover]
+      properties:
+        userId:
+          type: integer
+        username:
+          type: string
+        personId:
+          type: ["integer", "null"]
+        isActive:
+          type: boolean
+        sessionGeneration:
+          type: integer
+          minimum: 1
+        access:
+          $ref: "#/components/schemas/UserOffboardingAccessInventory"
+        handover:
+          $ref: "#/components/schemas/UserOffboardingHandoverInventory"
+
+    UserOffboardingInput:
+      type: object
+      additionalProperties: false
+      required: [expectedUsername, expectedSessionGeneration, reason, confirmation]
+      properties:
+        expectedUsername:
+          type: string
+          minLength: 1
+        expectedSessionGeneration:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          enum: [employment_ended, contract_ended, access_no_longer_required, security_response]
+        confirmation:
+          type: string
+          enum: [offboard_user]
+
+    UserOffboardingResult:
+      type: object
+      additionalProperties: false
+      required: [userId, isActive, newSessionGeneration, revokedAccess, handover]
+      properties:
+        userId:
+          type: integer
+        isActive:
+          type: boolean
+          enum: [false]
+        newSessionGeneration:
+          type: integer
+          minimum: 2
+        revokedAccess:
+          $ref: "#/components/schemas/UserOffboardingAccessInventory"
+        handover:
+          $ref: "#/components/schemas/UserOffboardingHandoverInventory"
 
     UserPermissionOverride:
       type: object

@@ -16,15 +16,19 @@ describe("account lifecycle security contracts", () => {
     expect(transaction).toMatch(/tx\s*\.\s*insert\(usersTable\)/);
   });
 
-  it("revokes all target sessions in the same transaction as a password change or deactivation", () => {
+  it("keeps password reset revocation atomic and routes deactivation through offboarding", () => {
     const users = read("artifacts/api-server/src/routes/users.ts");
+    const offboarding = read("artifacts/api-server/src/lib/user-offboarding-service.ts");
 
-    expect(users).toContain("const revokeAllSessions = Boolean(password) || updates.isActive === false");
+    expect(users).toContain("const revokeAllSessions = Boolean(password)");
+    expect(users).toContain("offboarding_required");
     expect(users).toContain("db.transaction");
     expect(users).toMatch(/tx\s*\.\s*delete\(userSessionsTable\)/);
     expect(users).toContain("userSessionsTable.sess");
     expect(users).toContain("await destroySession(req)");
     expect(users).toContain("updates.sessionGeneration");
+    expect(offboarding).toMatch(/tx\s*\.\s*delete\(userSessionsTable\)/);
+    expect(offboarding).toContain("sessionGeneration");
   });
 
   it("stores and checks a credential generation so deleted sessions cannot be resurrected", () => {

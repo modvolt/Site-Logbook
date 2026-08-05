@@ -84,3 +84,68 @@ export async function establishAuthenticatedSession(
     throw error;
   }
 }
+
+export const SESSION_ISSUANCE_LOCK_NAMESPACE = 8457;
+
+/**
+ * Serialize the final active/generation check and session-store write against
+ * offboarding. The transaction holds only an advisory lock, not a users row
+ * lock, so the session store can safely persist through its own pool client.
+ */
+export async function establishAuthenticatedSessionIfCurrent(
+  req: Request,
+  user: AuthenticatedSessionUser,
+): Promise<boolean> {
+  const { pool } = await import("@workspace/db");
+  const client = await pool.connect();
+  let transactionOpen = false;
+  let sessionEstablished = false;
+  let releaseError: Error | undefined;
+  try {
+    await client.query("BEGIN");
+    transactionOpen = true;
+    await client.query("select pg_advisory_xact_lock($1, $2)", [
+      SESSION_ISSUANCE_LOCK_NAMESPACE,
+      user.id,
+    ]);
+    const current = await client.query<{
+      is_active: boolean;
+      session_generation: number;
+    }>(
+      `select is_active, session_generation
+         from users
+        where id = $1`,
+      [user.id],
+    );
+    const row = current.rows[0];
+    if (
+      !row?.is_active ||
+      row.session_generation !== user.sessionGeneration
+    ) {
+      await client.query("ROLLBACK");
+      transactionOpen = false;
+      return false;
+    }
+
+    await establishAuthenticatedSession(req, user);
+    sessionEstablished = true;
+    await client.query("COMMIT");
+    transactionOpen = false;
+    return true;
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        releaseError =
+          rollbackError instanceof Error
+            ? rollbackError
+            : new Error("Session issuance rollback failed");
+      }
+    }
+    if (sessionEstablished) await destroySession(req).catch(() => undefined);
+    throw error;
+  } finally {
+    client.release(releaseError);
+  }
+}

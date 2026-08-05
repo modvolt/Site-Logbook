@@ -8,6 +8,7 @@ import { getPermissionOverrides } from "../lib/permissions";
 import {
   destroySessionOrRevokeIdentity,
   establishAuthenticatedSession,
+  establishAuthenticatedSessionIfCurrent,
 } from "../lib/auth-session";
 import { establishVaultStepUp } from "../lib/vault-step-up";
 import { createOfflineIdentityScope } from "../lib/offline-identity";
@@ -168,8 +169,16 @@ router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {
     res.status(401).json({ error: "Neplatné přihlašovací údaje" });
     return;
   }
+  if (!(await establishAuthenticatedSessionIfCurrent(req, user))) {
+    await recordSecurityAuditEvent(req, {
+      code: SECURITY_AUDIT_CODES.passwordLoginDenied,
+      outcome: "denied",
+      reason: "invalid_credentials",
+    });
+    res.status(401).json({ error: "Neplatné přihlašovací údaje" });
+    return;
+  }
   const overrides = await getPermissionOverrides(user.id);
-  await establishAuthenticatedSession(req, user);
   await recordSecurityAuditEvent(req, {
     code: SECURITY_AUDIT_CODES.passwordLoginSucceeded,
     outcome: "succeeded",

@@ -384,6 +384,8 @@ export const API_ROUTE_MANIFEST = [
   { method: "POST", template: "/users", source: "users.ts" },
   { method: "DELETE", template: "/users/:id", source: "users.ts" },
   { method: "PATCH", template: "/users/:id", source: "users.ts" },
+  { method: "POST", template: "/users/:id/offboard", source: "users.ts" },
+  { method: "GET", template: "/users/:id/offboarding-preview", source: "users.ts" },
   { method: "PUT", template: "/users/:id/permissions", source: "users.ts" },
   { method: "DELETE", template: "/users/:id/sessions", source: "sessions.ts" },
   { method: "GET", template: "/warehouse-items", source: "warehouse-items.ts" },
