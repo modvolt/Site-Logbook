@@ -29,6 +29,7 @@ import {
   acceptQuoteByToken,
   rejectQuoteByToken,
 } from "../src/lib/quote-service";
+import { SESSION_ISSUANCE_LOCK_NAMESPACE } from "../src/lib/auth-session";
 
 const RESOURCE_BASE = 910_000 + Math.floor(Math.random() * 10_000);
 const resourceIds = Array.from({ length: 9 }, (_, index) => RESOURCE_BASE + index);
@@ -404,10 +405,14 @@ describe("hash-only public access token lifecycle", () => {
     }
   });
 
-  it("observes a role revocation that wins the issuer row lock", async () => {
+  it("observes a role revocation that wins the shared issuance lock", async () => {
     const holder = await pool.connect();
     try {
       await holder.query("begin");
+      await holder.query("select pg_advisory_xact_lock($1, $2)", [
+        SESSION_ISSUANCE_LOCK_NAMESPACE,
+        permissionRaceIssuerId,
+      ]);
       await holder.query("update users set role = 'guest' where id = $1", [
         permissionRaceIssuerId,
       ]);
@@ -418,7 +423,7 @@ describe("hash-only public access token lifecycle", () => {
         expiresAt: future(),
         createdByUserId: permissionRaceIssuerId,
       });
-      await waitForBlockedQuery(holder, "users");
+      await waitForBlockedQuery(holder, "pg_advisory_xact_lock");
       await holder.query("commit");
       await expect(pendingIssue).rejects.toMatchObject({
         code: "issuer_permission_revoked",

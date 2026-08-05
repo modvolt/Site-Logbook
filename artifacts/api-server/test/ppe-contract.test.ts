@@ -574,7 +574,7 @@ describe("request-confirm guards", () => {
   it("POST request-confirm on returned assignment → 409", async () => {
     const res = await adminAgent.post(`/api/ppe/assignments/${returnedAssignmentId}/request-confirm`);
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/aktivní/i);
+    expect(res.body.error).toMatch(/vrácena|uzavřena/i);
   });
 
   it("POST request-confirm on non-existent assignment → 404", async () => {
