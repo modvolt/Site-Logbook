@@ -39,7 +39,6 @@ jobs:
       STAGING_ALERT_APP_HEALTH_URL: ${{ vars.STAGING_BASE_URL }}/api/healthz
       STAGING_ALERT_RECEIVER_URL: ${{ vars.STAGING_ALERT_RECEIVER_URL }}
       STAGING_ALERT_RECEIVER_BEARER_TOKEN: ${{ secrets.STAGING_ALERT_RECEIVER_BEARER_TOKEN }}
-      STAGING_ALERT_DRILL_EVIDENCE_FILE: ${{ runner.temp }}/staging-operational-alert-evidence.json
       STAGING_MAIL_SANDBOX_CONFIRMED: ${{ vars.STAGING_MAIL_SANDBOX_CONFIRMED }}
       STAGING_ENVIRONMENT_ID: ${{ vars.STAGING_ENVIRONMENT_ID }}
       STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
@@ -75,6 +74,8 @@ jobs:
         run: pnpm test:e2e:staging
       - name: Prove exact-SHA alert receiver acceptance and persistent deduplication
         run: pnpm drill:staging-operational-alert
+        env:
+          STAGING_ALERT_DRILL_EVIDENCE_FILE: ${{ runner.temp }}/staging-operational-alert-evidence.json
       - name: Upload secret-free bootstrap evidence
         if: always()
         uses: actions/upload-artifact@v4
