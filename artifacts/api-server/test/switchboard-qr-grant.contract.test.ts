@@ -37,7 +37,8 @@ describe("R16-B switchboard QR grant contract", () => {
     expect(service).toContain("SESSION_ISSUANCE_LOCK_NAMESPACE");
     expect(service).toContain("pg_advisory_xact_lock");
     expect(service).toContain("actor?.isActive");
-    expect(service).toContain("resolvePermissions");
+    expect(service).toContain("resolveAccountPermissions");
+    expect(service).toContain("actor.accountType");
     expect(service).toContain('includes("switchboards.qr.manage")');
     expect(service).toContain('.for("update")');
     expect(route).toContain("rotateSwitchboardQrGrant");

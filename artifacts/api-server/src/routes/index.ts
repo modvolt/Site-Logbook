@@ -52,6 +52,8 @@ import switchboardOperationsRouter from "./switchboard-operations";
 import switchboardProtocolsRouter from "./switchboard-protocols";
 import switchboardAdminRouter from "./switchboard-admin";
 import externalGrantsRouter from "./external-grants";
+import externalPortalRouter from "./external-portal";
+import externalAccountsRouter from "./external-accounts";
 
 const router: IRouter = Router();
 
@@ -107,6 +109,8 @@ router.use(switchboardOperationsRouter);
 router.use(switchboardProtocolsRouter);
 router.use(switchboardAdminRouter);
 router.use(externalGrantsRouter);
+router.use(externalAccountsRouter);
+router.use(externalPortalRouter);
 router.use(switchboardsRouter);
 
 export default router;

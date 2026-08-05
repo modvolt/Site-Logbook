@@ -6,7 +6,7 @@ import {
   ppeAssignmentsTable,
   publicAccessTokensTable,
   quotesTable,
-  resolvePermissions,
+  resolveAccountPermissions,
   userPermissionOverridesTable,
   usersTable,
   type Permission,
@@ -15,6 +15,7 @@ import {
   type PublicAccessTokenConsumeAction,
   type PublicAccessTokenPurpose,
   type UserRole,
+  type UserAccountType,
 } from "@workspace/db";
 import { isPlausiblePublicAccessToken } from "./public-access-token-format";
 
@@ -523,7 +524,11 @@ async function lockAndAssertActiveOwner(
     sql`select pg_advisory_xact_lock(${SESSION_ISSUANCE_LOCK_NAMESPACE}, ${ownerUserId})`,
   );
   const [owner] = await tx
-    .select({ isActive: usersTable.isActive, role: usersTable.role })
+    .select({
+      isActive: usersTable.isActive,
+      role: usersTable.role,
+      accountType: usersTable.accountType,
+    })
     .from(usersTable)
     .where(eq(usersTable.id, ownerUserId))
     .limit(1)
@@ -546,7 +551,11 @@ async function lockAndAssertActiveOwner(
         }]
       : [],
   );
-  const permissions = resolvePermissions(owner.role as UserRole, overrides);
+  const permissions = resolveAccountPermissions(
+    owner.accountType as UserAccountType,
+    owner.role as UserRole,
+    overrides,
+  );
   if (!permissions.includes(ISSUANCE_PERMISSION[purpose])) {
     throw new PublicAccessTokenIssuanceError("issuer_permission_revoked");
   }

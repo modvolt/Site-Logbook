@@ -1037,7 +1037,7 @@ export const requestJobSignatureResponseSnapshotSha256RegExp = new RegExp('^[0-9
 export const RequestJobSignatureResponse = zod.object({
   "sent": zod.boolean(),
   "to": zod.string(),
-  "signUrl": zod.string().describe('The full sign URL that was emailed (for reference\/logging)'),
+  "signUrl": zod.string().describe('Sensitive one-time URL returned for immediate delivery; never log or persist it.'),
   "documentVersion": zod.number().min(1),
   "snapshotSha256": zod.string().regex(requestJobSignatureResponseSnapshotSha256RegExp)
 })
@@ -4320,6 +4320,7 @@ export const LoginResponse = zod.object({
   "personId": zod.number().nullable().describe('Employee record used for personal time tracking'),
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
+  "accountType": zod.enum(['internal', 'external']),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
@@ -4357,6 +4358,7 @@ export const getMeResponseOfflineScopeRegExp = new RegExp('^[a-f0-9]{64}$');
 export const GetMeResponse = zod.object({
   "authenticated": zod.boolean(),
   "needsSetup": zod.boolean().describe('True when no users exist yet — show setup screen'),
+  "cacheMode": zod.enum(['none', 'network-only', 'offline-scoped']),
   "user": zod.object({
   "id": zod.number(),
   "username": zod.string(),
@@ -4364,6 +4366,7 @@ export const GetMeResponse = zod.object({
   "personId": zod.number().nullable().describe('Employee record used for personal time tracking'),
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
+  "accountType": zod.enum(['internal', 'external']),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
@@ -4436,6 +4439,7 @@ export const WebauthnLoginCompleteResponse = zod.object({
   "personId": zod.number().nullable().describe('Employee record used for personal time tracking'),
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
+  "accountType": zod.enum(['internal', 'external']),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
@@ -4683,6 +4687,7 @@ export const ListUsersResponseItem = zod.object({
   "personId": zod.number().nullable().describe('Employee record used for personal time tracking'),
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
+  "accountType": zod.enum(['internal', 'external']),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
@@ -4712,6 +4717,344 @@ export const CreateUserBody = zod.object({
   "personId": zod.number().nullish(),
   "role": zod.string().describe('guest | master | admin'),
   "isActive": zod.boolean().optional()
+})
+
+
+
+
+export const listExternalAccountsQueryLimitMax = 100;
+
+
+
+export const ListExternalAccountsQueryParams = zod.object({
+  "status": zod.enum(['draft', 'active', 'suspended', 'revoked', 'expired', 'all']).optional(),
+  "custodianUserId": zod.coerce.number().min(1).optional(),
+  "beforeId": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(listExternalAccountsQueryLimitMax).optional()
+})
+
+
+
+
+
+export const listExternalAccountsResponseItemsItemActiveScopeCountMin = 0;
+
+
+
+export const ListExternalAccountsResponse = zod.object({
+  "runtimeEnabled": zod.boolean(),
+  "items": zod.array(zod.object({
+  "userId": zod.number().min(1),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "state": zod.enum(['draft', 'active', 'suspended', 'revoked', 'expired']),
+  "status": zod.enum(['draft', 'active', 'suspended', 'revoked']),
+  "custodianUserId": zod.number().min(1),
+  "accessReviewedAt": zod.coerce.date(),
+  "accessExpiresAt": zod.coerce.date(),
+  "version": zod.number().min(1),
+  "isActive": zod.boolean(),
+  "sessionGeneration": zod.number().min(1),
+  "activeScopeCount": zod.number().min(listExternalAccountsResponseItemsItemActiveScopeCountMin),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "revokedByUserId": zod.number().nullable(),
+  "revocationReason": zod.string().nullable()
+})),
+  "nextBeforeId": zod.number().nullable()
+})
+
+
+export const createExternalAccountHeaderIdempotencyKeyMin = 8;
+export const createExternalAccountHeaderIdempotencyKeyMax = 200;
+
+
+export const createExternalAccountHeaderIdempotencyKeyRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$');
+
+
+export const CreateExternalAccountHeader = zod.object({
+  "Idempotency-Key": zod.string().min(createExternalAccountHeaderIdempotencyKeyMin).max(createExternalAccountHeaderIdempotencyKeyMax).regex(createExternalAccountHeaderIdempotencyKeyRegExp).describe('Stable unique key for one lifecycle mutation and its exact body.')
+})
+
+export const createExternalAccountBodyUsernameMin = 3;
+export const createExternalAccountBodyUsernameMax = 80;
+
+export const createExternalAccountBodyPasswordMin = 12;
+export const createExternalAccountBodyPasswordMax = 200;
+
+export const createExternalAccountBodyNameMax = 160;
+
+
+
+
+export const CreateExternalAccountBody = zod.object({
+  "username": zod.string().min(createExternalAccountBodyUsernameMin).max(createExternalAccountBodyUsernameMax),
+  "password": zod.string().min(createExternalAccountBodyPasswordMin).max(createExternalAccountBodyPasswordMax),
+  "name": zod.string().min(1).max(createExternalAccountBodyNameMax),
+  "email": zod.string().email().nullish(),
+  "custodianUserId": zod.number().min(1),
+  "accessExpiresAt": zod.coerce.date()
+})
+
+
+
+
+
+export const GetExternalAccountParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+
+
+
+
+export const getExternalAccountResponseOneActiveScopeCountMin = 0;
+
+
+
+
+
+export const GetExternalAccountResponse = zod.object({
+  "userId": zod.number().min(1),
+  "username": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable(),
+  "state": zod.enum(['draft', 'active', 'suspended', 'revoked', 'expired']),
+  "status": zod.enum(['draft', 'active', 'suspended', 'revoked']),
+  "custodianUserId": zod.number().min(1),
+  "accessReviewedAt": zod.coerce.date(),
+  "accessExpiresAt": zod.coerce.date(),
+  "version": zod.number().min(1),
+  "isActive": zod.boolean(),
+  "sessionGeneration": zod.number().min(1),
+  "activeScopeCount": zod.number().min(getExternalAccountResponseOneActiveScopeCountMin),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "revokedByUserId": zod.number().nullable(),
+  "revocationReason": zod.string().nullable()
+}).and(zod.object({
+  "scopes": zod.array(zod.object({
+  "resourceType": zod.enum(['job', 'quote', 'switchboard']),
+  "resourceId": zod.number().min(1),
+  "capability": zod.enum(['read'])
+}).and(zod.object({
+  "id": zod.number().min(1),
+  "startsAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+})))
+}))
+
+
+
+
+
+export const ReplaceExternalAccountScopesParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const replaceExternalAccountScopesHeaderIdempotencyKeyMin = 8;
+export const replaceExternalAccountScopesHeaderIdempotencyKeyMax = 200;
+
+
+export const replaceExternalAccountScopesHeaderIdempotencyKeyRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$');
+
+
+export const ReplaceExternalAccountScopesHeader = zod.object({
+  "Idempotency-Key": zod.string().min(replaceExternalAccountScopesHeaderIdempotencyKeyMin).max(replaceExternalAccountScopesHeaderIdempotencyKeyMax).regex(replaceExternalAccountScopesHeaderIdempotencyKeyRegExp).describe('Stable unique key for one lifecycle mutation and its exact body.')
+})
+
+
+
+export const replaceExternalAccountScopesBodyScopesMax = 200;
+
+
+
+export const ReplaceExternalAccountScopesBody = zod.object({
+  "expectedVersion": zod.number().min(1),
+  "scopes": zod.array(zod.object({
+  "resourceType": zod.enum(['job', 'quote', 'switchboard']),
+  "resourceId": zod.number().min(1),
+  "capability": zod.enum(['read'])
+})).max(replaceExternalAccountScopesBodyScopesMax)
+})
+
+
+
+
+
+export const UpdateExternalAccountExpiryParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const updateExternalAccountExpiryHeaderIdempotencyKeyMin = 8;
+export const updateExternalAccountExpiryHeaderIdempotencyKeyMax = 200;
+
+
+export const updateExternalAccountExpiryHeaderIdempotencyKeyRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$');
+
+
+export const UpdateExternalAccountExpiryHeader = zod.object({
+  "Idempotency-Key": zod.string().min(updateExternalAccountExpiryHeaderIdempotencyKeyMin).max(updateExternalAccountExpiryHeaderIdempotencyKeyMax).regex(updateExternalAccountExpiryHeaderIdempotencyKeyRegExp).describe('Stable unique key for one lifecycle mutation and its exact body.')
+})
+
+
+
+
+export const UpdateExternalAccountExpiryBody = zod.object({
+  "expectedVersion": zod.number().min(1),
+  "accessExpiresAt": zod.coerce.date()
+})
+
+
+
+
+
+export const ActivateExternalAccountParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const activateExternalAccountHeaderIdempotencyKeyMin = 8;
+export const activateExternalAccountHeaderIdempotencyKeyMax = 200;
+
+
+export const activateExternalAccountHeaderIdempotencyKeyRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$');
+
+
+export const ActivateExternalAccountHeader = zod.object({
+  "Idempotency-Key": zod.string().min(activateExternalAccountHeaderIdempotencyKeyMin).max(activateExternalAccountHeaderIdempotencyKeyMax).regex(activateExternalAccountHeaderIdempotencyKeyRegExp).describe('Stable unique key for one lifecycle mutation and its exact body.')
+})
+
+
+
+
+export const ActivateExternalAccountBody = zod.object({
+  "expectedVersion": zod.number().min(1)
+})
+
+
+
+
+
+export const TransferExternalAccountCustodianParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const transferExternalAccountCustodianHeaderIdempotencyKeyMin = 8;
+export const transferExternalAccountCustodianHeaderIdempotencyKeyMax = 200;
+
+
+export const transferExternalAccountCustodianHeaderIdempotencyKeyRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$');
+
+
+export const TransferExternalAccountCustodianHeader = zod.object({
+  "Idempotency-Key": zod.string().min(transferExternalAccountCustodianHeaderIdempotencyKeyMin).max(transferExternalAccountCustodianHeaderIdempotencyKeyMax).regex(transferExternalAccountCustodianHeaderIdempotencyKeyRegExp).describe('Stable unique key for one lifecycle mutation and its exact body.')
+})
+
+
+
+
+
+export const TransferExternalAccountCustodianBody = zod.object({
+  "expectedVersion": zod.number().min(1),
+  "custodianUserId": zod.number().min(1)
+})
+
+
+
+
+
+export const RevokeExternalAccountParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const revokeExternalAccountHeaderIdempotencyKeyMin = 8;
+export const revokeExternalAccountHeaderIdempotencyKeyMax = 200;
+
+
+export const revokeExternalAccountHeaderIdempotencyKeyRegExp = new RegExp('^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$');
+
+
+export const RevokeExternalAccountHeader = zod.object({
+  "Idempotency-Key": zod.string().min(revokeExternalAccountHeaderIdempotencyKeyMin).max(revokeExternalAccountHeaderIdempotencyKeyMax).regex(revokeExternalAccountHeaderIdempotencyKeyRegExp).describe('Stable unique key for one lifecycle mutation and its exact body.')
+})
+
+
+export const revokeExternalAccountBodyReasonMin = 3;
+export const revokeExternalAccountBodyReasonMax = 300;
+
+
+
+export const RevokeExternalAccountBody = zod.object({
+  "expectedVersion": zod.number().min(1),
+  "reason": zod.string().min(revokeExternalAccountBodyReasonMin).max(revokeExternalAccountBodyReasonMax)
+})
+
+
+
+
+
+
+export const ListExternalPortalResourcesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "scopeId": zod.number().min(1),
+  "resourceType": zod.enum(['job', 'quote', 'switchboard']),
+  "capability": zod.enum(['read']),
+  "expiresAt": zod.coerce.date(),
+  "resource": zod.object({
+  "id": zod.number().min(1),
+  "status": zod.string(),
+  "title": zod.string().optional(),
+  "shortName": zod.string().nullish(),
+  "date": zod.string().optional(),
+  "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "quoteNumber": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "designation": zod.string().optional(),
+  "installationLocation": zod.string().nullish(),
+  "manufacturer": zod.string().optional()
+})
+})),
+  "cacheMode": zod.enum(['network-only'])
+})
+
+
+
+
+
+export const GetExternalPortalResourceParams = zod.object({
+  "scopeId": zod.coerce.number().min(1)
+})
+
+
+
+
+
+export const GetExternalPortalResourceResponse = zod.object({
+  "resource": zod.object({
+  "scopeId": zod.number().min(1),
+  "resourceType": zod.enum(['job', 'quote', 'switchboard']),
+  "capability": zod.enum(['read']),
+  "expiresAt": zod.coerce.date(),
+  "resource": zod.object({
+  "id": zod.number().min(1),
+  "status": zod.string(),
+  "title": zod.string().optional(),
+  "shortName": zod.string().nullish(),
+  "date": zod.string().optional(),
+  "clientSite": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "quoteNumber": zod.string().nullish(),
+  "validUntil": zod.string().nullish(),
+  "designation": zod.string().optional(),
+  "installationLocation": zod.string().nullish(),
+  "manufacturer": zod.string().optional()
+})
+}),
+  "cacheMode": zod.enum(['network-only'])
 })
 
 
@@ -4868,6 +5211,7 @@ export const UpdateUserResponse = zod.object({
   "personId": zod.number().nullable().describe('Employee record used for personal time tracking'),
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
+  "accountType": zod.enum(['internal', 'external']),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),
@@ -4902,6 +5246,8 @@ export const getUserOffboardingPreviewResponseAccessPermissionOverridesMin = 0;
 
 export const getUserOffboardingPreviewResponseAccessSecurityQuestionsMin = 0;
 
+export const getUserOffboardingPreviewResponseHandoverCustodiedExternalAccountsMin = 0;
+
 export const getUserOffboardingPreviewResponseHandoverPrimaryJobsMin = 0;
 
 export const getUserOffboardingPreviewResponseHandoverAdditionalJobsMin = 0;
@@ -4935,6 +5281,7 @@ export const GetUserOffboardingPreviewResponse = zod.object({
   "securityQuestions": zod.number().min(getUserOffboardingPreviewResponseAccessSecurityQuestionsMin)
 }),
   "handover": zod.object({
+  "custodiedExternalAccounts": zod.number().min(getUserOffboardingPreviewResponseHandoverCustodiedExternalAccountsMin),
   "primaryJobs": zod.number().min(getUserOffboardingPreviewResponseHandoverPrimaryJobsMin),
   "additionalJobs": zod.number().min(getUserOffboardingPreviewResponseHandoverAdditionalJobsMin),
   "plannedJobVisits": zod.number().min(getUserOffboardingPreviewResponseHandoverPlannedJobVisitsMin),
@@ -4985,6 +5332,8 @@ export const offboardUserResponseRevokedAccessPermissionOverridesMin = 0;
 
 export const offboardUserResponseRevokedAccessSecurityQuestionsMin = 0;
 
+export const offboardUserResponseHandoverCustodiedExternalAccountsMin = 0;
+
 export const offboardUserResponseHandoverPrimaryJobsMin = 0;
 
 export const offboardUserResponseHandoverAdditionalJobsMin = 0;
@@ -5016,6 +5365,7 @@ export const OffboardUserResponse = zod.object({
   "securityQuestions": zod.number().min(offboardUserResponseRevokedAccessSecurityQuestionsMin)
 }),
   "handover": zod.object({
+  "custodiedExternalAccounts": zod.number().min(offboardUserResponseHandoverCustodiedExternalAccountsMin),
   "primaryJobs": zod.number().min(offboardUserResponseHandoverPrimaryJobsMin),
   "additionalJobs": zod.number().min(offboardUserResponseHandoverAdditionalJobsMin),
   "plannedJobVisits": zod.number().min(offboardUserResponseHandoverPlannedJobVisitsMin),
@@ -5050,6 +5400,7 @@ export const UpdateUserPermissionsResponse = zod.object({
   "personId": zod.number().nullable().describe('Employee record used for personal time tracking'),
   "email": zod.string().nullish(),
   "role": zod.string().describe('guest | master | admin'),
+  "accountType": zod.enum(['internal', 'external']),
   "isActive": zod.boolean(),
   "createdAt": zod.string(),
   "permissions": zod.array(zod.string()).describe('Effective permissions after applying role defaults and user overrides'),

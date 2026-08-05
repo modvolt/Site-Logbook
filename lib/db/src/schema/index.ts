@@ -10,6 +10,7 @@ export * from "./tasks";
 export * from "./attachments";
 export * from "./materials";
 export * from "./users";
+export * from "./external-accounts";
 export * from "./user-permissions";
 export * from "./security-questions";
 export * from "./user-preferences";

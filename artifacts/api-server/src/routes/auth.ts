@@ -2,7 +2,16 @@ import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { db, usersTable, USER_ROLES, resolvePermissions, type PermissionEffect, type User, type UserRole } from "@workspace/db";
+import {
+  db,
+  usersTable,
+  USER_ROLES,
+  resolveAccountPermissions,
+  type PermissionEffect,
+  type User,
+  type UserAccountType,
+  type UserRole,
+} from "@workspace/db";
 import { LoginBody, SetupFirstAdminBody, VerifyVaultPasswordBody } from "@workspace/api-zod";
 import { getPermissionOverrides } from "../lib/permissions";
 import {
@@ -68,10 +77,15 @@ function serializeUser(
     personId: u.personId,
     email: u.email,
     role: u.role,
+    accountType: u.accountType,
     isActive: u.isActive,
     createdAt: u.createdAt.toISOString(),
-    permissions: resolvePermissions(u.role as UserRole, overrides),
-    permissionOverrides: overrides,
+    permissions: resolveAccountPermissions(
+      u.accountType as UserAccountType,
+      u.role as UserRole,
+      overrides,
+    ),
+    permissionOverrides: u.accountType === "internal" ? overrides : [],
   };
 }
 
@@ -116,7 +130,7 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     const [u] = await db.select().from(usersTable).where(eq(usersTable.id, req.auth.userId));
     if (!u || !u.isActive) {
       req.session.destroy(() => undefined);
-      res.json({ authenticated: false, needsSetup: totalUsers === 0 });
+      res.json({ authenticated: false, needsSetup: totalUsers === 0, cacheMode: "none" });
       return;
     }
     const overrides = await getPermissionOverrides(u.id);
@@ -124,17 +138,20 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     res.json({
       authenticated: true,
       needsSetup: false,
-      offlineScope: createOfflineIdentityScope({
-        userId: u.id,
-        sessionGeneration: u.sessionGeneration,
-        role: u.role as UserRole,
-        permissions: user.permissions,
-      }),
+      cacheMode: u.accountType === "internal" ? "offline-scoped" : "network-only",
+      offlineScope: u.accountType === "internal"
+        ? createOfflineIdentityScope({
+            userId: u.id,
+            sessionGeneration: u.sessionGeneration,
+            role: u.role as UserRole,
+            permissions: user.permissions,
+          })
+        : undefined,
       user,
     });
     return;
   }
-  res.json({ authenticated: false, needsSetup: totalUsers === 0 });
+  res.json({ authenticated: false, needsSetup: totalUsers === 0, cacheMode: "none" });
 });
 
 router.post("/auth/login", authLimiter, async (req, res): Promise<void> => {

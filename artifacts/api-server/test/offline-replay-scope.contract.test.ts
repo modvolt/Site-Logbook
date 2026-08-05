@@ -11,6 +11,7 @@ const auth = {
   userId: 7,
   username: "field-user",
   role: "guest" as const,
+  accountType: "internal" as const,
   name: "Field User",
   personId: 12,
   permissions: ["jobs.view", "jobs.work"] as const,

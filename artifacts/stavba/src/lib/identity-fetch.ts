@@ -5,6 +5,7 @@ const OFFLINE_SCOPE_HEADER = "x-stavba-offline-scope";
 const AUTH_INVALIDATED_EVENT = "stavba:auth-invalidated";
 
 let activeScope: string | null = null;
+let networkOnlyIdentity = false;
 let transitionActive = false;
 let installed = false;
 
@@ -52,11 +53,17 @@ async function observeIdentityResponse(url: URL, response: Response): Promise<vo
     const body = await response.clone().json().catch(() => null) as {
       authenticated?: boolean;
       offlineScope?: unknown;
+      cacheMode?: unknown;
     } | null;
     if (body?.authenticated && isValidOfflineScope(body.offlineScope)) {
       activeScope = body.offlineScope;
+      networkOnlyIdentity = false;
+    } else if (body?.authenticated && body.cacheMode === "network-only") {
+      activeScope = null;
+      networkOnlyIdentity = true;
     } else {
       activeScope = null;
+      networkOnlyIdentity = false;
     }
     transitionActive = false;
     return;
@@ -82,8 +89,12 @@ export function installIdentityFetchGuard(): void {
     let guardedInit = init;
 
     if (isSameOriginApi && !isPublicApiRequest(method, url.pathname)) {
-      if (transitionActive || !activeScope) throw new IdentityTransitionError(url.pathname);
-      [guardedInput, guardedInit] = withScopeHeader(input, init, activeScope);
+      if (transitionActive || (!activeScope && !networkOnlyIdentity)) {
+        throw new IdentityTransitionError(url.pathname);
+      }
+      if (activeScope) {
+        [guardedInput, guardedInit] = withScopeHeader(input, init, activeScope);
+      }
     }
 
     const response = await nativeFetch(guardedInput, guardedInit);
@@ -95,6 +106,7 @@ export function installIdentityFetchGuard(): void {
 /** Synchronous identity boundary used before any cookie-changing request. */
 export function beginIdentityRequestTransition(): void {
   activeScope = null;
+  networkOnlyIdentity = false;
   transitionActive = true;
 }
 
@@ -104,11 +116,15 @@ export function completeIdentityRequestTransition(): void {
 }
 
 /** Reinforce the scope learned from /auth/me after React Query publishes it. */
-export function setIdentityRequestScope(scope: string | null): void {
+export function setIdentityRequestScope(
+  scope: string | null,
+  networkOnly = false,
+): void {
   activeScope = isValidOfflineScope(scope) ? scope : null;
-  if (activeScope) transitionActive = false;
+  networkOnlyIdentity = !activeScope && networkOnly;
+  if (activeScope || networkOnlyIdentity) transitionActive = false;
 }
 
-export function identityFetchStateForTest(): { scope: string | null; transitionActive: boolean } {
-  return { scope: activeScope, transitionActive };
+export function identityFetchStateForTest(): { scope: string | null; networkOnly: boolean; transitionActive: boolean } {
+  return { scope: activeScope, networkOnly: networkOnlyIdentity, transitionActive };
 }

@@ -15,7 +15,8 @@ describe("public access token lifecycle hardening", () => {
     expect(service).toContain("lockAndAssertActiveOwner");
     expect(service).toContain("usersTable.isActive");
     expect(service).toContain("userPermissionOverridesTable");
-    expect(service).toContain("resolvePermissions");
+    expect(service).toContain("resolveAccountPermissions");
+    expect(service).toContain("owner.accountType");
     expect(service).toContain("ISSUANCE_PERMISSION[purpose]");
     expect(service).toContain('"issuer_permission_revoked"');
     const guard = service.slice(

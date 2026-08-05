@@ -1,4 +1,4 @@
-import type { UserRole } from "./schema/users";
+import type { UserAccountType, UserRole } from "./schema/users";
 
 export const PERMISSIONS = [
   "jobs.view",
@@ -111,4 +111,17 @@ export function resolvePermissions(
     else resolved.delete(override.permission);
   }
   return PERMISSIONS.filter((permission) => resolved.has(permission));
+}
+
+/**
+ * Internal module permissions are never a capability source for authenticated
+ * external accounts. Their access is resolved only by the dedicated resource
+ * scope service and route allowlist.
+ */
+export function resolveAccountPermissions(
+  accountType: UserAccountType,
+  role: UserRole,
+  overrides: ReadonlyArray<{ permission: string; effect: PermissionEffect }>,
+): Permission[] {
+  return accountType === "internal" ? resolvePermissions(role, overrides) : [];
 }

@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import {
   db,
-  resolvePermissions,
+  resolveAccountPermissions,
   switchboardEventsTable,
   switchboardsTable,
   userPermissionOverridesTable,
@@ -9,6 +9,7 @@ import {
   USER_ROLES,
   type PermissionEffect,
   type UserRole,
+  type UserAccountType,
 } from "@workspace/db";
 import { SESSION_ISSUANCE_LOCK_NAMESPACE } from "./auth-session";
 import {
@@ -48,6 +49,7 @@ async function lockAndAuthorizeQrActor(
       id: usersTable.id,
       name: usersTable.name,
       role: usersTable.role,
+      accountType: usersTable.accountType,
       isActive: usersTable.isActive,
     })
     .from(usersTable)
@@ -75,7 +77,11 @@ async function lockAndAuthorizeQrActor(
       ? [{ permission: row.permission, effect: row.effect as PermissionEffect }]
       : [],
   );
-  if (!resolvePermissions(actor.role as UserRole, overrides).includes("switchboards.qr.manage")) {
+  if (!resolveAccountPermissions(
+    actor.accountType as UserAccountType,
+    actor.role as UserRole,
+    overrides,
+  ).includes("switchboards.qr.manage")) {
     throw new SwitchboardQrGrantError(
       403,
       "actor_access_revoked",

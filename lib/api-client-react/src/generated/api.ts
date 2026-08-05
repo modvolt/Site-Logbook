@@ -134,9 +134,19 @@ import type {
   ExportLeavesParams,
   ExportPpeAssignmentsParams,
   ExportSubjectDataParams,
+  ExternalAccountCreateInput,
+  ExternalAccountDetail,
+  ExternalAccountExpiryInput,
+  ExternalAccountList,
+  ExternalAccountRevokeInput,
+  ExternalAccountScopesInput,
+  ExternalAccountTransferInput,
+  ExternalAccountVersionInput,
   ExternalGrantList,
   ExternalGrantRevokeInput,
   ExternalGrantRevokeResult,
+  ExternalPortalResourceList,
+  ExternalPortalResourceResponse,
   GdprEraseInput,
   GdprEraseResult,
   GdprExport,
@@ -190,6 +200,7 @@ import type {
   ListCostDocumentsParams,
   ListCustomerDocumentsParams,
   ListEmailImportMessagesParams,
+  ListExternalAccountsParams,
   ListExternalGrantsParams,
   ListInvoicesParams,
   ListJobWorkSessionsParams,
@@ -487,13 +498,6 @@ export function useGetAdminHealth<TData = Awaited<ReturnType<typeof getAdminHeal
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-
-
-
-
-
-
 export const getGetAdminOperationalSnapshotUrl = () => {
 
 
@@ -566,13 +570,6 @@ export function useGetAdminOperationalSnapshot<TData = Awaited<ReturnType<typeof
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
-
-
-
-
-
-
-
 export const getGetWatchdogStatusUrl = () => {
 
 
@@ -12793,6 +12790,692 @@ export const useCreateUser = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateUserMutationOptions(options));
     }
+
+export const getListExternalAccountsUrl = (params?: ListExternalAccountsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/external-accounts?${stringifiedParams}` : `/api/external-accounts`
+}
+
+export const listExternalAccounts = async (params?: ListExternalAccountsParams, options?: RequestInit): Promise<ExternalAccountList> => {
+
+  return customFetch<ExternalAccountList>(getListExternalAccountsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListExternalAccountsQueryKey = (params?: ListExternalAccountsParams,) => {
+    return [
+    `/api/external-accounts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListExternalAccountsQueryOptions = <TData = Awaited<ReturnType<typeof listExternalAccounts>>, TError = ErrorType<unknown>>(params?: ListExternalAccountsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExternalAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListExternalAccountsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExternalAccounts>>> = ({ signal }) => listExternalAccounts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listExternalAccounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListExternalAccountsQueryResult = NonNullable<Awaited<ReturnType<typeof listExternalAccounts>>>
+export type ListExternalAccountsQueryError = ErrorType<unknown>
+
+
+
+export function useListExternalAccounts<TData = Awaited<ReturnType<typeof listExternalAccounts>>, TError = ErrorType<unknown>>(
+ params?: ListExternalAccountsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExternalAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListExternalAccountsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateExternalAccountUrl = () => {
+
+
+
+
+  return `/api/external-accounts`
+}
+
+export const createExternalAccount = async (externalAccountCreateInput: ExternalAccountCreateInput, options?: RequestInit): Promise<ExternalAccountDetail> => {
+
+  return customFetch<ExternalAccountDetail>(getCreateExternalAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalAccountCreateInput,)
+  }
+);}
+
+
+
+
+export const getCreateExternalAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExternalAccount>>, TError,{data: BodyType<ExternalAccountCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createExternalAccount>>, TError,{data: BodyType<ExternalAccountCreateInput>}, TContext> => {
+
+const mutationKey = ['createExternalAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExternalAccount>>, {data: BodyType<ExternalAccountCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createExternalAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateExternalAccountMutationResult = NonNullable<Awaited<ReturnType<typeof createExternalAccount>>>
+    export type CreateExternalAccountMutationBody = BodyType<ExternalAccountCreateInput>
+    export type CreateExternalAccountMutationError = ErrorType<void>
+
+    export const useCreateExternalAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExternalAccount>>, TError,{data: BodyType<ExternalAccountCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createExternalAccount>>,
+        TError,
+        {data: BodyType<ExternalAccountCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateExternalAccountMutationOptions(options));
+    }
+
+export const getGetExternalAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-accounts/${id}`
+}
+
+export const getExternalAccount = async (id: number, options?: RequestInit): Promise<ExternalAccountDetail> => {
+
+  return customFetch<ExternalAccountDetail>(getGetExternalAccountUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetExternalAccountQueryKey = (id: number,) => {
+    return [
+    `/api/external-accounts/${id}`
+    ] as const;
+    }
+
+
+export const getGetExternalAccountQueryOptions = <TData = Awaited<ReturnType<typeof getExternalAccount>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExternalAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExternalAccountQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExternalAccount>>> = ({ signal }) => getExternalAccount(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExternalAccount>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetExternalAccountQueryResult = NonNullable<Awaited<ReturnType<typeof getExternalAccount>>>
+export type GetExternalAccountQueryError = ErrorType<void>
+
+
+
+export function useGetExternalAccount<TData = Awaited<ReturnType<typeof getExternalAccount>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExternalAccount>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExternalAccountQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getReplaceExternalAccountScopesUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-accounts/${id}/scopes`
+}
+
+export const replaceExternalAccountScopes = async (id: number,
+    externalAccountScopesInput: ExternalAccountScopesInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getReplaceExternalAccountScopesUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalAccountScopesInput,)
+  }
+);}
+
+
+
+
+export const getReplaceExternalAccountScopesMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceExternalAccountScopes>>, TError,{id: number;data: BodyType<ExternalAccountScopesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replaceExternalAccountScopes>>, TError,{id: number;data: BodyType<ExternalAccountScopesInput>}, TContext> => {
+
+const mutationKey = ['replaceExternalAccountScopes'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replaceExternalAccountScopes>>, {id: number;data: BodyType<ExternalAccountScopesInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  replaceExternalAccountScopes(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplaceExternalAccountScopesMutationResult = NonNullable<Awaited<ReturnType<typeof replaceExternalAccountScopes>>>
+    export type ReplaceExternalAccountScopesMutationBody = BodyType<ExternalAccountScopesInput>
+    export type ReplaceExternalAccountScopesMutationError = ErrorType<void>
+
+    export const useReplaceExternalAccountScopes = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceExternalAccountScopes>>, TError,{id: number;data: BodyType<ExternalAccountScopesInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replaceExternalAccountScopes>>,
+        TError,
+        {id: number;data: BodyType<ExternalAccountScopesInput>},
+        TContext
+      > => {
+      return useMutation(getReplaceExternalAccountScopesMutationOptions(options));
+    }
+
+export const getUpdateExternalAccountExpiryUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-accounts/${id}/expiry`
+}
+
+export const updateExternalAccountExpiry = async (id: number,
+    externalAccountExpiryInput: ExternalAccountExpiryInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getUpdateExternalAccountExpiryUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalAccountExpiryInput,)
+  }
+);}
+
+
+
+
+export const getUpdateExternalAccountExpiryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExternalAccountExpiry>>, TError,{id: number;data: BodyType<ExternalAccountExpiryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateExternalAccountExpiry>>, TError,{id: number;data: BodyType<ExternalAccountExpiryInput>}, TContext> => {
+
+const mutationKey = ['updateExternalAccountExpiry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateExternalAccountExpiry>>, {id: number;data: BodyType<ExternalAccountExpiryInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateExternalAccountExpiry(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateExternalAccountExpiryMutationResult = NonNullable<Awaited<ReturnType<typeof updateExternalAccountExpiry>>>
+    export type UpdateExternalAccountExpiryMutationBody = BodyType<ExternalAccountExpiryInput>
+    export type UpdateExternalAccountExpiryMutationError = ErrorType<void>
+
+    export const useUpdateExternalAccountExpiry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExternalAccountExpiry>>, TError,{id: number;data: BodyType<ExternalAccountExpiryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateExternalAccountExpiry>>,
+        TError,
+        {id: number;data: BodyType<ExternalAccountExpiryInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateExternalAccountExpiryMutationOptions(options));
+    }
+
+export const getActivateExternalAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-accounts/${id}/activate`
+}
+
+export const activateExternalAccount = async (id: number,
+    externalAccountVersionInput: ExternalAccountVersionInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getActivateExternalAccountUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalAccountVersionInput,)
+  }
+);}
+
+
+
+
+export const getActivateExternalAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateExternalAccount>>, TError,{id: number;data: BodyType<ExternalAccountVersionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof activateExternalAccount>>, TError,{id: number;data: BodyType<ExternalAccountVersionInput>}, TContext> => {
+
+const mutationKey = ['activateExternalAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateExternalAccount>>, {id: number;data: BodyType<ExternalAccountVersionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  activateExternalAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateExternalAccountMutationResult = NonNullable<Awaited<ReturnType<typeof activateExternalAccount>>>
+    export type ActivateExternalAccountMutationBody = BodyType<ExternalAccountVersionInput>
+    export type ActivateExternalAccountMutationError = ErrorType<void>
+
+    export const useActivateExternalAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateExternalAccount>>, TError,{id: number;data: BodyType<ExternalAccountVersionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof activateExternalAccount>>,
+        TError,
+        {id: number;data: BodyType<ExternalAccountVersionInput>},
+        TContext
+      > => {
+      return useMutation(getActivateExternalAccountMutationOptions(options));
+    }
+
+export const getTransferExternalAccountCustodianUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-accounts/${id}/transfer`
+}
+
+export const transferExternalAccountCustodian = async (id: number,
+    externalAccountTransferInput: ExternalAccountTransferInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getTransferExternalAccountCustodianUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalAccountTransferInput,)
+  }
+);}
+
+
+
+
+export const getTransferExternalAccountCustodianMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transferExternalAccountCustodian>>, TError,{id: number;data: BodyType<ExternalAccountTransferInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof transferExternalAccountCustodian>>, TError,{id: number;data: BodyType<ExternalAccountTransferInput>}, TContext> => {
+
+const mutationKey = ['transferExternalAccountCustodian'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transferExternalAccountCustodian>>, {id: number;data: BodyType<ExternalAccountTransferInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  transferExternalAccountCustodian(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TransferExternalAccountCustodianMutationResult = NonNullable<Awaited<ReturnType<typeof transferExternalAccountCustodian>>>
+    export type TransferExternalAccountCustodianMutationBody = BodyType<ExternalAccountTransferInput>
+    export type TransferExternalAccountCustodianMutationError = ErrorType<void>
+
+    export const useTransferExternalAccountCustodian = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transferExternalAccountCustodian>>, TError,{id: number;data: BodyType<ExternalAccountTransferInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof transferExternalAccountCustodian>>,
+        TError,
+        {id: number;data: BodyType<ExternalAccountTransferInput>},
+        TContext
+      > => {
+      return useMutation(getTransferExternalAccountCustodianMutationOptions(options));
+    }
+
+export const getRevokeExternalAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-accounts/${id}/revoke`
+}
+
+export const revokeExternalAccount = async (id: number,
+    externalAccountRevokeInput: ExternalAccountRevokeInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRevokeExternalAccountUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalAccountRevokeInput,)
+  }
+);}
+
+
+
+
+export const getRevokeExternalAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeExternalAccount>>, TError,{id: number;data: BodyType<ExternalAccountRevokeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeExternalAccount>>, TError,{id: number;data: BodyType<ExternalAccountRevokeInput>}, TContext> => {
+
+const mutationKey = ['revokeExternalAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeExternalAccount>>, {id: number;data: BodyType<ExternalAccountRevokeInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  revokeExternalAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeExternalAccountMutationResult = NonNullable<Awaited<ReturnType<typeof revokeExternalAccount>>>
+    export type RevokeExternalAccountMutationBody = BodyType<ExternalAccountRevokeInput>
+    export type RevokeExternalAccountMutationError = ErrorType<void>
+
+    export const useRevokeExternalAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeExternalAccount>>, TError,{id: number;data: BodyType<ExternalAccountRevokeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeExternalAccount>>,
+        TError,
+        {id: number;data: BodyType<ExternalAccountRevokeInput>},
+        TContext
+      > => {
+      return useMutation(getRevokeExternalAccountMutationOptions(options));
+    }
+
+export const getListExternalPortalResourcesUrl = () => {
+
+
+
+
+  return `/api/portal/resources`
+}
+
+export const listExternalPortalResources = async ( options?: RequestInit): Promise<ExternalPortalResourceList> => {
+
+  return customFetch<ExternalPortalResourceList>(getListExternalPortalResourcesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListExternalPortalResourcesQueryKey = () => {
+    return [
+    `/api/portal/resources`
+    ] as const;
+    }
+
+
+export const getListExternalPortalResourcesQueryOptions = <TData = Awaited<ReturnType<typeof listExternalPortalResources>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExternalPortalResources>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListExternalPortalResourcesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExternalPortalResources>>> = ({ signal }) => listExternalPortalResources({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listExternalPortalResources>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListExternalPortalResourcesQueryResult = NonNullable<Awaited<ReturnType<typeof listExternalPortalResources>>>
+export type ListExternalPortalResourcesQueryError = ErrorType<void>
+
+
+
+export function useListExternalPortalResources<TData = Awaited<ReturnType<typeof listExternalPortalResources>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExternalPortalResources>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListExternalPortalResourcesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetExternalPortalResourceUrl = (scopeId: number,) => {
+
+
+
+
+  return `/api/portal/resources/${scopeId}`
+}
+
+export const getExternalPortalResource = async (scopeId: number, options?: RequestInit): Promise<ExternalPortalResourceResponse> => {
+
+  return customFetch<ExternalPortalResourceResponse>(getGetExternalPortalResourceUrl(scopeId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetExternalPortalResourceQueryKey = (scopeId: number,) => {
+    return [
+    `/api/portal/resources/${scopeId}`
+    ] as const;
+    }
+
+
+export const getGetExternalPortalResourceQueryOptions = <TData = Awaited<ReturnType<typeof getExternalPortalResource>>, TError = ErrorType<void>>(scopeId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExternalPortalResource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExternalPortalResourceQueryKey(scopeId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExternalPortalResource>>> = ({ signal }) => getExternalPortalResource(scopeId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(scopeId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExternalPortalResource>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetExternalPortalResourceQueryResult = NonNullable<Awaited<ReturnType<typeof getExternalPortalResource>>>
+export type GetExternalPortalResourceQueryError = ErrorType<void>
+
+
+
+export function useGetExternalPortalResource<TData = Awaited<ReturnType<typeof getExternalPortalResource>>, TError = ErrorType<void>>(
+ scopeId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExternalPortalResource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExternalPortalResourceQueryOptions(scopeId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListExternalGrantsUrl = (params?: ListExternalGrantsParams,) => {
   const normalizedParams = new URLSearchParams();

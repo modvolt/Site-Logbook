@@ -136,6 +136,7 @@ services:
       # startup fails closed when this is absent; do not use hop counts or broad
       # private aliases. Record the real Coolify network topology first.
       API_TRUSTED_PROXY_CIDRS: ${API_TRUSTED_PROXY_CIDRS:-}
+      EXTERNAL_ACCOUNTS_ENABLED: ${EXTERNAL_ACCOUNTS_ENABLED:-false}
 
   web:
     build:

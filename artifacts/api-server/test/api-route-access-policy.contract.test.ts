@@ -94,13 +94,90 @@ describe("generated API route manifest", () => {
     });
   });
 
-  it("preserves explicit authenticated-only self-service and delegated routes", () => {
-    expect(resolveApiRouteAccess("GET", "/events")).toEqual({ kind: "authenticated" });
-    expect(resolveApiRouteAccess("GET", "/sessions")).toEqual({ kind: "authenticated" });
-    expect(resolveApiRouteAccess("PUT", "/preferences")).toEqual({ kind: "authenticated" });
+  it("marks only ownership-checked session and credential self-service as shared", () => {
+    expect(resolveApiRouteAccess("GET", "/sessions")).toEqual({
+      kind: "authenticated",
+      audience: "shared",
+    });
+    expect(resolveApiRouteAccess("DELETE", "/sessions/known-sid")).toEqual({
+      kind: "authenticated",
+      audience: "shared",
+    });
+    expect(resolveApiRouteAccess("GET", "/auth/webauthn/credentials")).toEqual({
+      kind: "authenticated",
+      audience: "shared",
+    });
+    expect(resolveApiRouteAccess("POST", "/auth/webauthn/register/begin")).toEqual({
+      kind: "authenticated",
+      audience: "shared",
+    });
+  });
+
+  it("keeps existing authenticated business helpers internal-only", () => {
+    expect(resolveApiRouteAccess("GET", "/events")).toEqual({
+      kind: "authenticated",
+      audience: "internal",
+    });
+    expect(resolveApiRouteAccess("PUT", "/preferences")).toEqual({
+      kind: "authenticated",
+      audience: "internal",
+    });
     expect(resolveApiRouteAccess("GET", "/storage/objects/uploads/known")).toEqual({
       kind: "authenticated",
+      audience: "internal",
     });
+    expect(resolveApiRouteAccess("POST", "/auth/vault/verify-password")).toEqual({
+      kind: "authenticated",
+      audience: "internal",
+    });
+    expect(resolveApiRouteAccess("POST", "/auth/webauthn/verify/begin")).toEqual({
+      kind: "authenticated",
+      audience: "internal",
+    });
+  });
+
+  it("allowlists portal routes by exact method and shape", () => {
+    expect(resolveApiRouteAccess("GET", "/portal/resources")).toEqual({
+      kind: "authenticated",
+      audience: "external",
+    });
+    expect(resolveApiRouteAccess("GET", "/portal/resources/12")).toEqual({
+      kind: "authenticated",
+      audience: "external",
+    });
+    expect(resolveApiRouteAccess("POST", "/portal/resources")).toEqual({
+      kind: "deny",
+      reason: "unregistered",
+    });
+    expect(resolveApiRouteAccess("GET", "/portal/future-route")).toEqual({
+      kind: "deny",
+      reason: "unregistered",
+    });
+  });
+
+  it("never marks an existing business route as shared or external", () => {
+    for (const route of API_ROUTE_MANIFEST) {
+      const routePath = materialize(route.template);
+      const policy = resolveApiRouteAccess(route.method, routePath);
+      if (policy.kind !== "authenticated") continue;
+      if (route.template === "/sessions" || route.template === "/sessions/:sid") {
+        expect(policy.audience, `${route.method} ${route.template}`).toBe("shared");
+        continue;
+      }
+      if (
+        route.template === "/auth/webauthn/credentials" ||
+        route.template === "/auth/webauthn/credentials/:id" ||
+        route.template.startsWith("/auth/webauthn/register/")
+      ) {
+        expect(policy.audience, `${route.method} ${route.template}`).toBe("shared");
+        continue;
+      }
+      if (route.template === "/portal" || route.template.startsWith("/portal/")) {
+        expect(policy.audience, `${route.method} ${route.template}`).toBe("external");
+        continue;
+      }
+      expect(policy.audience, `${route.method} ${route.template}`).toBe("internal");
+    }
   });
 
   it("requires a staged-upload claim permission for upload intents", () => {

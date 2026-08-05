@@ -97,6 +97,7 @@ services:
       DATABASE_URL: postgresql://site_logbook_r14:r14-postgres-synthetic-only@postgres:5432/site_logbook_r14
       SESSION_SECRET: r14-session-secret-synthetic-only-00000000000000000000000000000000
       PUBLIC_APP_URL: http://127.0.0.1:${R14_WEB_PORT:-4194}
+      EXTERNAL_ACCOUNTS_ENABLED: "false"
       S3_ENDPOINT: http://minio:9000
       S3_TEST_REQUEST_TIMEOUT_MS: "5000"
       S3_REGION: us-east-1

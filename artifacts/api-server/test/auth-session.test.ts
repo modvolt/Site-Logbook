@@ -37,6 +37,7 @@ describe("establishAuthenticatedSession", () => {
       id: 42,
       username: "admin",
       role: "admin",
+      accountType: "internal",
       name: "Admin",
       sessionGeneration: 3,
     });
@@ -47,6 +48,7 @@ describe("establishAuthenticatedSession", () => {
       userId: 42,
       username: "admin",
       role: "admin",
+      accountType: "internal",
       name: "Admin",
       sessionGeneration: 3,
     });
@@ -61,6 +63,7 @@ describe("establishAuthenticatedSession", () => {
         id: 7,
         username: "worker",
         role: "guest",
+        accountType: "internal",
         name: "Worker",
         sessionGeneration: 4,
       }),
@@ -81,6 +84,7 @@ describe("establishAuthenticatedSession", () => {
         id: 1,
         username: "admin",
         role: "admin",
+        accountType: "internal",
         name: "Admin",
         sessionGeneration: 1,
       }),

@@ -4,7 +4,11 @@ import { createOfflineIdentityScope } from "../lib/offline-identity";
 export const OFFLINE_SCOPE_HEADER = "x-stavba-offline-scope";
 
 function currentOfflineScope(req: Request): string | null {
-  if (!req.auth || !Number.isInteger(req.session.sessionGeneration)) return null;
+  if (
+    !req.auth ||
+    req.auth.accountType !== "internal" ||
+    !Number.isInteger(req.session.sessionGeneration)
+  ) return null;
   return createOfflineIdentityScope({
     userId: req.auth.userId,
     sessionGeneration: req.session.sessionGeneration!,
@@ -47,6 +51,12 @@ export function enforceOfflineReplayScope(
   res: Response,
   next: NextFunction,
 ): void {
+  // The external portal is deliberately online-only and never participates in
+  // the internal PWA cache or offline mutation queue.
+  if (req.auth?.accountType === "external") {
+    next();
+    return;
+  }
   const path = req.originalUrl.split("?", 1)[0].replace(/\/+$/, "");
   if ((req.method === "GET" && path === "/api/events") || isHeaderlessBrowserResource(req)) {
     next();

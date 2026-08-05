@@ -1,10 +1,12 @@
 import type { Request } from "express";
-import type { UserRole } from "@workspace/db";
+import type { UserAccountType, UserRole } from "@workspace/db";
+import { externalAccountsEnabled } from "./external-accounts-feature";
 
 export interface AuthenticatedSessionUser {
   id: number;
   username: string;
   role: string;
+  accountType: string;
   name: string;
   sessionGeneration: number;
 }
@@ -75,6 +77,7 @@ export async function establishAuthenticatedSession(
   req.session.userId = user.id;
   req.session.username = user.username;
   req.session.role = user.role as UserRole;
+  req.session.accountType = user.accountType as UserAccountType;
   req.session.name = user.name;
   req.session.sessionGeneration = user.sessionGeneration;
   try {
@@ -111,16 +114,41 @@ export async function establishAuthenticatedSessionIfCurrent(
     const current = await client.query<{
       is_active: boolean;
       session_generation: number;
+      account_type: string;
+      external_status: string | null;
+      external_revoked_at: Date | null;
+      external_access_expires_at: Date | null;
     }>(
-      `select is_active, session_generation
-         from users
-        where id = $1`,
+      `select u.is_active,
+              u.session_generation,
+              u.account_type,
+              e.status as external_status,
+              e.revoked_at as external_revoked_at,
+              e.access_expires_at as external_access_expires_at
+         from users u
+         left join external_accounts e on e.user_id = u.id
+        where u.id = $1`,
       [user.id],
     );
     const row = current.rows[0];
     if (
       !row?.is_active ||
-      row.session_generation !== user.sessionGeneration
+      row.session_generation !== user.sessionGeneration ||
+      row.account_type !== user.accountType
+    ) {
+      await client.query("ROLLBACK");
+      transactionOpen = false;
+      return false;
+    }
+    if (
+      row.account_type === "external" &&
+      (
+        !externalAccountsEnabled() ||
+        row.external_status !== "active" ||
+        row.external_revoked_at !== null ||
+        !row.external_access_expires_at ||
+        row.external_access_expires_at.getTime() <= Date.now()
+      )
     ) {
       await client.query("ROLLBACK");
       transactionOpen = false;

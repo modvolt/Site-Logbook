@@ -4,7 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import {
   auditLogTable,
   db,
-  resolvePermissions,
+  resolveAccountPermissions,
   securityQuestionsTable,
   userPermissionOverridesTable,
   userSessionsTable,
@@ -12,6 +12,7 @@ import {
   webauthnCredentialsTable,
   type PermissionEffect,
   type UserRole,
+  type UserAccountType,
 } from "@workspace/db";
 import { SESSION_ISSUANCE_LOCK_NAMESPACE } from "./auth-session";
 
@@ -28,6 +29,7 @@ export interface UserOffboardingAccessInventory {
 }
 
 export interface UserOffboardingHandoverInventory {
+  custodiedExternalAccounts: number;
   primaryJobs: number;
   additionalJobs: number;
   plannedJobVisits: number;
@@ -55,11 +57,13 @@ interface LockedUser {
   username: string;
   personId: number | null;
   role: string;
+  accountType: string;
   isActive: boolean;
   sessionGeneration: number;
 }
 
 interface RawInventory {
+  custodied_external_accounts: unknown;
   sessions: unknown;
   webauthn_credentials: unknown;
   permission_overrides: unknown;
@@ -98,6 +102,7 @@ function inventoryFromRaw(raw: RawInventory): {
       securityQuestions: count(raw.security_questions, "securityQuestions"),
     },
     handover: {
+      custodiedExternalAccounts: count(raw.custodied_external_accounts, "custodiedExternalAccounts"),
       primaryJobs: count(raw.primary_jobs, "primaryJobs"),
       additionalJobs: count(raw.additional_jobs, "additionalJobs"),
       plannedJobVisits: count(raw.planned_job_visits, "plannedJobVisits"),
@@ -114,6 +119,10 @@ function inventoryFromRaw(raw: RawInventory): {
 async function loadInventory(tx: Transaction, targetUserId: number, personId: number | null): Promise<ReturnType<typeof inventoryFromRaw>> {
   const result = await tx.execute(sql`
     select
+      (select count(*)::int from external_accounts e
+        where e.custodian_user_id = ${targetUserId}
+          and e.status <> 'revoked'
+          and e.access_expires_at > now()) as custodied_external_accounts,
       (select count(*)::int from user_sessions s
         where s.user_id = ${targetUserId}
            or s.sess->>'userId' = ${String(targetUserId)}) as sessions,
@@ -174,6 +183,7 @@ async function lockedUser(tx: Transaction, userId: number): Promise<LockedUser |
            username,
            person_id as "personId",
            role,
+           account_type as "accountType",
            is_active as "isActive",
            session_generation as "sessionGeneration"
       from users
@@ -203,7 +213,11 @@ export async function lockAndAuthorizeUserManager(tx: Transaction, actorUserId: 
     .from(userPermissionOverridesTable)
     .where(eq(userPermissionOverridesTable.userId, actorUserId));
   const overrides = rows.flatMap((row) => (row.effect === "allow" || row.effect === "deny" ? [{ permission: row.permission, effect: row.effect as PermissionEffect }] : []));
-  if (!resolvePermissions(actor.role as UserRole, overrides).includes("users.manage")) {
+  if (!resolveAccountPermissions(
+    actor.accountType as UserAccountType,
+    actor.role as UserRole,
+    overrides,
+  ).includes("users.manage")) {
     throw new UserOffboardingError(403, "actor_access_revoked", "Správa uživatelů již není povolena.");
   }
   return actor;
@@ -215,6 +229,9 @@ export async function getUserOffboardingPreview(input: { actorUserId: number; ta
     const target = await lockedUser(tx, input.targetUserId);
     if (!target) {
       throw new UserOffboardingError(404, "user_not_found", "User not found");
+    }
+    if (target.accountType !== "internal") {
+      throw new UserOffboardingError(409, "external_account_workflow_required", "External accounts require the dedicated revoke workflow.");
     }
     const inventory = await loadInventory(tx, target.id, target.personId);
     return {
@@ -264,6 +281,9 @@ export async function offboardUserAccess(input: {
     if (!target) {
       throw new UserOffboardingError(404, "user_not_found", "User not found");
     }
+    if (target.accountType !== "internal") {
+      throw new UserOffboardingError(409, "external_account_workflow_required", "External accounts require the dedicated revoke workflow.");
+    }
     if (!target.isActive) {
       throw new UserOffboardingError(409, "user_already_inactive", "Uživatel již není aktivní.");
     }
@@ -272,6 +292,13 @@ export async function offboardUserAccess(input: {
     }
 
     const inventory = await loadInventory(tx, target.id, target.personId);
+    if (inventory.handover.custodiedExternalAccounts > 0) {
+      throw new UserOffboardingError(
+        409,
+        "external_accounts_require_handover",
+        "Custodied external accounts must be transferred or revoked before offboarding.",
+      );
+    }
     const [updated] = await tx
       .update(usersTable)
       .set({
