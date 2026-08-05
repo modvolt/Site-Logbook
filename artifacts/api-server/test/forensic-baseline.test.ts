@@ -253,7 +253,8 @@ describe("staged acceptance tests not implemented in phase 1", () => {
     const response = await admin.put(`/api/users/${adminId}/permissions`).send({
       overrides: [{ permission: "users.manage", effect: "deny" }],
     });
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("self_permission_lockout_forbidden");
   });
 
   it.todo("prevents the last permission administrator from being removed or disabled");
