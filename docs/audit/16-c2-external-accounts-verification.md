@@ -87,7 +87,7 @@ dokud nejsou externí účty převedeny nebo zrušeny. Generický offboarding ex
 
 Lokální kontrola bez Dockeru a databáze:
 
-- API unit/contract testy: 78 souborů, 573/573 testů – PASS;
+- API unit/contract testy: 78 souborů, 574/574 testů – PASS;
 - frontend testy: 13 souborů, 160/160 testů – PASS;
 - root TypeScript (`typecheck:libs`, API, stavba, scripts) – PASS;
 - root ESLint s nulovou tolerancí warnings – PASS;
@@ -98,15 +98,38 @@ Lokální kontrola bez Dockeru a databáze:
 - Impeccable statická kontrola nových UI souborů: 0 nálezů;
 - `git diff --check` – PASS.
 
-Izolovaný DB integrační test je připraven pro CI. Lokálně nebyl spuštěn, protože
-nebyla k dispozici disposable testovací DB; žádná existující DB nebyla použita.
-Exact-SHA GitHub CI bude doplněno do checkpointu po zveřejnění draft PR.
+Izolovaný DB integrační test lokálně nebyl spuštěn, protože nebyla k dispozici
+disposable testovací DB; žádná existující DB nebyla použita.
+
+### GitHub exact-SHA
+
+Draft PR [#14](https://github.com/modvolt/Site-Logbook/pull/14) míří z
+`agent/phase16c2-external-accounts` do R16-C1 větve
+`agent/phase16c-public-bearer-expand`.
+
+První [Quality gate 30985236122](https://github.com/modvolt/Site-Logbook/actions/runs/30985236122)
+na `4614642` našel starý interní permission fixture bez `accountType`; test-only
+commit `32ea1c9` doplnil explicitní `internal` bez změny runtime ochrany. Druhý
+[běh 30985869899](https://github.com/modvolt/Site-Logbook/actions/runs/30985869899)
+prokázal všech 179 DB souborů i recovery kroky, ale R14 browser smoke odhalil, že
+auth-aware PWA prompt zůstal mimo `AuthProvider` a React root se nevykreslil.
+Commit `36524d0` přesunul prompt dovnitř provideru a přidal regresní kontrakt.
+
+Na přesném implementačním SHA
+`36524d076d592e9e91d0708f9a359f9ccea8af4a` prošel
+[Quality gate 30986769934](https://github.com/modvolt/Site-Logbook/actions/runs/30986769934):
+
+- quality/release a staging runtime/workflow kontrakty – PASS;
+- migrace 105/105 včetně `0105` a všech 179 izolovaných API DB souborů – PASS;
+- šifrovaný backup/restore a concurrency gate – PASS;
+- encrypted streaming object recovery drill – PASS;
+- všech pět R14 full-stack/fault scénářů včetně admin PWA/service workeru – PASS.
 
 ## Zbytkové hranice
 
 - feature flag zůstává vypnutý a nebyl vytvořen žádný externí účet;
-- před pilotem musí izolovaný CI prokázat aplikaci všech migrací, databázové
-  invarianty, concurrency, backup/restore a full-stack gate;
+- exact-SHA CI prokázalo migrace, databázové invarianty, concurrency,
+  backup/restore i full-stack gate; staging je nadále samostatně neschválený;
 - staging musí nejprve aplikovat schema s flagem `false`, ověřit interní regresi a
   teprve samostatně zapnout flag pro jeden časově omezený pilotní účet;
 - aktivní rollout potřebuje konkrétního interního custodiana, přesné resource ID,

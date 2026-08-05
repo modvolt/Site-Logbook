@@ -4,8 +4,12 @@ Datum: 2026-08-05
 
 ## Stav checkpointu
 
-**R16-C2 je dokončena na úrovni lokálního repozitáře.** Exact-SHA GitHub CI a
-odkaz na draft PR budou doplněny po bezpečném zveřejnění větve.
+**R16-C2 je dokončena na úrovni repozitáře a exact-SHA GitHub CI.** Implementace
+je v draft PR [#14](https://github.com/modvolt/Site-Logbook/pull/14), stacked
+proti R16-C1. Ověřený implementační head je
+`36524d076d592e9e91d0708f9a359f9ccea8af4a`; GitHub
+[Quality gate 30986769934](https://github.com/modvolt/Site-Logbook/actions/runs/30986769934)
+skončil úspěšně.
 
 Tento checkpoint není schválení merge, deploye ani migrace. Produkce, staging,
 Coolify, DNS, secrets, S3 a databáze zůstaly beze změny. Expand-only migrace
@@ -42,17 +46,23 @@ výchozí `false`.
 
 ## Kontroly
 
-- API unit/contract: 573/573 – PASS;
+- API unit/contract: 574/574 – PASS;
 - frontend: 160/160 – PASS;
 - TypeScript, ESLint, API build, Vite/PWA build, OpenAPI codegen, route manifest a
   `diff --check` – PASS;
 - statická UX/přístupnost kontrola nových obrazovek – 0 nálezů;
 - lokální DB migrace úmyslně nebyla spuštěna bez disposable DB;
-- exact-SHA CI: čeká na zveřejnění větve.
+- exact-SHA CI: migrace 105/105, 179 izolovaných API DB souborů, šifrovaný
+  backup/restore, concurrency, streaming recovery a R14 full-stack/fault gate –
+  PASS na `36524d0`;
+- první CI běh odhalil starý test fixture bez interního `accountType`; druhý běh
+  odhalil auth-aware PWA prompt mimo `AuthProvider`. Obě závady byly úzce
+  opraveny a třetí celý běh je zelený.
 
 ## Nejasnosti a zbytková rizika
 
-- izolovaný CI musí ještě prokázat všech 105 migrací a nový DB integrační test;
+- exact-SHA CI prokázalo všech 105 migrací a nový DB integrační test; živý
+  staging rollout zatím proveden nebyl;
 - staging dark rollout vyžaduje samostatné schválení migrace `0105`, deploye a
   případné změny feature flagu;
 - před pilotem chybí konkrétní custodian, resource ID, expirace a akceptovaný
