@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { eq } from "drizzle-orm";
 import request from "supertest";
 import {
   db,
   ppeItemsTable,
   ppeAssignmentsTable,
   peopleTable,
-  publicAccessTokensTable,
+  usersTable,
 } from "@workspace/db";
 import app from "../src/app";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { issuePpePublicEvidenceToken } from "../src/lib/ppe-public-evidence";
 
 /**
  * Concurrent PPE employee self-sign race guard.
@@ -40,6 +40,7 @@ const MINIMAL_PNG =
 
 let personId: number;
 let itemId: number;
+let issuerId: number;
 
 const personIds: number[] = [];
 const itemIds: number[] = [];
@@ -52,6 +53,15 @@ beforeAll(async () => {
   vi.spyOn(ObjectStorageService.prototype, "deletePrivateObject").mockResolvedValue(
     undefined as unknown as void,
   );
+
+  const [issuer] = await db.insert(usersTable).values({
+    username: `${TAG}-issuer`,
+    passwordHash: "not-used",
+    name: `Issuer ${TAG}`,
+    role: "admin",
+    isActive: true,
+  }).returning();
+  issuerId = issuer!.id;
 
   const [person] = await db
     .insert(peopleTable)
@@ -70,19 +80,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.restoreAllMocks();
-
-  if (assignmentIds.length > 0)
-    await db.delete(publicAccessTokensTable).where(inArray(publicAccessTokensTable.resourceId, assignmentIds));
-  if (assignmentIds.length > 0)
-    await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
-  if (itemIds.length > 0)
-    await db.delete(ppeItemsTable).where(inArray(ppeItemsTable.id, itemIds));
-  if (personIds.length > 0)
-    await db.delete(peopleTable).where(inArray(peopleTable.id, personIds));
 });
 
 async function makeIssuedAssignment(): Promise<{ id: number; token: string }> {
-  const token = randomUUID();
   const todayStr = new Date().toISOString().slice(0, 10);
   const [assignment] = await db
     .insert(ppeAssignmentsTable)
@@ -94,10 +94,15 @@ async function makeIssuedAssignment(): Promise<{ id: number; token: string }> {
       quantity: 1,
       issuedAt: todayStr,
       status: "issued",
-      signatureToken: token,
     })
     .returning();
   assignmentIds.push(assignment.id);
+  const { token } = await issuePpePublicEvidenceToken({
+    assignmentId: assignment.id,
+    purpose: "ppe_signature",
+    expiresAt: new Date(Date.now() + 10 * 60_000),
+    createdByUserId: issuerId,
+  });
   return { id: assignment.id, token };
 }
 

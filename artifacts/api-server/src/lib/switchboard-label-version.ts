@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, max, sql } from "drizzle-orm";
+import { and, desc, eq, max } from "drizzle-orm";
 import {
   billingSettingsTable,
   db,
@@ -15,7 +15,8 @@ import {
   validateLabelSnapshot,
   type SwitchboardLabelSnapshot,
 } from "./switchboard-label";
-import { createQrToken, decryptQrToken, encryptQrToken, hashQrToken, publicQrUrl } from "./switchboard-qr";
+import { createQrToken, decryptQrToken, encryptQrToken, hashQrToken, publicQrUrl, resolveSwitchboardQrExpiry } from "./switchboard-qr";
+import { lockSwitchboardQrGrant } from "./switchboard-qr-grant";
 
 const storage = new ObjectStorageService();
 
@@ -71,7 +72,7 @@ export async function createSwitchboardLabelVersion(options: CreateLabelOptions)
 
   const now = new Date();
   let token: string;
-  let qrPatch: Pick<typeof switchboardsTable.$inferInsert, "qrTokenHash" | "qrTokenCiphertext" | "qrTokenKeyId" | "qrTokenEncryptedAt" | "qrTokenPrefix" | "qrEnabled" | "qrExpiresAt"> | null = null;
+  let qrPatch: Pick<typeof switchboardsTable.$inferInsert, "qrTokenHash" | "qrTokenCiphertext" | "qrTokenKeyId" | "qrTokenEncryptedAt" | "qrTokenPrefix" | "qrEnabled" | "qrExpiresAt" | "qrOwnerKind" | "qrOwnerUserId" | "qrOwnerAssignedAt" | "qrOwnerAssignmentSource"> | null = null;
   if (board.qrEnabled && board.qrTokenCiphertext && (!board.qrExpiresAt || board.qrExpiresAt > now)) {
     token = decryptQrToken(board.qrTokenCiphertext, board.id);
   } else if (options.mode === "automatic" && !board.qrTokenHash && !board.qrTokenCiphertext) {
@@ -84,7 +85,11 @@ export async function createSwitchboardLabelVersion(options: CreateLabelOptions)
       qrTokenEncryptedAt: now,
       qrTokenPrefix: token.slice(0, 8),
       qrEnabled: true,
-      qrExpiresAt: null,
+      qrExpiresAt: resolveSwitchboardQrExpiry(undefined, now),
+      qrOwnerKind: "resource",
+      qrOwnerUserId: null,
+      qrOwnerAssignedAt: now,
+      qrOwnerAssignmentSource: "switchboard_resource",
     };
   } else if (board.qrExpiresAt && board.qrExpiresAt <= now) {
     throw workflowError("QR přístup rozvaděče vypršel. Obnovte jej před vytvořením štítku.", "qr_expired");
@@ -109,21 +114,25 @@ export async function createSwitchboardLabelVersion(options: CreateLabelOptions)
       storage.putPrivateObject(pngPath, output.png, "image/png"),
     ]);
     const result = await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(${board.id}, 8403)`);
+      const currentBoard = await lockSwitchboardQrGrant(tx, board.id);
+      if (!currentBoard) throw workflowError("Rozvaděč nebyl nalezen.", "switchboard_not_found", 404);
       if (options.mode === "automatic" && options.sourceDocumentId) {
         const [existing] = await tx.select().from(switchboardLabelVersionsTable)
           .where(and(eq(switchboardLabelVersionsTable.switchboardId, board.id), eq(switchboardLabelVersionsTable.sourceDocumentId, options.sourceDocumentId)))
           .orderBy(desc(switchboardLabelVersionsTable.version)).limit(1);
         if (existing) return { label: existing, created: false, qrActivated: false };
       }
-      const [currentBoard] = await tx.select({ qrTokenHash: switchboardsTable.qrTokenHash, qrTokenCiphertext: switchboardsTable.qrTokenCiphertext })
-        .from(switchboardsTable).where(eq(switchboardsTable.id, board.id));
-      if (!currentBoard) throw workflowError("Rozvaděč nebyl nalezen.", "switchboard_not_found", 404);
       if (qrPatch) {
         if (currentBoard.qrTokenHash || currentBoard.qrTokenCiphertext) throw workflowError("QR přístup se během generování změnil. Opakujte akci.", "qr_changed", 409);
         await tx.update(switchboardsTable).set({ ...qrPatch, updatedAt: now }).where(eq(switchboardsTable.id, board.id));
-      } else if (currentBoard.qrTokenHash !== board.qrTokenHash) {
+      } else if (
+        currentBoard.qrTokenHash !== board.qrTokenHash ||
+        !currentBoard.qrEnabled ||
+        !currentBoard.qrTokenCiphertext
+      ) {
         throw workflowError("QR přístup se během generování změnil. Opakujte akci.", "qr_changed", 409);
+      } else if (currentBoard.qrExpiresAt && currentBoard.qrExpiresAt <= new Date()) {
+        throw workflowError("QR přístup rozvaděče vypršel. Obnovte jej před vytvořením štítku.", "qr_expired");
       }
       const [{ value }] = await tx.select({ value: max(switchboardLabelVersionsTable.version) }).from(switchboardLabelVersionsTable).where(eq(switchboardLabelVersionsTable.switchboardId, board.id));
       const autoApproved = options.mode === "automatic";
@@ -144,7 +153,7 @@ export async function createSwitchboardLabelVersion(options: CreateLabelOptions)
       const eventBase = { switchboardId: board.id, entityType: "switchboard_label_version", entityId: created.id, actorUserId: options.actor.userId, actorName: options.actor.name };
       await tx.insert(switchboardEventsTable).values({ ...eventBase, eventType: "label_generated", payload: { version: created.version, sourceDocumentId: options.sourceDocumentId ?? null, generatorVersion: SWITCHBOARD_LABEL_GENERATOR_VERSION, qrTokenPrefix: qrPatch?.qrTokenPrefix ?? board.qrTokenPrefix, trigger: options.mode } });
       if (autoApproved) await tx.insert(switchboardEventsTable).values({ ...eventBase, eventType: "label_approved", payload: { version: created.version, trigger: "automatic", validation: "all_required_fields_valid_and_confident" } });
-      if (qrPatch) await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "qr_token_created", entityType: "switchboard", entityId: board.id, payload: { tokenPrefix: qrPatch.qrTokenPrefix, trigger: "automatic_label_workflow" }, actorName: "System" });
+      if (qrPatch) await tx.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "qr_token_created", entityType: "switchboard", entityId: board.id, payload: { tokenPrefix: qrPatch.qrTokenPrefix, expiresAt: qrPatch.qrExpiresAt?.toISOString(), ownerKind: "resource", trigger: "automatic_label_workflow" }, actorName: "System" });
       return { label: created, created: true, qrActivated: !!qrPatch };
     });
     keepFiles = result.created;

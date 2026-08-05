@@ -2,17 +2,19 @@ import { Router, type IRouter, type Request } from "express";
 import rateLimit from "express-rate-limit";
 import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { z } from "zod/v4";
-import { db, billingSettingsTable, switchboardsTable, switchboardDocumentsTable, switchboardEventsTable, switchboardQrAccessLogsTable } from "@workspace/db";
+import { db, billingSettingsTable, switchboardsTable, switchboardDocumentsTable, switchboardQrAccessLogsTable } from "@workspace/db";
 import { requirePermission } from "../middlewares/permissions";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
-import { createQrToken, decryptQrToken, encryptQrToken, hashAuditIp, hashQrToken, publicQrUrl, renderQrPng } from "../lib/switchboard-qr";
+import { normalizedUserAgentSha256 } from "../lib/evidence-hash";
+import { decryptQrToken, hashAuditIp, hashQrToken, renderQrPng } from "../lib/switchboard-qr";
+import { deactivateSwitchboardQrGrant, rotateSwitchboardQrGrant, SwitchboardQrGrantError } from "../lib/switchboard-qr-grant";
 
 const router: IRouter = Router(); const storage = new ObjectStorageService();
 const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/); const id = z.coerce.number().int().positive();
 const publicLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 120, standardHeaders: "draft-7", legacyHeaders: false, message: { error: "Příliš mnoho požadavků. Zkuste to později." } });
 
 async function auditAccess(req: Request, switchboardId: number | null, prefix: string | null, outcome: string) {
-  await db.insert(switchboardQrAccessLogsTable).values({ switchboardId, tokenPrefix: prefix, outcome, ipHash: hashAuditIp(req.ip), userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"].slice(0, 500) : null, authenticatedUserId: req.auth?.userId ?? null }).catch(() => undefined);
+  await db.insert(switchboardQrAccessLogsTable).values({ switchboardId, tokenPrefix: prefix, outcome, ipHash: hashAuditIp(req.ip), userAgent: normalizedUserAgentSha256(req.get("user-agent")), authenticatedUserId: req.auth?.userId ?? null }).catch(() => undefined);
 }
 
 router.get("/q/board/:token", publicLimiter, async (req, res) => {
@@ -40,22 +42,33 @@ router.get("/q/board/:token/documents/:sha256", publicLimiter, async (req, res) 
 
 router.post("/switchboards/:id/qr/rotate", requirePermission("switchboards.qr.manage"), async (req, res) => {
   const boardId = id.safeParse(req.params.id); if (!boardId.success) { res.status(400).json({ error: "Neplatné ID rozvaděče." }); return; }
-  const token = createQrToken(); const expiresAt = z.object({ expiresAt: z.iso.datetime().nullable().optional() }).safeParse(req.body);
+  const expiresAt = z.object({ expiresAt: z.iso.datetime().nullable().optional() }).safeParse(req.body);
   if (!expiresAt.success) { res.status(400).json({ error: "Neplatná expirace QR odkazu." }); return; }
-  const url = publicQrUrl(token);
-  const encrypted = encryptQrToken(token, boardId.data); const encryptedAt = new Date();
-  const [board] = await db.update(switchboardsTable).set({ qrTokenHash: hashQrToken(token), qrTokenCiphertext: encrypted.ciphertext, qrTokenKeyId: encrypted.keyId, qrTokenEncryptedAt: encryptedAt, qrTokenPrefix: token.slice(0, 8), qrEnabled: true, qrExpiresAt: expiresAt.data.expiresAt ? new Date(expiresAt.data.expiresAt) : null, updatedAt: encryptedAt }).where(eq(switchboardsTable.id, boardId.data)).returning();
-  if (!board) { res.status(404).json({ error: "Rozvaděč nebyl nalezen." }); return; }
-  await db.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "qr_token_rotated", entityType: "switchboard", entityId: board.id, payload: { tokenPrefix: board.qrTokenPrefix, expiresAt: board.qrExpiresAt?.toISOString() ?? null }, actorUserId: req.auth?.userId ?? null, actorName: req.auth?.name ?? req.auth?.username ?? null });
-  res.json({ enabled: true, publicUrl: url, tokenPrefix: board.qrTokenPrefix, expiresAt: board.qrExpiresAt?.toISOString() ?? null });
+  if (!req.auth) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    const result = await rotateSwitchboardQrGrant({
+      switchboardId: boardId.data,
+      actorUserId: req.auth.userId,
+      requestedExpiresAt: expiresAt.data.expiresAt ? new Date(expiresAt.data.expiresAt) : null,
+    });
+    res.json({ enabled: true, publicUrl: result.publicUrl, tokenPrefix: result.board.qrTokenPrefix, expiresAt: result.board.qrExpiresAt!.toISOString() });
+  } catch (error) {
+    if (error instanceof RangeError) { res.status(400).json({ error: "Expirace QR odkazu musí být v budoucnosti a nejvýše pět let." }); return; }
+    if (error instanceof SwitchboardQrGrantError) { res.status(error.statusCode).json({ error: error.message, code: error.code }); return; }
+    throw error;
+  }
 });
 
 router.post("/switchboards/:id/qr/deactivate", requirePermission("switchboards.qr.manage"), async (req, res) => {
   const boardId = id.safeParse(req.params.id); if (!boardId.success) { res.status(400).json({ error: "Neplatné ID rozvaděče." }); return; }
-  const [board] = await db.update(switchboardsTable).set({ qrEnabled: false, updatedAt: new Date() }).where(eq(switchboardsTable.id, boardId.data)).returning();
-  if (!board) { res.status(404).json({ error: "Rozvaděč nebyl nalezen." }); return; }
-  await db.insert(switchboardEventsTable).values({ switchboardId: board.id, eventType: "qr_token_deactivated", entityType: "switchboard", entityId: board.id, payload: { tokenPrefix: board.qrTokenPrefix }, actorUserId: req.auth?.userId ?? null, actorName: req.auth?.name ?? req.auth?.username ?? null });
-  res.json({ enabled: false });
+  if (!req.auth) { res.status(401).json({ error: "Unauthorized" }); return; }
+  try {
+    await deactivateSwitchboardQrGrant({ switchboardId: boardId.data, actorUserId: req.auth.userId });
+    res.json({ enabled: false });
+  } catch (error) {
+    if (error instanceof SwitchboardQrGrantError) { res.status(error.statusCode).json({ error: error.message, code: error.code }); return; }
+    throw error;
+  }
 });
 
 router.get("/switchboards/:id/qr/png", requirePermission("switchboards.qr.manage"), async (req, res) => {

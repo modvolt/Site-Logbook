@@ -3,6 +3,41 @@ import QRCode from "qrcode";
 import { decryptSecretValue, encryptSecretValue } from "./secret-envelope";
 import { publicAppUrl } from "./public-origin";
 
+// Keep the historical argument order used by automatic label generation so a
+// rolling deployment cannot split the per-board critical section.
+export const SWITCHBOARD_QR_LOCK_KEY = 8403;
+export const SWITCHBOARD_QR_TTL_YEARS = 5;
+
+export function maximumSwitchboardQrExpiry(now = new Date()): Date {
+  if (!Number.isFinite(now.getTime())) throw new RangeError("Invalid QR issuance time.");
+  const expiresAt = new Date(now);
+  expiresAt.setUTCFullYear(expiresAt.getUTCFullYear() + SWITCHBOARD_QR_TTL_YEARS);
+  return expiresAt;
+}
+
+/**
+ * New and rotated physical-label grants are always finite. A missing/null
+ * client value deliberately means the conservative five-year default so old
+ * admin clients cannot create another perpetual QR. Existing nullable database
+ * rows remain a read-only legacy compatibility case until an approved backfill.
+ */
+export function resolveSwitchboardQrExpiry(
+  requested: Date | null | undefined,
+  now = new Date(),
+): Date {
+  const maximum = maximumSwitchboardQrExpiry(now);
+  if (requested == null) return maximum;
+  const expiresAt = new Date(requested);
+  if (
+    !Number.isFinite(expiresAt.getTime()) ||
+    expiresAt <= now ||
+    expiresAt > maximum
+  ) {
+    throw new RangeError("QR expiry must be in the future and no more than five years away.");
+  }
+  return expiresAt;
+}
+
 function legacyEncryptionKey(): Buffer {
   const secret = process.env.TOKEN_ENCRYPTION_KEY;
   if (!secret) throw new Error("TOKEN_ENCRYPTION_KEY is required for legacy QR token reads.");

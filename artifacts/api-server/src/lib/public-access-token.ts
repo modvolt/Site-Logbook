@@ -1,15 +1,22 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   db,
   jobsTable,
   ppeAssignmentsTable,
   publicAccessTokensTable,
   quotesTable,
+  resolvePermissions,
+  userPermissionOverridesTable,
+  usersTable,
+  type Permission,
+  type PermissionEffect,
   type PublicAccessToken,
   type PublicAccessTokenConsumeAction,
   type PublicAccessTokenPurpose,
+  type UserRole,
 } from "@workspace/db";
+import { SESSION_ISSUANCE_LOCK_NAMESPACE } from "./auth-session";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbClient = typeof db | DbTransaction;
@@ -23,6 +30,48 @@ const RESOURCE_TYPE: Record<PublicAccessTokenPurpose, string> = {
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_TOKEN_LIFETIME_MS = 365 * DAY_MS;
+
+const ISSUANCE_PERMISSION: Record<PublicAccessTokenPurpose, Permission> = {
+  job_signature: "jobs.manage",
+  ppe_signature: "people.manage",
+  ppe_confirmation: "people.manage",
+  quote_decision: "quotes.manage",
+};
+
+const CONFLICTING_PURPOSES: Record<
+  PublicAccessTokenPurpose,
+  readonly PublicAccessTokenPurpose[]
+> = {
+  job_signature: ["job_signature"],
+  ppe_signature: ["ppe_signature", "ppe_confirmation"],
+  ppe_confirmation: ["ppe_signature", "ppe_confirmation"],
+  quote_decision: ["quote_decision"],
+};
+
+function conflictingPurposesFor(
+  purpose: string,
+): readonly PublicAccessTokenPurpose[] {
+  if (
+    purpose === "job_signature" ||
+    purpose === "ppe_signature" ||
+    purpose === "ppe_confirmation" ||
+    purpose === "quote_decision"
+  ) {
+    return CONFLICTING_PURPOSES[purpose];
+  }
+  throw new Error(`Unsupported public access token purpose: ${purpose}`);
+}
+
+function grantFamilyLockKey(
+  purpose: PublicAccessTokenPurpose,
+  resourceId: number,
+): string {
+  const family = purpose === "ppe_signature" || purpose === "ppe_confirmation"
+    ? "ppe_acknowledgement"
+    : purpose;
+  return `${family}:${resourceId}`;
+}
 
 export type PublicAccessTokenErrorCode =
   | "malformed"
@@ -41,6 +90,15 @@ export class PublicAccessTokenError extends Error {
   }
 }
 
+export class PublicAccessTokenIssuanceError extends Error {
+  constructor(
+    readonly code: "issuer_inactive" | "issuer_permission_revoked",
+  ) {
+    super(`Public access token issuance rejected: ${code}.`);
+    this.name = "PublicAccessTokenIssuanceError";
+  }
+}
+
 export function isPlausiblePublicAccessToken(token: string): boolean {
   return TOKEN_PATTERN.test(token);
 }
@@ -54,10 +112,16 @@ export function publicTokenExpiry(
   defaultDays: number,
   now = new Date(),
 ): Date {
-  const configured = Number(process.env[envName] ?? defaultDays);
-  const days = Number.isFinite(configured) && configured >= 1 && configured <= 365
-    ? configured
-    : defaultDays;
+  if (!Number.isInteger(defaultDays) || defaultDays < 1 || defaultDays > 365) {
+    throw new Error(`Invalid default public token expiry for ${envName}.`);
+  }
+  const raw = process.env[envName];
+  const days = raw === undefined ? defaultDays : Number(raw);
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    throw new Error(
+      `Invalid ${envName}: expected an integer number of days from 1 to 365.`,
+    );
+  }
   return new Date(now.getTime() + days * DAY_MS);
 }
 
@@ -74,10 +138,7 @@ function assertTokenInput(token: string): void {
 function assertUsable(record: PublicAccessToken, now = new Date()): void {
   if (record.revokedAt) throw new PublicAccessTokenError("revoked");
   if (record.consumedAt) throw new PublicAccessTokenError("consumed");
-  if (
-    (record.purpose === "job_signature" || record.purpose === "quote_decision") &&
-    record.artifactBindingStatus !== "bound"
-  ) {
+  if (record.artifactBindingStatus !== "bound") {
     // A legacy token cannot prove which document the visitor originally saw.
     // Re-issue it against a new immutable version instead of inventing history.
     throw new PublicAccessTokenError("revoked");
@@ -124,6 +185,48 @@ async function findRecordForUpdate(
   return record ?? null;
 }
 
+async function lockGrantResource(
+  tx: DbTransaction,
+  purpose: PublicAccessTokenPurpose,
+  resourceId: number,
+): Promise<boolean> {
+  if (purpose === "job_signature") {
+    const rows = await tx
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(eq(jobsTable.id, resourceId))
+      .limit(1)
+      .for("update");
+    return rows.length === 1;
+  }
+  if (purpose === "ppe_signature" || purpose === "ppe_confirmation") {
+    const rows = await tx
+      .select({ id: ppeAssignmentsTable.id })
+      .from(ppeAssignmentsTable)
+      .where(eq(ppeAssignmentsTable.id, resourceId))
+      .limit(1)
+      .for("update");
+    return rows.length === 1;
+  }
+  const rows = await tx
+    .select({ id: quotesTable.id })
+    .from(quotesTable)
+    .where(eq(quotesTable.id, resourceId))
+    .limit(1)
+    .for("update");
+  return rows.length === 1;
+}
+
+async function lockGrantFamily(
+  tx: DbTransaction,
+  purpose: PublicAccessTokenPurpose,
+  resourceId: number,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${grantFamilyLockKey(purpose, resourceId)}))`,
+  );
+}
+
 type LegacyImport = Omit<
   typeof publicAccessTokensTable.$inferInsert,
   "id" | "tokenHash" | "tokenPrefix" | "legacyImportedAt"
@@ -145,7 +248,8 @@ async function readLegacyToken(
       })
       .from(jobsTable)
       .where(eq(jobsTable.signatureToken, rawToken))
-      .limit(2);
+      .limit(2)
+      .for("update");
     if (rows.length !== 1) return null;
     const row = rows[0]!;
     return {
@@ -178,7 +282,8 @@ async function readLegacyToken(
       })
       .from(ppeAssignmentsTable)
       .where(eq(ppeAssignmentsTable.signatureToken, rawToken))
-      .limit(2);
+      .limit(2)
+      .for("update");
     if (rows.length !== 1) return null;
     const row = rows[0]!;
     return {
@@ -208,7 +313,8 @@ async function readLegacyToken(
       })
       .from(ppeAssignmentsTable)
       .where(eq(ppeAssignmentsTable.confirmToken, rawToken))
-      .limit(2);
+      .limit(2)
+      .for("update");
     if (rows.length !== 1) return null;
     const row = rows[0]!;
     return {
@@ -239,7 +345,8 @@ async function readLegacyToken(
     })
     .from(quotesTable)
     .where(eq(quotesTable.shareToken, rawToken))
-    .limit(2);
+    .limit(2)
+    .for("update");
   if (rows.length !== 1) return null;
   const row = rows[0]!;
   const consumed = row.status === "accepted" || row.status === "rejected";
@@ -325,15 +432,18 @@ async function importLegacyToken(
   rawToken: string,
   tokenHash: string,
 ): Promise<PublicAccessToken | null> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`${purpose}:${tokenHash}`}))`,
-  );
-  const concurrent = await findRecordForUpdate(tx, purpose, tokenHash);
-  if (concurrent) return concurrent;
-
   const now = new Date();
   const legacy = await readLegacyToken(tx, purpose, rawToken, now);
-  if (!legacy) return null;
+  if (!legacy) {
+    const concurrent = await findRecord(tx, purpose, tokenHash);
+    if (!concurrent) return null;
+    await lockGrantResource(tx, purpose, concurrent.resourceId);
+    await lockGrantFamily(tx, purpose, concurrent.resourceId);
+    return findRecordForUpdate(tx, purpose, tokenHash);
+  }
+  await lockGrantFamily(tx, purpose, legacy.resourceId);
+  const concurrent = await findRecordForUpdate(tx, purpose, tokenHash);
+  if (concurrent) return concurrent;
   const [inserted] = await tx
     .insert(publicAccessTokensTable)
     .values({
@@ -359,9 +469,14 @@ async function loadTokenForUpdate(
 ): Promise<PublicAccessToken> {
   assertTokenInput(rawToken);
   const tokenHash = hashPublicAccessToken(rawToken);
-  const record =
-    (await findRecordForUpdate(tx, purpose, tokenHash)) ??
-    (await importLegacyToken(tx, purpose, rawToken, tokenHash));
+  let candidate = await findRecord(tx, purpose, tokenHash);
+  if (!candidate) {
+    candidate = await importLegacyToken(tx, purpose, rawToken, tokenHash);
+  }
+  if (!candidate) throw new PublicAccessTokenError("not_found");
+  await lockGrantResource(tx, purpose, candidate.resourceId);
+  await lockGrantFamily(tx, purpose, candidate.resourceId);
+  const record = await findRecordForUpdate(tx, purpose, tokenHash);
   if (!record) throw new PublicAccessTokenError("not_found");
   return record;
 }
@@ -369,7 +484,13 @@ async function loadTokenForUpdate(
 export async function resolvePublicAccessToken(
   purpose: PublicAccessTokenPurpose,
   rawToken: string,
+  tx?: DbTransaction,
 ): Promise<PublicAccessToken> {
+  if (tx) {
+    const record = await loadTokenForUpdate(tx, purpose, rawToken);
+    assertUsable(record);
+    return record;
+  }
   assertTokenInput(rawToken);
   const tokenHash = hashPublicAccessToken(rawToken);
   let record = await findRecord(db, purpose, tokenHash);
@@ -387,38 +508,106 @@ export interface IssuePublicAccessTokenInput {
   purpose: PublicAccessTokenPurpose;
   resourceId: number;
   expiresAt: Date;
-  createdByUserId?: number | null;
+  createdByUserId: number;
   jobDocumentVersionId?: number | null;
   quoteVersionId?: number | null;
+  ppeEvidenceVersionId?: number | null;
+  allowExpiredForTesting?: boolean;
   onIssue?: (tx: DbTransaction) => Promise<void>;
+}
+
+async function lockAndAssertActiveOwner(
+  tx: DbTransaction,
+  ownerUserId: number,
+  purpose: PublicAccessTokenPurpose,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(${SESSION_ISSUANCE_LOCK_NAMESPACE}, ${ownerUserId})`,
+  );
+  const [owner] = await tx
+    .select({ isActive: usersTable.isActive, role: usersTable.role })
+    .from(usersTable)
+    .where(eq(usersTable.id, ownerUserId))
+    .limit(1)
+    .for("update");
+  if (!owner?.isActive) {
+    throw new PublicAccessTokenIssuanceError("issuer_inactive");
+  }
+  const rows = await tx
+    .select({
+      permission: userPermissionOverridesTable.permission,
+      effect: userPermissionOverridesTable.effect,
+    })
+    .from(userPermissionOverridesTable)
+    .where(eq(userPermissionOverridesTable.userId, ownerUserId));
+  const overrides = rows.flatMap((row) =>
+    row.effect === "allow" || row.effect === "deny"
+      ? [{
+          permission: row.permission,
+          effect: row.effect as PermissionEffect,
+        }]
+      : [],
+  );
+  const permissions = resolvePermissions(owner.role as UserRole, overrides);
+  if (!permissions.includes(ISSUANCE_PERMISSION[purpose])) {
+    throw new PublicAccessTokenIssuanceError("issuer_permission_revoked");
+  }
 }
 
 function validateArtifactBinding(input: IssuePublicAccessTokenInput): {
   artifactBindingStatus: "bound" | "not_applicable";
   jobDocumentVersionId: number | null;
   quoteVersionId: number | null;
+  ppeEvidenceVersionId: number | null;
 } {
   const jobDocumentVersionId = input.jobDocumentVersionId ?? null;
   const quoteVersionId = input.quoteVersionId ?? null;
+  const ppeEvidenceVersionId = input.ppeEvidenceVersionId ?? null;
   if (input.purpose === "job_signature") {
-    if (!Number.isInteger(jobDocumentVersionId) || jobDocumentVersionId! <= 0 || quoteVersionId !== null) {
+    if (
+      !Number.isInteger(jobDocumentVersionId) ||
+      jobDocumentVersionId! <= 0 ||
+      quoteVersionId !== null ||
+      ppeEvidenceVersionId !== null
+    ) {
       throw new Error("Job signature token requires one job document version.");
     }
-    return { artifactBindingStatus: "bound", jobDocumentVersionId, quoteVersionId: null };
+    return {
+      artifactBindingStatus: "bound",
+      jobDocumentVersionId,
+      quoteVersionId: null,
+      ppeEvidenceVersionId: null,
+    };
   }
   if (input.purpose === "quote_decision") {
-    if (!Number.isInteger(quoteVersionId) || quoteVersionId! <= 0 || jobDocumentVersionId !== null) {
+    if (
+      !Number.isInteger(quoteVersionId) ||
+      quoteVersionId! <= 0 ||
+      jobDocumentVersionId !== null ||
+      ppeEvidenceVersionId !== null
+    ) {
       throw new Error("Quote decision token requires one quote version.");
     }
-    return { artifactBindingStatus: "bound", jobDocumentVersionId: null, quoteVersionId };
+    return {
+      artifactBindingStatus: "bound",
+      jobDocumentVersionId: null,
+      quoteVersionId,
+      ppeEvidenceVersionId: null,
+    };
   }
-  if (jobDocumentVersionId !== null || quoteVersionId !== null) {
-    throw new Error("PPE public tokens cannot bind a job or quote version.");
+  if (
+    !Number.isInteger(ppeEvidenceVersionId) ||
+    ppeEvidenceVersionId! <= 0 ||
+    jobDocumentVersionId !== null ||
+    quoteVersionId !== null
+  ) {
+    throw new Error("PPE public token requires one PPE evidence version.");
   }
   return {
-    artifactBindingStatus: "not_applicable",
+    artifactBindingStatus: "bound",
     jobDocumentVersionId: null,
     quoteVersionId: null,
+    ppeEvidenceVersionId,
   };
 }
 
@@ -430,19 +619,29 @@ async function issueWithTransaction(
   now: Date,
   binding: ReturnType<typeof validateArtifactBinding>,
 ): Promise<PublicAccessToken> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`${input.purpose}:${input.resourceId}`}))`,
+  const resourceExists = await lockGrantResource(
+    tx,
+    input.purpose,
+    input.resourceId,
   );
+  if (!resourceExists) {
+    throw new Error("Public token resource does not exist.");
+  }
+  await lockAndAssertActiveOwner(tx, input.createdByUserId, input.purpose);
+  await lockGrantFamily(tx, input.purpose, input.resourceId);
   await tx
     .update(publicAccessTokensTable)
     .set({
       revokedAt: now,
-      revokedByUserId: input.createdByUserId ?? null,
+      revokedByUserId: input.createdByUserId,
       revokeReason: "replaced",
     })
     .where(
       and(
-        eq(publicAccessTokensTable.purpose, input.purpose),
+        inArray(
+          publicAccessTokensTable.purpose,
+          CONFLICTING_PURPOSES[input.purpose],
+        ),
         eq(publicAccessTokensTable.resourceType, RESOURCE_TYPE[input.purpose]),
         eq(publicAccessTokensTable.resourceId, input.resourceId),
         isNull(publicAccessTokensTable.revokedAt),
@@ -460,7 +659,11 @@ async function issueWithTransaction(
       tokenPrefix: token.slice(0, 8),
       expiresAt: input.expiresAt,
       createdAt: now,
-      createdByUserId: input.createdByUserId ?? null,
+      createdByUserId: input.createdByUserId,
+      ownerKind: "organization",
+      ownerUserId: null,
+      ownerAssignedAt: now,
+      ownerAssignmentSource: "resource_organization",
     })
     .returning();
   if (!inserted) throw new Error("Public token insert returned no row.");
@@ -475,13 +678,25 @@ export async function issuePublicAccessToken(
   if (!Number.isInteger(input.resourceId) || input.resourceId <= 0) {
     throw new Error("Public token resource ID must be a positive integer.");
   }
+  if (!Number.isInteger(input.createdByUserId) || input.createdByUserId <= 0) {
+    throw new Error("Public token issuer ID must be a positive integer.");
+  }
   if (!Number.isFinite(input.expiresAt.getTime())) {
     throw new Error("Public token expiry is invalid.");
+  }
+  const now = new Date();
+  const allowExpiredForTesting =
+    input.allowExpiredForTesting === true &&
+    process.env.NODE_ENV !== "production";
+  if (!allowExpiredForTesting && input.expiresAt.getTime() <= now.getTime()) {
+    throw new Error("Public token expiry must be in the future.");
+  }
+  if (input.expiresAt.getTime() - now.getTime() > MAX_TOKEN_LIFETIME_MS) {
+    throw new Error("Public token expiry exceeds the 365-day hard limit.");
   }
   const binding = validateArtifactBinding(input);
   const token = newRawToken();
   const tokenHash = hashPublicAccessToken(token);
-  const now = new Date();
   const record = tx
     ? await issueWithTransaction(tx, input, token, tokenHash, now, binding)
     : await db.transaction((inner) =>
@@ -490,8 +705,8 @@ export async function issuePublicAccessToken(
   return { token, record };
 }
 
-async function revokeWithClient(
-  client: DbClient,
+async function revokeWithTransaction(
+  tx: DbTransaction,
   input: {
     purpose: PublicAccessTokenPurpose;
     resourceId: number;
@@ -499,7 +714,9 @@ async function revokeWithClient(
     reason: string;
   },
 ): Promise<number> {
-  const revoked = await client
+  await lockGrantResource(tx, input.purpose, input.resourceId);
+  await lockGrantFamily(tx, input.purpose, input.resourceId);
+  const revoked = await tx
     .update(publicAccessTokensTable)
     .set({
       revokedAt: new Date(),
@@ -528,13 +745,54 @@ export async function revokePublicAccessTokens(
   },
   tx?: DbTransaction,
 ): Promise<number> {
-  if (tx) return revokeWithClient(tx, input);
-  return db.transaction(async (inner) => {
-    await inner.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`${input.purpose}:${input.resourceId}`}))`,
-    );
-    return revokeWithClient(inner, input);
-  });
+  if (tx) return revokeWithTransaction(tx, input);
+  return db.transaction((inner) => revokeWithTransaction(inner, input));
+}
+
+export async function revokePublicAccessTokenById(
+  input: {
+    tokenId: number;
+    revokedByUserId: number;
+    reason: string;
+  },
+  tx: DbTransaction,
+): Promise<
+  | { found: false; revoked: null }
+  | { found: true; revoked: PublicAccessToken | null }
+> {
+  const [candidate] = await tx
+    .select()
+    .from(publicAccessTokensTable)
+    .where(eq(publicAccessTokensTable.id, input.tokenId))
+    .limit(1);
+  if (!candidate) return { found: false, revoked: null };
+  const purpose = candidate.purpose;
+  if (
+    purpose !== "job_signature" &&
+    purpose !== "ppe_signature" &&
+    purpose !== "ppe_confirmation" &&
+    purpose !== "quote_decision"
+  ) {
+    throw new Error(`Unsupported public access token purpose: ${purpose}`);
+  }
+  await lockGrantResource(tx, purpose, candidate.resourceId);
+  await lockGrantFamily(tx, purpose, candidate.resourceId);
+  const [revoked] = await tx
+    .update(publicAccessTokensTable)
+    .set({
+      revokedAt: new Date(),
+      revokedByUserId: input.revokedByUserId,
+      revokeReason: input.reason,
+    })
+    .where(
+      and(
+        eq(publicAccessTokensTable.id, input.tokenId),
+        isNull(publicAccessTokensTable.revokedAt),
+        isNull(publicAccessTokensTable.consumedAt),
+      ),
+    )
+    .returning();
+  return { found: true, revoked: revoked ?? null };
 }
 
 export async function consumePublicAccessToken<T>(input: {
@@ -548,6 +806,25 @@ export async function consumePublicAccessToken<T>(input: {
     const now = new Date();
     assertUsable(record, now);
     const result = await input.transition(tx, record);
+    const conflictingPurposes = conflictingPurposesFor(record.purpose);
+    if (conflictingPurposes.length > 1) {
+      await tx
+        .update(publicAccessTokensTable)
+        .set({
+          revokedAt: now,
+          revokeReason: "superseded_by_completion",
+        })
+        .where(
+          and(
+            ne(publicAccessTokensTable.id, record.id),
+            inArray(publicAccessTokensTable.purpose, conflictingPurposes),
+            eq(publicAccessTokensTable.resourceType, record.resourceType),
+            eq(publicAccessTokensTable.resourceId, record.resourceId),
+            isNull(publicAccessTokensTable.revokedAt),
+            isNull(publicAccessTokensTable.consumedAt),
+          ),
+        );
+    }
     const [consumed] = await tx
       .update(publicAccessTokensTable)
       .set({ consumedAt: now, consumeAction: input.action })

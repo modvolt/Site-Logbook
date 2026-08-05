@@ -320,7 +320,7 @@ router.post("/quotes/:id/send", async (req, res): Promise<void> => {
       to: parsed.data.to ?? null,
       subject: parsed.data.subject ?? null,
       message: parsed.data.message ?? null,
-      createdByUserId: req.auth?.userId ?? null,
+      createdByUserId: req.auth!.userId,
     });
     res.json(result);
   } catch (err) {

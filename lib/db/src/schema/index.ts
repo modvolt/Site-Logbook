@@ -28,6 +28,8 @@ export * from "./device-credentials";
 export * from "./audit-log";
 export * from "./api-idempotency";
 export * from "./public-access-tokens";
+export * from "./ppe-public-evidence";
+export * from "./ppe-public-evidence-events";
 export * from "./document-versions";
 export * from "./object-uploads";
 export * from "./time-entries";

@@ -9,6 +9,7 @@ import {
   publicAccessTokensTable,
   quoteDecisionEventsTable,
   quoteVersionsTable,
+  usersTable,
 } from "@workspace/db";
 import { ObjectStorageService } from "../src/lib/objectStorage";
 import { hashPublicAccessToken } from "../src/lib/public-access-token";
@@ -63,6 +64,7 @@ const TAG = `test-quote-send-${Date.now()}`;
 const originalPublicUrl = process.env.PUBLIC_APP_URL;
 
 let customerId: number;
+let quoteIssuerId: number;
 const quoteIds: number[] = [];
 
 // Spy on the prototype so the module-level `new ObjectStorageService()` inside
@@ -81,6 +83,18 @@ beforeAll(async () => {
     .insert(billingSettingsTable)
     .values({ id: 1 })
     .onConflictDoNothing();
+
+  const [issuer] = await db
+    .insert(usersTable)
+    .values({
+      username: `quote-send-issuer-${TAG}`,
+      passwordHash: "not-used",
+      name: "Quote send test issuer",
+      role: "admin",
+      isActive: true,
+    })
+    .returning({ id: usersTable.id });
+  quoteIssuerId = issuer.id;
 
   const [customer] = await db
     .insert(customersTable)
@@ -103,6 +117,9 @@ afterAll(async () => {
   }
   if (customerId) {
     await db.delete(customersTable).where(eq(customersTable.id, customerId));
+  }
+  if (quoteIssuerId) {
+    await db.delete(usersTable).where(eq(usersTable.id, quoteIssuerId));
   }
 });
 
@@ -230,6 +247,7 @@ describe("sendQuote", () => {
       to: "zakaznik@example.com",
       subject: null,
       message: null,
+      createdByUserId: quoteIssuerId,
     });
 
     // Return value
@@ -323,7 +341,12 @@ describe("sendQuote", () => {
     quoteIds.push(quote!.id);
 
     await expect(
-      sendQuote(quote!.id, { to: "", subject: null, message: null }),
+      sendQuote(quote!.id, {
+        to: "",
+        subject: null,
+        message: null,
+        createdByUserId: quoteIssuerId,
+      }),
     ).rejects.toThrow(/platná e-mailová adresa/i);
   });
 
@@ -349,6 +372,7 @@ describe("sendQuote", () => {
       to: "a@example.com",
       subject: null,
       message: null,
+      createdByUserId: quoteIssuerId,
     });
 
     // Second send — quote is already "sent"; service allows re-sending
@@ -357,6 +381,7 @@ describe("sendQuote", () => {
       to: "b@example.com",
       subject: "Druhé zaslání",
       message: "Posíláme znovu.",
+      createdByUserId: quoteIssuerId,
     });
     expect(result.sent).toBe(true);
     expect(result.to).toBe("b@example.com");
