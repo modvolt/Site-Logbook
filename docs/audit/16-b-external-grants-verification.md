@@ -145,6 +145,24 @@ izolovaného GitHub Quality gate s PostgreSQL. Přímý lokální běh bez
 `DATABASE_URL` se fail-closed odmítl; lokální Docker nebyl kvůli stabilitě
 počítače spuštěn.
 
+## GitHub exact-SHA ověření
+
+Draft PR [#12](https://github.com/modvolt/Site-Logbook/pull/12) míří z
+`agent/phase16b-external-grants` do `agent/phase16a-offboarding-cutoff`.
+Implementační head `ea94a6f78bdae546283f3bd5a3a3393418ea3025` prošel
+[Quality gate run 30974066898](https://github.com/modvolt/Site-Logbook/actions/runs/30974066898):
+
+- quality, release, immutable staging runtime a staging guard kontrakty: PASS;
+- všech 168 izolovaných API DB souborů po aplikaci 104/104 migrací: PASS;
+- isolated encrypted backup restore a concurrency gate: PASS;
+- encrypted streaming object recovery drill: PASS;
+- R14 isolated full-stack and fault gate: PASS.
+
+První dva CI běhy zachytily zastaralá očekávání tří DB testů a následně
+nestabilní pozorování lock contention podle textu SQL. Produkční logika se kvůli
+tomu neměnila: fixture nyní předává skutečného aktivního vydavatele a contention
+se ověřuje přímo přes PostgreSQL `pg_blocking_pids`.
+
 ## Povinný release gate
 
 Repo-level zelený PR není souhlas s migrací ani deployem. Před prvním runtime
