@@ -14,6 +14,7 @@ import {
 } from "@/lib/identity-fetch";
 
 export type Role = "guest" | "master" | "admin";
+export type AccountType = "internal" | "external";
 export type Permission =
   | "jobs.view" | "jobs.work" | "jobs.manage"
   | "activities.view" | "activities.manage"
@@ -49,6 +50,7 @@ export interface AuthUser {
   personId: number | null;
   email: string | null;
   role: Role;
+  accountType: AccountType;
   isActive: boolean;
   createdAt: string;
   permissions: Permission[];
@@ -81,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const user = (data?.user as AuthUser | undefined) ?? null;
   const role = user?.role ?? null;
   const offlineScope = data?.authenticated ? (data.offlineScope ?? null) : null;
+  const networkOnly = data?.authenticated && data.cacheMode === "network-only";
 
   // Diagnostics: log whenever the auth state is (re)loaded from /api/auth/me, so
   // a stuck-on-login or bounced-after-reload report can be traced in the console.
@@ -99,9 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void activateApiCacheScope(offlineScope);
       return;
     }
-    setIdentityRequestScope(null);
+    setIdentityRequestScope(null, networkOnly);
     void clearApiCache();
-  }, [isLoading, data?.authenticated, offlineScope]);
+  }, [isLoading, data?.authenticated, offlineScope, networkOnly]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;

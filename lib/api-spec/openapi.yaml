@@ -40,6 +40,10 @@ tags:
     description: Authentication and session management
   - name: users
     description: User management (admin)
+  - name: externalAccounts
+    description: Dark-rollout administration of authenticated external identities
+  - name: externalPortal
+    description: Network-only, resource-scoped external account read model
   - name: activities
     description: Long-term activities with timers and materials
   - name: me
@@ -4284,6 +4288,146 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUser"
+
+  /external-accounts:
+    get:
+      operationId: listExternalAccounts
+      tags: [externalAccounts]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [draft, active, suspended, revoked, expired, all] } }
+        - { name: custodianUserId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: beforeId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: Redacted external account inventory and runtime flag state
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountList" } } }
+    post:
+      operationId: createExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountCreateInput" } } }
+      responses:
+        "201":
+          description: Inactive draft created; password is never returned
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountDetail" } } }
+        "400": { description: Invalid request }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Conflict }
+
+  /external-accounts/{id}:
+    get:
+      operationId: getExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: External account detail
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountDetail" } } }
+        "404": { description: Not found }
+
+  /external-accounts/{id}/scopes:
+    put:
+      operationId: replaceExternalAccountScopes
+      tags: [externalAccounts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountScopesInput" } } }
+      responses:
+        "200": { description: Scopes replaced and sessions revoked }
+        "400": { description: Invalid request }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Version or lifecycle conflict }
+
+  /external-accounts/{id}/expiry:
+    patch:
+      operationId: updateExternalAccountExpiry
+      tags: [externalAccounts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountExpiryInput" } } }
+      responses:
+        "200": { description: Expiry reviewed and sessions revoked }
+        "400": { description: Invalid request }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Version or lifecycle conflict }
+
+  /external-accounts/{id}/activate:
+    post:
+      operationId: activateExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountVersionInput" } } }
+      responses:
+        "200": { description: Account activated and previous sessions revoked }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: "Runtime disabled, missing scope, or version conflict" }
+
+  /external-accounts/{id}/transfer:
+    post:
+      operationId: transferExternalAccountCustodian
+      tags: [externalAccounts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountTransferInput" } } }
+      responses:
+        "200": { description: Custody transferred and sessions revoked }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Invalid custodian or version conflict }
+
+  /external-accounts/{id}/revoke:
+    post:
+      operationId: revokeExternalAccount
+      tags: [externalAccounts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ExternalAccountRevokeInput" } } }
+      responses:
+        "200": { description: Account and all scopes permanently revoked }
+        "403": { description: Forbidden or step-up required }
+        "409": { description: Already terminal or version conflict }
+
+  /portal/resources:
+    get:
+      operationId: listExternalPortalResources
+      tags: [externalPortal]
+      responses:
+        "200":
+          description: Exact current resource scopes; never cached offline
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalPortalResourceList" } } }
+        "403": { description: Portal disabled or wrong account type }
+
+  /portal/resources/{scopeId}:
+    get:
+      operationId: getExternalPortalResource
+      tags: [externalPortal]
+      parameters:
+        - { name: scopeId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: One directly scoped redacted resource
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExternalPortalResourceResponse" } } }
+        "404": { description: Missing or not in the current account scope }
 
   /external-grants:
     get:
@@ -9771,6 +9915,17 @@ components:
       scheme: bearer
       bearerFormat: opaque-public-grant
       description: Purpose-bound, high-entropy public grant held only in browser memory.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+        pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$"
+      description: Stable unique key for one lifecycle mutation and its exact body.
   schemas:
     CalendarJob:
       type: object
@@ -12438,7 +12593,7 @@ components:
 
     AuthUser:
       type: object
-      required: [id, username, name, personId, role, isActive, createdAt, permissions, permissionOverrides]
+      required: [id, username, name, personId, role, accountType, isActive, createdAt, permissions, permissionOverrides]
       properties:
         id:
           type: integer
@@ -12454,6 +12609,9 @@ components:
         role:
           type: string
           description: "guest | master | admin"
+        accountType:
+          type: string
+          enum: [internal, external]
         isActive:
           type: boolean
         createdAt:
@@ -12490,6 +12648,7 @@ components:
       type: object
       additionalProperties: false
       required:
+        - custodiedExternalAccounts
         - primaryJobs
         - additionalJobs
         - plannedJobVisits
@@ -12500,6 +12659,9 @@ components:
         - openResponsibleSwitchboardDefects
         - activeWorkSessions
       properties:
+        custodiedExternalAccounts:
+          type: integer
+          minimum: 0
         primaryJobs:
           type: integer
           minimum: 0
@@ -12548,6 +12710,177 @@ components:
           $ref: "#/components/schemas/UserOffboardingAccessInventory"
         handover:
           $ref: "#/components/schemas/UserOffboardingHandoverInventory"
+
+    ExternalAccountScopeInput:
+      type: object
+      additionalProperties: false
+      required: [resourceType, resourceId, capability]
+      properties:
+        resourceType:
+          type: string
+          enum: [job, quote, switchboard]
+        resourceId:
+          type: integer
+          minimum: 1
+        capability:
+          type: string
+          enum: [read]
+
+    ExternalAccountScope:
+      allOf:
+        - $ref: "#/components/schemas/ExternalAccountScopeInput"
+        - type: object
+          required: [id, startsAt, expiresAt]
+          properties:
+            id: { type: integer, minimum: 1 }
+            startsAt: { type: string, format: date-time }
+            expiresAt: { type: string, format: date-time }
+
+    ExternalAccountSummary:
+      type: object
+      additionalProperties: false
+      required: [userId, username, name, email, state, status, custodianUserId, accessReviewedAt, accessExpiresAt, version, isActive, sessionGeneration, activeScopeCount, createdAt, updatedAt, revokedAt, revokedByUserId, revocationReason]
+      properties:
+        userId: { type: integer, minimum: 1 }
+        username: { type: string }
+        name: { type: string }
+        email: { type: [string, "null"] }
+        state: { type: string, enum: [draft, active, suspended, revoked, expired] }
+        status: { type: string, enum: [draft, active, suspended, revoked] }
+        custodianUserId: { type: integer, minimum: 1 }
+        accessReviewedAt: { type: string, format: date-time }
+        accessExpiresAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
+        isActive: { type: boolean }
+        sessionGeneration: { type: integer, minimum: 1 }
+        activeScopeCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        revokedAt: { type: [string, "null"], format: date-time }
+        revokedByUserId: { type: [integer, "null"] }
+        revocationReason: { type: [string, "null"] }
+
+    ExternalAccountDetail:
+      allOf:
+        - $ref: "#/components/schemas/ExternalAccountSummary"
+        - type: object
+          required: [scopes]
+          properties:
+            scopes:
+              type: array
+              items: { $ref: "#/components/schemas/ExternalAccountScope" }
+
+    ExternalAccountList:
+      type: object
+      additionalProperties: false
+      required: [runtimeEnabled, items, nextBeforeId]
+      properties:
+        runtimeEnabled: { type: boolean }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ExternalAccountSummary" }
+        nextBeforeId: { type: [integer, "null"] }
+
+    ExternalAccountCreateInput:
+      type: object
+      additionalProperties: false
+      required: [username, password, name, custodianUserId, accessExpiresAt]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 80 }
+        password: { type: string, minLength: 12, maxLength: 200, writeOnly: true }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        email: { type: [string, "null"], format: email }
+        custodianUserId: { type: integer, minimum: 1 }
+        accessExpiresAt: { type: string, format: date-time }
+
+    ExternalAccountVersionInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+
+    ExternalAccountScopesInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, scopes]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        scopes:
+          type: array
+          maxItems: 200
+          items: { $ref: "#/components/schemas/ExternalAccountScopeInput" }
+
+    ExternalAccountExpiryInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, accessExpiresAt]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        accessExpiresAt: { type: string, format: date-time }
+
+    ExternalAccountTransferInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, custodianUserId]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        custodianUserId: { type: integer, minimum: 1 }
+
+    ExternalAccountRevokeInput:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, reason]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 300 }
+
+    ExternalPortalResourcePayload:
+      type: object
+      additionalProperties: false
+      required: [id, status]
+      properties:
+        id: { type: integer, minimum: 1 }
+        status: { type: string }
+        title: { type: string }
+        shortName: { type: [string, "null"] }
+        date: { type: string }
+        clientSite: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        quoteNumber: { type: [string, "null"] }
+        validUntil: { type: [string, "null"] }
+        designation: { type: string }
+        installationLocation: { type: [string, "null"] }
+        manufacturer: { type: string }
+
+    ExternalPortalResource:
+      type: object
+      additionalProperties: false
+      required: [scopeId, resourceType, capability, expiresAt, resource]
+      properties:
+        scopeId: { type: integer, minimum: 1 }
+        resourceType: { type: string, enum: [job, quote, switchboard] }
+        capability: { type: string, enum: [read] }
+        expiresAt: { type: string, format: date-time }
+        resource: { $ref: "#/components/schemas/ExternalPortalResourcePayload" }
+
+    ExternalPortalResourceList:
+      type: object
+      additionalProperties: false
+      required: [items, cacheMode]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ExternalPortalResource" }
+        cacheMode: { type: string, enum: [network-only] }
+
+    ExternalPortalResourceResponse:
+      type: object
+      additionalProperties: false
+      required: [resource, cacheMode]
+      properties:
+        resource: { $ref: "#/components/schemas/ExternalPortalResource" }
+        cacheMode: { type: string, enum: [network-only] }
 
     ExternalGrantSummary:
       type: object
@@ -12764,13 +13097,16 @@ components:
 
     MeResponse:
       type: object
-      required: [authenticated, needsSetup]
+      required: [authenticated, needsSetup, cacheMode]
       properties:
         authenticated:
           type: boolean
         needsSetup:
           type: boolean
           description: True when no users exist yet — show setup screen
+        cacheMode:
+          type: string
+          enum: [none, network-only, offline-scoped]
         user:
           $ref: "#/components/schemas/AuthUser"
         offlineScope:

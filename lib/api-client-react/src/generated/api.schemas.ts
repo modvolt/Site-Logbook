@@ -1111,7 +1111,7 @@ export type Sha256Hex = string;
 export interface RequestJobSignatureResult {
   sent: boolean;
   to: string;
-  /** The full sign URL that was emailed (for reference/logging) */
+  /** Sensitive one-time URL returned for immediate delivery; never log or persist it. */
   signUrl: string;
   /** @minimum 1 */
   documentVersion: number;
@@ -3498,6 +3498,14 @@ export interface LoginInput {
   password: string;
 }
 
+export type AuthUserAccountType = typeof AuthUserAccountType[keyof typeof AuthUserAccountType];
+
+
+export const AuthUserAccountType = {
+  internal: 'internal',
+  external: 'external',
+} as const;
+
 export type UserPermissionOverrideEffect = typeof UserPermissionOverrideEffect[keyof typeof UserPermissionOverrideEffect];
 
 
@@ -3524,6 +3532,7 @@ export interface AuthUser {
   email?: string | null;
   /** guest | master | admin */
   role: string;
+  accountType: AuthUserAccountType;
   isActive: boolean;
   createdAt: string;
   /** Effective permissions after applying role defaults and user overrides */
@@ -3553,10 +3562,20 @@ export interface WebAuthnVerifyResult {
   expiresAt?: string;
 }
 
+export type MeResponseCacheMode = typeof MeResponseCacheMode[keyof typeof MeResponseCacheMode];
+
+
+export const MeResponseCacheMode = {
+  none: 'none',
+  'network-only': 'network-only',
+  'offline-scoped': 'offline-scoped',
+} as const;
+
 export interface MeResponse {
   authenticated: boolean;
   /** True when no users exist yet — show setup screen */
   needsSetup: boolean;
+  cacheMode: MeResponseCacheMode;
   user?: AuthUser;
   /**
      * Opaque user and authorization epoch used only to partition browser offline storage
@@ -3811,6 +3830,227 @@ export interface UserInput {
   isActive?: boolean;
 }
 
+export type ExternalAccountSummaryState = typeof ExternalAccountSummaryState[keyof typeof ExternalAccountSummaryState];
+
+
+export const ExternalAccountSummaryState = {
+  draft: 'draft',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
+  expired: 'expired',
+} as const;
+
+export type ExternalAccountSummaryStatus = typeof ExternalAccountSummaryStatus[keyof typeof ExternalAccountSummaryStatus];
+
+
+export const ExternalAccountSummaryStatus = {
+  draft: 'draft',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
+} as const;
+
+export interface ExternalAccountSummary {
+  /** @minimum 1 */
+  userId: number;
+  username: string;
+  name: string;
+  /** @nullable */
+  email: string | null;
+  state: ExternalAccountSummaryState;
+  status: ExternalAccountSummaryStatus;
+  /** @minimum 1 */
+  custodianUserId: number;
+  accessReviewedAt: string;
+  accessExpiresAt: string;
+  /** @minimum 1 */
+  version: number;
+  isActive: boolean;
+  /** @minimum 1 */
+  sessionGeneration: number;
+  /** @minimum 0 */
+  activeScopeCount: number;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  revokedAt: string | null;
+  /** @nullable */
+  revokedByUserId: number | null;
+  /** @nullable */
+  revocationReason: string | null;
+}
+
+export interface ExternalAccountList {
+  runtimeEnabled: boolean;
+  items: ExternalAccountSummary[];
+  /** @nullable */
+  nextBeforeId: number | null;
+}
+
+export interface ExternalAccountCreateInput {
+  /**
+     * @minLength 3
+     * @maxLength 80
+     */
+  username: string;
+  /**
+     * @minLength 12
+     * @maxLength 200
+     */
+  password: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  name: string;
+  /** @nullable */
+  email?: string | null;
+  /** @minimum 1 */
+  custodianUserId: number;
+  accessExpiresAt: string;
+}
+
+export type ExternalAccountScopeInputResourceType = typeof ExternalAccountScopeInputResourceType[keyof typeof ExternalAccountScopeInputResourceType];
+
+
+export const ExternalAccountScopeInputResourceType = {
+  job: 'job',
+  quote: 'quote',
+  switchboard: 'switchboard',
+} as const;
+
+export type ExternalAccountScopeInputCapability = typeof ExternalAccountScopeInputCapability[keyof typeof ExternalAccountScopeInputCapability];
+
+
+export const ExternalAccountScopeInputCapability = {
+  read: 'read',
+} as const;
+
+export interface ExternalAccountScopeInput {
+  resourceType: ExternalAccountScopeInputResourceType;
+  /** @minimum 1 */
+  resourceId: number;
+  capability: ExternalAccountScopeInputCapability;
+}
+
+export type ExternalAccountScope = ExternalAccountScopeInput & {
+  /** @minimum 1 */
+  id: number;
+  startsAt: string;
+  expiresAt: string;
+};
+
+export type ExternalAccountDetail = ExternalAccountSummary & {
+  scopes: ExternalAccountScope[];
+};
+
+export interface ExternalAccountScopesInput {
+  /** @minimum 1 */
+  expectedVersion: number;
+  /** @maxItems 200 */
+  scopes: ExternalAccountScopeInput[];
+}
+
+export interface ExternalAccountExpiryInput {
+  /** @minimum 1 */
+  expectedVersion: number;
+  accessExpiresAt: string;
+}
+
+export interface ExternalAccountVersionInput {
+  /** @minimum 1 */
+  expectedVersion: number;
+}
+
+export interface ExternalAccountTransferInput {
+  /** @minimum 1 */
+  expectedVersion: number;
+  /** @minimum 1 */
+  custodianUserId: number;
+}
+
+export interface ExternalAccountRevokeInput {
+  /** @minimum 1 */
+  expectedVersion: number;
+  /**
+     * @minLength 3
+     * @maxLength 300
+     */
+  reason: string;
+}
+
+export type ExternalPortalResourceListCacheMode = typeof ExternalPortalResourceListCacheMode[keyof typeof ExternalPortalResourceListCacheMode];
+
+
+export const ExternalPortalResourceListCacheMode = {
+  'network-only': 'network-only',
+} as const;
+
+export type ExternalPortalResourceResourceType = typeof ExternalPortalResourceResourceType[keyof typeof ExternalPortalResourceResourceType];
+
+
+export const ExternalPortalResourceResourceType = {
+  job: 'job',
+  quote: 'quote',
+  switchboard: 'switchboard',
+} as const;
+
+export type ExternalPortalResourceCapability = typeof ExternalPortalResourceCapability[keyof typeof ExternalPortalResourceCapability];
+
+
+export const ExternalPortalResourceCapability = {
+  read: 'read',
+} as const;
+
+export interface ExternalPortalResourcePayload {
+  /** @minimum 1 */
+  id: number;
+  status: string;
+  title?: string;
+  /** @nullable */
+  shortName?: string | null;
+  date?: string;
+  /** @nullable */
+  clientSite?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  quoteNumber?: string | null;
+  /** @nullable */
+  validUntil?: string | null;
+  designation?: string;
+  /** @nullable */
+  installationLocation?: string | null;
+  manufacturer?: string;
+}
+
+export interface ExternalPortalResource {
+  /** @minimum 1 */
+  scopeId: number;
+  resourceType: ExternalPortalResourceResourceType;
+  capability: ExternalPortalResourceCapability;
+  expiresAt: string;
+  resource: ExternalPortalResourcePayload;
+}
+
+export interface ExternalPortalResourceList {
+  items: ExternalPortalResource[];
+  cacheMode: ExternalPortalResourceListCacheMode;
+}
+
+export type ExternalPortalResourceResponseCacheMode = typeof ExternalPortalResourceResponseCacheMode[keyof typeof ExternalPortalResourceResponseCacheMode];
+
+
+export const ExternalPortalResourceResponseCacheMode = {
+  'network-only': 'network-only',
+} as const;
+
+export interface ExternalPortalResourceResponse {
+  resource: ExternalPortalResource;
+  cacheMode: ExternalPortalResourceResponseCacheMode;
+}
+
 export type ExternalGrantSummaryPurpose = typeof ExternalGrantSummaryPurpose[keyof typeof ExternalGrantSummaryPurpose];
 
 
@@ -4001,6 +4241,8 @@ export interface UserOffboardingAccessInventory {
 }
 
 export interface UserOffboardingHandoverInventory {
+  /** @minimum 0 */
+  custodiedExternalAccounts: number;
   /** @minimum 0 */
   primaryJobs: number;
   /** @minimum 0 */
@@ -7061,6 +7303,11 @@ export interface ConvertQuoteToJobResult {
   jobGroupId: number;
 }
 
+/**
+ * Stable unique key for one lifecycle mutation and its exact body.
+ */
+export type IdempotencyKeyParameter = string;
+
 export type ListJobsParams = {
 /**
  * ISO date string (YYYY-MM-DD)
@@ -7369,6 +7616,35 @@ userId?: number;
 export type RetryEmailImportLog200 = {
   ok: boolean;
 };
+
+export type ListExternalAccountsParams = {
+status?: ListExternalAccountsStatus;
+/**
+ * @minimum 1
+ */
+custodianUserId?: number;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type ListExternalAccountsStatus = typeof ListExternalAccountsStatus[keyof typeof ListExternalAccountsStatus];
+
+
+export const ListExternalAccountsStatus = {
+  draft: 'draft',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
+  expired: 'expired',
+  all: 'all',
+} as const;
 
 export type ListExternalGrantsParams = {
 status?: ListExternalGrantsStatus;

@@ -9,9 +9,10 @@ import {
   userSessionsTable,
   USER_ROLES,
   isPermission,
-  resolvePermissions,
+  resolveAccountPermissions,
   type PermissionEffect,
   type UserRole,
+  type UserAccountType,
 } from "@workspace/db";
 import { CreateUserBody, UpdateUserBody, UpdateUserParams, DeleteUserParams } from "@workspace/api-zod";
 import { GetUserOffboardingPreviewParams, OffboardUserBody, OffboardUserHeader, OffboardUserParams } from "@workspace/api-zod";
@@ -66,7 +67,11 @@ async function overridesByUser(userIds: number[]) {
 }
 
 router.get("/users", async (_req, res): Promise<void> => {
-  const users = await db.select().from(usersTable).orderBy(usersTable.username);
+  const users = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.accountType, "internal"))
+    .orderBy(usersTable.username);
   const overrides = await overridesByUser(users.map((user) => user.id));
   res.json(users.map((user) => serializeUser(user, overrides.get(user.id) ?? [])));
 });
@@ -106,6 +111,7 @@ router.post("/users", async (req, res): Promise<void> => {
           personId: personId ?? null,
           email: email ?? null,
           role,
+          accountType: "internal",
           isActive: isActive ?? true,
         })
         .returning();
@@ -225,6 +231,9 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
       if (!currentUser) {
         throw new UserOffboardingError(404, "user_not_found", "User not found");
       }
+      if (currentUser.accountType !== "internal") {
+        throw new UserOffboardingError(409, "external_account_workflow_required", "ExternĂ­ ĂşÄŤet lze spravovat pouze vyhrazenĂ˝m workflow.");
+      }
       if (isActive === false && currentUser.isActive) {
         throw new UserOffboardingError(409, "offboarding_required", "Pro deaktivaci použijte potvrzený offboarding.");
       }
@@ -295,7 +304,14 @@ router.put("/users/:id/permissions", async (req, res): Promise<void> => {
       if (!lockedTarget.isActive) {
         throw new UserOffboardingError(409, "user_inactive", "Neaktivnímu účtu nelze udělit oprávnění.");
       }
-      if (req.auth?.userId === userId && !resolvePermissions(lockedTarget.role as UserRole, overrides).includes("users.manage")) {
+      if (lockedTarget.accountType !== "internal") {
+        throw new UserOffboardingError(409, "external_account_workflow_required", "ExternĂ­ ĂşÄŤet lze spravovat pouze vyhrazenĂ˝m workflow.");
+      }
+      if (req.auth?.userId === userId && !resolveAccountPermissions(
+        lockedTarget.accountType as UserAccountType,
+        lockedTarget.role as UserRole,
+        overrides,
+      ).includes("users.manage")) {
         throw new UserOffboardingError(409, "self_permission_lockout_forbidden", "Nemůžete si odebrat vlastní správu oprávnění.");
       }
       await tx.delete(userPermissionOverridesTable).where(eq(userPermissionOverridesTable.userId, userId));

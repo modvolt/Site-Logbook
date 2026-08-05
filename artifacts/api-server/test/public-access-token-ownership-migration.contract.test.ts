@@ -144,7 +144,7 @@ describe("R16-B external grant expand migration", () => {
     expect(switchboards!.checkConstraints).toHaveProperty(
       "switchboards_qr_owner_assignment_chk",
     );
-    expect(journal.entries.at(-1)).toEqual({
+    expect(journal.entries.find((entry) => entry.idx === 104)).toEqual({
       idx: 104,
       version: "7",
       when: migrationWhen,

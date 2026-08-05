@@ -31,7 +31,8 @@ describe("user offboarding security contract", () => {
     expect(service).toContain("actorUserId");
     expect(service).toContain("targetUserId");
     expect(service).toContain("users.manage");
-    expect(service).toContain("resolvePermissions");
+    expect(service).toContain("resolveAccountPermissions");
+    expect(service).toContain("actor.accountType");
     expect(service).toMatch(/self[_ -]offboard/i);
     expect(service).toMatch(/expectedSessionGeneration/);
     expect(service).toMatch(/expectedUsername/);

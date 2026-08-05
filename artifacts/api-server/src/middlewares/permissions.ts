@@ -1,6 +1,22 @@
 import type { NextFunction, Request, Response } from "express";
-import type { Permission } from "@workspace/db";
-import { resolveApiRouteAccess } from "../lib/api-route-access-policy";
+import type { Permission, UserAccountType } from "@workspace/db";
+import {
+  resolveApiRouteAccess,
+  type ApiRouteAccessPolicy,
+} from "../lib/api-route-access-policy";
+
+export function accountTypeCanAccessPolicy(
+  accountType: UserAccountType,
+  policy: ApiRouteAccessPolicy,
+): boolean {
+  if (policy.kind === "deny") return false;
+  if (policy.kind === "public") return true;
+  if (accountType !== "internal" && accountType !== "external") return false;
+  if (policy.kind === "permissions") return accountType === "internal";
+  if (policy.audience === "shared") return true;
+  if (policy.audience === "internal") return accountType === "internal";
+  return accountType === "external";
+}
 
 export function enforceApiPermission(req: Request, res: Response, next: NextFunction): void {
   if (!req.auth) {
@@ -9,7 +25,10 @@ export function enforceApiPermission(req: Request, res: Response, next: NextFunc
   }
 
   const policy = resolveApiRouteAccess(req.method, req.path);
-  if (policy.kind === "deny") {
+  if (
+    policy.kind === "deny" ||
+    !accountTypeCanAccessPolicy(req.auth.accountType, policy)
+  ) {
     res.status(403).json({ error: "Forbidden", code: "route_not_authorized" });
     return;
   }
@@ -41,6 +60,10 @@ export function requirePermission(permission: Permission) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) {
       res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    if (req.auth.accountType !== "internal") {
+      res.status(403).json({ error: "Forbidden", code: "route_not_authorized" });
       return;
     }
     if (!req.auth.permissions.includes(permission)) {

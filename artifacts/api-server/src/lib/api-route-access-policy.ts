@@ -10,7 +10,10 @@ type ModuleRule = {
 
 export type ApiRouteAccessPolicy =
   | { kind: "public" }
-  | { kind: "authenticated" }
+  | {
+      kind: "authenticated";
+      audience: "internal" | "shared" | "external";
+    }
   | {
       kind: "permissions";
       allOf: readonly Permission[];
@@ -20,6 +23,7 @@ export type ApiRouteAccessPolicy =
 
 const MODULE_RULES: readonly ModuleRule[] = [
   { prefixes: ["/external-grants"], view: "users.manage", manage: "users.manage" },
+  { prefixes: ["/external-accounts"], view: "users.manage", manage: "users.manage" },
   { prefixes: ["/users", "/admin/sessions"], view: "users.manage", manage: "users.manage" },
   { prefixes: ["/audit-logs"], view: "audit.view", manage: "audit.view" },
   { prefixes: ["/stats"], view: "statistics.view", manage: "statistics.view" },
@@ -80,22 +84,39 @@ const STAGED_UPLOAD_CLAIM_PERMISSIONS: readonly Permission[] = [
   "customers.manage",
 ];
 
-const AUTHENTICATED_ONLY_ROUTES: readonly {
+type AuthenticatedRouteRule = {
   methods: ReadonlySet<string>;
   path: RegExp;
-}[] = [
-  { methods: new Set(["POST"]), path: /^\/auth\/vault\/verify-password$/ },
+};
+
+/**
+ * Self-service routes whose handlers enforce ownership against req.auth.userId.
+ * They are the only existing authenticated routes shared with external accounts.
+ */
+const SHARED_AUTHENTICATED_ROUTES: readonly AuthenticatedRouteRule[] = [
   { methods: new Set(["GET", "HEAD"]), path: /^\/auth\/webauthn\/credentials$/ },
   { methods: new Set(["DELETE"]), path: /^\/auth\/webauthn\/credentials\/[^/]+$/ },
   {
     methods: new Set(["POST"]),
-    path: /^\/auth\/webauthn\/(?:register|verify)\/(?:begin|complete)$/,
+    path: /^\/auth\/webauthn\/register\/(?:begin|complete)$/,
+  },
+  { methods: new Set(["GET", "HEAD"]), path: /^\/sessions$/ },
+  { methods: new Set(["DELETE"]), path: /^\/sessions\/[^/]+$/ },
+];
+
+/**
+ * Authenticated routes that do not use module permissions but still belong to
+ * the internal application. External accounts fail closed at the global gate.
+ */
+const INTERNAL_AUTHENTICATED_ROUTES: readonly AuthenticatedRouteRule[] = [
+  { methods: new Set(["POST"]), path: /^\/auth\/vault\/verify-password$/ },
+  {
+    methods: new Set(["POST"]),
+    path: /^\/auth\/webauthn\/verify\/(?:begin|complete)$/,
   },
   { methods: new Set(["GET", "HEAD"]), path: /^\/me\/(?:jobs|ppe\/assignments|stats|visits)$/ },
   { methods: new Set(["POST"]), path: /^\/me\/ppe\/assignments\/[^/]+\/sign$/ },
   { methods: new Set(["GET", "HEAD", "PUT"]), path: /^\/preferences$/ },
-  { methods: new Set(["GET", "HEAD"]), path: /^\/sessions$/ },
-  { methods: new Set(["DELETE"]), path: /^\/sessions\/[^/]+$/ },
   { methods: new Set(["GET", "HEAD"]), path: /^\/(?:events|public-holidays)$/ },
   { methods: new Set(["GET", "HEAD"]), path: /^\/storage\/objects\/.+$/ },
   { methods: new Set(["POST"]), path: /^\/client-errors$/ },
@@ -236,11 +257,20 @@ function specificPermission(method: string, path: string): Permission | null {
   return READ_METHODS.has(method) ? moduleRule.view : (moduleRule.manage ?? moduleRule.view);
 }
 
-function authenticatedOnly(method: string, path: string): boolean {
-  return AUTHENTICATED_ONLY_ROUTES.some(
+function matchesAuthenticatedRoute(
+  routes: readonly AuthenticatedRouteRule[],
+  method: string,
+  path: string,
+): boolean {
+  return routes.some(
     (route) => route.methods.has(method) && route.path.test(path),
   );
 }
+
+const EXTERNAL_PORTAL_ROUTES: readonly AuthenticatedRouteRule[] = [
+  { methods: new Set(["GET", "HEAD"]), path: /^\/portal\/resources$/ },
+  { methods: new Set(["GET", "HEAD"]), path: /^\/portal\/resources\/[^/]+$/ },
+];
 
 export function resolveApiRouteAccess(
   method: string,
@@ -254,7 +284,15 @@ export function resolveApiRouteAccess(
     return { kind: "deny", reason: "unregistered" };
   }
   if (isPublicApiRequest(normalizedMethod, `/api${path}`)) return { kind: "public" };
-  if (authenticatedOnly(normalizedMethod, path)) return { kind: "authenticated" };
+  if (matchesAuthenticatedRoute(EXTERNAL_PORTAL_ROUTES, normalizedMethod, path)) {
+    return { kind: "authenticated", audience: "external" };
+  }
+  if (matchesAuthenticatedRoute(SHARED_AUTHENTICATED_ROUTES, normalizedMethod, path)) {
+    return { kind: "authenticated", audience: "shared" };
+  }
+  if (matchesAuthenticatedRoute(INTERNAL_AUTHENTICATED_ROUTES, normalizedMethod, path)) {
+    return { kind: "authenticated", audience: "internal" };
+  }
   if (normalizedMethod === "POST" && path === "/storage/uploads") {
     return {
       kind: "permissions",

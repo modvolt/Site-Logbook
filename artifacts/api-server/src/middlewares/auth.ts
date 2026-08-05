@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import type { Permission, UserRole } from "@workspace/db";
+import type { Permission, UserAccountType, UserRole } from "@workspace/db";
 import { getUserAuthorization } from "../lib/permissions";
 import { destroySession } from "../lib/auth-session";
 import { hasRecentVaultStepUp } from "../lib/vault-step-up-policy";
@@ -9,6 +9,7 @@ declare module "express-session" {
     userId?: number;
     username?: string;
     role?: UserRole;
+    accountType?: UserAccountType;
     name?: string;
     sessionGeneration?: number;
     // Anti-CSRF state for the Gmail OAuth connect flow (set on /connect,
@@ -30,6 +31,7 @@ export interface AuthInfo {
   userId: number;
   username: string;
   role: UserRole;
+  accountType: UserAccountType;
   name: string;
   personId: number | null;
   permissions: Permission[];
@@ -64,11 +66,13 @@ export async function attachAuth(req: Request, res: Response, next: NextFunction
       }
       s.username = user.username;
       s.role = user.role as UserRole;
+      s.accountType = user.accountType as UserAccountType;
       s.name = user.name;
       req.auth = {
         userId: user.id,
         username: user.username,
         role: user.role as UserRole,
+        accountType: user.accountType as UserAccountType,
         name: user.name,
         personId: user.personId,
         permissions,

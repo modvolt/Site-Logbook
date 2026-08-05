@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolvePermissions } from "../../../lib/db/src/permissions";
+import {
+  resolveAccountPermissions,
+  resolvePermissions,
+} from "../../../lib/db/src/permissions";
 
 describe("role permissions with individual overrides", () => {
   it("keeps billing restricted to admin by default", () => {
@@ -61,5 +64,13 @@ describe("role permissions with individual overrides", () => {
     expect(resolvePermissions("admin", [
       { permission: "switchboards.view", effect: "deny" },
     ])).not.toContain("switchboards.view");
+  });
+
+  it("never lets an external account inherit role defaults or overrides", () => {
+    expect(resolveAccountPermissions("external", "admin", [])).toEqual([]);
+    expect(resolveAccountPermissions("external", "guest", [
+      { permission: "users.manage", effect: "allow" },
+    ])).toEqual([]);
+    expect(resolveAccountPermissions("internal", "admin", [])).toContain("users.manage");
   });
 });

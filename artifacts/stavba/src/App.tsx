@@ -82,6 +82,8 @@ const AdminSessions = lazy(() => import("@/pages/admin-sessions"));
 const AdminWarehouseBackfill = lazy(() => import("@/pages/admin-warehouse-backfill"));
 const Quotes = lazy(() => import("@/pages/quotes"));
 const QuoteDetail = lazy(() => import("@/pages/quote-detail"));
+const ExternalPortal = lazy(() => import("@/pages/external-portal"));
+const ExternalAccountsAdmin = lazy(() => import("@/pages/external-accounts-admin"));
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -258,6 +260,7 @@ function AuthenticatedApp() {
         <Route path="/billing/recurring-templates">{() => <PermissionOnly component={BillingRecurringTemplates} permission="billing.manage" />}</Route>
         <Route path="/billing">{() => <PermissionOnly component={Billing} permission="billing.view" />}</Route>
         <Route path="/admin/users">{() => <PermissionOnly component={UsersAdmin} permission="users.manage" />}</Route>
+        <Route path="/admin/external-accounts">{() => <PermissionOnly component={ExternalAccountsAdmin} permission="users.manage" />}</Route>
         <Route path="/admin/audit">{() => <PermissionOnly component={AuditLog} permission="audit.view" />}</Route>
         <Route path="/admin/client-errors">{() => <PermissionOnly component={ClientErrors} permission="diagnostics.view" />}</Route>
         <Route path="/admin/gdpr">{() => <PermissionOnly component={Gdpr} permission="settings.manage" />}</Route>
@@ -279,7 +282,7 @@ function AuthenticatedApp() {
 
 function Router() {
   const [path] = useLocation();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const pathname = path.split("?", 1)[0];
   retainPublicGrantForRoutePath(pathname);
   // Public pages — credentials were captured before React mounted.
@@ -306,12 +309,14 @@ function Router() {
     );
   }
   if (!isAuthenticated) return <Login />;
+  if (user?.accountType === "external") return <ExternalPortal />;
   return <AuthenticatedApp />;
 }
 
 function PublicAwarePwaUpdatePrompt() {
   const [path] = useLocation();
-  return isPublicGrantRoutePath(path.split("?", 1)[0])
+  const { user } = useAuth();
+  return isPublicGrantRoutePath(path.split("?", 1)[0]) || user?.accountType === "external"
     ? null
     : <PwaUpdatePrompt />;
 }
