@@ -338,8 +338,8 @@ function App() {
                   <Router />
                 </Suspense>
               </PageErrorBoundary>
+              <PublicAwarePwaUpdatePrompt />
             </AuthProvider>
-            <PublicAwarePwaUpdatePrompt />
           </WouterRouter>
           <Toaster />
         </TooltipProvider>

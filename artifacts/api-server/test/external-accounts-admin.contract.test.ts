@@ -53,6 +53,17 @@ describe("R16-C2 authenticated external account surface", () => {
     expect(identity).toContain("if (activeScope)");
   });
 
+  it("keeps auth-aware PWA controls inside AuthProvider", () => {
+    const app = read("artifacts/stavba/src/App.tsx");
+    const providerStart = app.indexOf("<AuthProvider>");
+    const prompt = app.indexOf("<PublicAwarePwaUpdatePrompt />", providerStart);
+    const providerEnd = app.indexOf("</AuthProvider>", providerStart);
+
+    expect(providerStart).toBeGreaterThan(-1);
+    expect(prompt).toBeGreaterThan(providerStart);
+    expect(providerEnd).toBeGreaterThan(prompt);
+  });
+
   it("ships dark defaults, registered routes and an OpenAPI contract", () => {
     const env = read(".env.example");
     const stagingEnv = read(".env.staging.example");
