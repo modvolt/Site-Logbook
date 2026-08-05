@@ -3,7 +3,7 @@
 # This file is intentionally complete: DO NOT merge it with docker-compose.yml.
 # It accepts only STAGING_* deployment inputs, publishes no host ports, and
 # relies on Coolify's isolated per-resource network. Coolify must assign a
-# domain only to the web service on container port 80.
+# separate domains only to web:80 and alert-receiver:8080.
 
 name: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}
 
@@ -32,6 +32,10 @@ services:
       STAGING_API_TRUSTED_PROXY_CIDRS: ${STAGING_API_TRUSTED_PROXY_CIDRS:?set exact staging nginx/edge proxy CIDRs}
       STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
       STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}
+      STAGING_IMAGE_MANIFEST_B64: ${STAGING_IMAGE_MANIFEST_B64:?set the exact validated staging-images.json as base64}
+      STAGING_IMAGE_MANIFEST_SHA256: ${STAGING_IMAGE_MANIFEST_SHA256:?set the separately approved image manifest checksum}
+      STAGING_PROVISIONING_MANIFEST_SHA256: ${STAGING_PROVISIONING_MANIFEST_SHA256:?set the observed provisioning manifest checksum}
+      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical secret-free deployment input checksum}
       STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
       STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}
       STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}
@@ -113,6 +117,7 @@ services:
       STAGING_ENVIRONMENT_ID: ${STAGING_ENVIRONMENT_ID:?set STAGING_ENVIRONMENT_ID}
       STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
       STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}
+      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical secret-free deployment input checksum}
       EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
       STAGING_DATABASE_HOST: postgres
       STAGING_DATABASE_NAME: site_logbook_staging

@@ -16,6 +16,35 @@ export const stagingBootstrapSummaryFile = path.resolve(
   "staging-bootstrap-summary.json",
 );
 
+function requiredEvidenceValue(name: string, pattern: RegExp): string {
+  const value = process.env[name]?.trim() ?? "";
+  if (!pattern.test(value)) {
+    throw new Error(`Staging evidence binding ${name} is missing or invalid.`);
+  }
+  return value;
+}
+
+export const stagingEvidenceBindings = Object.freeze({
+  runId: Number(
+    requiredEvidenceValue("STAGING_GITHUB_RUN_ID", /^[1-9][0-9]*$/),
+  ),
+  runAttempt: Number(
+    requiredEvidenceValue("STAGING_GITHUB_RUN_ATTEMPT", /^[1-9][0-9]*$/),
+  ),
+  imageManifestSha256: requiredEvidenceValue(
+    "STAGING_IMAGE_MANIFEST_SHA256",
+    /^[0-9a-f]{64}$/,
+  ),
+  provisioningManifestSha256: requiredEvidenceValue(
+    "STAGING_PROVISIONING_MANIFEST_SHA256",
+    /^[0-9a-f]{64}$/,
+  ),
+  deploymentInputsSha256: requiredEvidenceValue(
+    "STAGING_DEPLOYMENT_INPUTS_SHA256",
+    /^[0-9a-f]{64}$/,
+  ),
+});
+
 export function asRecord(
   value: unknown,
   label: string,

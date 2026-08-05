@@ -57,6 +57,13 @@ Do prázdného staging secret store se doplní hodnoty podle
 
 - `STAGING_BUILD_SHA` – exact candidate SHA;
 - `STAGING_IMAGE_MANIFEST_SOURCE_SHA` – `sourceSha` z immutable manifestu;
+- `STAGING_IMAGE_MANIFEST_B64` – přesné raw bytes `staging-images.json` jako
+  jednořádkové base64, nikdy ručně sestavený JSON;
+- `STAGING_IMAGE_MANIFEST_SHA256` – odděleně schválený SHA-256 raw manifestu;
+- `STAGING_PROVISIONING_MANIFEST_SHA256` – SHA-256 validovaného observed Coolify
+  provisioning manifestu;
+- `STAGING_DEPLOYMENT_INPUTS_SHA256` – hash kanonických secret-free vstupů pro
+  právě zvolený režim; `inspect`, `apply-0105` a `steady-0105` mají každý jiný hash;
 - `STAGING_EXTERNAL_ACCOUNTS_ENABLED=false`;
 - `STAGING_SCHEMA_ACTION` – přesně jeden z režimů níže;
 - `STAGING_BACKUP_EVIDENCE_ID` – ID nejnovějšího svázaného backup řádku;
@@ -77,6 +84,38 @@ Režimy jsou záměrně oddělené:
 Staging boundary preflight ověří formát, přesnou shodu SHA, explicitní
 `flag=false` a kontrakt zvoleného režimu ještě před startem PostgreSQL. DB schema
 gate následně porovná také `BUILD_SHA` zapečené v immutable API image.
+
+## Offline supply-chain a provisioning vazba
+
+Pět image referencí se nesmí přepisovat samostatně. Po stažení image artifactu
+se nejprve ověří raw manifest, jeho GNU checksum a odděleně schválený checksum:
+
+```powershell
+pnpm gate:staging-image-manifest -- --manifest staging-images.json --checksum staging-images.sha256 --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-run-id <id> --expected-run-attempt <attempt>
+```
+
+Nový Coolify resource se popíše kopií
+`docs/audit/16-c3-staging-provisioning.template.json`. Manifest neobsahuje hesla,
+tokeny, access keys ani keyringy. Režim `observed` musí obsahovat skutečné nové
+resource/network/volume identifikátory a explicitní seznam zakázaných produkčních
+targetů:
+
+```powershell
+pnpm gate:staging-provisioning -- --file staging-provisioning.json --expected-source-sha <40-hex>
+```
+
+Teprve oba PASS výsledky smějí atomicky vytvořit tři kanonické input artefakty a
+secret-free Coolify hodnoty. Existující evidence adresář se nepřepisuje:
+
+```powershell
+pnpm gate:staging-deployment-binding -- --manifest staging-images.json --checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-run-id <id> --expected-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-binding-evidence
+```
+
+`staging-provisioning-observed.json` je kanonická podoba provisioning artefaktu,
+jejíž raw SHA se rovná hodnotě vložené do deployment inputů.
+`staging-deployment-environment.json` je secret-free přenosový soubor. Obsahuje
+samostatné hodnoty pro inspect, transition a steady režim; produkční nebo staging
+secrets se do něj nikdy neukládají.
 
 Pro read-only inventuru se nastaví `STAGING_SCHEMA_ACTION=inspect`, spustí se jen
 izolovaný PostgreSQL a po obnovení schválené kopie se zavolá:
@@ -129,6 +168,13 @@ path, hash zálohy ani key ID.
     S3 write/delete sondu a alert drill.
 11. Uložit secret-free bootstrap artifact a zastavit. Pilot a změna flagu jsou
     samostatná další fáze.
+
+Finální schema-v4 release evidence se ověřuje pouze spolu se všemi osmi raw
+artefakty; deklarované hashe bez zdrojových bytes nestačí:
+
+```powershell
+pnpm gate:staging-evidence -- --file staging-release-evidence.json --image-manifest staging-images.json --inspect-inputs staging-deployment-inspect.json --transition-inputs staging-deployment-transition.json --steady-inputs staging-deployment-steady.json --schema-gate-evidence staging-schema-gate.json --backup-evidence staging-backup-evidence.json --provisioning staging-provisioning-observed.json --bootstrap staging-bootstrap-summary.json
+```
 
 ## Stop podmínky
 

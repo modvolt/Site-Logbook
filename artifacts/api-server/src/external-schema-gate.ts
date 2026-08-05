@@ -90,8 +90,40 @@ async function main(): Promise<void> {
     EXTERNAL_SCHEMA_PREFLIGHT_MODE: "post",
   });
   const summary = await runExternalSchemaPreflight(post);
+  const deploymentInputsSha256 =
+    process.env.STAGING_DEPLOYMENT_INPUTS_SHA256?.trim() ?? "";
+  if (!/^[0-9a-f]{64}$/.test(deploymentInputsSha256)) {
+    throw new ExternalSchemaPreflightError(
+      "DEPLOYMENT_BINDING_INVALID",
+      "The canonical staging deployment input checksum is required.",
+    );
+  }
+  const backupRestoreMaxAgeHours = Number(
+    process.env.STAGING_BACKUP_RESTORE_MAX_AGE_HOURS,
+  );
+  if (
+    !Number.isInteger(backupRestoreMaxAgeHours) ||
+    backupRestoreMaxAgeHours < 1 ||
+    backupRestoreMaxAgeHours > 168
+  ) {
+    throw new ExternalSchemaPreflightError(
+      "BACKUP_MAX_AGE_INVALID",
+      "The staging backup maximum age must be 1 through 168 hours.",
+    );
+  }
   process.stdout.write(
-    `[external-schema-gate] APPLIED ${JSON.stringify(summary)}\n`,
+    `[external-schema-gate] APPLIED ${JSON.stringify({
+      decision: "APPLIED",
+      sourceSha: summary.buildSha,
+      latestExpectedTag: summary.latestExpectedTag,
+      expectedMigrations: summary.expectedMigrations,
+      excludedMigration0100Present: false,
+      externalStateRows: summary.externalStateRows,
+      backupEvidenceId: summary.backupEvidenceId,
+      backupRestoreAgeHours: summary.backupRestoreAgeHours,
+      backupRestoreMaxAgeHours,
+      inputSha256: `sha256:${deploymentInputsSha256}`,
+    })}\n`,
   );
 }
 

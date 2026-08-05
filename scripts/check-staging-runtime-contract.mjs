@@ -331,6 +331,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?set inspect, apply-0105 or steady-0105}",
     "      EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}",
     "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
+    "      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical secret-free deployment input checksum}",
     "      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
     "      STAGING_DATABASE_HOST: postgres",
     "      STAGING_DATABASE_NAME: site_logbook_staging",
@@ -389,6 +390,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const input of [
     "STAGING_SCHEMA_ACTION=inspect",
     "STAGING_IMAGE_MANIFEST_SOURCE_SHA=",
+    "STAGING_IMAGE_MANIFEST_B64=",
+    "STAGING_IMAGE_MANIFEST_SHA256=",
+    "STAGING_PROVISIONING_MANIFEST_SHA256=",
+    "STAGING_DEPLOYMENT_INPUTS_SHA256=",
     "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION=",
     "STAGING_BACKUP_EVIDENCE_ID=",
     "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS=24",
@@ -417,6 +422,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const boundary of [
     "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?set inspect, apply-0105 or steady-0105}",
     "      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}",
+    "      STAGING_IMAGE_MANIFEST_B64: ${STAGING_IMAGE_MANIFEST_B64:?set the exact validated staging-images.json as base64}",
+    "      STAGING_IMAGE_MANIFEST_SHA256: ${STAGING_IMAGE_MANIFEST_SHA256:?set the separately approved image manifest checksum}",
+    "      STAGING_PROVISIONING_MANIFEST_SHA256: ${STAGING_PROVISIONING_MANIFEST_SHA256:?set the observed provisioning manifest checksum}",
+    "      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical secret-free deployment input checksum}",
     "      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}",
     "      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}",
     "      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS-}",
@@ -434,6 +443,14 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   for (const boundary of [
     '[ "$STAGING_IMAGE_MANIFEST_SOURCE_SHA" = "$STAGING_BUILD_SHA" ]',
+    "printf '%s' \"$STAGING_IMAGE_MANIFEST_B64\" | base64 -d",
+    '[ "$manifest_sha256" = "$STAGING_IMAGE_MANIFEST_SHA256" ]',
+    '.callerRepository == "modvolt/site-logbook-registry"',
+    '.platform == "linux/amd64"',
+    ".provenanceVerified == true",
+    ".sbomVerified == true",
+    "deployment_inputs_sha256=$(printf '%s\\n' \"$deployment_inputs\" | sha256sum",
+    '[ "$deployment_inputs_sha256" = "$STAGING_DEPLOYMENT_INPUTS_SHA256" ]',
     'case "$STAGING_SCHEMA_ACTION" in',
     "  inspect)",
     "  apply-0105)",
@@ -1012,6 +1029,123 @@ export function validateStagingRuntimeContract(overrides = {}) {
       "STAGING_IMAGE_WORKFLOW_DEPLOYS",
       "the publication workflow must not contact a deployment plane.",
     );
+  }
+
+  const imageManifestValidator = readSource(
+    "scripts/verify-staging-image-manifest.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "expectedManifestSha256",
+    "IMAGE_MANIFEST_TRUST_MISMATCH",
+    "IMAGE_MANIFEST_DUPLICATE_KEY",
+    "modvolt/site-logbook-registry",
+    "linux/amd64",
+    "INTERNALLY_CONSISTENT_UNTRUSTED",
+  ]) {
+    requireText(
+      imageManifestValidator,
+      boundary,
+      `offline image manifest boundary ${boundary}`,
+    );
+  }
+  const provisioningValidator = readSource(
+    "scripts/check-staging-provisioning.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "site-logbook-coolify-staging",
+    "PRODUCTION_TARGET_REUSE",
+    "coolify-per-resource",
+    "staging-bucket-only",
+    "mailpit-only",
+    "totalMemoryMiB !== 2816",
+  ]) {
+    requireText(
+      provisioningValidator,
+      boundary,
+      `observed provisioning boundary ${boundary}`,
+    );
+  }
+  const deploymentBinding = readSource(
+    "scripts/check-staging-deployment-binding.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    'schemaAction: "inspect"',
+    'schemaAction: "apply-0105"',
+    'schemaAction: "steady-0105"',
+    "STAGING_IMAGE_MANIFEST_B64",
+    "STAGING_DEPLOYMENT_INPUTS_SHA256",
+    "DEPLOYMENT_BINDING_PROVISIONING_UNOBSERVED",
+  ]) {
+    requireText(
+      deploymentBinding,
+      boundary,
+      `canonical deployment binding ${boundary}`,
+    );
+  }
+  const evidenceValidator = readSource(
+    "scripts/check-staging-release-evidence.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    'requireValue(root.schemaVersion, 4, "schemaVersion")',
+    '"0105_smooth_nitro"',
+    "excludedMigration0100Present",
+    "production-copy-restricted",
+    "EVIDENCE_ARTIFACT_MISMATCH",
+    '"--steady-inputs"',
+    '"--bootstrap"',
+  ]) {
+    requireText(
+      evidenceValidator,
+      boundary,
+      `schema-v4 release evidence boundary ${boundary}`,
+    );
+  }
+  const schemaGateEntrypoint = readSource(
+    "artifacts/api-server/src/external-schema-gate.ts",
+    overrides,
+  );
+  for (const boundary of [
+    'decision: "APPLIED"',
+    "excludedMigration0100Present: false",
+    "backupRestoreMaxAgeHours",
+    "STAGING_DEPLOYMENT_INPUTS_SHA256",
+    "inputSha256: `sha256:${deploymentInputsSha256}`",
+  ]) {
+    requireText(
+      schemaGateEntrypoint,
+      boundary,
+      `schema transition evidence boundary ${boundary}`,
+    );
+  }
+  const stagingSmokeWorkflow = readSource(
+    ".github/workflows/staging-smoke.yml",
+    overrides,
+  );
+  for (const boundary of [
+    "STAGING_IMAGE_MANIFEST_SHA256",
+    "STAGING_PROVISIONING_MANIFEST_SHA256",
+    "STAGING_DEPLOYMENT_INPUTS_SHA256",
+    "staging-bootstrap-summary.sha256",
+    "if-no-files-found: error",
+  ]) {
+    requireText(
+      stagingSmokeWorkflow,
+      boundary,
+      `staging bootstrap evidence boundary ${boundary}`,
+    );
+  }
+  const packageJson = readSource("package.json", overrides);
+  for (const command of [
+    "gate:staging-image-manifest",
+    "gate:staging-provisioning",
+    "gate:staging-deployment-binding",
+    "staging-deployment-binding.test.mjs",
+  ]) {
+    requireText(packageJson, command, `staging contract command ${command}`);
   }
 
   const qualityWorkflow = readSource(

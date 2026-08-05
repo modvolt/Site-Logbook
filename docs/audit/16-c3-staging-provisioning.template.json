@@ -1,0 +1,184 @@
+{
+  "_templateStatus": "PENDING - fill from the new Coolify staging resource, never from secrets; observed mode must pass pnpm gate:staging-provisioning",
+  "schemaVersion": 1,
+  "kind": "site-logbook-coolify-staging",
+  "validationMode": "observed",
+  "productionTargetsTouched": false,
+  "coolify": {
+    "serverId": "PENDING",
+    "projectId": "PENDING",
+    "environmentId": "PENDING",
+    "resourceId": "PENDING",
+    "environmentName": "staging",
+    "resourceName": "Modvolt staging",
+    "composeProjectName": "site-logbook-staging",
+    "source": {
+      "repository": "modvolt/Site-Logbook",
+      "exactCommitSha": "0000000000000000000000000000000000000000",
+      "composeFile": "/docker-compose.staging.yml"
+    },
+    "settings": {
+      "createdFromProductionClone": false,
+      "autoDeploy": false,
+      "previewDeployments": false,
+      "rawComposeDeployment": false,
+      "connectToPredefinedNetwork": false,
+      "forceHttps": true
+    }
+  },
+  "forbiddenProductionTargets": {
+    "resourceIds": ["PENDING-PRODUCTION-RESOURCE-ID"],
+    "environmentIds": ["PENDING-PRODUCTION-ENVIRONMENT-ID"],
+    "networkIds": ["PENDING-PRODUCTION-NETWORK-ID"],
+    "volumeNames": ["PENDING-PRODUCTION-VOLUME"],
+    "s3Buckets": ["PENDING-PRODUCTION-BUCKET"],
+    "names": ["Modvolt", "production"],
+    "hosts": ["modvoltapp.cz", "www.modvoltapp.cz"]
+  },
+  "publicRoutes": [
+    {
+      "service": "web",
+      "containerPort": 80,
+      "origin": "https://replace-app.example.test"
+    },
+    {
+      "service": "alert-receiver",
+      "containerPort": 8080,
+      "origin": "https://replace-alert.example.test",
+      "webhookPath": "/v1/operational-alerts"
+    }
+  ],
+  "privateServices": [
+    "api",
+    "external-schema-gate",
+    "mailpit",
+    "postgres",
+    "staging-preflight"
+  ],
+  "hostPortBindings": [],
+  "network": {
+    "mode": "coolify-per-resource",
+    "observedNetworkId": "PENDING",
+    "connectToPredefinedNetwork": false,
+    "sharedResourceIds": ["PENDING-SAME-AS-COOLIFY-RESOURCE-ID"]
+  },
+  "volumes": [
+    {
+      "name": "staging_pgdata",
+      "platformName": "site-logbook-staging-PENDING-staging_pgdata",
+      "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "reused": false,
+      "mounts": [
+        {
+          "service": "postgres",
+          "target": "/var/lib/postgresql/data",
+          "readOnly": false
+        }
+      ]
+    },
+    {
+      "name": "staging_mailtls",
+      "platformName": "site-logbook-staging-PENDING-staging_mailtls",
+      "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "reused": false,
+      "mounts": [
+        {
+          "service": "mailpit",
+          "target": "/certs/private",
+          "readOnly": false
+        }
+      ]
+    },
+    {
+      "name": "staging_mailca",
+      "platformName": "site-logbook-staging-PENDING-staging_mailca",
+      "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "reused": false,
+      "mounts": [
+        {
+          "service": "mailpit",
+          "target": "/certs/trust",
+          "readOnly": false
+        },
+        {
+          "service": "api",
+          "target": "/run/staging-mail-ca",
+          "readOnly": true
+        }
+      ]
+    },
+    {
+      "name": "staging_alert_receipts",
+      "platformName": "site-logbook-staging-PENDING-staging_alert_receipts",
+      "fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "reused": false,
+      "mounts": [
+        {
+          "service": "alert-receiver",
+          "target": "/var/lib/operational-alert-receiver",
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "s3": {
+    "endpoint": "https://replace-s3.example.test",
+    "region": "replace-region",
+    "bucket": "site-logbook-staging-replace",
+    "targetFingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "accessBoundary": "staging-bucket-only",
+    "productionBucketAccess": false,
+    "prefixes": ["private", "public"],
+    "forcePathStyle": false
+  },
+  "mail": {
+    "service": "mailpit",
+    "publicRoute": false,
+    "relayConfigured": false,
+    "forwardingConfigured": false,
+    "externalSmtpConfigured": false,
+    "deliveryBoundary": "mailpit-only"
+  },
+  "limits": {
+    "services": {
+      "staging-preflight": {
+        "cpus": 0.25,
+        "memoryMiB": 128,
+        "reservationMiB": 64
+      },
+      "postgres": {
+        "cpus": 0.5,
+        "memoryMiB": 768,
+        "reservationMiB": 512
+      },
+      "external-schema-gate": {
+        "cpus": 0.25,
+        "memoryMiB": 384,
+        "reservationMiB": 192
+      },
+      "mailpit": {
+        "cpus": 0.25,
+        "memoryMiB": 256,
+        "reservationMiB": 128
+      },
+      "api": {
+        "cpus": 1,
+        "memoryMiB": 1024,
+        "reservationMiB": 768
+      },
+      "alert-receiver": {
+        "cpus": 0.25,
+        "memoryMiB": 128,
+        "reservationMiB": 64
+      },
+      "web": {
+        "cpus": 0.25,
+        "memoryMiB": 128,
+        "reservationMiB": 64
+      }
+    },
+    "totalCpu": 2.75,
+    "totalMemoryMiB": 2816,
+    "totalReservationMiB": 1792
+  }
+}

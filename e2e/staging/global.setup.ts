@@ -6,6 +6,7 @@ import {
   asRecord,
   stagingAuthFile,
   stagingBootstrapSummaryFile,
+  stagingEvidenceBindings,
   stagingEnvironment,
 } from "./runtime";
 
@@ -112,6 +113,19 @@ export default async function globalSetup() {
       stagingBootstrapSummaryFile,
       `${JSON.stringify(
         {
+          schemaVersion: 1,
+          sourceSha: stagingEnvironment.expectedBuildSha,
+          workflowRun: {
+            id: stagingEvidenceBindings.runId,
+            attempt: stagingEvidenceBindings.runAttempt,
+          },
+          bindings: {
+            imageManifestSha256: stagingEvidenceBindings.imageManifestSha256,
+            provisioningManifestSha256:
+              stagingEvidenceBindings.provisioningManifestSha256,
+            deploymentInputsSha256:
+              stagingEvidenceBindings.deploymentInputsSha256,
+          },
           ...safeStagingReleaseSummary(stagingEnvironment),
           capturedAt: new Date().toISOString(),
           readiness: {
@@ -123,6 +137,8 @@ export default async function globalSetup() {
             expectedMigrations: adminHealth.expectedMigrations,
             appliedMigrations: adminHealth.appliedMigrations,
             missingMigrationTags: [],
+            excludedMigration0100Present: false,
+            schemaAction: "steady-0105",
           },
           darkRollout: {
             externalAccountsEnabled: false,

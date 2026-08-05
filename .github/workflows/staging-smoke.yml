@@ -44,6 +44,11 @@ jobs:
       STAGING_ENVIRONMENT_ID: ${{ vars.STAGING_ENVIRONMENT_ID }}
       STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
       STAGING_EXPECTED_BUILD_SHA: ${{ github.sha }}
+      STAGING_GITHUB_RUN_ID: ${{ github.run_id }}
+      STAGING_GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+      STAGING_IMAGE_MANIFEST_SHA256: ${{ vars.STAGING_IMAGE_MANIFEST_SHA256 }}
+      STAGING_PROVISIONING_MANIFEST_SHA256: ${{ vars.STAGING_PROVISIONING_MANIFEST_SHA256 }}
+      STAGING_DEPLOYMENT_INPUTS_SHA256: ${{ vars.STAGING_DEPLOYMENT_INPUTS_SHA256 }}
       STAGING_ADMIN_USERNAME: ${{ secrets.STAGING_ADMIN_USERNAME }}
       STAGING_ADMIN_PASSWORD: ${{ secrets.STAGING_ADMIN_PASSWORD }}
     steps:
@@ -77,13 +82,18 @@ jobs:
         run: pnpm drill:staging-operational-alert
         env:
           STAGING_ALERT_DRILL_EVIDENCE_FILE: ${{ runner.temp }}/staging-operational-alert-evidence.json
+      - name: Bind bootstrap evidence to its exact raw bytes
+        shell: bash
+        run: sha256sum e2e/test-results/staging-bootstrap-summary.json > e2e/test-results/staging-bootstrap-summary.sha256
       - name: Upload secret-free bootstrap evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: staging-bootstrap-${{ github.run_id }}
-          path: e2e/test-results/staging-bootstrap-summary.json
-          if-no-files-found: ignore
+          path: |
+            e2e/test-results/staging-bootstrap-summary.json
+            e2e/test-results/staging-bootstrap-summary.sha256
+          if-no-files-found: error
           retention-days: 14
       - name: Upload secret-free operational alert drill evidence
         if: always()
