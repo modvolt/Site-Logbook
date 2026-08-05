@@ -61,7 +61,11 @@ router.get("/sign/:token", async (req, res): Promise<void> => {
     version = await loadBoundJobDocumentVersion(tokenRecord);
   } catch (error) {
     if (error instanceof JobDocumentStateError) {
-      res.status(404).json({ error: "Verze předávacího protokolu nebyla nalezena." });
+      res.status(error.code === "job_archived" ? 410 : 404).json({
+        error: error.code === "job_archived"
+          ? "Zakázka byla archivována a odkaz již není platný."
+          : "Verze předávacího protokolu nebyla nalezena.",
+      });
       return;
     }
     throw error;
@@ -118,7 +122,11 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
     version = await loadBoundJobDocumentVersion(tokenRecord);
   } catch (error) {
     if (error instanceof JobDocumentStateError) {
-      res.status(404).json({ error: "Verze předávacího protokolu nebyla nalezena." });
+      res.status(error.code === "job_archived" ? 410 : 404).json({
+        error: error.code === "job_archived"
+          ? "Zakázka byla archivována a odkaz již není platný."
+          : "Verze předávacího protokolu nebyla nalezena.",
+      });
       return;
     }
     throw error;
@@ -207,8 +215,10 @@ router.post("/sign/:token", async (req, res): Promise<void> => {
       return;
     }
     if (error instanceof JobDocumentStateError) {
-      res.status(error.code === "job_not_found" || error.code === "version_not_found" ? 404 : 409).json({
-        error: error.code === "job_not_found" || error.code === "version_not_found"
+      res.status(error.code === "job_archived" ? 410 : error.code === "job_not_found" || error.code === "version_not_found" ? 404 : 409).json({
+        error: error.code === "job_archived"
+          ? "Zakázka byla archivována a odkaz již není platný."
+          : error.code === "job_not_found" || error.code === "version_not_found"
           ? "Zakázka nebo její verze nebyla nalezena."
           : "Tato verze již byla podepsána.",
       });

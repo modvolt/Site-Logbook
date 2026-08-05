@@ -25,6 +25,11 @@ import {
   publicAppOrigin,
 } from "./lib/public-origin";
 import {
+  redactPublicBearerPath,
+  serializeRequestForLog,
+} from "./lib/request-log-redaction";
+import { PublicAccessTokenIssuanceError } from "./lib/public-access-token";
+import {
   isRequestBodyTooLarge,
   parseApiRequestBody,
 } from "./middlewares/request-body";
@@ -54,13 +59,7 @@ app.use(
   pinoHttp({
     logger,
     serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
+      req: serializeRequestForLog,
       res(res) {
         return {
           statusCode: res.statusCode,
@@ -79,7 +78,7 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
     if (res.statusCode >= 500) {
       record5xxError({
         timestamp: new Date().toISOString(),
-        route: _req.path,
+        route: redactPublicBearerPath(_req.path) ?? _req.path,
         method: _req.method,
         requestId: String((_req as any).id ?? ""),
         statusCode: res.statusCode,
@@ -210,7 +209,7 @@ app.use("/api", (_req: Request, res: Response) => {
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
   const requestId = (req as any).id ?? "unknown";
   const method = req.method;
-  const path = req.path;
+  const path = redactPublicBearerPath(req.path) ?? req.path;
 
   if (isRequestBodyTooLarge(err)) {
     req.log?.warn({ requestId, method, path }, "Request body limit exceeded");
@@ -248,6 +247,21 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
       res.status(503).json({
         error: "Veřejný odkaz nyní nelze bezpečně vytvořit. Kontaktujte správce systému.",
         code: "public_origin_unavailable",
+        requestId,
+      });
+    }
+    return;
+  }
+
+  if (err instanceof PublicAccessTokenIssuanceError) {
+    req.log?.warn(
+      { requestId, method, path, code: err.code },
+      "Public token issuance rejected for inactive issuer",
+    );
+    if (!res.headersSent) {
+      res.status(409).json({
+        error: "Váš přístup byl mezitím ukončen. Přihlaste se znovu.",
+        code: err.code,
         requestId,
       });
     }

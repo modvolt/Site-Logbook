@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import request from "supertest";
-import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable, publicAccessTokensTable } from "@workspace/db";
+import { db, ppeItemsTable, ppeAssignmentsTable, peopleTable, usersTable } from "@workspace/db";
 import app from "../src/app";
 import { ObjectStorageService } from "../src/lib/objectStorage";
+import { issuePpePublicEvidenceToken } from "../src/lib/ppe-public-evidence";
 
 /**
  * Contract tests for the public PPE sign-off flow.
@@ -26,6 +26,7 @@ const TAG = `ppe-sign-${Date.now()}`;
 
 let personId: number;
 let itemId: number;
+let issuerId: number;
 
 const personIds: number[] = [];
 const itemIds: number[] = [];
@@ -38,6 +39,15 @@ const MINIMAL_PNG_DATA_URL =
 beforeAll(async () => {
   vi.spyOn(ObjectStorageService.prototype, "putPrivateObject").mockResolvedValue(undefined);
   vi.spyOn(ObjectStorageService.prototype, "deletePrivateObject").mockResolvedValue(undefined);
+
+  const [issuer] = await db.insert(usersTable).values({
+    username: `${TAG}-issuer`,
+    passwordHash: "not-used",
+    name: `Issuer ${TAG}`,
+    role: "admin",
+    isActive: true,
+  }).returning();
+  issuerId = issuer!.id;
 
   const [person] = await db
     .insert(peopleTable)
@@ -56,15 +66,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.restoreAllMocks();
-  if (assignmentIds.length > 0)
-    await db.delete(publicAccessTokensTable).where(inArray(publicAccessTokensTable.resourceId, assignmentIds));
-  if (assignmentIds.length > 0)
-    await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
-  if (itemIds.length > 0)
-    await db.delete(ppeItemsTable).where(inArray(ppeItemsTable.id, itemIds));
-  if (personIds.length > 0)
-    await db.delete(peopleTable).where(inArray(peopleTable.id, personIds));
 });
+
+async function issueSignatureToken(assignmentId: number): Promise<string> {
+  const { token } = await issuePpePublicEvidenceToken({
+    assignmentId,
+    purpose: "ppe_signature",
+    expiresAt: new Date(Date.now() + 10 * 60_000),
+    createdByUserId: issuerId,
+  });
+  return token;
+}
 
 // ── GET /api/ppe/sign/:token ──────────────────────────────────────────────────
 
@@ -82,7 +94,7 @@ describe("GET /api/ppe/sign/:token", () => {
   });
 
   it("valid UUID token → 200 with assignment details (no session required)", async () => {
-    const token = randomUUID();
+    let token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const [assignment] = await db
@@ -99,6 +111,7 @@ describe("GET /api/ppe/sign/:token", () => {
       })
       .returning();
     assignmentIds.push(assignment.id);
+    token = await issueSignatureToken(assignment.id);
 
     const res = await request(app).get(`/api/ppe/sign/${token}`);
     expect(res.status).toBe(200);
@@ -215,7 +228,7 @@ describe("POST /api/ppe/sign/:token", () => {
   });
 
   it("valid token + PNG → sets employeeConfirmedAt (no session required)", async () => {
-    const token = randomUUID();
+    let token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
     const [a] = await db
       .insert(ppeAssignmentsTable)
@@ -231,6 +244,7 @@ describe("POST /api/ppe/sign/:token", () => {
       })
       .returning();
     assignmentIds.push(a.id);
+    token = await issueSignatureToken(a.id);
 
     const res = await request(app)
       .post(`/api/ppe/sign/${token}`)
@@ -251,7 +265,7 @@ describe("POST /api/ppe/sign/:token", () => {
   });
 
   it("submitting a second time with same token → 409 (prevents duplicate signs)", async () => {
-    const token = randomUUID();
+    let token = randomUUID();
     const todayStr = new Date().toISOString().slice(0, 10);
     const [a] = await db
       .insert(ppeAssignmentsTable)
@@ -267,6 +281,7 @@ describe("POST /api/ppe/sign/:token", () => {
       })
       .returning();
     assignmentIds.push(a.id);
+    token = await issueSignatureToken(a.id);
 
     const first = await request(app)
       .post(`/api/ppe/sign/${token}`)

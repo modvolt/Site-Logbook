@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { db, auditLogTable } from "@workspace/db";
+import { redactPublicBearerPath } from "../lib/request-log-redaction";
 
 const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 
@@ -38,6 +39,7 @@ const REDACT_KEYS = new Set([
   "pin", "pinHash",
   "apiKey", "api_key", "openaiApiKey", "accessToken", "refreshToken",
   "token", "secret", "secretKey", "privateKey",
+  "signatureDataUrl",
   "cardNumber", "cvv", "cvc",
   "answers",
   "costRate", "saleRate", "cost_rate", "sale_rate",
@@ -117,7 +119,8 @@ export function auditMutations(req: Request, res: Response, next: NextFunction):
     return;
   }
 
-  const relPath = req.path;
+  const requestPath = req.path;
+  const relPath = redactPublicBearerPath(requestPath) ?? requestPath;
   if (SKIP_PREFIXES.some((p) => relPath.startsWith(p))) {
     next();
     return;
@@ -130,7 +133,6 @@ export function auditMutations(req: Request, res: Response, next: NextFunction):
     next();
     return;
   }
-
   // Capture the JSON response body so we can recover the id of created entities.
   let responsePayload: unknown;
   const originalJson = res.json.bind(res);

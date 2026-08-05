@@ -134,6 +134,9 @@ import type {
   ExportLeavesParams,
   ExportPpeAssignmentsParams,
   ExportSubjectDataParams,
+  ExternalGrantList,
+  ExternalGrantRevokeInput,
+  ExternalGrantRevokeResult,
   GdprEraseInput,
   GdprEraseResult,
   GdprExport,
@@ -188,6 +191,7 @@ import type {
   ListCostDocumentsParams,
   ListCustomerDocumentsParams,
   ListEmailImportMessagesParams,
+  ListExternalGrantsParams,
   ListInvoicesParams,
   ListJobWorkSessionsParams,
   ListJobsParams,
@@ -197,6 +201,7 @@ import type {
   ListPpeItemsParams,
   ListPublicHolidaysParams,
   ListQuotesParams,
+  ListSwitchboardQrGrantsParams,
   ListWarehouseItemsParams,
   ListWarehouseMovementsParams,
   ListWebAuthnCredentialsParams,
@@ -284,6 +289,8 @@ import type {
   SessionEntry,
   SetupInput,
   StatsOverview,
+  SwitchboardQrGrantDeactivateResult,
+  SwitchboardQrGrantList,
   Task,
   TaskInput,
   TaskUpdate,
@@ -12956,6 +12963,316 @@ export const useCreateUser = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateUserMutationOptions(options));
+    }
+
+export const getListExternalGrantsUrl = (params?: ListExternalGrantsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/external-grants?${stringifiedParams}` : `/api/external-grants`
+}
+
+/**
+ * @summary List redacted external bearer grants (users.manage required)
+ */
+export const listExternalGrants = async (params?: ListExternalGrantsParams, options?: RequestInit): Promise<ExternalGrantList> => {
+
+  return customFetch<ExternalGrantList>(getListExternalGrantsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListExternalGrantsQueryKey = (params?: ListExternalGrantsParams,) => {
+    return [
+    `/api/external-grants`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListExternalGrantsQueryOptions = <TData = Awaited<ReturnType<typeof listExternalGrants>>, TError = ErrorType<ErrorEnvelope>>(params?: ListExternalGrantsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExternalGrants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListExternalGrantsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExternalGrants>>> = ({ signal }) => listExternalGrants(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listExternalGrants>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListExternalGrantsQueryResult = NonNullable<Awaited<ReturnType<typeof listExternalGrants>>>
+export type ListExternalGrantsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List redacted external bearer grants (users.manage required)
+ */
+
+export function useListExternalGrants<TData = Awaited<ReturnType<typeof listExternalGrants>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListExternalGrantsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExternalGrants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListExternalGrantsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getRevokeExternalGrantUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-grants/public/${id}/revoke`
+}
+
+/**
+ * @summary Revoke one public bearer grant after fresh step-up verification
+ */
+export const revokeExternalGrant = async (id: number,
+    externalGrantRevokeInput: ExternalGrantRevokeInput, options?: RequestInit): Promise<ExternalGrantRevokeResult> => {
+
+  return customFetch<ExternalGrantRevokeResult>(getRevokeExternalGrantUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      externalGrantRevokeInput,)
+  }
+);}
+
+
+
+
+export const getRevokeExternalGrantMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeExternalGrant>>, TError,{id: number;data: BodyType<ExternalGrantRevokeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeExternalGrant>>, TError,{id: number;data: BodyType<ExternalGrantRevokeInput>}, TContext> => {
+
+const mutationKey = ['revokeExternalGrant'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeExternalGrant>>, {id: number;data: BodyType<ExternalGrantRevokeInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  revokeExternalGrant(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeExternalGrantMutationResult = NonNullable<Awaited<ReturnType<typeof revokeExternalGrant>>>
+    export type RevokeExternalGrantMutationBody = BodyType<ExternalGrantRevokeInput>
+    export type RevokeExternalGrantMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Revoke one public bearer grant after fresh step-up verification
+ */
+export const useRevokeExternalGrant = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeExternalGrant>>, TError,{id: number;data: BodyType<ExternalGrantRevokeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeExternalGrant>>,
+        TError,
+        {id: number;data: BodyType<ExternalGrantRevokeInput>},
+        TContext
+      > => {
+      return useMutation(getRevokeExternalGrantMutationOptions(options));
+    }
+
+export const getListSwitchboardQrGrantsUrl = (params?: ListSwitchboardQrGrantsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/external-grants/switchboard-qr?${stringifiedParams}` : `/api/external-grants/switchboard-qr`
+}
+
+/**
+ * @summary List redacted switchboard QR grants (users.manage required)
+ */
+export const listSwitchboardQrGrants = async (params?: ListSwitchboardQrGrantsParams, options?: RequestInit): Promise<SwitchboardQrGrantList> => {
+
+  return customFetch<SwitchboardQrGrantList>(getListSwitchboardQrGrantsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSwitchboardQrGrantsQueryKey = (params?: ListSwitchboardQrGrantsParams,) => {
+    return [
+    `/api/external-grants/switchboard-qr`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListSwitchboardQrGrantsQueryOptions = <TData = Awaited<ReturnType<typeof listSwitchboardQrGrants>>, TError = ErrorType<ErrorEnvelope>>(params?: ListSwitchboardQrGrantsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSwitchboardQrGrants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSwitchboardQrGrantsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSwitchboardQrGrants>>> = ({ signal }) => listSwitchboardQrGrants(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSwitchboardQrGrants>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSwitchboardQrGrantsQueryResult = NonNullable<Awaited<ReturnType<typeof listSwitchboardQrGrants>>>
+export type ListSwitchboardQrGrantsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List redacted switchboard QR grants (users.manage required)
+ */
+
+export function useListSwitchboardQrGrants<TData = Awaited<ReturnType<typeof listSwitchboardQrGrants>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListSwitchboardQrGrantsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSwitchboardQrGrants>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSwitchboardQrGrantsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getDeactivateSwitchboardQrExternalGrantUrl = (id: number,) => {
+
+
+
+
+  return `/api/external-grants/switchboard-qr/${id}/deactivate`
+}
+
+/**
+ * @summary Deactivate a switchboard QR grant after fresh step-up verification
+ */
+export const deactivateSwitchboardQrExternalGrant = async (id: number, options?: RequestInit): Promise<SwitchboardQrGrantDeactivateResult> => {
+
+  return customFetch<SwitchboardQrGrantDeactivateResult>(getDeactivateSwitchboardQrExternalGrantUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDeactivateSwitchboardQrExternalGrantMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deactivateSwitchboardQrExternalGrant>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deactivateSwitchboardQrExternalGrant>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deactivateSwitchboardQrExternalGrant'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deactivateSwitchboardQrExternalGrant>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deactivateSwitchboardQrExternalGrant(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeactivateSwitchboardQrExternalGrantMutationResult = NonNullable<Awaited<ReturnType<typeof deactivateSwitchboardQrExternalGrant>>>
+
+    export type DeactivateSwitchboardQrExternalGrantMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Deactivate a switchboard QR grant after fresh step-up verification
+ */
+export const useDeactivateSwitchboardQrExternalGrant = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deactivateSwitchboardQrExternalGrant>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deactivateSwitchboardQrExternalGrant>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeactivateSwitchboardQrExternalGrantMutationOptions(options));
     }
 
 export const getUpdateUserUrl = (id: number,) => {

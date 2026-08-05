@@ -6,8 +6,10 @@ import {
   encryptQrToken,
   hashAuditIp,
   hashQrToken,
+  maximumSwitchboardQrExpiry,
   publicQrUrl,
   renderQrPng,
+  resolveSwitchboardQrExpiry,
 } from "../src/lib/switchboard-qr";
 
 describe("opaque switchboard QR tokens", () => {
@@ -89,5 +91,24 @@ describe("opaque switchboard QR tokens", () => {
     const png = await renderQrPng(createQrToken());
     expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(png.length).toBeGreaterThan(5_000);
+  });
+
+  it("defaults new physical-label grants to a finite five-year lifetime", () => {
+    const now = new Date("2024-02-29T12:00:00.000Z");
+    expect(resolveSwitchboardQrExpiry(undefined, now)).toEqual(
+      new Date("2029-03-01T12:00:00.000Z"),
+    );
+    expect(resolveSwitchboardQrExpiry(null, now)).toEqual(
+      maximumSwitchboardQrExpiry(now),
+    );
+  });
+
+  it("rejects expired or overlong QR lifetimes while allowing a shorter one", () => {
+    const now = new Date("2026-08-05T12:00:00.000Z");
+    expect(resolveSwitchboardQrExpiry(new Date("2027-08-05T12:00:00.000Z"), now))
+      .toEqual(new Date("2027-08-05T12:00:00.000Z"));
+    expect(() => resolveSwitchboardQrExpiry(now, now)).toThrow(RangeError);
+    expect(() => resolveSwitchboardQrExpiry(new Date("2031-08-05T12:00:00.001Z"), now))
+      .toThrow(RangeError);
   });
 });

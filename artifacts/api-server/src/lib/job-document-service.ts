@@ -24,6 +24,7 @@ export class JobDocumentStateError extends Error {
   constructor(
     readonly code:
       | "job_not_found"
+      | "job_archived"
       | "already_signed"
       | "version_not_found"
       | "version_not_pending"
@@ -38,7 +39,8 @@ export async function issueJobSignatureVersion(input: {
   jobId: number;
   expiresAt: Date;
   requestedAt: Date;
-  createdByUserId?: number | null;
+  createdByUserId: number;
+  allowExpiredForTesting?: boolean;
 }) {
   return db.transaction(async (tx) => {
     const [job] = await tx
@@ -47,6 +49,7 @@ export async function issueJobSignatureVersion(input: {
       .where(eq(jobsTable.id, input.jobId))
       .for("update");
     if (!job) throw new JobDocumentStateError("job_not_found");
+    if (job.archivedAt) throw new JobDocumentStateError("job_archived");
     if (job.signedAt) throw new JobDocumentStateError("already_signed");
 
     let customerCompanyName: string | null = null;
@@ -103,7 +106,7 @@ export async function issueJobSignatureVersion(input: {
         snapshotSha256,
         rendererVersion: JOB_HANDOVER_RENDERER_VERSION,
         confirmationText: JOB_SIGNATURE_CONFIRMATION_TEXT,
-        createdByUserId: input.createdByUserId ?? null,
+        createdByUserId: input.createdByUserId,
       })
       .returning();
     if (!version) throw new Error("Job document version insert returned no row.");
@@ -114,7 +117,8 @@ export async function issueJobSignatureVersion(input: {
         resourceId: job.id,
         jobDocumentVersionId: version.id,
         expiresAt: input.expiresAt,
-        createdByUserId: input.createdByUserId ?? null,
+        createdByUserId: input.createdByUserId,
+        allowExpiredForTesting: input.allowExpiredForTesting,
         onIssue: async (inner) => {
           await inner
             .update(jobsTable)
@@ -147,6 +151,12 @@ export async function loadBoundJobDocumentVersion(record: PublicAccessToken) {
   if (!version || version.jobId !== record.resourceId) {
     throw new JobDocumentStateError("version_not_found");
   }
+  const [job] = await db
+    .select({ archivedAt: jobsTable.archivedAt })
+    .from(jobsTable)
+    .where(eq(jobsTable.id, version.jobId));
+  if (!job) throw new JobDocumentStateError("job_not_found");
+  if (job.archivedAt) throw new JobDocumentStateError("job_archived");
   return version;
 }
 
@@ -178,11 +188,16 @@ export async function completeJobSignature(
     throw new JobDocumentStateError("version_not_pending");
   }
   const [job] = await tx
-    .select({ id: jobsTable.id, signedAt: jobsTable.signedAt })
+    .select({
+      id: jobsTable.id,
+      signedAt: jobsTable.signedAt,
+      archivedAt: jobsTable.archivedAt,
+    })
     .from(jobsTable)
     .where(eq(jobsTable.id, version.jobId))
     .for("update");
   if (!job) throw new JobDocumentStateError("job_not_found");
+  if (job.archivedAt) throw new JobDocumentStateError("job_archived");
   if (job.signedAt) throw new JobDocumentStateError("already_signed");
 
   const [signedVersion] = await tx

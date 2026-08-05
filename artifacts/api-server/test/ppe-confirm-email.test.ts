@@ -72,16 +72,6 @@ beforeAll(async () => {
 afterAll(async () => {
   if (originalPublicUrl == null) delete process.env.PUBLIC_APP_URL;
   else process.env.PUBLIC_APP_URL = originalPublicUrl;
-  if (assignmentIds.length > 0)
-    await db.delete(publicAccessTokensTable).where(inArray(publicAccessTokensTable.resourceId, assignmentIds));
-  if (assignmentIds.length > 0)
-    await db.delete(ppeAssignmentsTable).where(inArray(ppeAssignmentsTable.id, assignmentIds));
-  if (itemIds.length > 0)
-    await db.delete(ppeItemsTable).where(inArray(ppeItemsTable.id, itemIds));
-  if (personIds.length > 0)
-    await db.delete(peopleTable).where(inArray(peopleTable.id, personIds));
-  if (userIds.length > 0)
-    await db.delete(usersTable).where(inArray(usersTable.id, userIds));
 });
 
 describe("request-confirm: person WITH email", () => {

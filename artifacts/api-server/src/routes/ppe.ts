@@ -8,6 +8,7 @@ import {
   ppeHandoverDocumentsTable,
   ppeHandoverEventsTable,
   peopleTable,
+  type PpePublicEvidenceSnapshot,
 } from "@workspace/db";
 import { PPE_CATEGORIES, PPE_STATUSES } from "@workspace/db";
 import { requireRole } from "../middlewares/auth";
@@ -20,22 +21,24 @@ import { sendPlainEmail } from "../lib/email";
 import { decodeSignatureImage } from "../lib/signature-image";
 import { publicAppUrl } from "../lib/public-origin";
 import {
-  consumePublicAccessToken,
-  issuePublicAccessToken,
   PublicAccessTokenError,
   publicAccessTokenHttpStatus,
   publicTokenExpiry,
-  resolvePublicAccessToken,
   revokePublicAccessTokens,
 } from "../lib/public-access-token";
+import {
+  consumePpePublicEvidenceToken,
+  issuePpePublicEvidenceToken,
+  PpePublicEvidenceError,
+  PPE_PUBLIC_SIGNATURE_CONFIRMATION_TEXT,
+  resolvePpePublicEvidenceToken,
+} from "../lib/ppe-public-evidence";
 
 const objectStorage = new ObjectStorageService();
 
 const router: IRouter = Router();
 
-const CONFIRMATION_TEXT_DEFAULT =
-  "Svým podpisem potvrzuji, že jsem převzal/a výše uvedené ochranné pracovní pomůcky (OOPP). " +
-  "Zavazuji se je používat v souladu s pokyny výrobce a zaměstnavatele a chránit je před poškozením.";
+const CONFIRMATION_TEXT_DEFAULT = PPE_PUBLIC_SIGNATURE_CONFIRMATION_TEXT;
 
 function sendPublicTokenError(
   res: import("express").Response,
@@ -51,13 +54,36 @@ function sendPublicTokenError(
   res.status(status).json({ error: message, code: `public_token_${error.code}` });
 }
 
-class PpePublicTransitionError extends Error {
-  constructor(
-    readonly code: "not_found" | "closed" | "already_confirmed",
-  ) {
-    super(code);
-    this.name = "PpePublicTransitionError";
-  }
+function sendPpePublicEvidenceError(
+  res: import("express").Response,
+  error: PpePublicEvidenceError,
+  mode: "signature" | "confirmation",
+): void {
+  const status = error.code === "not_found" ? 404 : 409;
+  const message = error.code === "not_found"
+    ? "Výdej nebyl nalezen."
+    : error.code === "closed"
+      ? mode === "signature"
+        ? "Výdej byl uzavřen a nelze ho již podepsat."
+        : "Tato pomůcka již byla vrácena nebo uzavřena."
+      : mode === "signature"
+        ? "Výdej byl již podepsán."
+        : "Výdej již byl potvrzen zaměstnancem.";
+  res.status(status).json({ error: message });
+}
+
+function serializePublicEvidenceSnapshot(
+  snapshot: PpePublicEvidenceSnapshot,
+  employeeConfirmedAt: Date | null = null,
+) {
+  return {
+    ...snapshot.assignment,
+    confirmationText: snapshot.confirmationText,
+    status: "issued",
+    closed: false,
+    alreadySigned: employeeConfirmedAt !== null,
+    employeeConfirmedAt: employeeConfirmedAt?.toISOString() ?? null,
+  };
 }
 
 function today(): string {
@@ -289,34 +315,22 @@ router.post("/ppe/assignments/:id/sign-token", requireRole("admin", "master"), a
     return;
   }
 
-  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
-  if (!existing) {
-    res.status(404).json({ error: "Výdej nenalezen" });
-    return;
-  }
-
-  if (existing.status !== "issued") {
-    res.status(409).json({ error: "Podepsat lze pouze aktivní výdej" });
-    return;
-  }
-  if (existing.employeeConfirmedAt) {
-    res.status(409).json({ error: "Vydej jiz byl podepsan" });
-    return;
-  }
-
   const expiresAt = publicTokenExpiry("PPE_SIGNATURE_EXPIRY_DAYS", 30);
-  const { token } = await issuePublicAccessToken({
-    purpose: "ppe_signature",
-    resourceId: existing.id,
-    expiresAt,
-    createdByUserId: req.auth?.userId ?? null,
-    onIssue: async (tx) => {
-      await tx
-        .update(ppeAssignmentsTable)
-        .set({ signatureToken: null })
-        .where(eq(ppeAssignmentsTable.id, existing.id));
-    },
-  });
+  let token: string;
+  try {
+    ({ token } = await issuePpePublicEvidenceToken({
+      purpose: "ppe_signature",
+      assignmentId: params.data.id,
+      expiresAt,
+      createdByUserId: req.auth!.userId,
+    }));
+  } catch (error) {
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "signature");
+      return;
+    }
+    throw error;
+  }
 
   res.json({
     signUrl: publicAppUrl(`/oopp/sign/${encodeURIComponent(token)}`),
@@ -361,39 +375,23 @@ router.get("/ppe/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  let tokenRecord;
   try {
-    tokenRecord = await resolvePublicAccessToken("ppe_signature", token);
+    const { snapshot } = await resolvePpePublicEvidenceToken(
+      "ppe_signature",
+      token,
+    );
+    res.json(serializePublicEvidenceSnapshot(snapshot));
   } catch (error) {
     if (error instanceof PublicAccessTokenError) {
       sendPublicTokenError(res, error, "podpis");
       return;
     }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "signature");
+      return;
+    }
     throw error;
   }
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.id, tokenRecord.resourceId));
-
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz pro podpis nebyl nalezen nebo vypršel" });
-    return;
-  }
-
-  res.json({
-    id: assignment.id,
-    ppeNameSnapshot: assignment.ppeNameSnapshot,
-    personNameSnapshot: assignment.personNameSnapshot,
-    quantity: assignment.quantity,
-    size: assignment.size,
-    serialNumber: assignment.serialNumber,
-    issuedAt: assignment.issuedAt,
-    status: assignment.status,
-    closed: assignment.status !== "issued",
-    alreadySigned: !!assignment.employeeConfirmedAt,
-    employeeConfirmedAt: assignment.employeeConfirmedAt ? assignment.employeeConfirmedAt.toISOString() : null,
-  });
 });
 
 // Public: submit signature PNG (base64) — sets employeeConfirmedAt + uploads to storage
@@ -413,35 +411,22 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  let tokenRecord;
+  let snapshot: PpePublicEvidenceSnapshot;
   try {
-    tokenRecord = await resolvePublicAccessToken("ppe_signature", token);
+    ({ snapshot } = await resolvePpePublicEvidenceToken(
+      "ppe_signature",
+      token,
+    ));
   } catch (error) {
     if (error instanceof PublicAccessTokenError) {
       sendPublicTokenError(res, error, "podpis");
       return;
     }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "signature");
+      return;
+    }
     throw error;
-  }
-
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.id, tokenRecord.resourceId));
-
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz pro podpis nebyl nalezen" });
-    return;
-  }
-
-  if (assignment.status !== "issued") {
-    res.status(409).json({ error: "Výdej byl uzavřen a nelze ho již podepsat" });
-    return;
-  }
-
-  if (assignment.employeeConfirmedAt) {
-    res.status(409).json({ error: "Výdej byl již podepsán" });
-    return;
   }
 
   let pngBuffer: Buffer;
@@ -454,7 +439,7 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
     return;
   }
 
-  const objectPath = `/objects/ppe-signatures/${assignment.id}-${randomUUID()}.png`;
+  const objectPath = `/objects/ppe-signatures/${snapshot.assignment.id}-${randomUUID()}.png`;
   let uploaded = false;
   try {
     await objectStorage.putPrivateObject(objectPath, pngBuffer, "image/png");
@@ -466,37 +451,19 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
   }
 
   try {
-    const confirmedAt = await consumePublicAccessToken({
+    const consumed = await consumePpePublicEvidenceToken({
       purpose: "ppe_signature",
       token,
       action: "signed",
-      transition: async (tx, record) => {
-        const [recheck] = await tx
-          .select()
-          .from(ppeAssignmentsTable)
-          .where(eq(ppeAssignmentsTable.id, record.resourceId))
-          .for("update");
-        if (!recheck) throw new PpePublicTransitionError("not_found");
-        if (recheck.status !== "issued") {
-          throw new PpePublicTransitionError("closed");
-        }
-        if (recheck.employeeConfirmedAt) {
-          throw new PpePublicTransitionError("already_confirmed");
-        }
-        const value = new Date();
-        await tx
-          .update(ppeAssignmentsTable)
-          .set({ employeeConfirmedAt: value, signatureObjectPath: objectPath })
-          .where(eq(ppeAssignmentsTable.id, recheck.id));
-        return value;
-      },
+      signatureObjectPath: objectPath,
+      signatureSha256: createHash("sha256").update(pngBuffer).digest("hex"),
     });
 
     res.json({
       ok: true,
-      employeeConfirmedAt: confirmedAt.toISOString(),
-      personNameSnapshot: assignment.personNameSnapshot,
-      ppeNameSnapshot: assignment.ppeNameSnapshot,
+      employeeConfirmedAt: consumed.confirmedAt.toISOString(),
+      personNameSnapshot: consumed.snapshot.assignment.personNameSnapshot,
+      ppeNameSnapshot: consumed.snapshot.assignment.ppeNameSnapshot,
     });
   } catch (err) {
     // Clean up the uploaded signature PNG if we could not commit
@@ -508,14 +475,8 @@ router.post("/ppe/sign/:token", async (req, res): Promise<void> => {
       sendPublicTokenError(res, err, "podpis");
       return;
     }
-    if (err instanceof PpePublicTransitionError) {
-      const status = err.code === "not_found" ? 404 : 409;
-      const message = err.code === "not_found"
-        ? "Výdej nebyl nalezen."
-        : err.code === "closed"
-          ? "Výdej byl uzavřen a nelze ho již podepsat."
-          : "Výdej byl již podepsán.";
-      res.status(status).json({ error: message });
+    if (err instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, err, "signature");
       return;
     }
     req.log?.error({ err }, "PPE signature save failed");
@@ -1087,33 +1048,23 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     return;
   }
 
-  const [existing] = await db.select().from(ppeAssignmentsTable).where(eq(ppeAssignmentsTable.id, params.data.id));
-  if (!existing) {
-    res.status(404).json({ error: "Výdej nenalezen" });
-    return;
-  }
-  if (existing.status !== "issued") {
-    res.status(409).json({ error: "Potvrdit lze pouze aktivní výdej" });
-    return;
-  }
-  if (existing.employeeConfirmedAt) {
-    res.status(409).json({ error: "Výdej již byl potvrzen zaměstnancem" });
-    return;
-  }
-
   const expiresAt = publicTokenExpiry("PPE_CONFIRM_EXPIRY_DAYS", 30);
-  const { token } = await issuePublicAccessToken({
-    purpose: "ppe_confirmation",
-    resourceId: existing.id,
-    expiresAt,
-    createdByUserId: req.auth?.userId ?? null,
-    onIssue: async (tx) => {
-      await tx
-        .update(ppeAssignmentsTable)
-        .set({ confirmToken: null, confirmTokenExpiresAt: expiresAt })
-        .where(eq(ppeAssignmentsTable.id, existing.id));
-    },
-  });
+  let issued;
+  try {
+    issued = await issuePpePublicEvidenceToken({
+      purpose: "ppe_confirmation",
+      assignmentId: params.data.id,
+      expiresAt,
+      createdByUserId: req.auth!.userId,
+    });
+  } catch (error) {
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "confirmation");
+      return;
+    }
+    throw error;
+  }
+  const { token, assignment: existing, snapshot } = issued;
   const confirmUrl = publicAppUrl(
     `/oopp/potvrdit?token=${encodeURIComponent(token)}`,
   );
@@ -1125,10 +1076,10 @@ router.post("/ppe/assignments/:id/request-confirm", requireRole("admin", "master
     try {
       await sendPlainEmail({
         to: person.email,
-        subject: `Potvrzení převzetí OOPP – ${existing.ppeNameSnapshot}`,
+        subject: `Potvrzení převzetí OOPP – ${snapshot.assignment.ppeNameSnapshot}`,
         text:
-          `Dobrý den ${existing.personNameSnapshot},\n\n` +
-          `Prosíme potvrďte převzetí ochranné pomůcky: ${existing.ppeNameSnapshot}.\n\n` +
+          `Dobrý den ${snapshot.assignment.personNameSnapshot},\n\n` +
+          `Prosíme potvrďte převzetí ochranné pomůcky: ${snapshot.assignment.ppeNameSnapshot}.\n\n` +
           `Pro potvrzení klikněte na odkaz:\n${confirmUrl}\n\n` +
           `Pokud jste pomůcku nepřevzali, tuto zprávu ignorujte.\n`,
       });
@@ -1153,46 +1104,25 @@ router.post("/ppe/confirm", async (req, res): Promise<void> => {
   }
 
   try {
-    const updated = await consumePublicAccessToken({
+    const consumed = await consumePpePublicEvidenceToken({
       purpose: "ppe_confirmation",
       token: parsed.data.token,
       action: "confirmed",
-      transition: async (tx, record) => {
-        const [assignment] = await tx
-          .select()
-          .from(ppeAssignmentsTable)
-          .where(eq(ppeAssignmentsTable.id, record.resourceId))
-          .for("update");
-        if (!assignment) throw new PpePublicTransitionError("not_found");
-        if (assignment.status !== "issued") {
-          throw new PpePublicTransitionError("closed");
-        }
-        if (assignment.employeeConfirmedAt) {
-          throw new PpePublicTransitionError("already_confirmed");
-        }
-        const [value] = await tx
-          .update(ppeAssignmentsTable)
-          .set({ employeeConfirmedAt: new Date() })
-          .where(eq(ppeAssignmentsTable.id, assignment.id))
-          .returning();
-        if (!value) throw new PpePublicTransitionError("not_found");
-        return value;
-      },
     });
-    res.json({ already: false, assignment: serializeAssignment(updated) });
+    res.json({
+      already: false,
+      assignment: serializePublicEvidenceSnapshot(
+        consumed.snapshot,
+        consumed.confirmedAt,
+      ),
+    });
   } catch (error) {
     if (error instanceof PublicAccessTokenError) {
       sendPublicTokenError(res, error, "potvrzení");
       return;
     }
-    if (error instanceof PpePublicTransitionError) {
-      const status = error.code === "not_found" ? 404 : 409;
-      const message = error.code === "not_found"
-        ? "Výdej nebyl nalezen."
-        : error.code === "closed"
-          ? "Tato pomůcka již byla vrácena nebo uzavřena."
-          : "Výdej již byl potvrzen zaměstnancem.";
-      res.status(status).json({ error: message });
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "confirmation");
       return;
     }
     throw error;
@@ -1206,27 +1136,23 @@ router.get("/ppe/confirm", async (req, res): Promise<void> => {
     return;
   }
 
-  let tokenRecord;
   try {
-    tokenRecord = await resolvePublicAccessToken("ppe_confirmation", token);
+    const { snapshot } = await resolvePpePublicEvidenceToken(
+      "ppe_confirmation",
+      token,
+    );
+    res.json(serializePublicEvidenceSnapshot(snapshot));
   } catch (error) {
     if (error instanceof PublicAccessTokenError) {
       sendPublicTokenError(res, error, "potvrzení");
       return;
     }
+    if (error instanceof PpePublicEvidenceError) {
+      sendPpePublicEvidenceError(res, error, "confirmation");
+      return;
+    }
     throw error;
   }
-
-  const [assignment] = await db
-    .select()
-    .from(ppeAssignmentsTable)
-    .where(eq(ppeAssignmentsTable.id, tokenRecord.resourceId));
-
-  if (!assignment) {
-    res.status(404).json({ error: "Odkaz je neplatný nebo vypršel" });
-    return;
-  }
-  res.json(serializeAssignment(assignment));
 });
 
 export default router;

@@ -3821,6 +3821,168 @@ export interface UserInput {
   isActive?: boolean;
 }
 
+export type ExternalGrantSummaryPurpose = typeof ExternalGrantSummaryPurpose[keyof typeof ExternalGrantSummaryPurpose];
+
+
+export const ExternalGrantSummaryPurpose = {
+  job_signature: 'job_signature',
+  ppe_signature: 'ppe_signature',
+  ppe_confirmation: 'ppe_confirmation',
+  quote_decision: 'quote_decision',
+} as const;
+
+export type ExternalGrantSummaryResourceType = typeof ExternalGrantSummaryResourceType[keyof typeof ExternalGrantSummaryResourceType];
+
+
+export const ExternalGrantSummaryResourceType = {
+  job: 'job',
+  ppe_assignment: 'ppe_assignment',
+  quote: 'quote',
+} as const;
+
+export type ExternalGrantSummaryState = typeof ExternalGrantSummaryState[keyof typeof ExternalGrantSummaryState];
+
+
+export const ExternalGrantSummaryState = {
+  active: 'active',
+  expired: 'expired',
+  revoked: 'revoked',
+  consumed: 'consumed',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ExternalGrantSummaryOwnerKind = typeof ExternalGrantSummaryOwnerKind[keyof typeof ExternalGrantSummaryOwnerKind] | null;
+
+
+export const ExternalGrantSummaryOwnerKind = {
+  organization: 'organization',
+  user: 'user',
+} as const;
+
+export interface ExternalGrantSummary {
+  id: number;
+  purpose: ExternalGrantSummaryPurpose;
+  resourceType: ExternalGrantSummaryResourceType;
+  resourceId: number;
+  artifactBindingStatus: string;
+  /**
+     * @minLength 8
+     * @maxLength 8
+     */
+  tokenPrefix: string;
+  state: ExternalGrantSummaryState;
+  expiresAt: string;
+  createdAt: string;
+  /** @nullable */
+  createdByUserId: number | null;
+  /** @nullable */
+  ownerKind: ExternalGrantSummaryOwnerKind;
+  /** @nullable */
+  ownerUserId: number | null;
+  /** @nullable */
+  ownerAssignedAt: string | null;
+  /** @nullable */
+  ownerAssignmentSource: string | null;
+  /** @nullable */
+  revokedAt: string | null;
+  /** @nullable */
+  revokedByUserId: number | null;
+  /** @nullable */
+  revokeReason: string | null;
+  /** @nullable */
+  consumedAt: string | null;
+  /** @nullable */
+  consumeAction: string | null;
+}
+
+export interface ExternalGrantList {
+  items: ExternalGrantSummary[];
+  /** @nullable */
+  nextBeforeId: number | null;
+}
+
+export interface ExternalGrantRevokeInput {
+  /**
+     * @minLength 3
+     * @maxLength 300
+     */
+  reason: string;
+}
+
+export type ExternalGrantRevokeResultState = typeof ExternalGrantRevokeResultState[keyof typeof ExternalGrantRevokeResultState];
+
+
+export const ExternalGrantRevokeResultState = {
+  revoked: 'revoked',
+} as const;
+
+export interface ExternalGrantRevokeResult {
+  id: number;
+  state: ExternalGrantRevokeResultState;
+  revokedAt: string;
+}
+
+export type SwitchboardQrGrantSummaryState = typeof SwitchboardQrGrantSummaryState[keyof typeof SwitchboardQrGrantSummaryState];
+
+
+export const SwitchboardQrGrantSummaryState = {
+  active: 'active',
+  expired: 'expired',
+  disabled: 'disabled',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SwitchboardQrGrantSummaryOwnerKind = typeof SwitchboardQrGrantSummaryOwnerKind[keyof typeof SwitchboardQrGrantSummaryOwnerKind] | null;
+
+
+export const SwitchboardQrGrantSummaryOwnerKind = {
+  resource: 'resource',
+  user: 'user',
+} as const;
+
+export interface SwitchboardQrGrantSummary {
+  switchboardId: number;
+  designation: string;
+  /** @nullable */
+  tokenPrefix: string | null;
+  enabled: boolean;
+  state: SwitchboardQrGrantSummaryState;
+  /** @nullable */
+  expiresAt: string | null;
+  /** @nullable */
+  ownerKind: SwitchboardQrGrantSummaryOwnerKind;
+  /** @nullable */
+  ownerUserId: number | null;
+  /** @nullable */
+  ownerAssignedAt: string | null;
+  /** @nullable */
+  ownerAssignmentSource: string | null;
+  /** @nullable */
+  archivedAt: string | null;
+}
+
+export interface SwitchboardQrGrantList {
+  items: SwitchboardQrGrantSummary[];
+  /** @nullable */
+  nextBeforeId: number | null;
+}
+
+export type SwitchboardQrGrantDeactivateResultState = typeof SwitchboardQrGrantDeactivateResultState[keyof typeof SwitchboardQrGrantDeactivateResultState];
+
+
+export const SwitchboardQrGrantDeactivateResultState = {
+  disabled: 'disabled',
+} as const;
+
+export interface SwitchboardQrGrantDeactivateResult {
+  switchboardId: number;
+  state: SwitchboardQrGrantDeactivateResultState;
+}
+
 export interface UserUpdate {
   /** @minLength 1 */
   name?: string;
@@ -7333,6 +7495,78 @@ userId?: number;
 export type RetryEmailImportLog200 = {
   ok: boolean;
 };
+
+export type ListExternalGrantsParams = {
+status?: ListExternalGrantsStatus;
+purpose?: ListExternalGrantsPurpose;
+resourceType?: ListExternalGrantsResourceType;
+/**
+ * @minimum 1
+ */
+resourceId?: number;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type ListExternalGrantsStatus = typeof ListExternalGrantsStatus[keyof typeof ListExternalGrantsStatus];
+
+
+export const ListExternalGrantsStatus = {
+  active: 'active',
+  expired: 'expired',
+  revoked: 'revoked',
+  consumed: 'consumed',
+  all: 'all',
+} as const;
+
+export type ListExternalGrantsPurpose = typeof ListExternalGrantsPurpose[keyof typeof ListExternalGrantsPurpose];
+
+
+export const ListExternalGrantsPurpose = {
+  job_signature: 'job_signature',
+  ppe_signature: 'ppe_signature',
+  ppe_confirmation: 'ppe_confirmation',
+  quote_decision: 'quote_decision',
+} as const;
+
+export type ListExternalGrantsResourceType = typeof ListExternalGrantsResourceType[keyof typeof ListExternalGrantsResourceType];
+
+
+export const ListExternalGrantsResourceType = {
+  job: 'job',
+  ppe_assignment: 'ppe_assignment',
+  quote: 'quote',
+} as const;
+
+export type ListSwitchboardQrGrantsParams = {
+status?: ListSwitchboardQrGrantsStatus;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+};
+
+export type ListSwitchboardQrGrantsStatus = typeof ListSwitchboardQrGrantsStatus[keyof typeof ListSwitchboardQrGrantsStatus];
+
+
+export const ListSwitchboardQrGrantsStatus = {
+  active: 'active',
+  expired: 'expired',
+  disabled: 'disabled',
+  all: 'all',
+} as const;
 
 export type ListAllSessionsParams = {
 userId?: number;

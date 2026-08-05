@@ -4158,6 +4158,191 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuthUser"
 
+  /external-grants:
+    get:
+      operationId: listExternalGrants
+      tags: [security]
+      summary: List redacted external bearer grants (users.manage required)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, expired, revoked, consumed, all]
+            default: active
+        - name: purpose
+          in: query
+          schema:
+            type: string
+            enum: [job_signature, ppe_signature, ppe_confirmation, quote_decision]
+        - name: resourceType
+          in: query
+          schema:
+            type: string
+            enum: [job, ppe_assignment, quote]
+        - name: resourceId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: beforeId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Redacted grant inventory; raw hashes and bearer values are never returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalGrantList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /external-grants/public/{id}/revoke:
+    post:
+      operationId: revokeExternalGrant
+      tags: [security]
+      summary: Revoke one public bearer grant after fresh step-up verification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalGrantRevokeInput"
+      responses:
+        "200":
+          description: Grant revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalGrantRevokeResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or step-up verification required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Grant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Grant is already terminal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /external-grants/switchboard-qr:
+    get:
+      operationId: listSwitchboardQrGrants
+      tags: [security]
+      summary: List redacted switchboard QR grants (users.manage required)
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, expired, disabled, all]
+            default: active
+        - name: beforeId
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Redacted QR grant inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwitchboardQrGrantList"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /external-grants/switchboard-qr/{id}/deactivate:
+    post:
+      operationId: deactivateSwitchboardQrExternalGrant
+      tags: [security]
+      summary: Deactivate a switchboard QR grant after fresh step-up verification
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: QR grant disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwitchboardQrGrantDeactivateResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or step-up verification required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Switchboard not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: QR grant cannot be changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /users/{id}:
     patch:
       operationId: updateUser
@@ -11983,6 +12168,153 @@ components:
           $ref: "#/components/schemas/UserOffboardingAccessInventory"
         handover:
           $ref: "#/components/schemas/UserOffboardingHandoverInventory"
+
+    ExternalGrantSummary:
+      type: object
+      additionalProperties: false
+      required: [id, purpose, resourceType, resourceId, artifactBindingStatus, tokenPrefix, state, expiresAt, createdAt, createdByUserId, ownerKind, ownerUserId, ownerAssignedAt, ownerAssignmentSource, revokedAt, revokedByUserId, revokeReason, consumedAt, consumeAction]
+      properties:
+        id:
+          type: integer
+        purpose:
+          type: string
+          enum: [job_signature, ppe_signature, ppe_confirmation, quote_decision]
+        resourceType:
+          type: string
+          enum: [job, ppe_assignment, quote]
+        resourceId:
+          type: integer
+        artifactBindingStatus:
+          type: string
+        tokenPrefix:
+          type: string
+          minLength: 8
+          maxLength: 8
+        state:
+          type: string
+          enum: [active, expired, revoked, consumed]
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        createdByUserId:
+          type: ["integer", "null"]
+        ownerKind:
+          type: ["string", "null"]
+          enum: [organization, user, null]
+        ownerUserId:
+          type: ["integer", "null"]
+        ownerAssignedAt:
+          type: ["string", "null"]
+          format: date-time
+        ownerAssignmentSource:
+          type: ["string", "null"]
+        revokedAt:
+          type: ["string", "null"]
+          format: date-time
+        revokedByUserId:
+          type: ["integer", "null"]
+        revokeReason:
+          type: ["string", "null"]
+        consumedAt:
+          type: ["string", "null"]
+          format: date-time
+        consumeAction:
+          type: ["string", "null"]
+
+    ExternalGrantList:
+      type: object
+      additionalProperties: false
+      required: [items, nextBeforeId]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExternalGrantSummary"
+        nextBeforeId:
+          type: ["integer", "null"]
+
+    ExternalGrantRevokeInput:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 300
+
+    ExternalGrantRevokeResult:
+      type: object
+      additionalProperties: false
+      required: [id, state, revokedAt]
+      properties:
+        id:
+          type: integer
+        state:
+          type: string
+          enum: [revoked]
+        revokedAt:
+          type: string
+          format: date-time
+
+    SwitchboardQrGrantSummary:
+      type: object
+      additionalProperties: false
+      required: [switchboardId, designation, tokenPrefix, enabled, state, expiresAt, ownerKind, ownerUserId, ownerAssignedAt, ownerAssignmentSource, archivedAt]
+      properties:
+        switchboardId:
+          type: integer
+        designation:
+          type: string
+        tokenPrefix:
+          type: ["string", "null"]
+        enabled:
+          type: boolean
+        state:
+          type: string
+          enum: [active, expired, disabled]
+        expiresAt:
+          type: ["string", "null"]
+          format: date-time
+        ownerKind:
+          type: ["string", "null"]
+          enum: [resource, user, null]
+        ownerUserId:
+          type: ["integer", "null"]
+        ownerAssignedAt:
+          type: ["string", "null"]
+          format: date-time
+        ownerAssignmentSource:
+          type: ["string", "null"]
+        archivedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SwitchboardQrGrantList:
+      type: object
+      additionalProperties: false
+      required: [items, nextBeforeId]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SwitchboardQrGrantSummary"
+        nextBeforeId:
+          type: ["integer", "null"]
+
+    SwitchboardQrGrantDeactivateResult:
+      type: object
+      additionalProperties: false
+      required: [switchboardId, state]
+      properties:
+        switchboardId:
+          type: integer
+        state:
+          type: string
+          enum: [disabled]
 
     UserOffboardingInput:
       type: object

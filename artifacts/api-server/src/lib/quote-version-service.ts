@@ -15,6 +15,10 @@ import { evidenceSha256, normalizedUserAgentSha256, sha256Hex } from "./evidence
 import { ObjectStorageService } from "./objectStorage";
 import { generateQuotePdf, type QuotePdfData } from "./quote-pdf";
 import { issuePublicAccessToken, revokePublicAccessTokens } from "./public-access-token";
+import {
+  assertQuoteDecisionStillValid,
+  QuoteValidityError,
+} from "./quote-validity";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type DbClient = typeof db | DbTransaction;
@@ -29,6 +33,21 @@ export class QuoteVersionError extends Error {
   constructor(readonly statusCode: number, readonly code: string, message: string) {
     super(message);
     this.name = "QuoteVersionError";
+  }
+}
+
+function assertVersionDecisionValidity(validUntil: string | null): void {
+  try {
+    assertQuoteDecisionStillValid(validUntil);
+  } catch (error) {
+    if (error instanceof QuoteValidityError) {
+      throw new QuoteVersionError(
+        410,
+        error.code,
+        "Platnost této verze nabídky již skončila.",
+      );
+    }
+    throw error;
   }
 }
 
@@ -167,7 +186,7 @@ function pdfData(snapshot: QuoteVersionSnapshot): QuotePdfData {
 export async function createQuoteVersionAndToken(input: {
   quoteId: number;
   expiresAt: Date;
-  createdByUserId?: number | null;
+  createdByUserId: number;
 }) {
   const snapshot = await loadSnapshot(db, input.quoteId, false);
   const snapshotSha256 = evidenceSha256(snapshot);
@@ -214,7 +233,7 @@ export async function createQuoteVersionAndToken(input: {
           pdfObjectPath: objectPath,
           pdfSha256,
           rendererVersion: QUOTE_RENDERER_VERSION,
-          createdByUserId: input.createdByUserId ?? null,
+          createdByUserId: input.createdByUserId,
         })
         .returning();
       if (!version) throw new Error("Quote version insert returned no row.");
@@ -233,7 +252,7 @@ export async function createQuoteVersionAndToken(input: {
           resourceId: input.quoteId,
           quoteVersionId: version.id,
           expiresAt: input.expiresAt,
-          createdByUserId: input.createdByUserId ?? null,
+          createdByUserId: input.createdByUserId,
           onIssue: async (inner) => {
             await inner
               .update(quotesTable)
@@ -267,6 +286,7 @@ export async function publicQuoteVersion(record: PublicAccessToken) {
   if (!version || version.quoteId !== record.resourceId) {
     throw new QuoteVersionError(404, "quote_version_not_found", "Verze nabídky nebyla nalezena.");
   }
+  assertVersionDecisionValidity(version.dataSnapshot.quote.validUntil);
   const [quote] = await db
     .select({ status: quotesTable.status })
     .from(quotesTable)
@@ -295,6 +315,7 @@ export async function recordPublicQuoteDecision(
   if (!version || version.quoteId !== input.record.resourceId) {
     throw new QuoteVersionError(404, "quote_version_not_found", "Verze nabídky nebyla nalezena.");
   }
+  assertVersionDecisionValidity(version.dataSnapshot.quote.validUntil);
   const [quote] = await tx
     .select({ id: quotesTable.id, status: quotesTable.status })
     .from(quotesTable)

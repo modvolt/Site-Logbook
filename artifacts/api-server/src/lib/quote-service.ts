@@ -30,6 +30,10 @@ import {
   recordAdminQuoteDecision,
   recordPublicQuoteDecision,
 } from "./quote-version-service";
+import {
+  quoteDecisionExpiresAt,
+  QuoteValidityError,
+} from "./quote-validity";
 
 const objectStorage = new ObjectStorageService();
 const SETTINGS_ID = 1;
@@ -483,7 +487,7 @@ export async function sendQuote(
     to?: string | null;
     subject?: string | null;
     message?: string | null;
-    createdByUserId?: number | null;
+    createdByUserId: number;
   },
 ) {
   // Validate the canonical external origin before generating or storing a PDF.
@@ -499,7 +503,18 @@ export async function sendQuote(
   if (!emailPattern.test(to)) throw appError(400, "Chybí platná e-mailová adresa příjemce.");
 
   await ensureSettings();
-  const expiresAt = publicTokenExpiry("QUOTE_SHARE_EXPIRY_DAYS", 30);
+  let expiresAt: Date;
+  try {
+    expiresAt = quoteDecisionExpiresAt(
+      publicTokenExpiry("QUOTE_SHARE_EXPIRY_DAYS", 30),
+      quote.validUntil,
+    );
+  } catch (error) {
+    if (error instanceof QuoteValidityError) {
+      throw appError(409, "Platnost nabídky již skončila. Upravte datum platnosti před odesláním.");
+    }
+    throw error;
+  }
   const {
     buffer,
     version,
@@ -507,7 +522,7 @@ export async function sendQuote(
   } = await createQuoteVersionAndToken({
     quoteId: id,
     expiresAt,
-    createdByUserId: opts.createdByUserId ?? null,
+    createdByUserId: opts.createdByUserId,
   });
 
   const number = quote.quoteNumber ?? `#${id}`;

@@ -1506,6 +1506,17 @@ router.delete("/jobs/:id", async (req, res): Promise<void> => {
         and(eq(jobsTable.id, params.data.id), isNull(jobsTable.archivedAt)),
       )
       .returning();
+    if (archived) {
+      await revokePublicAccessTokens(
+        {
+          purpose: "job_signature",
+          resourceId: archived.id,
+          revokedByUserId: req.auth!.userId,
+          reason: "job_archived",
+        },
+        tx,
+      );
+    }
     if (archived?.groupId != null) {
       const [range] = await tx
         .select({ dateFrom: min(jobsTable.date), dateTo: max(jobsTable.date) })
@@ -1824,7 +1835,8 @@ router.post("/jobs/:id/signature-token", async (req, res): Promise<void> => {
       jobId: id,
       expiresAt,
       requestedAt,
-      createdByUserId: req.auth?.userId ?? null,
+      createdByUserId: req.auth!.userId,
+      allowExpiredForTesting: expiredForTesting,
     });
     token = issued.token;
     version = issued.version.version;
@@ -1904,7 +1916,7 @@ router.post("/jobs/:id/request-signature", async (req, res): Promise<void> => {
       jobId: id,
       expiresAt,
       requestedAt,
-      createdByUserId: req.auth?.userId ?? null,
+      createdByUserId: req.auth!.userId,
     });
     token = issued.token;
     documentVersion = issued.version.version;

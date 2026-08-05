@@ -19,6 +19,7 @@ export type ApiRouteAccessPolicy =
   | { kind: "deny"; reason: "unregistered" | "unclassified" };
 
 const MODULE_RULES: readonly ModuleRule[] = [
+  { prefixes: ["/external-grants"], view: "users.manage", manage: "users.manage" },
   { prefixes: ["/users", "/admin/sessions"], view: "users.manage", manage: "users.manage" },
   { prefixes: ["/audit-logs"], view: "audit.view", manage: "audit.view" },
   { prefixes: ["/stats"], view: "statistics.view", manage: "statistics.view" },

@@ -4660,6 +4660,131 @@ export const CreateUserBody = zod.object({
 
 
 /**
+ * @summary List redacted external bearer grants (users.manage required)
+ */
+export const listExternalGrantsQueryStatusDefault = `active`;
+
+export const listExternalGrantsQueryLimitDefault = 50;
+export const listExternalGrantsQueryLimitMax = 100;
+
+
+
+export const ListExternalGrantsQueryParams = zod.object({
+  "status": zod.enum(['active', 'expired', 'revoked', 'consumed', 'all']).default(listExternalGrantsQueryStatusDefault),
+  "purpose": zod.enum(['job_signature', 'ppe_signature', 'ppe_confirmation', 'quote_decision']).optional(),
+  "resourceType": zod.enum(['job', 'ppe_assignment', 'quote']).optional(),
+  "resourceId": zod.coerce.number().min(1).optional(),
+  "beforeId": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(listExternalGrantsQueryLimitMax).default(listExternalGrantsQueryLimitDefault)
+})
+
+export const listExternalGrantsResponseItemsItemTokenPrefixMin = 8;
+export const listExternalGrantsResponseItemsItemTokenPrefixMax = 8;
+
+
+
+export const ListExternalGrantsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "purpose": zod.enum(['job_signature', 'ppe_signature', 'ppe_confirmation', 'quote_decision']),
+  "resourceType": zod.enum(['job', 'ppe_assignment', 'quote']),
+  "resourceId": zod.number(),
+  "artifactBindingStatus": zod.string(),
+  "tokenPrefix": zod.string().min(listExternalGrantsResponseItemsItemTokenPrefixMin).max(listExternalGrantsResponseItemsItemTokenPrefixMax),
+  "state": zod.enum(['active', 'expired', 'revoked', 'consumed']),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "createdByUserId": zod.number().nullable(),
+  "ownerKind": zod.union([zod.literal('organization'),zod.literal('user'),zod.literal(null)]).nullable(),
+  "ownerUserId": zod.number().nullable(),
+  "ownerAssignedAt": zod.coerce.date().nullable(),
+  "ownerAssignmentSource": zod.string().nullable(),
+  "revokedAt": zod.coerce.date().nullable(),
+  "revokedByUserId": zod.number().nullable(),
+  "revokeReason": zod.string().nullable(),
+  "consumedAt": zod.coerce.date().nullable(),
+  "consumeAction": zod.string().nullable()
+})),
+  "nextBeforeId": zod.number().nullable()
+})
+
+
+/**
+ * @summary Revoke one public bearer grant after fresh step-up verification
+ */
+
+
+
+export const RevokeExternalGrantParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const revokeExternalGrantBodyReasonMin = 3;
+export const revokeExternalGrantBodyReasonMax = 300;
+
+
+
+export const RevokeExternalGrantBody = zod.object({
+  "reason": zod.string().min(revokeExternalGrantBodyReasonMin).max(revokeExternalGrantBodyReasonMax)
+})
+
+export const RevokeExternalGrantResponse = zod.object({
+  "id": zod.number(),
+  "state": zod.enum(['revoked']),
+  "revokedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List redacted switchboard QR grants (users.manage required)
+ */
+export const listSwitchboardQrGrantsQueryStatusDefault = `active`;
+export const listSwitchboardQrGrantsQueryLimitDefault = 50;
+export const listSwitchboardQrGrantsQueryLimitMax = 100;
+
+
+
+export const ListSwitchboardQrGrantsQueryParams = zod.object({
+  "status": zod.enum(['active', 'expired', 'disabled', 'all']).default(listSwitchboardQrGrantsQueryStatusDefault),
+  "beforeId": zod.coerce.number().min(1).optional(),
+  "limit": zod.coerce.number().min(1).max(listSwitchboardQrGrantsQueryLimitMax).default(listSwitchboardQrGrantsQueryLimitDefault)
+})
+
+export const ListSwitchboardQrGrantsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "switchboardId": zod.number(),
+  "designation": zod.string(),
+  "tokenPrefix": zod.string().nullable(),
+  "enabled": zod.boolean(),
+  "state": zod.enum(['active', 'expired', 'disabled']),
+  "expiresAt": zod.coerce.date().nullable(),
+  "ownerKind": zod.union([zod.literal('resource'),zod.literal('user'),zod.literal(null)]).nullable(),
+  "ownerUserId": zod.number().nullable(),
+  "ownerAssignedAt": zod.coerce.date().nullable(),
+  "ownerAssignmentSource": zod.string().nullable(),
+  "archivedAt": zod.coerce.date().nullable()
+})),
+  "nextBeforeId": zod.number().nullable()
+})
+
+
+/**
+ * @summary Deactivate a switchboard QR grant after fresh step-up verification
+ */
+
+
+
+export const DeactivateSwitchboardQrExternalGrantParams = zod.object({
+  "id": zod.coerce.number().min(1)
+})
+
+export const DeactivateSwitchboardQrExternalGrantResponse = zod.object({
+  "switchboardId": zod.number(),
+  "state": zod.enum(['disabled'])
+})
+
+
+/**
  * @summary Update user (admin only)
  */
 export const UpdateUserParams = zod.object({
