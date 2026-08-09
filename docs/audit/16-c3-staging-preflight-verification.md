@@ -380,3 +380,17 @@ Oprava zatím není aktivní v private wrapperu na `main`; ten stále připíná
 reusable commit. Nebyl proveden private commit/PR/merge, workflow dispatch,
 rerun, GHCR zápis, deploy ani migrace. Další krok smí pouze po novém souhlasu
 vytvořit one-file private pin update a draft PR.
+
+### Post-push blokátor D1
+
+Implementation commit `a74d8e9fc05a43c01afe76e4da70033a431f2141` a
+pin/checkpoint commit `d323849c0a160807d21caceaa71c58e75ee6a179` byly úspěšně
+non-force pushnuty. Public `main` se poté posunul z `a25c3128...` na
+`d18ddc93...` merge commitem billing PR #16. PR #15 je nadále draft/open/unmerged,
+ale je `CONFLICTING` / `DIRTY` a nemá exact-head Quality run.
+
+Read-only `merge-tree` proti aktuálnímu `origin/main` našel jediný konfliktní
+soubor `artifacts/api-server/test/review-queue-actions.test.ts`, konkrétně dvě
+varianty job-ID fixture v jednom bloku. Publisher workflows ani D1 kontrakt se
+nekříží. Bez nového oprávnění nebyl proveden merge, rebase ani řešení konfliktu.
+Nejbližší další krok je R16-C3C3C-D1B, nikoli D2.

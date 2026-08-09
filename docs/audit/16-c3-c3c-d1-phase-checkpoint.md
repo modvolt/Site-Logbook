@@ -124,3 +124,33 @@ Historické dokumenty o předchozím reusable pinu zůstaly nezměněné.
 ## Stop
 
 Checkpoint R16-C3C3C-D1 je vytvořen. Další fáze nebyla zahájena.
+
+## Aktualizace po non-force pushnutí
+
+Implementation commit `a74d8e9fc05a43c01afe76e4da70033a431f2141` a původní
+pin/checkpoint commit `d323849c0a160807d21caceaa71c58e75ee6a179` byly úspěšně
+non-force pushnuty na `origin/agent/phase16c3-staging-preflight`.
+
+Mezi předpushovým ověřením a vyhodnocením exact-head CI se public `main` posunul
+z `a25c3128e317c7efe6feaa3a6a8a40eecd6cdc0f` na
+`d18ddc93f87fa22d1d363b1b5a899ce8071a826b` merge commitem billing PR #16.
+Public PR #15 proto zůstal open, draft a unmerged, ale GitHub jej vyhodnotil jako
+`CONFLICTING` / `DIRTY` a pro nový head nevytvořil žádný Quality gate run.
+
+Lokální read-only `merge-tree` proti čerstvě staženému `origin/main` prokázal
+právě jeden konfliktní soubor:
+
+`artifacts/api-server/test/review-queue-actions.test.ts`.
+
+Jde o dva markery v jednom fixture bloku: nový `main` používá lokálně vytvořený
+`assignedJobId`, zatímco auditní větev používá globální `testJobId`. Všechny
+ostatní soubory z nového `main` Git vyhodnotil jako automaticky slučitelné.
+Publisher workflows ani D1 package REST kontrakt nejsou v konfliktu.
+
+Nebyl proveden merge, rebase ani ruční řešení konfliktu. Nebyl spuštěn dispatch,
+nevznikl GHCR zápis, private merge, deploy ani migrace.
+
+Tato aktualizace nahrazuje výše uvedené doporučení D2: nejbližší další podfází
+musí být R16-C3C3C-D1B – po samostatném výslovném schválení non-force sloučit
+aktuální public `main`, vyřešit pouze uvedený testovací fixture konflikt, spustit
+relevantní billing test i úplné gate, pushnout a vyžádat exact-head Quality gate.
