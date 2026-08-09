@@ -39,6 +39,10 @@ test("accepts the immutable pull-only staging runtime", () => {
   assert.equal(summary.totalMemoryLimitMiB, 2816);
   assert.equal(summary.immutableCustomImages, 5);
   assert.equal(summary.publicationMode, "private-caller-ghcr-no-deploy");
+  assert.equal(
+    summary.predecessorPublicationMode,
+    "fixed-exact-0104-api-private-caller-no-deploy",
+  );
 });
 
 test("rejects a Coolify host build or resource-limit drift", () => {
@@ -216,6 +220,126 @@ test("keeps the external schema preflight in the exact-SHA Quality gate", () => 
       error instanceof StagingRuntimeContractError &&
       error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
   );
+});
+
+test("requires exact reviewed Action SHAs in Quality gate and staging smoke", () => {
+  const qualityWorkflow = source(".github/workflows/quality-gate.yml");
+  const smokeWorkflow = source(".github/workflows/staging-smoke.yml");
+  for (const [relativePath, workflow, mutated] of [
+    [
+      ".github/workflows/quality-gate.yml",
+      qualityWorkflow,
+      qualityWorkflow.replace(
+        "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "actions/checkout@v4",
+      ),
+    ],
+    [
+      ".github/workflows/quality-gate.yml",
+      qualityWorkflow,
+      qualityWorkflow.replace(
+        "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+        "actions/setup-node@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ),
+    ],
+    [
+      ".github/workflows/staging-smoke.yml",
+      smokeWorkflow,
+      smokeWorkflow.replace(
+        "      - run: pnpm install --frozen-lockfile",
+        "      - uses: example/unknown-action@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n      - run: pnpm install --frozen-lockfile",
+      ),
+    ],
+    [
+      ".github/workflows/staging-smoke.yml",
+      smokeWorkflow,
+      smokeWorkflow.replace(
+        /\n {6}- name: Upload secret-free operational alert drill evidence[\s\S]*? {10}retention-days: 14\n/,
+        "\n",
+      ),
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          [relativePath]: mutated,
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_WORKFLOW_ACTION_DRIFT",
+    );
+  }
+});
+
+test("keeps predecessor publication fixed to one exact-0104 API image", () => {
+  const relativePath = ".github/workflows/staging-predecessor-image.yml";
+  const workflow = source(relativePath);
+  for (const [mutated, expectedCode] of [
+    [
+      workflow.replace(
+        "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "actions/checkout@v4",
+      ),
+      "STAGING_WORKFLOW_ACTION_DRIFT",
+    ],
+    [
+      workflow.replaceAll(
+        "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replaceAll(
+        "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replaceAll(
+        "site-logbook-staging-api",
+        "site-logbook-staging-predecessor-api",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "  workflow_call:",
+        "  workflow_dispatch:\n  workflow_call:",
+      ),
+      "STAGING_PREDECESSOR_SCOPE_WIDENED",
+    ],
+    [
+      workflow.replace("          push: false", "          push: true"),
+      "STAGING_PREDECESSOR_PUBLICATION_DRIFT",
+    ],
+    [
+      workflow.replace(
+        "          platforms: linux/amd64",
+        "          platforms: linux/arm64",
+      ),
+      "STAGING_PREDECESSOR_PLATFORM_DRIFT",
+    ],
+    [
+      workflow.replace(
+        '[[ "${#sql_files[@]}" == "104" ]]',
+        '[[ "${#sql_files[@]}" == "105" ]]',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace("length == 0", "length >= 0"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+  ]) {
+    assert.throws(
+      () => validateStagingRuntimeContract({ [relativePath]: mutated }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === expectedCode,
+    );
+  }
 });
 
 test("rejects mutable base images and incomplete publication", () => {

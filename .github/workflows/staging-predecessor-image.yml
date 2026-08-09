@@ -1,0 +1,430 @@
+name: Publish immutable staging predecessor API (private caller, no deploy)
+
+on:
+  workflow_call:
+    inputs:
+      confirm_predecessor_registry_publication:
+        description: Publish or verify only the fixed exact-0104 predecessor API image without deploying it
+        required: true
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: site-logbook-images-publication
+  cancel-in-progress: false
+
+jobs:
+  validate-fixed-public-source:
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the fixed audited predecessor commit and tree
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+          EXPECTED_SOURCE_TREE: cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c
+          PUBLICATION_CONFIRMED: ${{ inputs.confirm_predecessor_registry_publication }}
+          SOURCE_REPOSITORY: modvolt/Site-Logbook
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Fixed predecessor source validation failed: $1" >&2
+            exit 1
+          }
+
+          [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
+            || fail "the exact predecessor registry publication confirmation is required."
+          [[ "$EXPECTED_SOURCE_SHA" == "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3" ]] \
+            || fail "the fixed predecessor SHA drifted."
+          [[ "$EXPECTED_SOURCE_TREE" == "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c" ]] \
+            || fail "the fixed predecessor tree drifted."
+
+          commit_json="$(
+            curl --disable \
+              --fail-with-body --silent --show-error \
+              --proto '=https' --tlsv1.2 \
+              --connect-timeout 10 --max-time 30 \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'User-Agent: site-logbook-private-predecessor-publisher' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${SOURCE_REPOSITORY}/commits/${EXPECTED_SOURCE_SHA}"
+          )" || fail "the fixed public predecessor commit could not be read."
+          jq -e \
+            --arg sha "$EXPECTED_SOURCE_SHA" \
+            --arg tree "$EXPECTED_SOURCE_TREE" \
+            '.sha == $sha and .commit.tree.sha == $tree' \
+            <<<"$commit_json" >/dev/null \
+            || fail "the public predecessor commit or tree is not exact."
+
+  publish-fixed-predecessor-api:
+    needs: validate-fixed-public-source
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPECTED_SOURCE_SHA: c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+      EXPECTED_SOURCE_TREE: cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c
+      PACKAGE_NAME: site-logbook-staging-api
+      REGISTRY_REPOSITORY: ghcr.io/modvolt/site-logbook-staging-api
+    steps:
+      - name: Require approved private manual caller and exact tag state
+        id: package-state
+        shell: bash
+        env:
+          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry
+          APPROVED_CALLER_WORKFLOW_REF: modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main
+          CALLER_ACTOR: ${{ github.actor }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLICATION_CONFIRMED: ${{ inputs.confirm_predecessor_registry_publication }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Fixed predecessor package preflight failed: $1" >&2
+            exit 1
+          }
+
+          [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
+            || fail "registry publication confirmation is required."
+          [[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]] \
+            || fail "the reusable workflow must be called by the approved private repository."
+          [[ "${CALLER_REPOSITORY_OWNER,,}" == "modvolt" ]] \
+            || fail "the private caller owner is not approved."
+          [[ "${CALLER_ACTOR,,}" == "modvolt" && "${TRIGGERING_ACTOR,,}" == "modvolt" ]] \
+            || fail "the manual private publication must be initiated by the approved owner."
+          [[ "${CALLER_WORKFLOW_REF,,}" == "$APPROVED_CALLER_WORKFLOW_REF" ]] \
+            || fail "the private predecessor wrapper must run from its exact main-branch path."
+
+          caller_json="$(gh api --header 'X-GitHub-Api-Version: 2022-11-28' "repos/${CALLER_REPOSITORY}")" \
+            || fail "the private caller repository could not be read."
+          jq -e \
+            --arg caller "$APPROVED_CALLER_REPOSITORY" \
+            '(.full_name | ascii_downcase) == $caller and
+             (.owner.login | ascii_downcase) == "modvolt" and
+             .private == true' \
+            <<<"$caller_json" >/dev/null \
+            || fail "the caller repository must remain private and owned by modvolt."
+
+          inventory_json="$(
+            gh api --paginate \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              '/user/packages?package_type=container&per_page=100' |
+              jq -s 'add'
+          )" || fail "the authenticated private package inventory could not be read."
+          jq -e 'type == "array"' <<<"$inventory_json" >/dev/null \
+            || fail "the authenticated package inventory is malformed."
+          package_count="$(
+            jq -r --arg name "$PACKAGE_NAME" \
+              '[.[] | select((.name | ascii_downcase) == $name)] | length' \
+              <<<"$inventory_json"
+          )"
+          [[ "$package_count" == "0" || "$package_count" == "1" ]] \
+            || fail "duplicate package metadata exists for the staging API package."
+
+          existing_digest=""
+          publish="true"
+          initial_tag_state="absent"
+          if [[ "$package_count" == "1" ]]; then
+            package_json="$(
+              gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "user/packages/container/${PACKAGE_NAME}"
+            )" || fail "the staging API package metadata could not be read."
+            jq -e \
+              --arg caller "$APPROVED_CALLER_REPOSITORY" \
+              --arg package "$PACKAGE_NAME" \
+              '.name == $package and
+               .package_type == "container" and
+               (.owner.login | ascii_downcase) == "modvolt" and
+               .visibility == "private" and
+               (.repository.full_name | ascii_downcase) == $caller and
+               .repository.private == true' \
+              <<<"$package_json" >/dev/null \
+              || fail "the staging API package is not private and caller-linked."
+            versions_json="$(
+              gh api --paginate \
+                --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "user/packages/container/${PACKAGE_NAME}/versions?per_page=100" |
+                jq -s 'add'
+            )" || fail "the staging API package versions could not be read."
+            jq -e 'type == "array"' <<<"$versions_json" >/dev/null \
+              || fail "the staging API package versions are malformed."
+            matches_json="$(
+              jq -c --arg sha "$EXPECTED_SOURCE_SHA" \
+                '[.[] | select(((.metadata.container.tags // []) | index($sha)) != null)]' \
+                <<<"$versions_json"
+            )"
+            match_count="$(jq -r 'length' <<<"$matches_json")"
+            case "$match_count" in
+              0) ;;
+              1)
+                existing_digest="$(jq -r '.[0].name' <<<"$matches_json")"
+                [[ "$existing_digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+                  || fail "the existing exact predecessor tag has an invalid digest."
+                publish="false"
+                initial_tag_state="present"
+                ;;
+              *) fail "the exact predecessor tag is not unique." ;;
+            esac
+          fi
+
+          {
+            echo "existing_digest=${existing_digest}"
+            echo "initial_tag_state=${initial_tag_state}"
+            echo "publish=${publish}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the fixed public predecessor commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          repository: modvolt/Site-Logbook
+          ref: c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+
+      - name: Prove exact source tree and exact-0104 migration bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" ]]
+          [[ "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]]
+          mapfile -t sql_files < <(find lib/db/migrations -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | LC_ALL=C sort)
+          [[ "${#sql_files[@]}" == "104" ]]
+          [[ "${sql_files[-1]}" == "0104_thin_sheva_callister.sql" ]]
+          [[ "${sql_files[*]}" != *"0100_"* && "${sql_files[*]}" != *"0105_"* ]]
+          jq -e \
+            '.entries | length == 104 and
+             .[-1].idx == 104 and
+             .[-1].tag == "0104_thin_sheva_callister" and
+             all(.[]; (.tag | startswith("0100_")) == false) and
+             all(.[]; (.tag | startswith("0105_")) == false)' \
+            lib/db/migrations/meta/_journal.json >/dev/null
+
+      - name: Configure Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate predecessor API build without registry write
+        if: steps.package-state.outputs.publish == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: BUILD_SHA=c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+          cache-from: type=gha,scope=staging-predecessor-api
+          cache-to: type=gha,mode=max,scope=staging-predecessor-api
+
+      - name: Recheck exact predecessor tag absence immediately before publication
+        if: steps.package-state.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          inventory_json="$(
+            gh api --paginate --header 'X-GitHub-Api-Version: 2022-11-28' \
+              '/user/packages?package_type=container&per_page=100' |
+              jq -s 'add'
+          )"
+          jq -e 'type == "array"' <<<"$inventory_json" >/dev/null
+          package_count="$(
+            jq -r --arg name "$PACKAGE_NAME" \
+              '[.[] | select((.name | ascii_downcase) == $name)] | length' \
+              <<<"$inventory_json"
+          )"
+          [[ "$package_count" == "0" || "$package_count" == "1" ]]
+          if [[ "$package_count" == "1" ]]; then
+            versions_json="$(
+              gh api --paginate --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "user/packages/container/${PACKAGE_NAME}/versions?per_page=100" |
+                jq -s 'add'
+            )"
+            jq -e --arg sha "$EXPECTED_SOURCE_SHA" \
+              'type == "array" and
+               ([.[] | select(((.metadata.container.tags // []) | index($sha)) != null)] | length == 0)' \
+              <<<"$versions_json" >/dev/null
+          fi
+
+      - name: Build and publish fixed predecessor API image
+        id: predecessor-api
+        if: steps.package-state.outputs.publish == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/modvolt/site-logbook-staging-api:c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+          labels: |
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
+            org.opencontainers.image.revision=c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+            org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+          build-args: BUILD_SHA=c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+          cache-from: type=gha,scope=staging-predecessor-api
+          cache-to: type=gha,mode=max,scope=staging-predecessor-api
+          provenance: mode=max
+          sbom: true
+
+      - name: Select exact predecessor API digest
+        id: selected-digest
+        shell: bash
+        env:
+          BUILT_DIGEST: ${{ steps.predecessor-api.outputs.digest }}
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.existing_digest }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then digest="$BUILT_DIGEST"; else digest="$EXISTING_DIGEST"; fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify private exact-digest predecessor package and attestations
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.selected-digest.outputs.digest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            package_json="$(
+              gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "user/packages/container/${PACKAGE_NAME}" 2>/dev/null
+            )" || package_json=""
+            versions_json="$(
+              gh api --paginate --header 'X-GitHub-Api-Version: 2022-11-28' \
+                "user/packages/container/${PACKAGE_NAME}/versions?per_page=100" 2>/dev/null |
+                jq -s 'add'
+            )" || versions_json=""
+            if jq -e \
+              --arg package "$PACKAGE_NAME" \
+              '.name == $package and .package_type == "container" and
+               (.owner.login | ascii_downcase) == "modvolt" and
+               .visibility == "private" and
+               (.repository.full_name | ascii_downcase) == "modvolt/site-logbook-registry" and
+               .repository.private == true' \
+              <<<"$package_json" >/dev/null 2>&1 &&
+              jq -e --arg digest "$EXPECTED_DIGEST" --arg sha "$EXPECTED_SOURCE_SHA" \
+                '[.[] | select(((.metadata.container.tags // []) | index($sha)) != null)] |
+                 length == 1 and .[0].name == $digest' \
+                <<<"$versions_json" >/dev/null 2>&1
+            then
+              version_json="$(
+                jq -c --arg sha "$EXPECTED_SOURCE_SHA" \
+                  '.[] | select(((.metadata.container.tags // []) | index($sha)) != null)' \
+                  <<<"$versions_json"
+              )"
+              reference="${REGISTRY_REPOSITORY}@${EXPECTED_DIGEST}"
+              manifest_json="$(docker buildx imagetools inspect "$reference" --format '{{json .Manifest}}' 2>/dev/null)" || manifest_json=""
+              provenance_json="$(docker buildx imagetools inspect "$reference" --format '{{json .Provenance}}' 2>/dev/null)" || provenance_json=""
+              sbom_json="$(docker buildx imagetools inspect "$reference" --format '{{json .SBOM}}' 2>/dev/null)" || sbom_json=""
+              if jq -e --arg digest "$EXPECTED_DIGEST" \
+                '.schemaVersion == 2 and
+                 .mediaType == "application/vnd.oci.image.index.v1+json" and
+                 .digest == $digest and
+                 ((.manifests // []) as $manifests |
+                  ($manifests | map(select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"))) as $runnable |
+                  ($manifests | map(select(.annotations["vnd.docker.reference.type"] == "attestation-manifest"))) as $attestations |
+                  ($runnable | length) == 1 and
+                  $runnable[0].platform.os == "linux" and
+                  $runnable[0].platform.architecture == "amd64" and
+                  ($runnable[0].digest | test("^sha256:[0-9a-f]{64}$")) and
+                  ($attestations | length) == 1 and
+                  all($attestations[];
+                    .annotations["vnd.docker.reference.digest"] == $runnable[0].digest and
+                    .platform.os == "unknown" and .platform.architecture == "unknown"))' \
+                <<<"$manifest_json" >/dev/null 2>&1 &&
+                jq -e '.SLSA.buildType == "https://mobyproject.org/buildkit@v1" and .SLSA.invocation.environment.platform == "linux/amd64"' \
+                  <<<"$provenance_json" >/dev/null 2>&1 &&
+                jq -e '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and (.SPDX.spdxVersion | test("^SPDX-[0-9]+\\.[0-9]+$"))' \
+                  <<<"$sbom_json" >/dev/null 2>&1
+              then
+                runnable_digest="$(
+                  jq -r '[.manifests[] | select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")][0].digest' \
+                    <<<"$manifest_json"
+                )"
+                jq -n \
+                  --arg digest "$EXPECTED_DIGEST" \
+                  --arg packageId "$(jq -r '.id' <<<"$package_json")" \
+                  --arg packageName "$PACKAGE_NAME" \
+                  --arg repository "$(jq -r '.repository.full_name' <<<"$package_json")" \
+                  --arg registryRepository "$REGISTRY_REPOSITORY" \
+                  --arg runnableManifestDigest "$runnable_digest" \
+                  --arg sourceSha "$EXPECTED_SOURCE_SHA" \
+                  --arg versionId "$(jq -r '.id' <<<"$version_json")" \
+                  '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, runnableManifestDigest: $runnableManifestDigest, platform: "linux/amd64", remoteManifestVerified: true, provenanceVerified: true, sbomVerified: true}' \
+                  > predecessor-package.json
+                break
+              fi
+            fi
+            if [[ "$attempt" == "12" ]]; then
+              echo "The predecessor package did not become exact, private, caller-linked and attested." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Create secret-free fixed predecessor publication evidence
+        shell: bash
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          DIGEST: ${{ steps.selected-digest.outputs.digest }}
+          INITIAL_TAG_STATE: ${{ steps.package-state.outputs.initial_tag_state }}
+          PUBLISHED: ${{ steps.package-state.outputs.publish }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$PUBLISHED" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
+          jq -n \
+            --arg callerRepository "$CALLER_REPOSITORY" \
+            --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg digest "$DIGEST" \
+            --arg initialTagState "$INITIAL_TAG_STATE" \
+            --arg registryAction "$registry_action" \
+            --arg runAttempt "$RUN_ATTEMPT" \
+            --arg runId "$RUN_ID" \
+            --arg sourceSha "$EXPECTED_SOURCE_SHA" \
+            --arg sourceTree "$EXPECTED_SOURCE_TREE" \
+            --slurpfile package predecessor-package.json \
+            '{schemaVersion: 1, kind: "site-logbook-staging-predecessor-api", sourceSha: $sourceSha, sourceTree: $sourceTree, migrationContract: {count: 104, tail: "0104_thin_sheva_callister", excluded0100: true, excluded0105: true}, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialTagState: $initialTagState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, image: ("ghcr.io/modvolt/site-logbook-staging-api@" + $digest), package: $package[0]}' \
+            > staging-predecessor-image.json
+          jq -e --arg digest "$DIGEST" --arg sha "$EXPECTED_SOURCE_SHA" --arg tree "$EXPECTED_SOURCE_TREE" \
+            '.schemaVersion == 1 and
+             .kind == "site-logbook-staging-predecessor-api" and
+             .sourceSha == $sha and .sourceTree == $tree and
+             .migrationContract == {count: 104, tail: "0104_thin_sheva_callister", excluded0100: true, excluded0105: true} and
+             (.registryAction == "published" or .registryAction == "verified-noop") and
+             .image == ("ghcr.io/modvolt/site-logbook-staging-api@" + $digest) and
+             .package.digest == $digest and .package.sourceSha == $sha and
+             .package.visibility == "private" and .package.platform == "linux/amd64" and
+             .package.remoteManifestVerified == true and .package.provenanceVerified == true and .package.sbomVerified == true' \
+            staging-predecessor-image.json >/dev/null
+          sha256sum staging-predecessor-image.json > staging-predecessor-image.sha256
+          [[ "$(awk '{print $1}' staging-predecessor-image.sha256)" =~ ^[0-9a-f]{64}$ ]]
+
+      - name: Upload immutable predecessor API evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-predecessor-api-c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3
+          path: |
+            staging-predecessor-image.json
+            staging-predecessor-image.sha256
+          if-no-files-found: error
+          retention-days: 30

@@ -50,6 +50,36 @@ image je starší než R16-C2. Po restore se proto nejprve pouze přečte journa
   se. Aktuální candidate se nikdy nesmí použít k tichému přeskočení baseline
   brány.
 
+### Immutable predecessor publication boundary
+
+Příprava predecessor image je oddělená od candidate publisheru. Reusable workflow
+`.github/workflows/staging-predecessor-image.yml` nemá vstup pro SHA, ref ani PR a
+je natvrdo svázaný s commitem
+`c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3` a Git tree
+`cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c`. Ověřuje 104 SQL souborů, 104 journal
+řádků, ocas `0104_thin_sheva_callister` a absenci `0100` i `0105`.
+
+Workflow smí zavolat pouze ruční wrapper
+`modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml`
+z privátní větve `main`. Publikuje nejvýše jednu `linux/amd64` API image do
+existujícího privátního package `site-logbook-staging-api`, s provenance a SBOM.
+Přesný SHA tag smí přejít pouze z absent do jedné publikované verze; jedna již
+existující a vzdáleně ověřená verze je no-op. Duplicitní tag, jiný caller nebo
+jiný package jsou stop.
+
+Výstup `staging-predecessor-image.json` a GNU checksum jsou samostatný artefakt;
+nenahrazují candidate manifest pěti images. Před použitím se raw bytes svážou s
+odděleně schváleným checksumem a identitou caller runu:
+
+```powershell
+pnpm gate:staging-predecessor-image -- --manifest staging-predecessor-image.json --checksum staging-predecessor-image.sha256 --expected-manifest-sha256 <64-hex> --expected-caller-workflow-ref modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main --expected-run-id <id> --expected-run-attempt <attempt>
+```
+
+Tento publisher pouze připraví immutable image. Neautorizuje GHCR zápis bez
+samostatného potvrzení, nenasazuje ji, nekontaktuje Coolify a nespouští migrátor.
+One-shot runtime vazba `apply-0104-baseline`, její backup/input checksumy a
+pre/postflight přes exact stav `0104` zůstávají samostatnou následující branou.
+
 ## Fail-closed vstupní kontrakt
 
 Do prázdného staging secret store se doplní hodnoty podle

@@ -76,6 +76,27 @@ const PINNED_ACTIONS = Object.freeze([
   "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
 ]);
 
+const PINNED_QUALITY_ACTIONS = Object.freeze([
+  "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+  "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1",
+  "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+]);
+
+const PINNED_SMOKE_ACTIONS = Object.freeze([
+  ...PINNED_QUALITY_ACTIONS,
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+]);
+
+const PINNED_PREDECESSOR_ACTIONS = Object.freeze([
+  "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+  "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+  "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9",
+  "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
+  "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
+  "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+]);
+
 export class StagingRuntimeContractError extends Error {
   constructor(code, message) {
     super(`${code}: ${message}`);
@@ -86,6 +107,21 @@ export class StagingRuntimeContractError extends Error {
 
 function fail(code, message) {
   throw new StagingRuntimeContractError(code, message);
+}
+
+function requireExactPinnedActions(workflow, expected, label) {
+  const actual = [
+    ...workflow.matchAll(/^\s*(?:-\s+)?uses:\s*([^\s#]+)(?:\s+#.*)?$/gm),
+  ].map((match) => match[1]);
+  if (
+    actual.length !== expected.length ||
+    actual.some((action, index) => action !== expected[index])
+  ) {
+    fail(
+      "STAGING_WORKFLOW_ACTION_DRIFT",
+      `${label} must use only the expected Actions pinned to exact reviewed commit SHAs in the required order.`,
+    );
+  }
 }
 
 export function classifyStagingPublicationState(stage, state) {
@@ -1125,6 +1161,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
     ".github/workflows/staging-smoke.yml",
     overrides,
   );
+  requireExactPinnedActions(
+    stagingSmokeWorkflow,
+    PINNED_SMOKE_ACTIONS,
+    "staging smoke workflow",
+  );
+  requireText(
+    stagingSmokeWorkflow,
+    "persist-credentials: false",
+    "staging smoke checkout credential isolation",
+  );
   for (const boundary of [
     "STAGING_IMAGE_MANIFEST_SHA256",
     "STAGING_PROVISIONING_MANIFEST_SHA256",
@@ -1141,16 +1187,107 @@ export function validateStagingRuntimeContract(overrides = {}) {
   const packageJson = readSource("package.json", overrides);
   for (const command of [
     "gate:staging-image-manifest",
+    "gate:staging-predecessor-image",
     "gate:staging-provisioning",
     "gate:staging-deployment-binding",
     "staging-deployment-binding.test.mjs",
+    "staging-predecessor-image.test.mjs",
   ]) {
     requireText(packageJson, command, `staging contract command ${command}`);
+  }
+
+  const predecessorWorkflow = readSource(
+    ".github/workflows/staging-predecessor-image.yml",
+    overrides,
+  );
+  requireExactPinnedActions(
+    predecessorWorkflow,
+    PINNED_PREDECESSOR_ACTIONS,
+    "fixed predecessor API publication workflow",
+  );
+  for (const boundary of [
+    "workflow_call:",
+    "confirm_predecessor_registry_publication:",
+    "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3",
+    "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c",
+    "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
+    "site-logbook-images-publication",
+    "site-logbook-staging-api",
+    "artifacts/api-server/Dockerfile",
+    "persist-credentials: false",
+    "0104_thin_sheva_callister",
+    '[[ "${#sql_files[@]}" == "104" ]]',
+    '[[ "${sql_files[*]}" != *"0100_"* && "${sql_files[*]}" != *"0105_"* ]]',
+    "length == 0",
+    "provenance: mode=max",
+    "sbom: true",
+    'kind: "site-logbook-staging-predecessor-api"',
+    "staging-predecessor-image.sha256",
+    "if-no-files-found: error",
+  ]) {
+    requireText(
+      predecessorWorkflow,
+      boundary,
+      `fixed predecessor publication boundary ${boundary}`,
+    );
+  }
+  for (const forbidden of [
+    /^\s*workflow_dispatch:/m,
+    /^\s+source_sha:/m,
+    /^\s+source_ref:/m,
+    /^\s+source_pr_number:/m,
+    /site-logbook-staging-preflight/,
+    /site-logbook-staging-mailpit/,
+    /site-logbook-staging-web/,
+    /site-logbook-staging-alert-receiver/,
+    /coolify/i,
+    /DATABASE_URL/,
+    /\bS3_[A-Z0-9_]+\b/,
+  ]) {
+    if (forbidden.test(predecessorWorkflow)) {
+      fail(
+        "STAGING_PREDECESSOR_SCOPE_WIDENED",
+        `the fixed predecessor publisher contains forbidden surface ${forbidden}.`,
+      );
+    }
+  }
+  if ((predecessorWorkflow.match(/\bpackages: write\b/g) ?? []).length !== 1) {
+    fail(
+      "STAGING_PREDECESSOR_PERMISSION_DRIFT",
+      "the fixed predecessor publisher must grant package write exactly once.",
+    );
+  }
+  if (
+    (predecessorWorkflow.match(/\bpush: false\b/g) ?? []).length !== 1 ||
+    (predecessorWorkflow.match(/\bpush: true\b/g) ?? []).length !== 1
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_PUBLICATION_DRIFT",
+      "the fixed predecessor publisher must prebuild once without a write and publish at most one API image.",
+    );
+  }
+  if (
+    (predecessorWorkflow.match(/platforms: linux\/amd64/g) ?? []).length !== 2
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_PLATFORM_DRIFT",
+      "both predecessor API build stages must remain linux/amd64.",
+    );
   }
 
   const qualityWorkflow = readSource(
     ".github/workflows/quality-gate.yml",
     overrides,
+  );
+  requireExactPinnedActions(
+    qualityWorkflow,
+    PINNED_QUALITY_ACTIONS,
+    "Quality gate workflow",
+  );
+  requireText(
+    qualityWorkflow,
+    "persist-credentials: false",
+    "Quality gate checkout credential isolation",
   );
   requireText(
     qualityWorkflow,
@@ -1178,6 +1315,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     immutableCustomImages: REQUIRED_IMAGE_VARIABLES.length,
     pinnedBaseImageFamilies: 5,
     publicationMode: "private-caller-ghcr-no-deploy",
+    predecessorPublicationMode: "fixed-exact-0104-api-private-caller-no-deploy",
   });
 }
 
