@@ -137,3 +137,107 @@ GitHub connector potvrzuje, že remote branch
 PR dosud neexistují. Lokální `gh` účet je označen jako aktivní, ale token je
 neplatný; nízkoúrovňová rekonstrukce Git objectů přes connector nebyla použita,
 protože by nezachovala exact lokální commity.
+
+## R16-C3C3C-A – read-only GHCR inventura
+
+Aktualizace 2026-08-09 nahradila dřívější neověřený stav GHCR živým,
+vyčerpávajícím čtením přes účet `modvolt`. OAuth token dostal pouze dříve
+výslovně schválený scope `read:packages`; jeho hodnota nebyla načtena ani
+uložena.
+
+- Úplná stránkovaná inventura `/user/packages?package_type=container` vrátila
+  jednu dokončenou stránku a nula kontejnerových packages. Stejný výsledek má
+  inventura s `visibility=private` i veřejný uživatelský endpoint.
+- Target `site-logbook-staging-api` má tedy nula aktivních package řádků a nula
+  aktivních exact-SHA tagů pro predecessor
+  `c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3`. Přímé metadata a version endpointy
+  targetu vracejí `404 Package not found`.
+- GitHub API neumí u zcela odstraněného package prokázat historickou
+  neexistenci. Viditelné deleted versions proto nelze číst, dokud package
+  neexistuje; tato hranice zůstává explicitní. Doplňkový externí ledger je
+  nulový počet běhů fixed predecessor workflow, nikoli absolutní důkaz, že
+  někdo v minulosti nikdy nepoužil jiného registry klienta.
+- Privátní `main` je `9dbc048e4597eaf9ac9d4dd5d799406e1d9ddafc`. Wrapper má Git blob
+  `46437dcc7ad0b432bcf4d479b6ea08764a952717`, SHA-256
+  `61aa49bdb033e5bc3a100d28e3a1251c8f4619591efc33e9362e8bdb16f24830` a je
+  bajtově shodný s veřejnou auditovanou šablonou na final PR head.
+- Wrapper připíná veřejný reusable workflow na commit
+  `e7222e759b4ecf523defa0329d2dfd3fadd2c5eb`. Tento commit existuje a je předkem
+  aktuálního veřejného head `daff5f9fb38545ed16c1577713def690cb85a5c6`.
+- Fixed publisher je na GitHubu registrován jako aktivní workflow ID
+  `330628153`; jeho počet běhů je přesně nula. Nebyl proveden dispatch ani GHCR
+  zápis.
+- Veřejný PR #15 zůstává otevřený, draft a nesloučený na přesném head
+  `daff5f9fb38545ed16c1577713def690cb85a5c6`. Quality run `31333804818` pro
+  tento head je `completed/success` a vznikl událostí `pull_request`.
+
+Rozhodnutí této read-only podfáze je **PREPARED, WRITE NOT AUTHORIZED**. Žádný
+workflow dispatch, GHCR write, deploy, migrace, Coolify, DB, S3, DNS ani produkce
+nebyly změněny. Další krok může vytvořit první immutable predecessor package
+verzi pouze po novém samostatném výslovném souhlasu.
+
+## R16-C3C3C-B – první fixed predecessor dispatch skončil fail-closed
+
+Aktualizace 2026-08-09 provedla právě jeden uživatelem výslovně schválený
+dispatch privátního fixed predecessor publisheru. Run
+[`31335035618`](https://github.com/modvolt/site-logbook-registry/actions/runs/31335035618)
+vznikl z private `main` `9dbc048e4597eaf9ac9d4dd5d799406e1d9ddafc`, actor i
+triggering actor byly `modvolt` a přesná confirmation prošla.
+
+Run skončil `failure` ještě před prvním called-workflow jobem:
+
+- `validate-manual-owner` job `93299393091` skončil `success`;
+- run metadata správně rozpoznala reusable workflow na commitu
+  `e7222e759b4ecf523defa0329d2dfd3fadd2c5eb`;
+- úplný seznam obsahuje pouze owner gate, žádný build ani package job;
+- počet artifacts je nula;
+- bezprostřední post-failure GHCR inventura stále obsahuje nula container
+  packages a nula target packages;
+- nebyl proveden druhý dispatch, rerun, deploy ani migrace.
+
+GitHub neposkytl run-level anotaci ani log pro chybějící called job. Nejlépe
+podloženou příčinou je proto označená inference, nikoli přímo vypsaná chyba:
+private wrapper i called reusable mají stejný workflow-level concurrency group
+`site-logbook-images-publication`. Caller drží group ještě před zavoláním
+reusable, které požaduje stejnou lease. Historický candidate wrapper používal
+pro caller odlišný `site-logbook-registry-publication`, zatímco called workflow
+drželo `site-logbook-images-publication`.
+
+Oficiální [GitHub concurrency dokumentace](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
+potvrzuje, že v jednom group může běžet nejvýše jeden workflow/job; dokumentace
+reusable workflows navíc výslovně varuje před shodným caller/called group při
+rušení rozběhnutých běhů. Pozorovaný stav odpovídá kolizi reusable-workflow
+lease před vytvořením prvního called jobu.
+
+Navržená úzká oprava je ponechat called reusable na
+`site-logbook-images-publication`, ale vrátit private caller wrapper na
+`site-logbook-registry-publication`. Stejný caller group musí sdílet oba
+privátní publishery, aby se vzájemně serializovaly, zatímco caller nesmí
+kolabovat se svou vlastní reusable lease. Oprava zatím nebyla implementována;
+vyžaduje nové výslovné schválení podle CI-fix workflow.
+
+## R16-C3C3C-B1 – oddělení caller/reusable concurrency kontraktu
+
+Po výslovném schválení byla veřejná auditovaná template opravena tak, aby
+private caller držel `site-logbook-registry-publication`, zatímco called reusable
+nadále drží `site-logbook-images-publication`. `cancel-in-progress` zůstává na
+obou vrstvách `false`.
+
+Fail-closed runtime kontrakt nyní vyžaduje právě jeden registry caller group a
+právě jeden `cancel-in-progress: false` a výslovně odmítá přítomnost reusable
+group ve wrapperu kódem
+`STAGING_PREDECESSOR_WRAPPER_CONCURRENCY_COLLISION`. Mutation test prokazuje
+odmítnutí jak původního shodného group, tak změny `cancel-in-progress` na
+`true`.
+
+Lokální ověření:
+
+- cílený runtime kontrakt: 22/22 PASS;
+- predecessor evidence + runtime kontrakty: 28/28 PASS;
+- `pnpm.cmd gate:staging-runtime`: PASS;
+- `pnpm.cmd gate:quality`: PASS;
+- strict YAML unique-key parse wrapperu a reusable workflow: 2/2 PASS.
+
+Tato podfáze mění pouze veřejnou template a její kontrakt/test. Private `main`
+stále obsahuje původní group; nebyl vytvořen ani mergován private PR a nebyl
+proveden nový dispatch, GHCR zápis, deploy ani migrace.

@@ -11,7 +11,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: site-logbook-images-publication
+  group: site-logbook-registry-publication
   cancel-in-progress: false
 
 jobs:

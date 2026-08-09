@@ -1594,6 +1594,23 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
   if (
+    (
+      predecessorWrapperTemplate.match(
+        /group: site-logbook-registry-publication/g,
+      ) ?? []
+    ).length !== 1 ||
+    (predecessorWrapperTemplate.match(/cancel-in-progress: false/g) ?? [])
+      .length !== 1 ||
+    predecessorWrapperTemplate.includes(
+      "group: site-logbook-images-publication",
+    )
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_WRAPPER_CONCURRENCY_COLLISION",
+      "the private caller must serialize registry workflows without reusing the called workflow concurrency group.",
+    );
+  }
+  if (
     (predecessorWrapperTemplate.match(/\bpackages: write\b/g) ?? []).length !==
       1 ||
     /secrets:\s*inherit/.test(predecessorWrapperTemplate) ||

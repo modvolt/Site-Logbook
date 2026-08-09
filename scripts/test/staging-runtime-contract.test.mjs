@@ -596,6 +596,20 @@ test("keeps the private predecessor wrapper manual, main-only and commit-pinned"
     "docs/audit/16-c3-private-predecessor-wrapper.template.yml";
   const workflow = source(relativePath);
   for (const mutated of [
+    workflow.replace(
+      "group: site-logbook-registry-publication",
+      "group: site-logbook-images-publication",
+    ),
+    workflow.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+  ]) {
+    assert.throws(
+      () => validateStagingRuntimeContract({ [relativePath]: mutated }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_PREDECESSOR_WRAPPER_CONCURRENCY_COLLISION",
+    );
+  }
+  for (const mutated of [
     workflow.replace("refs/heads/main", "refs/heads/feature"),
     workflow.replace(
       "@e7222e759b4ecf523defa0329d2dfd3fadd2c5eb",
