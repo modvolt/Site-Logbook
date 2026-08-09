@@ -319,34 +319,22 @@ describe("listReviewQueue excludes skipped lines", () => {
     skippedLine = await makeLine(activeDocId, {
       allocationType: "not_rebilled",
       matchConfirmed: 1,
-      confidence: "0.5",
+      confidence: "0.9",
     });
   });
 
-  it("skipped line (not_rebilled + confirmed) does not appear in queue since it has no review reasons", async () => {
+  it("skipped line does not appear when it has no live review reason", async () => {
     const result = await listReviewQueue({ pageSize: 200 });
     const ids = result.items.map((i) => i.lineId);
-    // A not_rebilled + matchConfirmed=1 line: missing_job only triggers when
-    // allocationType=rebill; other reasons may still apply, so check line-specific
-    // reasons to confirm it wasn't included just for missing_job
-    const found = result.items.find((i) => i.lineId === skippedLine);
-    if (found) {
-      // If found, it must have a reason OTHER than missing_job (e.g. needs_review/low_confidence)
-      expect(found.reasons.some((r) => r !== "missing_job")).toBe(true);
-      // And missing_job must NOT be among its reasons (it's not_rebilled, not rebill)
-      expect(found.reasons).not.toContain("missing_job");
-    }
-    // This is a softer assertion — we just verify the line doesn't appear for the
-    // wrong reason (missing_job on a not_rebilled line)
-    void ids;
+    expect(ids).not.toContain(skippedLine);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 7. listReviewQueue keeps matchConfirmed lines hidden after document re-open
+// 7. A legacy confirmation cannot hide an unresolved exception
 // ---------------------------------------------------------------------------
 
-describe("listReviewQueue – confirmed lines stay hidden when document is re-set to needs_review", () => {
+describe("listReviewQueue – live reasons are independent of matchConfirmed", () => {
   let confirmedLine: number;
   let unconfirmedLine: number;
   let docId: number;
@@ -371,10 +359,10 @@ describe("listReviewQueue – confirmed lines stay hidden when document is re-se
       .where(eq(billingDocumentsTable.id, docId));
   });
 
-  it("confirmed line (matchConfirmed=1) does NOT appear in queue after document re-open", async () => {
+  it("confirmed rebill line without a job remains visible after document re-open", async () => {
     const result = await listReviewQueue({ pageSize: 200 });
-    const ids = result.items.map((i) => i.lineId);
-    expect(ids).not.toContain(confirmedLine);
+    const item = result.items.find((candidate) => candidate.lineId === confirmedLine);
+    expect(item?.reasons).toContain("missing_job");
   });
 
   it("unconfirmed line (matchConfirmed=0) still appears in queue", async () => {

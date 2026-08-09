@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import {
   useListBillingReviewQueue,
   getListBillingReviewQueueQueryKey,
-  useBulkConfirmReviewLines,
   useSkipReviewLines,
   useReturnReviewLines,
   useUpdateCostDocumentLine,
@@ -14,7 +13,6 @@ import {
   useListJobs,
   getListJobsQueryKey,
   type ReviewQueueItem,
-  type BulkReviewDiff,
   ListBillingReviewQueueReason,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,8 +27,6 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
-  SquareCheck,
-  Square,
   SkipForward,
   Undo2,
   Pencil,
@@ -42,7 +38,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -252,104 +247,6 @@ function InlineEdit({
 }
 
 // ---------------------------------------------------------------------------
-// Diff dialog — shows per-job list when affectedJobIds present
-// ---------------------------------------------------------------------------
-
-function ConfirmDiffDialog({
-  diff,
-  open,
-  onClose,
-  onConfirm,
-  confirming,
-}: {
-  diff: BulkReviewDiff | null;
-  open: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  confirming: boolean;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Hromadné potvrzení</DialogTitle>
-          <DialogDescription>Souhrn změn, které budou provedeny:</DialogDescription>
-        </DialogHeader>
-        {diff && (
-          <div className="space-y-2 py-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Celkem vybraných</span>
-              <span className="font-medium">{diff.total}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Ke potvrzení</span>
-              <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                {diff.toConfirm}
-              </span>
-            </div>
-            {diff.alreadyConfirmed > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Již potvrzeno</span>
-                <span className="font-medium">{diff.alreadyConfirmed}</span>
-              </div>
-            )}
-            {diff.withJobAssigned > 0 && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
-                  <span>✓ Se zakázkou (propíše se po schválení)</span>
-                  <span className="font-medium">{diff.withJobAssigned}</span>
-                </div>
-                {diff.affectedJobIds.length > 0 && (
-                  <div className="pl-4 text-xs text-muted-foreground leading-snug">
-                    Zakázky:{" "}
-                    {diff.affectedJobIds.map((id) => `#${id}`).join(", ")}
-                  </div>
-                )}
-              </div>
-            )}
-            {diff.priceJumps > 0 && (
-              <div className="flex justify-between text-amber-600 dark:text-amber-400">
-                <span>⚠ Skok ceny (&gt;20 %)</span>
-                <span className="font-medium">{diff.priceJumps}</span>
-              </div>
-            )}
-            {diff.missingJobCount > 0 && (
-              <div className="flex justify-between text-red-600 dark:text-red-400">
-                <span>⚠ Bez zakázky</span>
-                <span className="font-medium">{diff.missingJobCount}</span>
-              </div>
-            )}
-            {diff.missingWarehouseItemCount > 0 && (
-              <div className="flex justify-between text-rose-600 dark:text-rose-400">
-                <span>⚠ Bez karty skladu (k vytvoření po schválení)</span>
-                <span className="font-medium">{diff.missingWarehouseItemCount}</span>
-              </div>
-            )}
-            {diff.stillUnresolved > 0 && (
-              <div className="flex justify-between text-orange-600 dark:text-orange-400">
-                <span>⚠ Zůstane ve frontě po potvrzení</span>
-                <span className="font-medium">{diff.stillUnresolved}</span>
-              </div>
-            )}
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={confirming}>
-            Zrušit
-          </Button>
-          <Button
-            onClick={onConfirm}
-            disabled={confirming || !diff || diff.toConfirm === 0}
-          >
-            {confirming ? "Potvrzuji…" : `Potvrdit (${diff?.toConfirm ?? 0})`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Skip dialog
 // ---------------------------------------------------------------------------
 
@@ -358,29 +255,31 @@ function SkipDialog({
   onClose,
   onSkip,
   skipping,
-  count,
 }: {
   open: boolean;
   onClose: () => void;
   onSkip: (reason: string) => void;
   skipping: boolean;
-  count: number;
 }) {
   const [reason, setReason] = useState("");
+  const trimmedReason = reason.trim();
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Přeskočit {count} {count === 1 ? "řádek" : count < 5 ? "řádky" : "řádků"}</DialogTitle>
+          <DialogTitle>Nefakturovat položku?</DialogTitle>
           <DialogDescription>
-            Řádky budou označeny jako "nevyfakturovat" a přesunuty mimo frontu. Uveďte důvod.
+            Položka zůstane u dodavatelského dokladu, ale nepřenese se do
+            zákaznické faktury. Důvod se uloží do auditu.
           </DialogDescription>
         </DialogHeader>
         <Textarea
-          placeholder="Důvod přeskočení (nepovinné)"
+          placeholder="Důvod"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           className="text-sm min-h-[80px]"
+          autoFocus
         />
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={skipping}>
@@ -388,11 +287,11 @@ function SkipDialog({
           </Button>
           <Button
             variant="secondary"
-            onClick={() => onSkip(reason || "bez důvodu")}
-            disabled={skipping}
+            onClick={() => onSkip(trimmedReason)}
+            disabled={skipping || !trimmedReason}
           >
             <SkipForward className="h-4 w-4 mr-1.5" />
-            {skipping ? "Přeskakuji…" : "Přeskočit"}
+            {skipping ? "Ukládám…" : "Nefakturovat"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -672,9 +571,6 @@ function JobPickerDialog({
 
 function LineRow({
   item,
-  selected,
-  onToggle,
-  onConfirm,
   onAssignSuggestedJob,
   onOpenJobPicker,
   onOpenWarehousePicker,
@@ -684,7 +580,6 @@ function LineRow({
   onReturn,
   onEditDescription,
   onEditPrice,
-  confirming,
   assigningJob,
   skipping,
   returning,
@@ -692,9 +587,6 @@ function LineRow({
   onOpen,
 }: {
   item: ReviewQueueItem;
-  selected: boolean;
-  onToggle: () => void;
-  onConfirm: () => void;
   onAssignSuggestedJob: () => void;
   onOpenJobPicker: () => void;
   onOpenWarehousePicker: () => void;
@@ -704,7 +596,6 @@ function LineRow({
   onReturn: () => void;
   onEditDescription: (v: string) => Promise<void>;
   onEditPrice: (v: string) => Promise<void>;
-  confirming: boolean;
   assigningJob: boolean;
   skipping: boolean;
   returning: boolean;
@@ -712,20 +603,11 @@ function LineRow({
   onOpen: () => void;
 }) {
   const hasSuggestedJob = item.suggestedJobId != null && item.jobId == null;
-  const isSkipped = item.allocationType === "not_rebilled" && item.matchConfirmed;
+  const isSkipped = item.allocationType === "not_rebilled";
   const needsWarehouse = item.reasons.includes("missing_warehouse_item");
 
   return (
     <tr className={`border-b last:border-0 transition-colors ${isSkipped ? "opacity-50 bg-muted/20" : "hover:bg-muted/30"}`}>
-      <td className="px-3 py-2 w-8">
-        {!item.matchConfirmed && (
-          <Checkbox
-            checked={selected}
-            onCheckedChange={onToggle}
-            aria-label="Vybrat řádek"
-          />
-        )}
-      </td>
       {/* Description — click-to-edit */}
       <td className="px-2 py-2 max-w-[220px]">
         <InlineEdit
@@ -872,15 +754,11 @@ function LineRow({
       </td>
       <td className="px-2 py-2">
         <div className="flex items-center gap-1 justify-end flex-wrap">
-          {item.matchConfirmed ? (
+          {isSkipped ? (
             <>
-              {isSkipped ? (
-                <span className="text-xs text-muted-foreground italic">Přeskočeno</span>
-              ) : (
-                <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Potvrzeno
-                </span>
-              )}
+              <span className="text-xs text-muted-foreground italic">
+                Nefakturovat
+              </span>
               <Button
                 size="sm"
                 variant="ghost"
@@ -893,28 +771,17 @@ function LineRow({
               </Button>
             </>
           ) : (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                onClick={onConfirm}
-                disabled={confirming}
-              >
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                Potvrdit
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs text-muted-foreground"
-                onClick={onSkip}
-                disabled={skipping}
-                title="Přeskočit"
-              >
-                <SkipForward className="h-3.5 w-3.5" />
-              </Button>
-            </>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={onSkip}
+              disabled={skipping}
+              title="Nefakturovat tuto položku"
+            >
+              <SkipForward className="h-3.5 w-3.5 mr-1" />
+              Nefakturovat
+            </Button>
           )}
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onOpen}>
             <ExternalLink className="h-3.5 w-3.5" />
@@ -931,9 +798,6 @@ function LineRow({
 
 function DocGroupCard({
   group,
-  selectedLines,
-  onToggleLine,
-  onConfirmLine,
   onAssignSuggestedJob,
   onOpenJobPicker,
   onOpenWarehousePicker,
@@ -943,7 +807,6 @@ function DocGroupCard({
   onReturnLine,
   onEditDescription,
   onEditPrice,
-  confirmingLine,
   assigningJobLine,
   skippingLine,
   returningLine,
@@ -951,9 +814,6 @@ function DocGroupCard({
   onOpenDoc,
 }: {
   group: DocGroup;
-  selectedLines: Set<number>;
-  onToggleLine: (id: number) => void;
-  onConfirmLine: (id: number) => void;
   onAssignSuggestedJob: (item: ReviewQueueItem) => void;
   onOpenJobPicker: (item: ReviewQueueItem) => void;
   onOpenWarehousePicker: (item: ReviewQueueItem) => void;
@@ -963,7 +823,6 @@ function DocGroupCard({
   onReturnLine: (id: number) => void;
   onEditDescription: (documentId: number, lineId: number, v: string) => Promise<void>;
   onEditPrice: (documentId: number, lineId: number, v: string) => Promise<void>;
-  confirmingLine: number | null;
   assigningJobLine: number | null;
   skippingLine: number | null;
   returningLine: number | null;
@@ -972,7 +831,6 @@ function DocGroupCard({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const { doc, items } = group;
-  const unconfirmedCount = items.filter((i) => !i.matchConfirmed).length;
 
   return (
     <div className="rounded-lg border bg-card shadow-sm overflow-hidden mb-3">
@@ -1004,12 +862,11 @@ function DocGroupCard({
               {doc.issueDate ? new Date(doc.issueDate).toLocaleDateString("cs-CZ") : ""}
               {" · "}
               {items.length}{" "}
-              {items.length === 1 ? "řádek" : items.length < 5 ? "řádky" : "řádků"}
-              {unconfirmedCount > 0 && (
-                <span className="ml-2 text-orange-600 dark:text-orange-400 font-medium">
-                  · {unconfirmedCount} nepotvrzeno
-                </span>
-              )}
+              {items.length === 1
+                ? "výjimka"
+                : items.length < 5
+                  ? "výjimky"
+                  : "výjimek"}
             </div>
           </div>
         </div>
@@ -1032,7 +889,6 @@ function DocGroupCard({
           <table className="w-full text-sm min-w-[980px]">
             <thead>
               <tr className="bg-muted/50 text-xs text-muted-foreground">
-                <th className="px-3 py-1.5 w-8" />
                 <th className="px-2 py-1.5 text-left font-medium">Popis</th>
                 <th className="px-2 py-1.5 text-left font-medium">Sklad. karta</th>
                 <th className="px-2 py-1.5 text-left font-medium">Zakázka</th>
@@ -1049,9 +905,6 @@ function DocGroupCard({
                 <LineRow
                   key={item.lineId}
                   item={item}
-                  selected={selectedLines.has(item.lineId)}
-                  onToggle={() => onToggleLine(item.lineId)}
-                  onConfirm={() => onConfirmLine(item.lineId)}
                   onAssignSuggestedJob={() => onAssignSuggestedJob(item)}
                   onOpenJobPicker={() => onOpenJobPicker(item)}
                   onOpenWarehousePicker={() => onOpenWarehousePicker(item)}
@@ -1061,7 +914,6 @@ function DocGroupCard({
                   onReturn={() => onReturnLine(item.lineId)}
                   onEditDescription={(v) => onEditDescription(item.documentId, item.lineId, v)}
                   onEditPrice={(v) => onEditPrice(item.documentId, item.lineId, v)}
-                  confirming={confirmingLine === item.lineId}
                   assigningJob={assigningJobLine === item.lineId}
                   skipping={skippingLine === item.lineId}
                   returning={returningLine === item.lineId}
@@ -1089,17 +941,10 @@ export default function BillingReviewQueue() {
 
   const [reason, setReason] = useState<string>("all");
   const [page, setPage] = useState(1);
-  const [selectedLines, setSelectedLines] = useState<Set<number>>(new Set());
-
-  // Confirm bulk
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [diffResult, setDiffResult] = useState<BulkReviewDiff | null>(null);
-  const [confirmingBulk, setConfirmingBulk] = useState(false);
 
   // Skip dialog
   const [skipDialogOpen, setSkipDialogOpen] = useState(false);
   const [skipTarget, setSkipTarget] = useState<number | null>(null);
-  const [skippingBulk, setSkippingBulk] = useState(false);
 
   // Warehouse picker
   const [warehouseTarget, setWarehouseTarget] = useState<ReviewQueueItem | null>(null);
@@ -1110,7 +955,6 @@ export default function BillingReviewQueue() {
   const [assigningJobLine, setAssigningJobLine] = useState<number | null>(null);
 
   // Per-line loading states
-  const [confirmingLine, setConfirmingLine] = useState<number | null>(null);
   const [skippingLine, setSkippingLine] = useState<number | null>(null);
   const [returningLine, setReturningLine] = useState<number | null>(null);
 
@@ -1129,7 +973,6 @@ export default function BillingReviewQueue() {
     query: { queryKey: getListBillingReviewQueueQueryKey(queryParams) },
   });
 
-  const { mutateAsync: bulkConfirm } = useBulkConfirmReviewLines();
   const { mutateAsync: skipLines } = useSkipReviewLines();
   const { mutateAsync: returnLines } = useReturnReviewLines();
   const { mutateAsync: updateLine } = useUpdateCostDocumentLine();
@@ -1138,47 +981,10 @@ export default function BillingReviewQueue() {
 
   const groups = useMemo(() => groupByDocument(data?.items ?? []), [data?.items]);
 
-  const allUnconfirmedIds = useMemo(
-    () => (data?.items ?? []).filter((i) => !i.matchConfirmed).map((i) => i.lineId),
-    [data?.items],
-  );
-
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   async function invalidateQueue() {
     await invalidateData(qc, "reviewQueue", "billingDocuments");
-  }
-
-  function toggleLine(id: number) {
-    setSelectedLines((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleAll() {
-    if (selectedLines.size === allUnconfirmedIds.length) {
-      setSelectedLines(new Set());
-    } else {
-      setSelectedLines(new Set(allUnconfirmedIds));
-    }
-  }
-
-  // --- Confirm single line ---
-  async function handleConfirmLine(lineId: number) {
-    setConfirmingLine(lineId);
-    try {
-      await bulkConfirm({ data: { lineIds: [lineId], dryRun: false } });
-      await invalidateQueue();
-      toast({ title: "Řádek potvrzen." });
-      setSelectedLines((prev) => { const next = new Set(prev); next.delete(lineId); return next; });
-    } catch {
-      toast({ title: "Chyba při potvrzování řádku.", variant: "destructive" });
-    } finally {
-      setConfirmingLine(null);
-    }
   }
 
   // --- Assign suggested warehouse card (inline one-click confirm) ---
@@ -1201,7 +1007,7 @@ export default function BillingReviewQueue() {
     if (!item.suggestedJobId) return;
     setAssigningJobLine(item.lineId);
     try {
-      await updateLine({ id: item.documentId, lineId: item.lineId, data: { jobId: item.suggestedJobId, matchConfirmed: true } });
+      await updateLine({ id: item.documentId, lineId: item.lineId, data: { jobId: item.suggestedJobId } });
       await invalidateQueue();
       toast({ title: `Zakázka #${item.suggestedJobId} přiřazena.` });
     } catch {
@@ -1293,65 +1099,32 @@ export default function BillingReviewQueue() {
     }
   }
 
-  // --- Bulk preview before confirm ---
-  async function handleBulkPreview() {
-    const ids = [...selectedLines];
-    if (ids.length === 0) return;
-    try {
-      const diff = await bulkConfirm({ data: { lineIds: ids, dryRun: true } });
-      setDiffResult(diff);
-      setConfirmDialogOpen(true);
-    } catch {
-      toast({ title: "Chyba při přípravě potvrzení.", variant: "destructive" });
-    }
-  }
-
-  async function handleBulkConfirm() {
-    const ids = [...selectedLines];
-    setConfirmingBulk(true);
-    try {
-      const result = await bulkConfirm({ data: { lineIds: ids, dryRun: false } });
-      setConfirmDialogOpen(false);
-      setSelectedLines(new Set());
-      await invalidateQueue();
-      toast({ title: `Potvrzeno ${result.toConfirm} řádků.` });
-    } catch {
-      toast({ title: "Hromadné potvrzení selhalo.", variant: "destructive" });
-    } finally {
-      setConfirmingBulk(false);
-    }
-  }
-
   // --- Skip single line ---
   function handleSkipLine(lineId: number) {
     setSkipTarget(lineId);
     setSkipDialogOpen(true);
   }
 
-  // --- Skip bulk ---
-  function handleSkipBulk() {
-    setSkipTarget(null);
-    setSkipDialogOpen(true);
-  }
-
   async function handleSkipConfirm(skipReason: string) {
-    const ids = skipTarget != null ? [skipTarget] : [...selectedLines];
-    if (ids.length === 0) { setSkipDialogOpen(false); return; }
-
-    if (skipTarget != null) setSkippingLine(skipTarget);
-    else setSkippingBulk(true);
+    if (skipTarget == null) {
+      setSkipDialogOpen(false);
+      return;
+    }
+    const ids = [skipTarget];
+    setSkippingLine(skipTarget);
 
     try {
-      const result = await skipLines({ data: { lineIds: ids, reason: skipReason } });
+      await skipLines({ data: { lineIds: ids, reason: skipReason } });
       setSkipDialogOpen(false);
-      if (skipTarget == null) setSelectedLines(new Set());
       await invalidateQueue();
-      toast({ title: `Přeskočeno ${result.skipped} řádků.` });
+      toast({ title: "Položka byla nastavena jako nefakturovaná." });
     } catch {
-      toast({ title: "Přeskočení selhalo.", variant: "destructive" });
+      toast({
+        title: "Položku se nepodařilo označit jako nefakturovanou.",
+        variant: "destructive",
+      });
     } finally {
       setSkippingLine(null);
-      setSkippingBulk(false);
       setSkipTarget(null);
     }
   }
@@ -1362,19 +1135,13 @@ export default function BillingReviewQueue() {
     try {
       await returnLines({ data: { lineIds: [lineId] } });
       await invalidateQueue();
-      toast({ title: "Řádek vrácen k opravě." });
+      toast({ title: "Položka je znovu určená k fakturaci." });
     } catch {
       toast({ title: "Vrácení selhalo.", variant: "destructive" });
     } finally {
       setReturningLine(null);
     }
   }
-
-  const hasSelection = selectedLines.size > 0;
-  const allSelected =
-    allUnconfirmedIds.length > 0 && selectedLines.size === allUnconfirmedIds.length;
-
-  const skipCount = skipTarget != null ? 1 : selectedLines.size;
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto w-full">
@@ -1390,7 +1157,7 @@ export default function BillingReviewQueue() {
           Fakturace
         </Button>
         <div className="h-4 w-px bg-border" />
-        <h1 className="text-lg font-semibold">K vyřízení</h1>
+        <h1 className="text-lg font-semibold">Výjimky v položkách</h1>
         {data && (
           <Badge variant="secondary" className="ml-1">
             {data.total}
@@ -1398,55 +1165,27 @@ export default function BillingReviewQueue() {
         )}
       </div>
 
-      {/* Filter + bulk action bar */}
+      {/* Filter */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <Select
           value={reason}
-          onValueChange={(v) => { setReason(v); setPage(1); setSelectedLines(new Set()); }}
+          onValueChange={(v) => { setReason(v); setPage(1); }}
         >
           <SelectTrigger className="w-52 h-8">
             <SelectValue placeholder="Filtr důvodu" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Všechny důvody</SelectItem>
-            <SelectItem value="needs_review">Ke kontrole</SelectItem>
             <SelectItem value="low_confidence">Nízká jistota AI</SelectItem>
             <SelectItem value="missing_job">Chybí zakázka</SelectItem>
             <SelectItem value="missing_warehouse_item">Chybí karta skladu</SelectItem>
             <SelectItem value="price_jump">Skok ceny</SelectItem>
           </SelectContent>
         </Select>
-
-        {allUnconfirmedIds.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 text-muted-foreground"
-            onClick={toggleAll}
-          >
-            {allSelected ? <SquareCheck className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-            {allSelected ? "Odznačit vše" : `Vybrat vše (${allUnconfirmedIds.length})`}
-          </Button>
-        )}
-
-        {hasSelection && (
-          <div className="flex items-center gap-2 ml-auto">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 gap-1.5 text-muted-foreground"
-              onClick={handleSkipBulk}
-              disabled={skippingBulk}
-            >
-              <SkipForward className="h-4 w-4" />
-              Přeskočit ({selectedLines.size})
-            </Button>
-            <Button size="sm" className="h-8 gap-1.5" onClick={handleBulkPreview}>
-              <CheckCircle2 className="h-4 w-4" />
-              Potvrdit ({selectedLines.size})
-            </Button>
-          </div>
-        )}
+        <p className="text-xs text-muted-foreground">
+          Zobrazeny jsou jen položky, které vyžadují opravu. Běžné položky
+          potvrdíte jednou při schválení dokladu.
+        </p>
       </div>
 
       {/* Content */}
@@ -1468,9 +1207,6 @@ export default function BillingReviewQueue() {
             <DocGroupCard
               key={group.doc.id}
               group={group}
-              selectedLines={selectedLines}
-              onToggleLine={toggleLine}
-              onConfirmLine={handleConfirmLine}
               onAssignSuggestedJob={handleAssignSuggestedJob}
               onOpenJobPicker={(item) => setJobPickerTarget(item)}
               onOpenWarehousePicker={(item) => setWarehouseTarget(item)}
@@ -1484,7 +1220,6 @@ export default function BillingReviewQueue() {
               onReturnLine={handleReturnLine}
               onEditDescription={handleEditDescription}
               onEditPrice={handleEditPrice}
-              confirmingLine={confirmingLine}
               assigningJobLine={assigningJobLine}
               skippingLine={skippingLine}
               returningLine={returningLine}
@@ -1511,20 +1246,12 @@ export default function BillingReviewQueue() {
         </>
       )}
 
-      <ConfirmDiffDialog
-        diff={diffResult}
-        open={confirmDialogOpen}
-        onClose={() => setConfirmDialogOpen(false)}
-        onConfirm={handleBulkConfirm}
-        confirming={confirmingBulk}
-      />
-
       <SkipDialog
+        key={skipTarget ?? "closed"}
         open={skipDialogOpen}
-        count={skipCount}
         onClose={() => { setSkipDialogOpen(false); setSkipTarget(null); }}
         onSkip={(r) => void handleSkipConfirm(r)}
-        skipping={skippingBulk || skippingLine != null}
+        skipping={skippingLine != null}
       />
 
       <WarehousePickerDialog

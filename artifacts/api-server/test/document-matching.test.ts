@@ -102,6 +102,21 @@ describe("scoreDeliveryNoteToInvoice", () => {
     );
     expect(result.score).toBeGreaterThanOrEqual(0.7);
   });
+
+  it.each(["summary_delivery_note", "delivery"])(
+    "treats an exact %s reference as the same strong identity signal",
+    (referenceType) => {
+      const result = scoreDeliveryNoteToInvoice(
+        { documentNumber: "DL/2026/0042" },
+        {
+          references: [{ referenceType, referenceNumber: "DL-2026-0042" }],
+        },
+      );
+
+      expect(result.score).toBe(0.8);
+      expect(result.reasons).toContain("Faktura odkazuje číslo dodacího listu");
+    },
+  );
 });
 
 describe("selectAutomaticDocumentMatches", () => {
@@ -139,6 +154,18 @@ describe("selectAutomaticDocumentMatches", () => {
         0.6,
       ).map((candidate) => candidate.documentId),
     ).toEqual([10]);
+  });
+
+  it("keeps an exact reference below the fuzzy matching threshold", () => {
+    expect(
+      selectAutomaticDocumentMatches([{ documentId: 10, score: 0.55, exactReferenceMatch: true }], 0.7).map(
+        (candidate) => candidate.documentId,
+      ),
+    ).toEqual([10]);
+  });
+
+  it("does not revive an exact reference that the scorer hard-rejected", () => {
+    expect(selectAutomaticDocumentMatches([{ documentId: 10, score: 0, exactReferenceMatch: true }], 0.7)).toEqual([]);
   });
 });
 

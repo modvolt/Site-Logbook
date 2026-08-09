@@ -70,7 +70,7 @@ export default function Billing() {
       key: "deliveryNotes",
       icon: Truck,
       label: "1. Dodací listy ke schválení",
-      subtitle: "Nejprve potvrďte materiál, množství a zakázky",
+      subtitle: "Zkontrolujte výjimky a schvalte celý doklad",
       count: deliveryNoteReviewCount,
       urgent: deliveryNoteReviewCount > 0,
       urgentColor: "text-sky-700 dark:text-sky-400",
@@ -135,8 +135,8 @@ export default function Billing() {
     {
       key: "reviewQueue",
       icon: ClipboardList,
-      label: "K vyřízení",
-      subtitle: "Řádky dokladů čekající na ruční kontrolu",
+      label: "Výjimky v položkách",
+      subtitle: "Jen chybějící zakázky, sklad a cenové odchylky",
       count: reviewQueueCount,
       urgent: reviewQueueCount > 0,
       urgentColor: "text-violet-700 dark:text-violet-400",
@@ -268,7 +268,7 @@ export default function Billing() {
           icon={Truck}
           color="text-sky-500"
           title="1. Dodací listy"
-          subtitle="Kontrola materiálu, množství a přiřazení k zakázkám"
+          subtitle="Opravte jen výjimky a schvalte celý doklad"
           badge={deliveryNoteReviewCount}
           onClick={() => setLocation("/billing/documents?docType=delivery_note")}
         />
@@ -291,8 +291,8 @@ export default function Billing() {
         <NavCard
           icon={ClipboardList}
           color="text-violet-500"
-          title="K vyřízení"
-          subtitle="Řádky dokladů čekající na ruční kontrolu"
+          title="Výjimky v položkách"
+          subtitle="Jen chybějící zakázky, sklad a cenové odchylky"
           badge={reviewQueueCount}
           onClick={() => setLocation("/billing/documents/review")}
         />
