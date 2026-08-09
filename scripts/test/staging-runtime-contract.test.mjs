@@ -47,6 +47,10 @@ test("accepts the immutable pull-only staging runtime", () => {
     summary.predecessorBaselineMode,
     "candidate-precheck-fixed-migrator-candidate-postcheck-no-0105",
   );
+  assert.equal(
+    summary.exact0104RecoveryMode,
+    "new-encrypted-backup-restore-evidence-read-only-no-0105",
+  );
 });
 
 test("requires the manual exact-0104 baseline control plane", () => {
@@ -134,6 +138,100 @@ test("requires the manual exact-0104 baseline control plane", () => {
           'services.length !== 1 || services[0] !== "postgres"',
           "services.length < 10",
         ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+});
+
+test("requires the read-only exact-0104 recovery evidence plane", () => {
+  const compose = source("docker-compose.staging.yml");
+  for (const [needle, replacement, expectedCode] of [
+    [
+      '    profiles: ["exact-0104-recovery"]',
+      '    profiles: ["default"]',
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "      - dist/external-schema-exact-0104-recovery.mjs",
+      "      - dist/index.mjs",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      '  exact-0104-recovery-gate:\n    profiles: ["exact-0104-recovery"]',
+      '  exact-0104-recovery-gate:\n    ports:\n      - "5000:5000"\n    profiles: ["exact-0104-recovery"]',
+      "STAGING_NETWORK_BOUNDARY_DRIFT",
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "docker-compose.staging.yml": compose.replace(needle, replacement),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === expectedCode,
+    );
+  }
+
+  const binding = source(
+    "scripts/check-staging-exact-0104-recovery-binding.mjs",
+  );
+  for (const mutated of [
+    binding.replace(
+      'nextGate: "separate-0105-transition-binding-required"',
+      'nextGate: "apply-0105"',
+    ),
+    binding.replaceAll(
+      "RECOVERY_BINDING_SECRET_MATERIAL",
+      "RECOVERY_BINDING_ACCEPT_SECRET_MATERIAL",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/check-staging-exact-0104-recovery-binding.mjs": mutated,
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
+
+  const runner = source("scripts/run-staging-exact-0104-recovery.mjs");
+  for (const mutated of [
+    runner.replace(
+      'services.length !== 1 || services[0] !== "postgres"',
+      "services.length < 10",
+    ),
+    runner.replace(
+      "RECOVERY_EVIDENCE_SCHEMA_INVALID",
+      "RECOVERY_EVIDENCE_SCHEMA_PERMISSIVE",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/run-staging-exact-0104-recovery.mjs": mutated,
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
+
+  const environmentContract = source(
+    "lib/db/src/staging-exact-0104-recovery.ts",
+  );
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "lib/db/src/staging-exact-0104-recovery.ts":
+          environmentContract.replaceAll(
+            "RECOVERY_SECRET_MATERIAL",
+            "RECOVERY_ACCEPT_SECRET_MATERIAL",
+          ),
       }),
     (error) =>
       error instanceof StagingRuntimeContractError &&

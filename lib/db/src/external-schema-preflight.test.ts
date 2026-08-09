@@ -16,6 +16,7 @@ import {
   validateExactAppliedMigrationSet,
   validateExternalSchemaDatabaseState,
   validateExternalSchemaMigrationBundle,
+  validateExact0104RecoveryBackupEvidence,
   validateStagingBackupEvidence,
   type ExternalSchemaDatabaseState,
   type MigrationBundleInput,
@@ -29,6 +30,10 @@ import {
   evaluateStagingBaseline0104Decision,
   readStagingBaseline0104Environment,
 } from "./staging-baseline-0104.js";
+import {
+  StagingExact0104RecoveryError,
+  readStagingExact0104RecoveryEnvironment,
+} from "./staging-exact-0104-recovery.js";
 import { createHash } from "node:crypto";
 
 const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
@@ -45,6 +50,14 @@ function expectCode(code: string, fn: () => unknown): void {
 function expectBaselineCode(code: string, fn: () => unknown): void {
   assert.throws(fn, (error: unknown) => {
     assert.ok(error instanceof StagingBaseline0104Error);
+    assert.equal(error.code, code);
+    return true;
+  });
+}
+
+function expectRecoveryCode(code: string, fn: () => unknown): void {
+  assert.throws(fn, (error: unknown) => {
+    assert.ok(error instanceof StagingExact0104RecoveryError);
     assert.equal(error.code, code);
     return true;
   });
@@ -171,6 +184,134 @@ function validEnv(): NodeJS.ProcessEnv {
     MIGRATIONS_DIR: migrationsDir,
     STAGING_BACKUP_EVIDENCE_ID: "42",
     STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: "24",
+  };
+}
+
+function recoveryEnv(
+  executionOverrides: Record<string, unknown> = {},
+  inputOverrides: Record<string, unknown> = {},
+): NodeJS.ProcessEnv {
+  const candidateImage = `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"a".repeat(64)}`;
+  const baselineInputsSha256 = "1".repeat(64);
+  const execution = {
+    schemaVersion: 1,
+    kind: "site-logbook-staging-baseline-0104-execution",
+    decision: "PASS",
+    productionTargetsTouched: false,
+    startedAt: "2026-08-09T18:00:00.000Z",
+    completedAt: "2026-08-09T18:01:00.000Z",
+    inputSha256: `sha256:${baselineInputsSha256}`,
+    operation: "migrate",
+    precheck: {
+      phase: "pre",
+      operation: "migrate",
+      decision: "BASELINE_0104_REQUIRED",
+      candidateSourceSha: fullSha,
+      predecessorSourceSha: STAGING_BASELINE_0104_SOURCE_SHA,
+      appliedMigrations: 103,
+      predecessorMigrations: 104,
+      latestAppliedTag: "0103_example",
+      missingToPredecessor: 1,
+      backupEvidenceId: 42,
+      backupRestoreAgeHours: 1,
+      inputSha256: `sha256:${baselineInputsSha256}`,
+      authorizes0105: false,
+    },
+    migration: {
+      executed: true,
+      summary: {
+        expected: 104,
+        applied: 104,
+        newlyApplied: 1,
+        latestExpected: "0104_thin_sheva_callister",
+      },
+    },
+    postcheck: {
+      phase: "post",
+      operation: "ready",
+      decision: "READY_0104",
+      candidateSourceSha: fullSha,
+      predecessorSourceSha: STAGING_BASELINE_0104_SOURCE_SHA,
+      appliedMigrations: 104,
+      predecessorMigrations: 104,
+      latestAppliedTag: "0104_thin_sheva_callister",
+      missingToPredecessor: 0,
+      backupEvidenceId: 42,
+      backupRestoreAgeHours: 1,
+      inputSha256: `sha256:${baselineInputsSha256}`,
+      authorizes0105: false,
+    },
+    runtimeIsolation: {
+      onlyPostgresRunningAtEveryBoundary: true,
+      apiStarted: false,
+      webStarted: false,
+      externalSchema0105GateStarted: false,
+    },
+    requiresFreshExact0104BackupAndRestore: true,
+    authorizes0105: false,
+    ...executionOverrides,
+  };
+  const executionBytes = Buffer.from(canonicalJson(execution));
+  const executionSha256 = createHash("sha256")
+    .update(executionBytes)
+    .digest("hex");
+  const inputs = {
+    schemaVersion: 1,
+    kind: "site-logbook-staging-exact-0104-recovery",
+    productionTargetsTouched: false,
+    candidate: {
+      sourceSha: fullSha,
+      apiImage: candidateImage,
+      imageManifestSha256: "c".repeat(64),
+      provisioningManifestSha256: "d".repeat(64),
+      inspectInputsSha256: "e".repeat(64),
+    },
+    database: {
+      environmentId: "site-logbook-staging",
+      host: "postgres",
+      name: "site_logbook_staging",
+      user: "site_logbook_staging",
+      composeProjectName: "site-logbook-staging",
+    },
+    baseline: {
+      inputsSha256: baselineInputsSha256,
+      executionSha256,
+      completedAt: "2026-08-09T18:01:00.000Z",
+      operation: "migrate",
+    },
+    backup: {
+      evidenceId: 43,
+      restoreMaxAgeHours: 24,
+      mustBeCreatedAfter: "2026-08-09T18:01:00.000Z",
+    },
+    target: {
+      migrationCount: 104,
+      latestTag: "0104_thin_sheva_callister",
+      excluded0100: true,
+      excluded0105: true,
+      externalStateRows: 0,
+    },
+    nextGate: "separate-0105-transition-binding-required",
+    authorizes0105: false,
+    ...inputOverrides,
+  };
+  const inputBytes = Buffer.from(canonicalJson(inputs));
+  const inputSha256 = createHash("sha256").update(inputBytes).digest("hex");
+  return {
+    ...validEnv(),
+    STAGING_SCHEMA_ACTION: "inspect",
+    STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: "",
+    STAGING_EXTERNAL_ACCOUNTS_ENABLED: "false",
+    STAGING_COMPOSE_PROJECT_NAME: "site-logbook-staging",
+    STAGING_IMAGE_MANIFEST_SHA256: "c".repeat(64),
+    STAGING_PROVISIONING_MANIFEST_SHA256: "d".repeat(64),
+    STAGING_DEPLOYMENT_INPUTS_SHA256: "e".repeat(64),
+    STAGING_API_IMAGE: candidateImage,
+    STAGING_BACKUP_EVIDENCE_ID: "43",
+    STAGING_EXACT_0104_RECOVERY_INPUTS_B64: inputBytes.toString("base64"),
+    STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256: inputSha256,
+    STAGING_BASELINE_0104_EXECUTION_B64: executionBytes.toString("base64"),
+    STAGING_BASELINE_0104_EXECUTION_SHA256: executionSha256,
   };
 }
 
@@ -425,6 +566,122 @@ describe("bound staging backup evidence", () => {
       }),
     );
   });
+
+  it("binds a non-destructive encrypted restore test created after baseline", () => {
+    const evidence = validateExact0104RecoveryBackupEvidence(
+      {
+        ...validBackup(),
+        restored_at: null,
+        restore_duration_ms: 1250,
+        restore_verified_tables: { users: 3, jobs: 7 },
+      },
+      expected,
+      new Date("2026-08-05T07:59:59.000Z"),
+    );
+    assert.equal(evidence.id, 42);
+    assert.equal(evidence.encryptionFormat, "mve1");
+    assert.equal(evidence.verifiedTableCount, 2);
+    assert.match(evidence.encryptedBackupSha256, /^sha256:[0-9a-f]{64}$/);
+    assert.match(evidence.objectPathFingerprint, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(evidence.destructiveRestorePerformed, false);
+  });
+
+  it("rejects a pre-baseline backup, destructive restore and weak table evidence", () => {
+    const recovery = {
+      ...validBackup(),
+      restored_at: null,
+      restore_duration_ms: 1250,
+      restore_verified_tables: { users: 3 },
+    };
+    expectCode("BACKUP_NOT_AFTER_BASELINE", () =>
+      validateExact0104RecoveryBackupEvidence(
+        recovery,
+        expected,
+        new Date("2026-08-05T08:00:00.000Z"),
+      ),
+    );
+    expectCode("BACKUP_DESTRUCTIVE_RESTORE_PRESENT", () =>
+      validateExact0104RecoveryBackupEvidence(
+        { ...recovery, restored_at: new Date("2026-08-05T11:30:00.000Z") },
+        expected,
+        new Date("2026-08-05T07:00:00.000Z"),
+      ),
+    );
+    expectCode("BACKUP_DESTRUCTIVE_RESTORE_PRESENT", () =>
+      validateExact0104RecoveryBackupEvidence(
+        { ...recovery, restored_at: undefined },
+        expected,
+        new Date("2026-08-05T07:00:00.000Z"),
+      ),
+    );
+    expectCode("BACKUP_RECOVERY_TABLES_INVALID", () =>
+      validateExact0104RecoveryBackupEvidence(
+        { ...recovery, restore_verified_tables: {} },
+        expected,
+        new Date("2026-08-05T07:00:00.000Z"),
+      ),
+    );
+  });
+});
+
+describe("exact-0104 recovery runtime binding", () => {
+  it("binds candidate, baseline execution and a newer backup in inspect mode", () => {
+    const result = readStagingExact0104RecoveryEnvironment(recoveryEnv());
+    assert.equal(result.runtime.buildSha, fullSha);
+    assert.equal(result.runtime.backupEvidenceId, 43);
+    assert.equal(
+      result.baselineCompletedAt.toISOString(),
+      "2026-08-09T18:01:00.000Z",
+    );
+  });
+
+  it("rejects widened authorization, a reused backup and runtime image drift", () => {
+    expectRecoveryCode("RECOVERY_BASELINE_INVALID", () =>
+      readStagingExact0104RecoveryEnvironment(
+        recoveryEnv({ authorizes0105: true }),
+      ),
+    );
+    expectRecoveryCode("RECOVERY_BACKUP_NOT_NEW", () =>
+      readStagingExact0104RecoveryEnvironment(
+        recoveryEnv(
+          {},
+          {
+            backup: {
+              evidenceId: 42,
+              restoreMaxAgeHours: 24,
+              mustBeCreatedAfter: "2026-08-09T18:01:00.000Z",
+            },
+          },
+        ),
+      ),
+    );
+    expectRecoveryCode("RECOVERY_RUNTIME_BINDING_MISMATCH", () =>
+      readStagingExact0104RecoveryEnvironment({
+        ...recoveryEnv(),
+        STAGING_API_IMAGE: `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"f".repeat(64)}`,
+      }),
+    );
+    expectRecoveryCode("RECOVERY_SECRET_MATERIAL", () =>
+      readStagingExact0104RecoveryEnvironment(
+        recoveryEnv({}, { databaseUrl: "postgres://user:pass@postgres/db" }),
+      ),
+    );
+    expectRecoveryCode("RECOVERY_BASELINE_MIGRATION_INVALID", () =>
+      readStagingExact0104RecoveryEnvironment(
+        recoveryEnv({
+          migration: {
+            executed: true,
+            summary: {
+              expected: 104,
+              applied: 104,
+              newlyApplied: 0,
+              latestExpected: "0104_thin_sheva_callister",
+            },
+          },
+        }),
+      ),
+    );
+  });
 });
 
 describe("fixed staging predecessor baseline contract", () => {
@@ -444,13 +701,33 @@ describe("fixed staging predecessor baseline contract", () => {
 
   it("rejects widened authorization, mutable primary gate and runtime drift", () => {
     for (const [key, value, code] of [
-      ["STAGING_BASELINE_0104_CONFIRMATION", "approve", "BASELINE_CONFIRMATION_INVALID"],
-      ["STAGING_BASELINE_0104_ACTION", "apply-latest", "BASELINE_ACTION_INVALID"],
+      [
+        "STAGING_BASELINE_0104_CONFIRMATION",
+        "approve",
+        "BASELINE_CONFIRMATION_INVALID",
+      ],
+      [
+        "STAGING_BASELINE_0104_ACTION",
+        "apply-latest",
+        "BASELINE_ACTION_INVALID",
+      ],
       ["STAGING_BASELINE_0104_PHASE", "both", "BASELINE_PHASE_INVALID"],
       ["STAGING_SCHEMA_ACTION", "apply-0105", "BASELINE_PRIMARY_GATE_UNSAFE"],
-      ["STAGING_EXTERNAL_ACCOUNTS_ENABLED", "true", "BASELINE_FEATURE_FLAG_UNSAFE"],
-      ["STAGING_BUILD_SHA", "f".repeat(40), "BASELINE_RUNTIME_BINDING_MISMATCH"],
-      ["STAGING_PREDECESSOR_0104_API_IMAGE", `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"f".repeat(64)}`, "BASELINE_RUNTIME_BINDING_MISMATCH"],
+      [
+        "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
+        "true",
+        "BASELINE_FEATURE_FLAG_UNSAFE",
+      ],
+      [
+        "STAGING_BUILD_SHA",
+        "f".repeat(40),
+        "BASELINE_RUNTIME_BINDING_MISMATCH",
+      ],
+      [
+        "STAGING_PREDECESSOR_0104_API_IMAGE",
+        `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"f".repeat(64)}`,
+        "BASELINE_RUNTIME_BINDING_MISMATCH",
+      ],
       ["STAGING_BACKUP_EVIDENCE_ID", "43", "BASELINE_RUNTIME_BINDING_MISMATCH"],
     ] as const) {
       expectBaselineCode(code, () =>
@@ -464,22 +741,26 @@ describe("fixed staging predecessor baseline contract", () => {
     expectBaselineCode("BASELINE_INPUT_HASH_MISMATCH", () =>
       readStagingBaseline0104Environment({
         ...env,
-        STAGING_BASELINE_0104_INPUTS_B64: Buffer.from("{}\n").toString(
-          "base64",
-        ),
+        STAGING_BASELINE_0104_INPUTS_B64:
+          Buffer.from("{}\n").toString("base64"),
       }),
     );
     expectBaselineCode("BASELINE_PREDECESSOR_MANIFEST_MISMATCH", () =>
       readStagingBaseline0104Environment({
         ...env,
-        STAGING_PREDECESSOR_0104_MANIFEST_B64: Buffer.from("{}\n").toString(
-          "base64",
-        ),
+        STAGING_PREDECESSOR_0104_MANIFEST_B64:
+          Buffer.from("{}\n").toString("base64"),
       }),
     );
 
-    const decoded = Buffer.from(env.STAGING_BASELINE_0104_INPUTS_B64!, "base64");
-    const parsed = JSON.parse(decoded.toString("utf8")) as Record<string, unknown>;
+    const decoded = Buffer.from(
+      env.STAGING_BASELINE_0104_INPUTS_B64!,
+      "base64",
+    );
+    const parsed = JSON.parse(decoded.toString("utf8")) as Record<
+      string,
+      unknown
+    >;
     const widened = Buffer.from(
       canonicalJson({ ...parsed, authorizes0105: true }),
       "utf8",

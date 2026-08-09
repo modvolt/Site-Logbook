@@ -117,6 +117,42 @@ neautorizuje `0105`. Než vznikne transition binding pro `0105`, musí se na nov
 exact-0104 stavu vytvořit nová staging-only šifrovaná záloha a úspěšně
 restore-testovat stejné nové backup ID.
 
+### Read-only důkaz nového exact-0104 backupu
+
+Vytvoření nové zálohy a její restore-test jsou samostatné provozní kroky a tato
+repo brána je sama nespouští. Po jejich dokončení se API a web znovu zastaví, aby
+v izolovaném Compose projektu běžel pouze `postgres`. Nové backup ID musí být
+vyšší než ID použité při baseline a `created_at` musí být striktně po
+`completedAt` baseline execution artifactu.
+
+Nejprve se oba baseline artefakty a jejich samostatně schválené checksumy spojí
+s novým backup ID:
+
+```powershell
+pnpm gate:staging-exact-0104-recovery-binding -- --baseline-inputs staging-baseline-0104-inputs.json --baseline-inputs-checksum staging-baseline-0104-inputs.sha256 --expected-baseline-inputs-sha256 <64-hex> --baseline-execution staging-baseline-0104-execution.json --baseline-execution-checksum staging-baseline-0104-execution.sha256 --expected-baseline-execution-sha256 <64-hex> --backup-evidence-id <new-id> --backup-restore-max-age-hours 24 --output-dir staging-exact-0104-recovery-binding
+```
+
+Binding ponechá `STAGING_SCHEMA_ACTION=inspect`, flag `false`, confirmation pro
+`0105` prázdnou a vytvoří kanonické secret-free inputs, checksum a environment
+JSON. Potom se spustí pouze read-only host runner:
+
+```powershell
+pnpm staging:verify-exact-0104-recovery -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-inputs-sha256 <64-hex> --output-dir staging-exact-0104-recovery-execution
+```
+
+Runner před i po one-shot gate vyžaduje jako jedinou běžící službu `postgres`.
+Gate v jedné read-only repeatable-read transakci ověří přesný 104řádkový journal,
+tail `0104_thin_sheva_callister`, absenci `0100`, `0105` a externího stavu a
+nejnovější backup řádek. Záloha musí být úspěšná, neprázdná, `mve1` šifrovaná,
+hashovaná, vytvořená po baseline a úspěšně restore-testovaná do dočasné DB.
+Skutečný destruktivní restore (`restored_at`) je pro tento důkaz zakázán.
+
+Evidence neobsahuje object path ani key ID; ukládá pouze jejich SHA-256
+fingerprinty, digest šifrovaného payloadu, časovou posloupnost, dobu restore testu
+a hash ověřených tabulkových počtů. Výsledek má vždy `authorizes0105=false` a
+`nextGate=separate-0105-transition-binding-required`. Aplikace `0105` proto i po
+úspěšném recovery důkazu vyžaduje nový samostatný binding a výslovný souhlas.
+
 ## Fail-closed vstupní kontrakt
 
 Do prázdného staging secret store se doplní hodnoty podle

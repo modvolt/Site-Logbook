@@ -806,11 +806,31 @@ export interface StagingBackupEvidenceRow {
   restore_status: string | null;
   restore_tested_at: Date | string | null;
   checked_at: Date | string | null;
+  restored_at?: Date | string | null;
+  restore_duration_ms?: string | number | null;
+  restore_verified_tables?: Record<string, unknown> | null;
 }
 
 export interface ValidatedStagingBackupEvidence {
   id: number;
   restoreAgeHours: number;
+}
+
+export interface Exact0104RecoveryBackupEvidence {
+  id: number;
+  sizeBytes: number;
+  encryptedBackupSha256: string;
+  encryptionFormat: "mve1";
+  encryptionKeyIdFingerprint: string;
+  objectPathFingerprint: string;
+  createdAt: string;
+  restoreTestedAt: string;
+  checkedAt: string;
+  restoreAgeHours: number;
+  restoreDurationMs: number;
+  verifiedTableCount: number;
+  verifiedTablesSha256: string;
+  destructiveRestorePerformed: false;
 }
 
 function timestamp(value: Date | string | null, label: string): number {
@@ -881,12 +901,125 @@ export function validateStagingBackupEvidence(
   return { id, restoreAgeHours };
 }
 
+function canonicalTableCounts(
+  value: Record<string, unknown> | null | undefined,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail(
+      "BACKUP_RECOVERY_TABLES_INVALID",
+      "Restore evidence must contain verified table counts.",
+    );
+  }
+  const entries = Object.entries(value).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  if (
+    entries.length === 0 ||
+    entries.some(
+      ([name, count]) =>
+        !/^[a-z][a-z0-9_]*$/.test(name) ||
+        typeof count !== "number" ||
+        !Number.isSafeInteger(count) ||
+        count < 0,
+    )
+  ) {
+    fail(
+      "BACKUP_RECOVERY_TABLES_INVALID",
+      "Restore evidence table names and counts must be nonempty and bounded.",
+    );
+  }
+  return Object.fromEntries(entries) as Record<string, number>;
+}
+
+/**
+ * Tightens the ordinary freshness check for the new backup that is created
+ * after the exact-0104 baseline. It deliberately emits fingerprints rather
+ * than object paths or key ids.
+ */
+export function validateExact0104RecoveryBackupEvidence(
+  row: StagingBackupEvidenceRow | undefined,
+  expected: Pick<
+    ExternalSchemaPreflightEnvironment,
+    "backupEvidenceId" | "backupRestoreMaxAgeHours"
+  >,
+  baselineCompletedAt: Date,
+): Exact0104RecoveryBackupEvidence {
+  const ordinary = validateStagingBackupEvidence(row, expected);
+  if (!row) {
+    fail("BACKUP_EVIDENCE_MISSING", "The staging backup row is required.");
+  }
+  const baselineCompleted = baselineCompletedAt.getTime();
+  if (!Number.isFinite(baselineCompleted)) {
+    fail(
+      "BASELINE_COMPLETION_TIME_INVALID",
+      "Baseline completion must be a valid timestamp.",
+    );
+  }
+  const createdAt = timestamp(row.created_at, "backup created_at");
+  const restoreTestedAt = timestamp(
+    row.restore_tested_at,
+    "backup restore_tested_at",
+  );
+  const checkedAt = timestamp(row.checked_at, "database checked_at");
+  if (createdAt <= baselineCompleted) {
+    fail(
+      "BACKUP_NOT_AFTER_BASELINE",
+      "The exact-0104 backup must be created after baseline completion.",
+    );
+  }
+  if (row.restored_at !== null) {
+    fail(
+      "BACKUP_DESTRUCTIVE_RESTORE_PRESENT",
+      "Recovery evidence must come from a restore test, not a destructive restore.",
+    );
+  }
+  const restoreDurationMs = Number(row.restore_duration_ms);
+  if (!Number.isSafeInteger(restoreDurationMs) || restoreDurationMs <= 0) {
+    fail(
+      "BACKUP_RECOVERY_DURATION_INVALID",
+      "Restore-test duration must be a positive integer.",
+    );
+  }
+  const sizeBytes = Number(row.size_bytes);
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+    fail(
+      "BACKUP_RECOVERY_SIZE_INVALID",
+      "Encrypted backup size must be a positive integer.",
+    );
+  }
+  const verifiedTables = canonicalTableCounts(row.restore_verified_tables);
+  const objectPath = row.object_path?.trim() ?? "";
+  const encryptionKeyId = row.encryption_key_id?.trim() ?? "";
+  const fingerprint = (value: string) =>
+    `sha256:${createHash("sha256").update(value).digest("hex")}`;
+  const verifiedTablesSha256 = `sha256:${createHash("sha256")
+    .update(JSON.stringify(verifiedTables))
+    .digest("hex")}`;
+  return {
+    id: ordinary.id,
+    sizeBytes,
+    encryptedBackupSha256: `sha256:${row.sha256?.toLowerCase()}`,
+    encryptionFormat: "mve1",
+    encryptionKeyIdFingerprint: fingerprint(encryptionKeyId),
+    objectPathFingerprint: fingerprint(objectPath),
+    createdAt: new Date(createdAt).toISOString(),
+    restoreTestedAt: new Date(restoreTestedAt).toISOString(),
+    checkedAt: new Date(checkedAt).toISOString(),
+    restoreAgeHours: Math.round(ordinary.restoreAgeHours * 1000) / 1000,
+    restoreDurationMs,
+    verifiedTableCount: Object.keys(verifiedTables).length,
+    verifiedTablesSha256,
+    destructiveRestorePerformed: false,
+  };
+}
+
 async function readLatestBackupEvidence(
   client: Queryable,
 ): Promise<StagingBackupEvidenceRow | undefined> {
   const result = await client.query<StagingBackupEvidenceRow>(`SELECT
       id, status, object_path, size_bytes, sha256, encryption_format,
       encryption_key_id, created_at, restore_status, restore_tested_at,
+      restored_at, restore_duration_ms, restore_verified_tables,
       CURRENT_TIMESTAMP AS checked_at
     FROM backup_log
     ORDER BY created_at DESC, id DESC
@@ -1023,6 +1156,93 @@ export interface ExternalSchemaSteadyStateSummary {
   expectedMigrations: number;
   latestExpectedTag: string;
   externalStateRows: number;
+}
+
+export interface ExternalSchemaExact0104RecoveryEnvironment extends ExternalSchemaEnvironment {
+  baselineCompletedAt: Date;
+}
+
+export interface ExternalSchemaExact0104RecoverySummary {
+  decision: "READY_0104_RECOVERY";
+  environmentId: string;
+  databaseName: string;
+  databaseUser: string;
+  buildSha: string;
+  expectedMigrations: 104;
+  latestExpectedTag: "0104_thin_sheva_callister";
+  excludedMigration0100Present: false;
+  excludedMigration0105Present: false;
+  externalStateRows: 0;
+  baselineCompletedAt: string;
+  backup: Exact0104RecoveryBackupEvidence;
+  authorizes0105: false;
+}
+
+/**
+ * Read-only post-baseline gate. It proves that the newest backup was created
+ * after the exact-0104 baseline, was restore-tested, and still describes the
+ * same isolated dark database. It never applies 0105.
+ */
+export async function runExternalSchemaExact0104Recovery(
+  config: ExternalSchemaExact0104RecoveryEnvironment,
+): Promise<ExternalSchemaExact0104RecoverySummary> {
+  const bundle = loadAndValidateExternalSchemaMigrationBundle(
+    config.migrationsDir,
+  );
+  const client = new Client({ connectionString: config.databaseUrl });
+  await client.connect();
+  let transactionOpen = false;
+  try {
+    await client.query("SELECT pg_advisory_lock($1)", [
+      EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+    ]);
+    try {
+      await client.query(
+        "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+      );
+      transactionOpen = true;
+      const applied = await client.query<AppliedMigrationRow>(
+        "SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id",
+      );
+      validateExactAppliedMigrationSet("pre", applied.rows, bundle);
+      const state = await readDatabaseState(client, "pre");
+      validateExternalSchemaDatabaseState("pre", state, config);
+      const backup = validateExact0104RecoveryBackupEvidence(
+        await readLatestBackupEvidence(client),
+        config,
+        config.baselineCompletedAt,
+      );
+      await client.query("COMMIT");
+      transactionOpen = false;
+      return {
+        decision: "READY_0104_RECOVERY",
+        environmentId: config.environmentId,
+        databaseName: state.databaseName,
+        databaseUser: state.databaseUser,
+        buildSha: config.buildSha,
+        expectedMigrations: 104,
+        latestExpectedTag: "0104_thin_sheva_callister",
+        excludedMigration0100Present: false,
+        excludedMigration0105Present: false,
+        externalStateRows: 0,
+        baselineCompletedAt: config.baselineCompletedAt.toISOString(),
+        backup,
+        authorizes0105: false,
+      };
+    } catch (error) {
+      if (transactionOpen)
+        await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      await client
+        .query("SELECT pg_advisory_unlock($1)", [
+          EXTERNAL_SCHEMA_MIGRATION_LOCK_KEY,
+        ])
+        .catch(() => undefined);
+    }
+  } finally {
+    await client.end();
+  }
 }
 
 /**

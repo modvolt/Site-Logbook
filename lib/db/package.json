@@ -8,7 +8,8 @@
     "./schema": "./src/schema/index.ts",
     "./migrate": "./src/migrate.ts",
     "./external-schema-preflight": "./src/external-schema-preflight.ts",
-    "./staging-baseline-0104": "./src/staging-baseline-0104.ts"
+    "./staging-baseline-0104": "./src/staging-baseline-0104.ts",
+    "./staging-exact-0104-recovery": "./src/staging-exact-0104-recovery.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",

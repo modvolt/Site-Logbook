@@ -266,6 +266,52 @@ services:
       disable: true
     logging: *staging-logging
 
+  # Read-only evidence gate for the NEW backup made after baseline completion.
+  # The host runner requires postgres to be the only running service. This gate
+  # neither creates a backup nor starts API/web and never authorizes 0105.
+  exact-0104-recovery-gate:
+    profiles: ["exact-0104-recovery"]
+    image: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+    pull_policy: always
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.25"
+    mem_limit: 384m
+    mem_reservation: 192m
+    environment:
+      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect during exact-0104 recovery evidence}
+      STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: ${STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION-}
+      STAGING_EXACT_0104_RECOVERY_INPUTS_B64: ${STAGING_EXACT_0104_RECOVERY_INPUTS_B64-}
+      STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256: ${STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256-}
+      STAGING_BASELINE_0104_EXECUTION_B64: ${STAGING_BASELINE_0104_EXECUTION_B64-}
+      STAGING_BASELINE_0104_EXECUTION_SHA256: ${STAGING_BASELINE_0104_EXECUTION_SHA256-}
+      STAGING_ENVIRONMENT_ID: ${STAGING_ENVIRONMENT_ID:?set STAGING_ENVIRONMENT_ID}
+      STAGING_COMPOSE_PROJECT_NAME: ${STAGING_COMPOSE_PROJECT_NAME:-site-logbook-staging}
+      STAGING_BUILD_SHA: ${STAGING_BUILD_SHA:?set the exact 40-character deployed commit SHA}
+      STAGING_IMAGE_MANIFEST_SOURCE_SHA: ${STAGING_IMAGE_MANIFEST_SOURCE_SHA:?set sourceSha from the approved immutable image manifest}
+      STAGING_IMAGE_MANIFEST_SHA256: ${STAGING_IMAGE_MANIFEST_SHA256:?set the separately approved image manifest checksum}
+      STAGING_PROVISIONING_MANIFEST_SHA256: ${STAGING_PROVISIONING_MANIFEST_SHA256:?set the observed provisioning manifest checksum}
+      STAGING_DEPLOYMENT_INPUTS_SHA256: ${STAGING_DEPLOYMENT_INPUTS_SHA256:?set the canonical inspect deployment input checksum}
+      STAGING_API_IMAGE: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}
+      STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
+      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}
+      STAGING_DATABASE_HOST: postgres
+      STAGING_DATABASE_NAME: site_logbook_staging
+      STAGING_DATABASE_USER: site_logbook_staging
+      STAGING_BACKUP_EVIDENCE_ID: ${STAGING_BACKUP_EVIDENCE_ID-}
+      STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: ${STAGING_BACKUP_RESTORE_MAX_AGE_HOURS-}
+      DATABASE_URL: postgres://site_logbook_staging:${STAGING_POSTGRES_PASSWORD:?set a staging-only PostgreSQL password}@postgres:5432/site_logbook_staging
+    command:
+      - node
+      - dist/external-schema-exact-0104-recovery.mjs
+    healthcheck:
+      disable: true
+    logging: *staging-logging
+
   mailpit:
     # v1.30.0 contains the May 2026 security fixes. Relay/forwarding variables
     # are deliberately absent and neither SMTP nor the UI has a host port.
