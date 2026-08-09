@@ -103,6 +103,13 @@ const DELIVERY_NOTE_REFERENCE_TYPES = [
   "summary_delivery_note",
   "delivery",
 ] as const;
+const DELIVERY_NOTE_REFERENCE_TYPE_SET = new Set<string>(DELIVERY_NOTE_REFERENCE_TYPES);
+
+function logicalReferenceKey(referenceType: string, referenceNumber: string): string {
+  const family = DELIVERY_NOTE_REFERENCE_TYPE_SET.has(referenceType) ? "delivery_note" : referenceType;
+  const normalizedNumber = normalizeReferenceNumber(referenceNumber);
+  return `${family}::${normalizedNumber || referenceNumber.trim().toLowerCase()}`;
+}
 const DELIVERY_NOTE_RESOLUTIONS = new Set([
   "unknown",
   "required",
@@ -437,6 +444,7 @@ async function getDeliveryNoteWorkflowMap(
   const references = await executor
     .select({
       documentId: billingDocumentReferencesTable.documentId,
+      referenceType: billingDocumentReferencesTable.referenceType,
       referenceNumber: billingDocumentReferencesTable.referenceNumber,
       matchedDocumentId: billingDocumentReferencesTable.matchedDocumentId,
       matchConfirmed: billingDocumentReferencesTable.matchConfirmed,
@@ -479,21 +487,35 @@ async function getDeliveryNoteWorkflowMap(
       (reference) =>
         reference.documentId === invoice.id && reference.rejected !== 1,
     );
-    const approvedReferences = activeReferences.filter((reference) => {
-      if (reference.matchConfirmed !== 1 || reference.matchedDocumentId == null) {
-        return false;
-      }
-      const matched = matchedById.get(reference.matchedDocumentId);
+    const referenceGroups = new Map<string, (typeof activeReferences)[number][]>();
+    for (const reference of activeReferences) {
+      const key = logicalReferenceKey(reference.referenceType, reference.referenceNumber);
+      const group = referenceGroups.get(key) ?? [];
+      group.push(reference);
+      referenceGroups.set(key, group);
+    }
+    const logicalReferences = [...referenceGroups.values()];
+    const approvedReferences = logicalReferences.filter((group) => {
+      const confirmedTargetIds = new Set(
+        group
+          .filter((reference) => reference.matchConfirmed === 1 && reference.matchedDocumentId != null)
+          .map((reference) => reference.matchedDocumentId as number),
+      );
+      if (confirmedTargetIds.size !== 1) return false;
+      const targetId = confirmedTargetIds.values().next().value;
+      const matched = targetId == null ? null : matchedById.get(targetId);
       return matched?.docType === "delivery_note" && matched.status === "approved";
     });
-    const unresolvedReferenceNumbers = activeReferences
-      .filter((reference) => !approvedReferences.includes(reference))
-      .map((reference) => reference.referenceNumber);
+    const approvedGroups = new Set(approvedReferences);
+    const unresolvedReferenceNumbers = logicalReferences
+      .filter((group) => !approvedGroups.has(group))
+      .map((group) => group[0]?.referenceNumber)
+      .filter((referenceNumber): referenceNumber is string => !!referenceNumber);
 
     let state: DeliveryNoteWorkflowState;
     if (invoice.deliveryNoteResolution === "waived") {
       state = "ready_without_delivery_note";
-    } else if (activeReferences.length === 0) {
+    } else if (logicalReferences.length === 0) {
       state =
         invoice.deliveryNoteResolution === "not_required"
           ? "ready_without_delivery_note"
@@ -502,14 +524,14 @@ async function getDeliveryNoteWorkflowMap(
             : "needs_decision";
     } else {
       state =
-        approvedReferences.length === activeReferences.length
+        approvedReferences.length === logicalReferences.length
           ? "ready"
           : "waiting_for_delivery_note";
     }
 
     result.set(invoice.id, {
       state,
-      referenceCount: activeReferences.length,
+      referenceCount: logicalReferences.length,
       approvedReferenceCount: approvedReferences.length,
       unresolvedReferenceNumbers,
     });
@@ -1709,6 +1731,7 @@ export async function confirmDocumentType(id: number, docType: string, actor: Ac
     method: "POST",
     path: `/billing/documents/${id}/confirm-type`,
   });
+  await reconcileDocumentRelationshipsSafely(id, actor);
   return getDocument(id);
 }
 
@@ -2761,6 +2784,37 @@ export async function addReference(
   if (!refNum) throw appError(400, "Číslo reference je povinné.");
   await db.transaction(async (tx) => {
     await lockDocumentForReferenceEdit(tx, documentId);
+    const existingReferences = await tx
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(eq(billingDocumentReferencesTable.documentId, documentId));
+    const key = logicalReferenceKey(referenceType, refNum);
+    const duplicate = existingReferences.find(
+      (reference) => logicalReferenceKey(reference.referenceType, reference.referenceNumber) === key,
+    );
+    if (duplicate) {
+      if (duplicate.rejected === 1) {
+        await tx
+          .update(billingDocumentReferencesTable)
+          .set({
+            rejected: 0,
+            source: input.source ?? "manual",
+            updatedAt: new Date(),
+          })
+          .where(eq(billingDocumentReferencesTable.id, duplicate.id));
+      }
+      await tx.insert(auditLogTable).values({
+        actorUserId: actor.userId,
+        actorName: actor.name,
+        action: "document_reference_duplicate_ignored",
+        entityType: "billing_document_references",
+        entityId: duplicate.id,
+        summary: `Duplicitní reference ${referenceType}: ${refNum} nebyla k dokladu #${documentId} vložena podruhé.`,
+        method: "POST",
+        path: `/billing/documents/${documentId}/references`,
+      });
+      return;
+    }
     const [created] = await tx.insert(billingDocumentReferencesTable).values({
       documentId,
       referenceType,
@@ -2824,6 +2878,17 @@ export async function updateReference(
   if (input.matchConfirmed === true) patch.rejected = 0;
   if (input.rejected === true) patch.matchConfirmed = 0;
   if (input.notes !== undefined) patch.notes = input.notes;
+  if (
+    input.matchedJobId !== undefined ||
+    input.matchedDocumentId !== undefined ||
+    input.matchedAttachmentId !== undefined ||
+    input.matchConfirmed !== undefined ||
+    input.rejected !== undefined
+  ) {
+    // Once a person adjudicates an AI-extracted reference, it is manual state.
+    // This also prevents a forced AI reanalysis from deleting the decision.
+    patch.source = "manual";
+  }
 
   await db.transaction(async (tx) => {
     await lockDocumentForReferenceEdit(tx, documentId);
@@ -2837,6 +2902,27 @@ export async function updateReference(
         ),
       );
     if (!ref) throw appError(404, "Reference nenalezena.");
+    if (input.matchConfirmed === true) {
+      const matchedDocumentId = input.matchedDocumentId !== undefined ? input.matchedDocumentId : ref.matchedDocumentId;
+      if (matchedDocumentId != null) {
+        const [matchedDocument] = await tx
+          .select()
+          .from(billingDocumentsTable)
+          .where(eq(billingDocumentsTable.id, matchedDocumentId));
+        if (!matchedDocument) {
+          throw appError(409, "Párovaný doklad již neexistuje.");
+        }
+        if (matchedDocument.docType !== "delivery_note") {
+          throw appError(409, "Fakturu lze tímto způsobem spárovat pouze s dodacím listem.");
+        }
+        const derivedJobId = await deliveryNoteJobId(tx, matchedDocument);
+        const selectedJobId = input.matchedJobId !== undefined ? input.matchedJobId : ref.matchedJobId;
+        if (derivedJobId != null && selectedJobId != null && selectedJobId !== derivedJobId) {
+          throw appError(409, "Vybraná zakázka neodpovídá jednoznačné zakázce dodacího listu.");
+        }
+        if (derivedJobId != null) patch.matchedJobId = derivedJobId;
+      }
+    }
     await tx
       .update(billingDocumentReferencesTable)
       .set(patch)
@@ -2941,6 +3027,7 @@ export async function matchDocumentReferences(documentId: number) {
 
   for (const ref of refs) {
     if (ref.matchConfirmed === 1 || ref.rejected === 1) continue;
+    if (ref.source === "manual" && ref.matchedJobId != null) continue;
     const ranked = rankJobsForReference(ref.referenceNumber, jobs, {
       documentCustomerId: doc.customerId,
     });
@@ -3166,17 +3253,7 @@ async function deliveryNoteJobId(
   tx: DbOrTx,
   deliveryNote: BillingDocument,
 ): Promise<number | null> {
-  if (deliveryNote.jobId != null) return deliveryNote.jobId;
-  const refs = await tx
-    .select()
-    .from(billingDocumentReferencesTable)
-    .where(eq(billingDocumentReferencesTable.documentId, deliveryNote.id));
-  const jobIds = new Set<number>();
-  for (const ref of refs) {
-    if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
-      jobIds.add(ref.matchedJobId);
-    }
-  }
+  const jobIds = await directDocumentJobIdsTx(tx, deliveryNote, true);
   return jobIds.size === 1 ? (jobIds.values().next().value ?? null) : null;
 }
 
@@ -3232,13 +3309,17 @@ async function persistDocumentRelationship(
     const relevantRefs = invoiceRefs.filter(
       (ref) =>
         ref.matchedDocumentId === deliveryNote.id ||
-        normalized(ref.referenceNumber) === linkKey,
+        (DELIVERY_NOTE_REFERENCE_TYPE_SET.has(ref.referenceType) &&
+          normalized(ref.referenceNumber) === linkKey),
     );
     if (relevantRefs.some((ref) => ref.rejected === 1)) {
       return { linked: false, confirmed: false };
     }
 
     const existing =
+      relevantRefs.find(
+        (ref) => ref.matchedDocumentId === deliveryNote.id && ref.matchConfirmed === 1,
+      ) ??
       relevantRefs.find((ref) => ref.matchedDocumentId === deliveryNote.id) ??
       relevantRefs[0];
     if (
@@ -3261,7 +3342,7 @@ async function persistDocumentRelationship(
       cfg.autoConfirmEnabled && suggestion.score >= cfg.autoConfirmMinScore;
     const confirmed = existing?.matchConfirmed === 1 || autoConfirmed;
     const nextMatchedJobId =
-      existing?.matchConfirmed === 1
+      existing?.matchConfirmed === 1 && existing.matchedJobId != null
         ? existing.matchedJobId
         : (matchedJobId ?? existing?.matchedJobId ?? null);
     const nextConfidence = String(suggestion.score);
@@ -3278,6 +3359,9 @@ async function persistDocumentRelationship(
       await tx
         .update(billingDocumentReferencesTable)
         .set({
+          ...(!DELIVERY_NOTE_REFERENCE_TYPE_SET.has(existing.referenceType)
+            ? { referenceType: "delivery_note" }
+            : {}),
           matchedDocumentId: deliveryNote.id,
           matchedJobId: nextMatchedJobId,
           matchConfidence: nextConfidence,
@@ -3549,6 +3633,18 @@ export async function updateLine(
   actor: Actor = SYSTEM_ACTOR,
 ) {
   return db.transaction(async (tx) => {
+    await tx.execute(sql`select id from billing_documents where id = ${documentId} for update`);
+    const [document] = await tx
+      .select({ status: billingDocumentsTable.status })
+      .from(billingDocumentsTable)
+      .where(eq(billingDocumentsTable.id, documentId));
+    if (!document) throw appError(404, "Doklad nenalezen.");
+    if (document.status === "approved") {
+      throw appError(409, "Schválený doklad nelze upravovat. Nejprve jej vraťte ke kontrole.");
+    }
+    if (input.approved !== undefined) {
+      throw appError(400, "Schválení položky řídí pouze akce Schválit doklad.");
+    }
     const [line] = await tx
       .select()
       .from(billingDocumentLinesTable)
@@ -3598,8 +3694,6 @@ export async function updateLine(
       patch.allocationType = input.allocationType;
     if (input.matchConfirmed !== undefined && input.matchConfirmed != null)
       patch.matchConfirmed = input.matchConfirmed ? 1 : 0;
-    if (input.approved !== undefined && input.approved != null)
-      patch.approved = input.approved ? 1 : 0;
 
     await tx
       .update(billingDocumentLinesTable)
@@ -3799,41 +3893,102 @@ async function resolveSingleAttachmentJobIdTx(
   tx: DbOrTx,
   doc: BillingDocument,
 ): Promise<number | null> {
-  const conds = [];
-  if (doc.objectPath) conds.push(eq(attachmentsTable.url, doc.objectPath));
-  if (doc.fileName) conds.push(eq(attachmentsTable.fileName, doc.fileName));
-  if (conds.length === 0) return null;
-
-  const rows = await tx
-    .select({ jobId: attachmentsTable.jobId })
-    .from(attachmentsTable)
-    .where(
-      and(
-        inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)),
-        conds.length === 1 ? conds[0] : or(...conds),
-      ),
+  const lookup = async (condition: SQL): Promise<{ found: boolean; jobId: number | null }> => {
+    const rows = await tx
+      .select({ jobId: attachmentsTable.jobId })
+      .from(attachmentsTable)
+      .where(and(inArray(attachmentsTable.type, Array.from(DOKLAD_TYPES)), condition));
+    const jobIds = Array.from(
+      new Set(rows.map((row) => row.jobId).filter((id): id is number => id != null)),
     );
-  const jobIds = Array.from(new Set(rows.map((r) => r.jobId)));
-  return jobIds.length === 1 ? jobIds[0] : null;
+    return {
+      found: rows.length > 0,
+      jobId: jobIds.length === 1 ? jobIds[0] : null,
+    };
+  };
+
+  // Prefer the explicit FK. Legacy URL/filename fallbacks are consulted only
+  // when no directly linked attachment exists, so a common filename cannot
+  // make an otherwise unambiguous document look cross-job ambiguous.
+  const direct = await lookup(eq(attachmentsTable.billingDocumentId, doc.id));
+  if (direct.found) return direct.jobId;
+
+  if (doc.objectPath) {
+    const byUrl = await lookup(eq(attachmentsTable.url, doc.objectPath));
+    if (byUrl.found) return byUrl.jobId;
+  }
+  if (doc.fileName) {
+    const byFileName = await lookup(eq(attachmentsTable.fileName, doc.fileName));
+    if (byFileName.found) return byFileName.jobId;
+  }
+  return null;
+}
+
+async function directDocumentJobIdsTx(
+  tx: DbOrTx,
+  doc: BillingDocument,
+  includeLineJobs: boolean,
+): Promise<Set<number>> {
+  const jobIds = new Set<number>();
+  if (doc.jobId != null) {
+    jobIds.add(doc.jobId);
+  } else {
+    const attachmentJobId = await resolveSingleAttachmentJobIdTx(tx, doc);
+    if (attachmentJobId != null) jobIds.add(attachmentJobId);
+  }
+
+  const refs = await tx
+    .select({
+      matchedJobId: billingDocumentReferencesTable.matchedJobId,
+      matchedAttachmentId: billingDocumentReferencesTable.matchedAttachmentId,
+      matchConfirmed: billingDocumentReferencesTable.matchConfirmed,
+      rejected: billingDocumentReferencesTable.rejected,
+    })
+    .from(billingDocumentReferencesTable)
+    .where(eq(billingDocumentReferencesTable.documentId, doc.id));
+  const matchedAttachmentIds: number[] = [];
+  for (const ref of refs) {
+    if (ref.matchConfirmed !== 1 || ref.rejected === 1) continue;
+    if (ref.matchedJobId != null) jobIds.add(ref.matchedJobId);
+    if (ref.matchedAttachmentId != null) {
+      matchedAttachmentIds.push(ref.matchedAttachmentId);
+    }
+  }
+  if (matchedAttachmentIds.length > 0) {
+    const attachmentJobs = await tx
+      .select({ jobId: attachmentsTable.jobId })
+      .from(attachmentsTable)
+      .where(inArray(attachmentsTable.id, matchedAttachmentIds));
+    for (const attachment of attachmentJobs) {
+      if (attachment.jobId != null) jobIds.add(attachment.jobId);
+    }
+  }
+
+  if (includeLineJobs) {
+    const lines = await tx
+      .select({ jobId: billingDocumentLinesTable.jobId })
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, doc.id));
+    for (const line of lines) {
+      if (line.jobId != null) jobIds.add(line.jobId);
+    }
+  }
+  return jobIds;
 }
 
 async function confirmedTargetJobIds(
   tx: DbOrTx,
   doc: BillingDocument,
+  opts: { includeOwnLineJobs?: boolean } = {},
 ): Promise<Set<number>> {
-  const jobIds = new Set<number>();
-  if (doc.jobId != null) jobIds.add(doc.jobId);
-  if (doc.jobId == null) {
-    const attachmentJobId = await resolveSingleAttachmentJobIdTx(tx, doc);
-    if (attachmentJobId != null) jobIds.add(attachmentJobId);
-  }
+  const jobIds = await directDocumentJobIdsTx(tx, doc, opts.includeOwnLineJobs ?? true);
   const refs = await tx
     .select()
     .from(billingDocumentReferencesTable)
     .where(eq(billingDocumentReferencesTable.documentId, doc.id));
   const linkedDocumentIds: number[] = [];
   for (const ref of refs) {
-    if (ref.matchConfirmed !== 1) continue;
+    if (ref.matchConfirmed !== 1 || ref.rejected === 1) continue;
     if (ref.matchedJobId != null) jobIds.add(ref.matchedJobId);
     if (ref.matchedDocumentId != null) linkedDocumentIds.push(ref.matchedDocumentId);
   }
@@ -3844,15 +3999,9 @@ async function confirmedTargetJobIds(
     .from(billingDocumentsTable)
     .where(inArray(billingDocumentsTable.id, linkedDocumentIds));
   for (const linkedDocument of linkedDocuments) {
-    if (linkedDocument.jobId != null) jobIds.add(linkedDocument.jobId);
-  }
-  const linkedRefs = await tx
-    .select()
-    .from(billingDocumentReferencesTable)
-    .where(inArray(billingDocumentReferencesTable.documentId, linkedDocumentIds));
-  for (const ref of linkedRefs) {
-    if (ref.matchConfirmed === 1 && ref.matchedJobId != null) {
-      jobIds.add(ref.matchedJobId);
+    const linkedJobIds = await directDocumentJobIdsTx(tx, linkedDocument, true);
+    for (const jobId of linkedJobIds) {
+      jobIds.add(jobId);
     }
   }
   return jobIds;
@@ -3902,7 +4051,9 @@ export async function syncJobMaterialsForDocument(
   // matches the target-job set used by propagateInvoicePricesToJobMaterials.
   let fallbackJobId: number | null = doc.jobId ?? null;
   if (fallbackJobId == null) {
-    const targetJobIds = await confirmedTargetJobIds(tx, doc);
+    const targetJobIds = await confirmedTargetJobIds(tx, doc, {
+      includeOwnLineJobs: false,
+    });
     if (targetJobIds.size === 1) {
       fallbackJobId = targetJobIds.values().next().value ?? null;
     }
@@ -4179,6 +4330,9 @@ export async function propagateInvoicePricesToJobMaterials(
   // whose match has been confirmed. Without a confirmed link we do nothing.
   const targetJobIds = await confirmedTargetJobIds(tx, doc);
   if (targetJobIds.size === 0) return empty;
+  const fallbackTargetJobIds = await confirmedTargetJobIds(tx, doc, {
+    includeOwnLineJobs: false,
+  });
 
   // Invoice material lines that can carry a price.
   const invoiceLines = (
@@ -4191,6 +4345,7 @@ export async function propagateInvoicePricesToJobMaterials(
       !l.feeType &&
       l.lineType === "material" &&
       l.allocationType === REBILL_ALLOC &&
+      l.activityId == null &&
       l.unitPriceWithoutVat != null &&
       num(l.unitPriceWithoutVat) > 0,
   );
@@ -4253,6 +4408,8 @@ export async function propagateInvoicePricesToJobMaterials(
   let filled = 0;
 
   for (const line of invoiceLines) {
+    const lineTargetJobIds = line.jobId != null ? new Set([line.jobId]) : fallbackTargetJobIds;
+    if (lineTargetJobIds.size !== 1) continue;
     const lineMatchable: MatchableLine = {
       ean: line.ean,
       supplierSku: line.supplierSku,
@@ -4264,6 +4421,7 @@ export async function propagateInvoicePricesToJobMaterials(
       null;
     for (const m of candidateMaterials) {
       if (usedMaterialIds.has(m.id)) continue;
+      if (!lineTargetJobIds.has(m.jobId)) continue;
       const score = scoreLineMatch(lineMatchable, materialMatchable(m)).score;
       if (score >= cfg.autoLinkMinScore && (!best || score > best.score)) {
         best = { material: m, score };
@@ -4590,6 +4748,47 @@ async function assertInvoiceDeliveryNotesReady(
   );
 }
 
+async function assertRebillTargetsReady(tx: DbOrTx, doc: BillingDocument): Promise<void> {
+  const materialLines = (
+    await tx
+      .select({
+        id: billingDocumentLinesTable.id,
+        description: billingDocumentLinesTable.description,
+        lineType: billingDocumentLinesTable.lineType,
+        feeType: billingDocumentLinesTable.feeType,
+        allocationType: billingDocumentLinesTable.allocationType,
+        jobId: billingDocumentLinesTable.jobId,
+        activityId: billingDocumentLinesTable.activityId,
+      })
+      .from(billingDocumentLinesTable)
+      .where(eq(billingDocumentLinesTable.documentId, doc.id))
+  ).filter(
+    (line) =>
+      line.lineType === "material" &&
+      !line.feeType &&
+      line.allocationType === REBILL_ALLOC,
+  );
+  if (materialLines.length === 0) return;
+
+  const fallbackJobIds = await confirmedTargetJobIds(tx, doc, {
+    includeOwnLineJobs: false,
+  });
+  for (const line of materialLines) {
+    if (line.activityId != null || line.jobId != null) continue;
+    if (fallbackJobIds.size === 1) continue;
+    if (fallbackJobIds.size === 0) {
+      throw appError(
+        409,
+        `Materiál „${line.description}“ nemá cílovou zakázku. Vyberte zakázku nebo změňte položku na sklad, interní spotřebu či nefakturovat.`,
+      );
+    }
+    throw appError(
+      409,
+      `Materiál „${line.description}“ má více možných cílových zakázek. Vyberte zakázku přímo na této položce.`,
+    );
+  }
+}
+
 export async function approveDocument(id: number, actor: Actor) {
   await db.transaction(async (tx) => {
     await tx.execute(
@@ -4630,6 +4829,7 @@ export async function approveDocument(id: number, actor: Actor) {
       doc.jobId == null ? await resolveSingleAttachmentJobIdTx(tx, doc) : null;
     await assertCompleteBeforeTerminalAction(tx, doc, "approve");
     await assertInvoiceDeliveryNotesReady(tx, doc);
+    await assertRebillTargetsReady(tx, doc);
     await tx
       .update(billingDocumentsTable)
       .set({
@@ -4640,6 +4840,13 @@ export async function approveDocument(id: number, actor: Actor) {
         updatedAt: new Date(),
       })
       .where(eq(billingDocumentsTable.id, id));
+    // Document approval is the single human confirmation step. Preserve the
+    // legacy line flag for compatibility, but do not require a second click on
+    // every default-rebill material row.
+    await tx
+      .update(billingDocumentLinesTable)
+      .set({ matchConfirmed: 1, updatedAt: new Date() })
+      .where(eq(billingDocumentLinesTable.documentId, id));
     // Mark re-billable lines approved; internal/stock/not-rebilled stay out.
     await tx
       .update(billingDocumentLinesTable)
@@ -6013,6 +6220,12 @@ export async function applyAiSuggestion(
   options: ApplyAiSuggestionOptions = {},
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    // Serialize AI replacement with manual reference edits and relationship
+    // reconciliation. Without the shared document lock, a forced reanalysis
+    // could race a human confirmation between SELECT/DELETE/UPDATE steps.
+    await tx.execute(
+      sql`select id from billing_documents where id = ${documentId} for update`,
+    );
     const [doc] = await tx
       .select()
       .from(billingDocumentsTable)
@@ -6203,6 +6416,8 @@ export async function applyAiSuggestion(
           and(
             eq(billingDocumentReferencesTable.documentId, documentId),
             eq(billingDocumentReferencesTable.source, "ai"),
+            eq(billingDocumentReferencesTable.matchConfirmed, 0),
+            eq(billingDocumentReferencesTable.rejected, 0),
           ),
         );
     }
@@ -6216,9 +6431,7 @@ export async function applyAiSuggestion(
         .from(billingDocumentReferencesTable)
         .where(eq(billingDocumentReferencesTable.documentId, documentId));
       const seen = new Set(
-        existingRefs.map(
-          (r) => `${r.referenceType}::${r.referenceNumber.toLowerCase()}`,
-        ),
+        existingRefs.map((r) => logicalReferenceKey(r.referenceType, r.referenceNumber)),
       );
       const toInsert = suggestion.relatedDocuments
         .filter((r) => r.referenceNumber.trim())
@@ -6229,7 +6442,7 @@ export async function applyAiSuggestion(
           referenceNumber: r.referenceNumber.trim(),
         }))
         .filter((r) => {
-          const key = `${r.referenceType}::${r.referenceNumber.toLowerCase()}`;
+          const key = logicalReferenceKey(r.referenceType, r.referenceNumber);
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
@@ -6372,7 +6585,8 @@ function computeReasons(
     matchConfirmed: number;
     confidence: string | null;
   },
-  doc: { status: string },
+  doc: { status: string; jobId: number | null },
+  confirmedReferenceJobId: number | null,
   warehouseMatch: WarehouseLookupItem | null,
   unitPrice: number,
 ): { reasons: ReviewReason[]; priceChangePercent: number | null; previousPrice: number | null } {
@@ -6386,16 +6600,16 @@ function computeReasons(
   }
 
   const isMaterial = line.lineType === "material" && !line.feeType;
+  const hasEffectiveJob = line.jobId != null || doc.jobId != null || confirmedReferenceJobId != null;
 
   const reasons: ReviewReason[] = [];
-  if (doc.status === "needs_review") reasons.push("needs_review");
   if (line.confidence != null && num(line.confidence) < REVIEW_CONFIDENCE_THRESHOLD) {
     reasons.push("low_confidence");
   }
-  if (isMaterial && line.allocationType === "rebill" && !line.jobId && !line.matchConfirmed) {
+  if (isMaterial && line.allocationType === "rebill" && !hasEffectiveJob) {
     reasons.push("missing_job");
   }
-  if (isMaterial && warehouseMatch === null) {
+  if (isMaterial && line.allocationType === "stock" && warehouseMatch === null) {
     reasons.push("missing_warehouse_item");
   }
   if (priceChangePercent !== null && Math.abs(priceChangePercent) >= PRICE_JUMP_THRESHOLD_PERCENT) {
@@ -6413,13 +6627,9 @@ export async function listReviewQueue(opts: {
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(200, Math.max(1, opts.pageSize ?? 50));
 
-  // Fetch ALL non-approved, non-confirmed, non-invoiced lines from open documents.
-  // matchConfirmed=0 is enforced at SQL level so confirmed lines stay hidden even
-  // when a document is re-set to needs_review — returnReviewLines explicitly resets
-  // matchConfirmed=0 for lines that should come back.
-  // We intentionally widen the remaining SQL filter and compute reasons in-memory
-  // so every trigger (missing warehouse item, price jump, etc.) is covered —
-  // not just confidence and document status.
+  // Fetch non-approved, non-invoiced lines from open documents and derive only
+  // live exceptions. The legacy matchConfirmed flag must not hide an unresolved
+  // job, stock-card or price anomaly.
   const allRows = await db
     .select({
       line: billingDocumentLinesTable,
@@ -6431,6 +6641,7 @@ export async function listReviewQueue(opts: {
         documentNumber: billingDocumentsTable.documentNumber,
         variableSymbol: billingDocumentsTable.variableSymbol,
         issueDate: billingDocumentsTable.issueDate,
+        jobId: billingDocumentsTable.jobId,
       },
     })
     .from(billingDocumentLinesTable)
@@ -6441,7 +6652,6 @@ export async function listReviewQueue(opts: {
     .where(
       and(
         eq(billingDocumentLinesTable.approved, 0),
-        eq(billingDocumentLinesTable.matchConfirmed, 0),
         isNull(billingDocumentLinesTable.invoicedInvoiceId),
         inArray(billingDocumentsTable.status, [...OPEN_DOC_STATUSES]),
       ),
@@ -6454,6 +6664,7 @@ export async function listReviewQueue(opts: {
   // Batch-query confirmed/suggested jobs from document references
   const allDocIds = [...new Set(allRows.map((r) => r.doc.id))];
   const suggestedJobByDocId = new Map<number, { jobId: number; jobTitle: string }>();
+  const confirmedJobIdsByDocId = new Map<number, Set<number>>();
 
   if (allDocIds.length > 0) {
     const refs = await db
@@ -6485,6 +6696,11 @@ export async function listReviewQueue(opts: {
           jobTitle: ref.jobTitle,
         });
       }
+      if (ref.matchedJobId && ref.matchConfirmed === 1) {
+        const jobIds = confirmedJobIdsByDocId.get(ref.documentId) ?? new Set<number>();
+        jobIds.add(ref.matchedJobId);
+        confirmedJobIdsByDocId.set(ref.documentId, jobIds);
+      }
     }
   }
 
@@ -6496,10 +6712,14 @@ export async function listReviewQueue(opts: {
     const doc = r.doc;
     const unitPrice = num(line.unitPriceWithoutVat);
     const warehouseMatch = matchLineToWarehouse(line, warehouseMaps);
+    const confirmedJobIds = confirmedJobIdsByDocId.get(doc.id) ?? new Set<number>();
+    const confirmedReferenceJobId =
+      confirmedJobIds.size === 1 ? (confirmedJobIds.values().next().value ?? null) : null;
 
     const { reasons, priceChangePercent, previousPrice } = computeReasons(
       line,
       doc,
+      confirmedReferenceJobId,
       warehouseMatch,
       unitPrice,
     );
@@ -6600,15 +6820,41 @@ export async function bulkConfirmReviewLines(
       ),
     );
 
-  // Batch-load doc statuses for lines (needed for needs_review reason)
+  // Batch-load document fallback jobs for accurate exception reporting.
   const allDocIds = [...new Set(lines.map((l) => l.documentId))];
-  const docStatusMap = new Map<number, string>();
+  const docById = new Map<number, { status: string; jobId: number | null }>();
+  const confirmedJobIdsByDocId = new Map<number, Set<number>>();
   if (allDocIds.length > 0) {
     const docs = await db
-      .select({ id: billingDocumentsTable.id, status: billingDocumentsTable.status })
+      .select({
+        id: billingDocumentsTable.id,
+        status: billingDocumentsTable.status,
+        jobId: billingDocumentsTable.jobId,
+      })
       .from(billingDocumentsTable)
       .where(inArray(billingDocumentsTable.id, allDocIds));
-    for (const d of docs) docStatusMap.set(d.id, d.status);
+    for (const document of docs) docById.set(document.id, document);
+
+    const refs = await db
+      .select({
+        documentId: billingDocumentReferencesTable.documentId,
+        matchedJobId: billingDocumentReferencesTable.matchedJobId,
+      })
+      .from(billingDocumentReferencesTable)
+      .where(
+        and(
+          inArray(billingDocumentReferencesTable.documentId, allDocIds),
+          eq(billingDocumentReferencesTable.matchConfirmed, 1),
+          eq(billingDocumentReferencesTable.rejected, 0),
+          isNotNull(billingDocumentReferencesTable.matchedJobId),
+        ),
+      );
+    for (const ref of refs) {
+      if (ref.matchedJobId == null) continue;
+      const jobIds = confirmedJobIdsByDocId.get(ref.documentId) ?? new Set<number>();
+      jobIds.add(ref.matchedJobId);
+      confirmedJobIdsByDocId.set(ref.documentId, jobIds);
+    }
   }
 
   // Task #685 (risk #5): lines belonging to a document already merged away
@@ -6617,7 +6863,7 @@ export async function bulkConfirmReviewLines(
   // primary's already-applied stock/price effects. Silently drop them
   // (never count as toConfirm) rather than 500 the whole batch over stale
   // line ids a client happened to still have selected.
-  const liveLines = lines.filter((l) => docStatusMap.get(l.documentId) !== "duplicate");
+  const liveLines = lines.filter((line) => docById.get(line.documentId)?.status !== "duplicate");
 
   // Resolve warehouse matches to compute accurate diff fields
   const warehouseMaps = await loadWarehouseLookupMaps();
@@ -6632,21 +6878,33 @@ export async function bulkConfirmReviewLines(
   for (const l of liveLines) {
     const unitPrice = num(l.unitPriceWithoutVat);
     const warehouseMatch = matchLineToWarehouse(l, warehouseMaps);
-    const docStatus = docStatusMap.get(l.documentId) ?? "";
-    const { reasons } = computeReasons(l, { status: docStatus }, warehouseMatch, unitPrice);
+    const document = docById.get(l.documentId) ?? {
+      status: "",
+      jobId: null,
+    };
+    const confirmedJobIds = confirmedJobIdsByDocId.get(l.documentId) ?? new Set<number>();
+    const confirmedReferenceJobId =
+      confirmedJobIds.size === 1 ? (confirmedJobIds.values().next().value ?? null) : null;
+    const { reasons } = computeReasons(
+      l,
+      document,
+      confirmedReferenceJobId,
+      warehouseMatch,
+      unitPrice,
+    );
 
     if (reasons.includes("price_jump")) priceJumps++;
     if (reasons.includes("missing_warehouse_item")) missingWarehouseItemCount++;
     if (reasons.includes("missing_job")) missingJobCount++;
-    if (l.jobId != null) {
+    const effectiveJobId = l.jobId ?? document.jobId ?? confirmedReferenceJobId;
+    if (effectiveJobId != null) {
       withJobAssigned++;
-      affectedJobIdSet.add(l.jobId);
+      affectedJobIdSet.add(effectiveJobId);
     }
 
-    // After confirmation matchConfirmed=1 so missing_job disappears.
-    // Any other remaining reasons mean the line still needs attention.
-    const persistingReasons = reasons.filter((r) => r !== "missing_job");
-    if (persistingReasons.length > 0) stillUnresolved++;
+    // Confirmation is a legacy acknowledgement only. A live exception remains
+    // visible until its underlying value is fixed or the document is approved.
+    if (reasons.length > 0) stillUnresolved++;
   }
 
   const alreadyConfirmed = liveLines.filter((l) => !!l.matchConfirmed).length;

@@ -272,6 +272,292 @@ describe("job invoice lifecycle (issue / storno) end-to-end", () => {
     );
   });
 
+  it("groups equal historical rates in summary but keeps workers separate without changing totals or reservations", async () => {
+    const jobId = await makeDoneJob();
+    await db
+      .update(jobsTable)
+      .set({ price: "0", pricingMode: "time_material" })
+      .where(eq(jobsTable.id, jobId));
+
+    const people = await db
+      .insert(peopleTable)
+      .values([
+        { name: `Adam ${TAG}` },
+        { name: `Boris ${TAG}` },
+      ])
+      .returning();
+    personIds.push(...people.map((person) => person.id));
+    const rates = await db
+      .insert(personHourlyRatesTable)
+      .values(
+        people.map((person) => ({
+          personId: person.id,
+          validFrom: "2026-01-01",
+          costRate: "500",
+          saleRate: "800",
+          reason: "Stejná testovací sazba",
+          createdByUserId: actor.userId,
+        })),
+      )
+      .returning();
+    const rateByPersonId = new Map(
+      rates.map((rate) => [rate.personId, rate]),
+    );
+    const sessions = await db
+      .insert(workSessionsTable)
+      .values([
+        {
+          personId: people[0].id,
+          parentType: "job",
+          parentIdSnapshot: jobId,
+          jobId,
+          startedAt: new Date("2026-06-27T08:00:00Z"),
+          endedAt: new Date("2026-06-27T10:00:00Z"),
+          durationSeconds: 7_200,
+          status: "completed",
+          source: "manual",
+          hourlyRateId: rateByPersonId.get(people[0].id)!.id,
+          costRateSnapshot: "500",
+          saleRateSnapshot: "800",
+        },
+        {
+          personId: people[1].id,
+          parentType: "job",
+          parentIdSnapshot: jobId,
+          jobId,
+          startedAt: new Date("2026-06-27T10:00:00Z"),
+          endedAt: new Date("2026-06-27T11:30:00Z"),
+          durationSeconds: 5_400,
+          status: "completed",
+          source: "manual",
+          hourlyRateId: rateByPersonId.get(people[1].id)!.id,
+          costRateSnapshot: "500",
+          saleRateSnapshot: "800",
+        },
+      ])
+      .returning();
+
+    const summaryDraft = await createDraft(
+      {
+        customerId,
+        jobIds: [jobId],
+        labourBillingMode: "recorded_time",
+        workGrouping: "summary",
+      },
+      actor,
+    );
+    invoiceIds.push(summaryDraft.id);
+    const summaryLines = (
+      await db
+        .select()
+        .from(invoiceLinesTable)
+        .where(eq(invoiceLinesTable.invoiceId, summaryDraft.id))
+    ).filter((line) => line.sourceType === "work_session");
+    const summaryReservations = await db
+      .select()
+      .from(workSessionBillingLinksTable)
+      .where(eq(workSessionBillingLinksTable.invoiceId, summaryDraft.id));
+
+    expect(summaryLines).toHaveLength(1);
+    expect(Number(summaryLines[0].quantity)).toBe(3.5);
+    expect(Number(summaryLines[0].unitPriceWithoutVat)).toBe(800);
+    expect(Number(summaryLines[0].totalWithoutVat)).toBe(2_800);
+    expect(summaryReservations).toHaveLength(2);
+
+    const summaryReservationSnapshot = summaryReservations
+      .map((link) => ({
+        sessionId: link.sessionId,
+        seconds: link.durationSecondsSnapshot,
+        rate: Number(link.saleRateSnapshot),
+        amount: Number(link.amountWithoutVatSnapshot),
+      }))
+      .sort((a, b) => a.sessionId - b.sessionId);
+    expect(summaryReservationSnapshot.map((item) => item.sessionId)).toEqual(
+      sessions.map((session) => session.id).sort((a, b) => a - b),
+    );
+
+    await deleteDraft(summaryDraft.id, actor);
+
+    const workerDraft = await createDraft(
+      {
+        customerId,
+        jobIds: [jobId],
+        labourBillingMode: "recorded_time",
+        workGrouping: "worker",
+      },
+      actor,
+    );
+    invoiceIds.push(workerDraft.id);
+    const workerLines = (
+      await db
+        .select()
+        .from(invoiceLinesTable)
+        .where(eq(invoiceLinesTable.invoiceId, workerDraft.id))
+    ).filter((line) => line.sourceType === "work_session");
+    const workerReservations = await db
+      .select()
+      .from(workSessionBillingLinksTable)
+      .where(eq(workSessionBillingLinksTable.invoiceId, workerDraft.id));
+
+    expect(workerLines).toHaveLength(2);
+    expect(workerLines.map((line) => line.description)).toEqual(
+      expect.arrayContaining(
+        people.map((person) => expect.stringContaining(person.name)),
+      ),
+    );
+    expect(
+      workerLines.reduce(
+        (total, line) => total + Number(line.totalWithoutVat),
+        0,
+      ),
+    ).toBe(Number(summaryLines[0].totalWithoutVat));
+    expect(workerDraft.subtotalWithoutVat).toBe(summaryDraft.subtotalWithoutVat);
+
+    const workerReservationSnapshot = workerReservations
+      .map((link) => ({
+        sessionId: link.sessionId,
+        seconds: link.durationSecondsSnapshot,
+        rate: Number(link.saleRateSnapshot),
+        amount: Number(link.amountWithoutVatSnapshot),
+      }))
+      .sort((a, b) => a.sessionId - b.sessionId);
+    expect(workerReservationSnapshot).toEqual(summaryReservationSnapshot);
+  });
+
+  it("keeps two historical rates of one worker on separate summary lines", async () => {
+    const jobId = await makeDoneJob();
+    await db
+      .update(jobsTable)
+      .set({ price: "0", pricingMode: "time_material" })
+      .where(eq(jobsTable.id, jobId));
+    const [person] = await db
+      .insert(peopleTable)
+      .values({ name: `Sazby ${TAG}` })
+      .returning();
+    personIds.push(person.id);
+    const rates = await db
+      .insert(personHourlyRatesTable)
+      .values([
+        {
+          personId: person.id,
+          validFrom: "2026-01-01",
+          validTo: "2026-06-26",
+          costRate: "500",
+          saleRate: "800",
+          reason: "Původní testovací sazba",
+          createdByUserId: actor.userId,
+        },
+        {
+          personId: person.id,
+          validFrom: "2026-06-27",
+          costRate: "600",
+          saleRate: "1000",
+          reason: "Nová testovací sazba",
+          createdByUserId: actor.userId,
+        },
+      ])
+      .returning();
+    await db.insert(workSessionsTable).values([
+      {
+        personId: person.id,
+        parentType: "job",
+        parentIdSnapshot: jobId,
+        jobId,
+        startedAt: new Date("2026-06-26T08:00:00Z"),
+        endedAt: new Date("2026-06-26T09:00:00Z"),
+        durationSeconds: 3_600,
+        status: "completed",
+        source: "manual",
+        hourlyRateId: rates[0].id,
+        costRateSnapshot: "500",
+        saleRateSnapshot: "800",
+      },
+      {
+        personId: person.id,
+        parentType: "job",
+        parentIdSnapshot: jobId,
+        jobId,
+        startedAt: new Date("2026-06-27T08:00:00Z"),
+        endedAt: new Date("2026-06-27T09:00:00Z"),
+        durationSeconds: 3_600,
+        status: "completed",
+        source: "manual",
+        hourlyRateId: rates[1].id,
+        costRateSnapshot: "600",
+        saleRateSnapshot: "1000",
+      },
+    ]);
+
+    const draft = await createDraft(
+      {
+        customerId,
+        jobIds: [jobId],
+        labourBillingMode: "recorded_time",
+        workGrouping: "summary",
+      },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+    const workLines = (
+      await db
+        .select()
+        .from(invoiceLinesTable)
+        .where(eq(invoiceLinesTable.invoiceId, draft.id))
+    ).filter((line) => line.sourceType === "work_session");
+    const reservations = await db
+      .select()
+      .from(workSessionBillingLinksTable)
+      .where(eq(workSessionBillingLinksTable.invoiceId, draft.id));
+
+    expect(workLines).toHaveLength(2);
+    expect(
+      workLines
+        .map((line) => Number(line.unitPriceWithoutVat))
+        .sort((a, b) => a - b),
+    ).toEqual([800, 1000]);
+    expect(workLines.every((line) => Number(line.quantity) === 1)).toBe(true);
+    expect(draft.subtotalWithoutVat).toBe(1_800);
+    expect(reservations).toHaveLength(2);
+  });
+
+  it("does not synthesize recorded work from legacy job hour counters", async () => {
+    const jobId = await makeDoneJob();
+    await db
+      .update(jobsTable)
+      .set({
+        price: "0",
+        pricingMode: "time_material",
+        hoursVasek: "4.50",
+        hoursJonas: "2.25",
+      })
+      .where(eq(jobsTable.id, jobId));
+
+    const draft = await createDraft(
+      {
+        customerId,
+        jobIds: [jobId],
+        labourBillingMode: "recorded_time",
+        workGrouping: "worker",
+      },
+      actor,
+    );
+    invoiceIds.push(draft.id);
+    const workLines = (
+      await db
+        .select()
+        .from(invoiceLinesTable)
+        .where(eq(invoiceLinesTable.invoiceId, draft.id))
+    ).filter((line) => line.sourceType === "work_session");
+    const reservations = await db
+      .select()
+      .from(workSessionBillingLinksTable)
+      .where(eq(workSessionBillingLinksTable.invoiceId, draft.id));
+
+    expect(workLines).toHaveLength(0);
+    expect(reservations).toHaveLength(0);
+    expect(draft.subtotalWithoutVat).toBe(0);
+  });
+
   it("keeps an explicit job transport cost instead of the default kilometre rate", async () => {
     await updateBillingSettings({ transportRatePerKm: 30 });
     const jobId = await makeDoneJob();

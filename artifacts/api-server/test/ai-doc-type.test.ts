@@ -4,6 +4,7 @@ import {
   db,
   billingDocumentsTable,
   billingDocumentLinesTable,
+  billingDocumentReferencesTable,
   invoicesTable,
   jobsTable,
   materialsTable,
@@ -182,6 +183,44 @@ describe("applyAiSuggestion docType", () => {
     await applyAiSuggestion(id, suggestion("proforma"));
     const doc = await getDocument(id);
     expect(doc?.document.docType).toBe("receipt");
+  });
+
+  it("preserves confirmed and rejected AI references during forced reanalysis", async () => {
+    const id = await makeDoc("invoice");
+    await db.insert(billingDocumentReferencesTable).values([
+      {
+        documentId: id,
+        referenceType: "delivery_note",
+        referenceNumber: `DL-${TAG}-CONFIRMED`,
+        source: "ai",
+        matchConfirmed: 1,
+      },
+      {
+        documentId: id,
+        referenceType: "delivery_note",
+        referenceNumber: `DL-${TAG}-REJECTED`,
+        source: "ai",
+        rejected: 1,
+      },
+      {
+        documentId: id,
+        referenceType: "delivery_note",
+        referenceNumber: `DL-${TAG}-PENDING`,
+        source: "ai",
+      },
+    ]);
+
+    await applyAiSuggestion(id, suggestion("invoice"), {
+      replaceExisting: true,
+    });
+
+    const references = await db
+      .select()
+      .from(billingDocumentReferencesTable)
+      .where(eq(billingDocumentReferencesTable.documentId, id));
+    expect(references.map((reference) => reference.referenceNumber).sort()).toEqual(
+      [`DL-${TAG}-CONFIRMED`, `DL-${TAG}-REJECTED`].sort(),
+    );
   });
 
   it("keeps a low AI type confidence visible without auto-approving the document", async () => {

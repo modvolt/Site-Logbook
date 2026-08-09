@@ -33,21 +33,22 @@ describe("billing document action sequencing contract", () => {
     expect(source).toContain("lastSavedFormRef.current = f");
   });
 
-  it("keeps line review focused on assignment and final document approval", () => {
+  it("keeps line review focused on corrections and one final document approval", () => {
     const lineCardStart = source.indexOf("const LineCard =");
     const lineCardEnd = source.indexOf("interface SplitPart", lineCardStart);
     const lineCard = source.slice(lineCardStart, lineCardEnd);
 
     expect(source).not.toContain("handleApproveAll");
     expect(source).not.toContain("Schválit vše");
-    expect(lineCard).toContain("Přiřazení ke zakázce je správně");
-    expect(lineCard).toContain("Nastavení položky je správně");
+    expect(lineCard).not.toContain("Přiřazení ke zakázce je správně");
+    expect(lineCard).not.toContain("Nastavení položky je správně");
+    expect(lineCard).not.toContain("matchConfirmed:");
     expect(lineCard).not.toContain("checked={form.approved}");
     expect(lineCard).not.toContain("approved: f.approved");
     expect(lineCard).toContain("documentActionPending || updateLine.isPending");
   });
 
-  it("saves current line forms before review and final approval", () => {
+  it("saves current line forms only as part of final approval", () => {
     const statusStart = source.indexOf("const handleStatus =");
     const statusEnd = source.indexOf("const handleApprove =", statusStart);
     const approveEnd = source.indexOf(
@@ -57,12 +58,12 @@ describe("billing document action sequencing contract", () => {
     const statusHandler = source.slice(statusStart, statusEnd);
     const approveHandler = source.slice(statusEnd, approveEnd);
 
-    expect(statusHandler).toMatch(
-      /status === "reviewed"[\s\S]*await saveAllLines\(\)[\s\S]*await setStatus\.mutateAsync/,
-    );
+    expect(statusHandler).not.toContain('status === "reviewed"');
+    expect(statusHandler).not.toContain("await saveAllLines()");
     expect(approveHandler).toMatch(
       /await saveAllLines\(\)[\s\S]*await approveDoc\.mutateAsync/,
     );
+    expect(source).not.toContain("> Zkontrolováno");
     expect(source).toContain(
       "const [isDocumentActionPending, setIsDocumentActionPending]",
     );
