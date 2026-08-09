@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useLocation, useRoute } from "wouter";
+import { useRoute } from "wouter";
 import {
   useGetUnbilledCustomerDetail,
   useGetBillingSettings,
@@ -41,6 +41,7 @@ import {
   InvoiceMaterialDisplayControl,
   type MaterialDisplayMode,
 } from "@/components/invoice-material-display-control";
+import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 
 type UnbilledMaterial = UnbilledJob["materials"][number];
 type LabourBillingMode = "automatic" | "job_price" | "recorded_time" | "none";
@@ -185,7 +186,11 @@ function activityOrientationalTotal(
 export default function BillingUnbilledDetail() {
   const [, params] = useRoute("/billing/unbilled/:customerId");
   const customerId = Number(params?.customerId);
-  const [, setLocation] = useLocation();
+  const {
+    goBack,
+    navigate: setLocation,
+    preserveReturnTo,
+  } = useBillingReturnNavigation("/billing/unbilled");
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can } = useAuth();
@@ -494,7 +499,7 @@ export default function BillingUnbilledDetail() {
         onSuccess: (invoice) => {
           invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept faktury vytvořen" });
-          setLocation(`/billing/invoices/${invoice.id}/edit`);
+          setLocation(preserveReturnTo(`/billing/invoices/${invoice.id}/edit`));
         },
         onError: (error) =>
           toast({
@@ -563,7 +568,7 @@ export default function BillingUnbilledDetail() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation("/billing/unbilled")}
+        onClick={goBack}
       >
         <ArrowLeft className="h-4 w-4 mr-1" /> Nevyfakturované zakázky
       </Button>

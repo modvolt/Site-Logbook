@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   useListBillingReviewQueue,
   getListBillingReviewQueueQueryKey,
@@ -59,6 +59,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { invalidateData } from "@/lib/query-invalidation";
 import { AI_CONFIDENCE_LOW } from "@/lib/cost-document-format";
+import {
+  useBillingListNavigation,
+  useBillingReturnNavigation,
+} from "@/hooks/use-billing-navigation";
 
 // ---------------------------------------------------------------------------
 // Reason badge config
@@ -935,12 +939,44 @@ function DocGroupCard({
 
 const PAGE_SIZE = 50;
 
+function readReviewQueueContext(search: string) {
+  const params = new URLSearchParams(search);
+  const requestedReason = params.get("reason");
+  const requestedPage = Number(params.get("page"));
+  const validReasons = Object.values(ListBillingReviewQueueReason) as string[];
+
+  return {
+    reason:
+      requestedReason && validReasons.includes(requestedReason)
+        ? requestedReason
+        : "all",
+    page:
+      Number.isSafeInteger(requestedPage) && requestedPage > 0
+        ? requestedPage
+        : 1,
+  };
+}
+
+function buildReviewQueueSearch(
+  reason: string,
+  page: number,
+  currentSearch: string,
+) {
+  const params = new URLSearchParams(currentSearch);
+  if (reason === "all") params.delete("reason");
+  else params.set("reason", reason);
+  if (page <= 1) params.delete("page");
+  else params.set("page", String(page));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 export default function BillingReviewQueue() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const qc = useQueryClient();
 
-  const [reason, setReason] = useState<string>("all");
-  const [page, setPage] = useState(1);
+  const { reason, page } = readReviewQueueContext(search);
 
   // Skip dialog
   const [skipDialogOpen, setSkipDialogOpen] = useState(false);
@@ -972,6 +1008,18 @@ export default function BillingReviewQueue() {
   const { data, isLoading } = useListBillingReviewQueue(queryParams, {
     query: { queryKey: getListBillingReviewQueueQueryKey(queryParams) },
   });
+  const { openDetail } = useBillingListNavigation(!isLoading);
+  const { goBack, returnTo } = useBillingReturnNavigation("/billing");
+  const backLabel = returnTo.startsWith("/billing/documents")
+    ? "Přijaté doklady"
+    : "Fakturace";
+
+  const updateListContext = (nextReason: string, nextPage: number) => {
+    setLocation(
+      `/billing/documents/review${buildReviewQueueSearch(nextReason, nextPage, search)}`,
+      { replace: true },
+    );
+  };
 
   const { mutateAsync: skipLines } = useSkipReviewLines();
   const { mutateAsync: returnLines } = useReturnReviewLines();
@@ -1151,10 +1199,10 @@ export default function BillingReviewQueue() {
           variant="ghost"
           size="sm"
           className="gap-1.5 text-muted-foreground"
-          onClick={() => setLocation("/billing")}
+          onClick={goBack}
         >
           <ArrowLeft className="h-4 w-4" />
-          Fakturace
+          {backLabel}
         </Button>
         <div className="h-4 w-px bg-border" />
         <h1 className="text-lg font-semibold">Výjimky v položkách</h1>
@@ -1167,10 +1215,7 @@ export default function BillingReviewQueue() {
 
       {/* Filter */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <Select
-          value={reason}
-          onValueChange={(v) => { setReason(v); setPage(1); }}
-        >
+        <Select value={reason} onValueChange={(v) => updateListContext(v, 1)}>
           <SelectTrigger className="w-52 h-8">
             <SelectValue placeholder="Filtr důvodu" />
           </SelectTrigger>
@@ -1224,7 +1269,7 @@ export default function BillingReviewQueue() {
               skippingLine={skippingLine}
               returningLine={returningLine}
               warehouseAssigningLine={warehouseAssigningLine}
-              onOpenDoc={(id) => setLocation(`/billing/documents/${id}`)}
+              onOpenDoc={(id) => openDetail(`/billing/documents/${id}`)}
             />
           ))}
 
@@ -1234,10 +1279,10 @@ export default function BillingReviewQueue() {
                 Strana {page} z {totalPages} · celkem {data?.total ?? 0} řádků
               </span>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => updateListContext(reason, page - 1)}>
                   Předchozí
                 </Button>
-                <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => updateListContext(reason, page + 1)}>
                   Další
                 </Button>
               </div>
