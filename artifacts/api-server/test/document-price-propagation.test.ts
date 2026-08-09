@@ -546,8 +546,13 @@ describe("invoice price propagation", () => {
     expect(filled.priceSource).toBe("invoice");
     expect(Number(filled.pricePerUnit)).toBe(100);
 
-    // Edit the already-consumed invoice line's price upward.
+    // Approved documents are immutable until explicitly returned to review.
+    await expect(updateLine(inv.docId, inv.lineId, { unitPriceWithoutVat: 150 }, actor)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    await setDocumentStatus(inv.docId, "needs_review", actor);
     await updateLine(inv.docId, inv.lineId, { unitPriceWithoutVat: 150 }, actor);
+    await approveDocument(inv.docId, actor);
 
     const mats = await jobMaterials(jobId);
     // Still ONE material — the edit must not create a duplicate.
@@ -583,9 +588,12 @@ describe("invoice price propagation", () => {
     const [filled] = await jobMaterials(jobId);
     expect(filled.priceSource).toBe("invoice");
 
-    // Reassign the line to "stock" (warehouse receipt) → no longer a
+    // Reassign the line to "stock" (warehouse receipt) after returning the
+    // approved document to review → no longer a
     // rebill-to-job material line → revert.
+    await setDocumentStatus(inv.docId, "needs_review", actor);
     await updateLine(inv.docId, inv.lineId, { allocationType: "stock" }, actor);
+    await approveDocument(inv.docId, actor);
 
     const mats = await jobMaterials(jobId);
     expect(mats).toHaveLength(1);
@@ -594,7 +602,7 @@ describe("invoice price propagation", () => {
     expect(mats[0].priceSourceDocumentId).toBeNull();
   });
 
-  it("Task #683c: manual 'Aktualizovat ceny' (updateWarehousePricesFromDocument) fills a job material that missed propagation at approval", async () => {
+  it("Task #683c: approval blocks an invoice that would miss job propagation", async () => {
     const jobId = await makeJob();
     const dn = await makeDoc({
       docType: "delivery_note",
@@ -607,7 +615,7 @@ describe("invoice price propagation", () => {
     });
     await approveDocument(dn.docId, actor);
 
-    // Invoice approved WITHOUT a job link yet (e.g. imported, job confirmed later).
+    // An imported invoice has no job link yet.
     const inv = await makeDoc({
       docType: "invoice",
       status: "needs_review",
@@ -617,20 +625,21 @@ describe("invoice price propagation", () => {
       quantity: "1",
       unitPrice: "300",
     });
-    await approveDocument(inv.docId, actor);
+    await expect(approveDocument(inv.docId, actor)).rejects.toMatchObject({
+      statusCode: 409,
+    });
 
-    // Material is still awaiting invoice — propagation never had a confirmed target.
+    // Material stays awaiting invoice until the missing target is fixed.
     let [mat] = await jobMaterials(jobId);
     expect(mat.priceSource).toBe("awaiting_invoice");
 
-    // Now confirm the job link on the invoice (simulating a later manual match)...
+    // Once the job is assigned, the normal document approval performs the
+    // propagation; no second manual refresh step is needed.
     await db
       .update(billingDocumentsTable)
       .set({ jobId })
       .where(eq(billingDocumentsTable.id, inv.docId));
-
-    // ...and run the manual "Aktualizovat ceny" action.
-    await updateWarehousePricesFromDocument(inv.docId, actor);
+    await approveDocument(inv.docId, actor);
 
     [mat] = await jobMaterials(jobId);
     expect(mat.priceSource).toBe("invoice");
@@ -729,11 +738,14 @@ describe("invoice price propagation", () => {
     const [reserved] = await jobMaterials(jobId);
     expect(reserved.invoicedInvoiceId).toBe(invoice.id);
 
-    // Someone later edits the invoice line's price upward AFTER the material was
-    // already billed. The already-issued invoice line item keeps its own
+    // Someone later returns the supplier invoice to review and edits the line's
+    // price upward AFTER the material was already billed. The already-issued
+    // invoice line item keeps its own
     // captured amount regardless, but the underlying job material must stay
     // frozen at its billed price/state too — never silently rewritten.
+    await setDocumentStatus(inv.docId, "needs_review", actor);
     await updateLine(inv.docId, inv.lineId, { unitPriceWithoutVat: 999 }, actor);
+    await approveDocument(inv.docId, actor);
     let [afterEdit] = await jobMaterials(jobId);
     expect(Number(afterEdit.pricePerUnit)).toBe(40);
     expect(afterEdit.invoicedInvoiceId).toBe(invoice.id);
@@ -964,7 +976,7 @@ describe("invoice price propagation", () => {
     expect(material.priceSourceDocumentId).toBe(invoice.docId);
   });
 
-  it("scenario 11: an exact 80 percent match auto-confirms and propagates its price", async () => {
+  it("scenario 11: an exact reference alone auto-confirms and inherits a line-only delivery-note job", async () => {
     // Enable auto-confirm for this test via the DB singleton.
     await db
       .insert(documentLinkingSettingsTable)
@@ -985,6 +997,10 @@ describe("invoice price propagation", () => {
         quantity: "4",
         unitPrice: null,
       });
+      await db
+        .update(billingDocumentsTable)
+        .set({ jobId: null, supplierIc: null, issueDate: null })
+        .where(eq(billingDocumentsTable.id, dn.docId));
       await approveDocument(dn.docId, actor);
       await db.update(jobsTable).set({ status: "done" }).where(eq(jobsTable.id, jobId));
       const [deliveryDocument] = await db
@@ -1001,9 +1017,13 @@ describe("invoice price propagation", () => {
         quantity: "4",
         unitPrice: "125",
       });
+      await db
+        .update(billingDocumentsTable)
+        .set({ supplierIc: null, issueDate: null })
+        .where(eq(billingDocumentsTable.id, invoice.docId));
       await db.insert(billingDocumentReferencesTable).values({
         documentId: invoice.docId,
-        referenceType: "delivery_note",
+        referenceType: "summary_delivery_note",
         referenceNumber: deliveryDocument.documentNumber!,
         source: "ai",
       });
@@ -1013,6 +1033,13 @@ describe("invoice price propagation", () => {
         actor,
       );
       expect(reconciliation.confirmedDocumentIds).toContain(dn.docId);
+      const [confirmedReference] = await db
+        .select()
+        .from(billingDocumentReferencesTable)
+        .where(eq(billingDocumentReferencesTable.documentId, invoice.docId));
+      expect(Number(confirmedReference.matchConfidence)).toBe(0.8);
+      expect(confirmedReference.matchedJobId).toBe(jobId);
+      expect(confirmedReference.matchConfirmed).toBe(1);
       await approveDocument(invoice.docId, actor);
 
       const [material] = await jobMaterials(jobId);

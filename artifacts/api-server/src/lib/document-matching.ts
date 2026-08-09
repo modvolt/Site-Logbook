@@ -39,11 +39,14 @@ export function selectAutomaticDocumentMatches<
   minScore: number,
   ambiguityMargin = 0.05,
 ): T[] {
-  const eligible = candidates
-    .filter((candidate) => candidate.score >= minScore)
-    .sort((a, b) => b.score - a.score);
-  const exact = eligible.filter((candidate) => candidate.exactReferenceMatch);
+  const sorted = [...candidates].sort((a, b) => b.score - a.score);
+  // An explicit delivery-note number is an identity signal, not a fuzzy-score
+  // suggestion. Keep it even when optional amount/date/IČO signals are absent.
+  // A zero score remains excluded because the scorer uses it for hard rejects
+  // such as a supplier-IČO mismatch.
+  const exact = sorted.filter((candidate) => candidate.exactReferenceMatch && candidate.score > 0);
   if (exact.length > 0) return exact;
+  const eligible = sorted.filter((candidate) => candidate.score >= minScore);
   const best = eligible[0];
   if (!best) return [];
   const second = eligible[1];
@@ -115,6 +118,18 @@ function refsOfType(
   return set;
 }
 
+const DELIVERY_NOTE_REFERENCE_TYPES = new Set(["delivery_note", "summary_delivery_note", "delivery"]);
+
+function deliveryNoteRefs(doc: MatchableDocument): Set<string> {
+  const set = new Set<string>();
+  for (const reference of doc.references ?? []) {
+    if (!DELIVERY_NOTE_REFERENCE_TYPES.has(reference.referenceType)) continue;
+    const normalized = norm(reference.referenceNumber);
+    if (normalized) set.add(normalized);
+  }
+  return set;
+}
+
 function intersects(a: Set<string>, b: Set<string>): boolean {
   for (const v of a) if (b.has(v)) return true;
   return false;
@@ -160,9 +175,13 @@ export function scoreDeliveryNoteToInvoice(
   // The invoice references the delivery note's number — strongest signal.
   const dnNumber = norm(deliveryNote.deliveryNoteNumber) ?? norm(deliveryNote.documentNumber);
   if (dnNumber) {
-    const invDeliveryRefs = refsOfType(invoice, "delivery_note");
+    const invDeliveryRefs = deliveryNoteRefs(invoice);
     if (invDeliveryRefs.has(dnNumber) || norm(invoice.deliveryNoteNumber) === dnNumber) {
-      score += 0.55;
+      // The invoice naming this delivery note is an identity match. Keep it in
+      // the strong band even when amount/date metadata is missing so the
+      // default auto-confirm threshold does not downgrade an exact reference
+      // to a merely suggested relationship.
+      score += 0.8;
       reasons.push("Faktura odkazuje číslo dodacího listu");
     }
   }

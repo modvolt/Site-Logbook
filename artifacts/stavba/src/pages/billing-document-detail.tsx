@@ -51,7 +51,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -88,7 +87,6 @@ import {
 import {
   ArrowLeft,
   AlertTriangle,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -301,13 +299,10 @@ export default function BillingDocumentDetail() {
   }
 
   const handleStatus = (
-    status: "needs_review" | "reviewed" | "ignored" | "duplicate",
+    status: "needs_review" | "ignored" | "duplicate",
     successTitle: string,
   ) => {
     void runDocumentAction(async () => {
-      if (status === "reviewed") {
-        await saveAllLines();
-      }
       await setStatus.mutateAsync({ id, data: { status } });
       invalidate();
       toast({ title: successTitle });
@@ -601,16 +596,6 @@ export default function BillingDocumentDetail() {
             }
           >
             <CheckCircle2 className="h-4 w-4 mr-1" /> Schválit doklad
-          </Button>
-        )}
-        {doc.status !== "reviewed" && doc.status !== "approved" && (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => handleStatus("reviewed", "Označeno jako zkontrolováno")}
-            disabled={isDocumentActionPending || setStatus.isPending}
-          >
-            <Check className="h-4 w-4 mr-1" /> Zkontrolováno
           </Button>
         )}
         {doc.status === "approved" && (
@@ -1463,7 +1448,6 @@ const LineCard = forwardRef<LineCardRef, {
     allocationType: line.allocationType as string,
     jobId: line.jobId != null ? String(line.jobId) : NONE,
     activityId: line.activityId != null ? String(line.activityId) : NONE,
-    matchConfirmed: line.matchConfirmed,
   });
   const lastSavedFormRef = useRef(form);
 
@@ -1502,7 +1486,6 @@ const LineCard = forwardRef<LineCardRef, {
         activityId: f.activityId === NONE ? null : Number(f.activityId),
         allocationType:
           f.allocationType as CostDocumentLineUpdateInput["allocationType"],
-        matchConfirmed: f.matchConfirmed,
       };
       try {
         await updateLine.mutateAsync({ id: documentId, lineId: line.id, data });
@@ -1646,18 +1629,7 @@ const LineCard = forwardRef<LineCardRef, {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox
-                checked={form.matchConfirmed}
-                onCheckedChange={(v) => set("matchConfirmed", v === true)}
-              />
-              {form.allocationType === "rebill"
-                ? "Přiřazení ke zakázce je správně"
-                : "Nastavení položky je správně"}
-            </label>
-          </div>
+        <div className="flex items-center justify-end gap-3 flex-wrap">
           <div className="text-sm text-muted-foreground">
             Celkem bez DPH:{" "}
             <span className="font-semibold text-foreground">
@@ -2012,6 +1984,7 @@ function ReferencesSection({
   docType: string;
   onChanged: () => void;
 }) {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState("delivery_note");
@@ -2033,6 +2006,14 @@ function ReferencesSection({
 
   const jobTitle = (jobId: number | null) =>
     jobId == null ? null : (jobs.find((j) => j.id === jobId)?.title ?? `#${jobId}`);
+  const relatedInvoices =
+    docType === "delivery_note"
+      ? (siblingMatches ?? [])
+          .filter((candidate) =>
+            ["invoice", "credit_note"].includes(candidate.docType),
+          )
+          .slice(0, 3)
+      : [];
 
   const handleAdd = () => {
     if (!newNumber.trim()) return;
@@ -2130,6 +2111,50 @@ function ReferencesSection({
         </Card>
       )}
 
+      {relatedInvoices.length > 0 && (
+        <Card className="mb-3 border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20">
+          <CardContent className="p-3">
+            <p className="text-sm font-medium text-sky-900 dark:text-sky-100">
+              Související faktury
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Vazbu potvrďte na faktuře, kde se zároveň převezme zakázka z
+              tohoto dodacího listu.
+            </p>
+            <div className="mt-2 space-y-2">
+              {relatedInvoices.map((candidate) => (
+                <div
+                  key={candidate.documentId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/80 px-3 py-2"
+                >
+                  <div className="min-w-0 text-sm">
+                    <span className="font-medium">
+                      {candidate.documentNumber ||
+                        `Doklad #${candidate.documentId}`}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {" "}
+                      · shoda {Math.round(candidate.score * 100)} %
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0"
+                    onClick={() =>
+                      navigate(`/billing/documents/${candidate.documentId}`)
+                    }
+                  >
+                    Otevřít fakturu
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {references.length === 0 ? (
         <div className="text-center py-6 text-muted-foreground border-2 border-dashed rounded-xl border-muted text-sm">
           Žádné vazby. Reference z ISDOC se načtou automaticky, další můžete
@@ -2198,8 +2223,12 @@ function ReferenceCard({
           }
           toast({ title: okTitle });
         },
-        onError: () =>
-          toast({ title: "Akce selhala", variant: "destructive" }),
+        onError: (error) =>
+          toast({
+            title: "Akce selhala",
+            description: error instanceof Error ? error.message : undefined,
+            variant: "destructive",
+          }),
       },
     );
 
@@ -2283,7 +2312,9 @@ function ReferenceCard({
                 }
               >
                 <FileText className="h-3.5 w-3.5 mr-1" />
-                Otevřít spárovaný doklad
+                {confirmed
+                  ? "Otevřít spárovaný doklad"
+                  : "Otevřít navržený doklad"}
               </Button>
             )}
             {lowMatchConfidence && !rejected && (
@@ -2310,12 +2341,17 @@ function ReferenceCard({
         <div className="flex items-center gap-2">
           <Select
             value={reference.matchedJobId != null ? String(reference.matchedJobId) : NONE}
-            onValueChange={(v) =>
+            onValueChange={(v) => {
+              const matchedJobId = v === NONE ? null : Number(v);
               patch(
-                { matchedJobId: v === NONE ? null : Number(v) },
-                "Zakázka přiřazena",
-              )
-            }
+                matchedJobId == null
+                  ? { matchedJobId: null, matchConfirmed: false }
+                  : { matchedJobId, matchConfirmed: true },
+                matchedJobId == null
+                  ? "Zakázka odebrána"
+                  : "Zakázka přiřazena a vazba potvrzena",
+              );
+            }}
           >
             <SelectTrigger className="h-8 text-sm">
               <SelectValue placeholder="Přiřadit zakázku" />
@@ -2332,10 +2368,10 @@ function ReferenceCard({
           {reference.matchedJobId != null && !confirmed && !rejected && (
             <Button
               size="sm"
-              className="h-8"
+              className="h-8 shrink-0"
               onClick={() => patch({ matchConfirmed: true }, "Vazba potvrzena")}
             >
-              <Check className="h-4 w-4 mr-1" /> Potvrdit
+              <CheckCircle2 className="mr-1 h-4 w-4" /> Potvrdit návrh
             </Button>
           )}
           {!rejected && (
@@ -2436,7 +2472,10 @@ function ReferenceCard({
                 key={c.jobId}
                 className="flex w-full items-center justify-between text-left text-sm hover:underline"
                 onClick={() =>
-                  patch({ matchedJobId: c.jobId }, "Zakázka přiřazena")
+                  patch(
+                    { matchedJobId: c.jobId, matchConfirmed: true },
+                    "Zakázka přiřazena a vazba potvrzena",
+                  )
                 }
               >
                 <span className="truncate">{c.jobTitle ?? `#${c.jobId}`}</span>

@@ -5,8 +5,8 @@ import {
   billingDocumentsTable,
   billingDocumentLinesTable,
   auditLogTable,
-  usersTable,
   jobsTable,
+  usersTable,
 } from "@workspace/db";
 import {
   bulkConfirmReviewLines,
@@ -44,7 +44,12 @@ let testJobId = -1;
 beforeAll(async () => {
   const [user] = await db
     .insert(usersTable)
-    .values({ username: `${TAG}-u`, passwordHash: "x", name: `Test ${TAG}`, role: "admin" })
+    .values({
+      username: `${TAG}-u`,
+      passwordHash: "x",
+      name: `Test ${TAG}`,
+      role: "admin",
+    })
     .returning();
   testUserId = user.id;
   actor.userId = testUserId;
@@ -57,11 +62,15 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (lineIds.length) {
-    await db.delete(billingDocumentLinesTable).where(inArray(billingDocumentLinesTable.id, lineIds));
+    await db
+      .delete(billingDocumentLinesTable)
+      .where(inArray(billingDocumentLinesTable.id, lineIds));
     lineIds.length = 0;
   }
   if (docIds.length) {
-    await db.delete(billingDocumentsTable).where(inArray(billingDocumentsTable.id, docIds));
+    await db
+      .delete(billingDocumentsTable)
+      .where(inArray(billingDocumentsTable.id, docIds));
     docIds.length = 0;
   }
   if (testJobId !== -1) {
@@ -153,7 +162,10 @@ describe("bulkConfirmReviewLines – idempotency", () => {
 
   it("DB state after double-confirm: matchConfirmed=1 for both lines (no duplication)", async () => {
     const rows = await db
-      .select({ id: billingDocumentLinesTable.id, matchConfirmed: billingDocumentLinesTable.matchConfirmed })
+      .select({
+        id: billingDocumentLinesTable.id,
+        matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+      })
       .from(billingDocumentLinesTable)
       .where(inArray(billingDocumentLinesTable.id, [lineA, lineB]));
     expect(rows.every((r) => r.matchConfirmed === 1)).toBe(true);
@@ -195,12 +207,24 @@ describe("bulkConfirmReviewLines – diff accuracy (stillUnresolved, withJobAssi
 
   beforeAll(async () => {
     docId = await makeDoc("needs_review");
-    lineWithJob = await makeLine(docId, { jobId: testJobId, matchConfirmed: 0, confidence: "0.5" });
-    lineNoJob = await makeLine(docId, { jobId: null, matchConfirmed: 0, confidence: "0.5" });
+    lineWithJob = await makeLine(docId, {
+      jobId: testJobId,
+      matchConfirmed: 0,
+      confidence: "0.5",
+    });
+    lineNoJob = await makeLine(docId, {
+      jobId: null,
+      matchConfirmed: 0,
+      confidence: "0.5",
+    });
   });
 
   it("withJobAssigned counts only lines that have a jobId", async () => {
-    const diff = await bulkConfirmReviewLines([lineWithJob, lineNoJob], actor, true);
+    const diff = await bulkConfirmReviewLines(
+      [lineWithJob, lineNoJob],
+      actor,
+      true,
+    );
     expect(diff.withJobAssigned).toBe(1);
     // affectedJobIds lists the actual job IDs (deduplicated)
     expect(diff.affectedJobIds).toContain(testJobId);
@@ -208,7 +232,11 @@ describe("bulkConfirmReviewLines – diff accuracy (stillUnresolved, withJobAssi
   });
 
   it("stillUnresolved includes lines that have persisting reasons (needs_review, low_confidence) after confirmation", async () => {
-    const diff = await bulkConfirmReviewLines([lineWithJob, lineNoJob], actor, true);
+    const diff = await bulkConfirmReviewLines(
+      [lineWithJob, lineNoJob],
+      actor,
+      true,
+    );
     // Both lines have low_confidence (0.5 < 0.8) AND the doc is needs_review
     // Those reasons persist after confirmation → both are stillUnresolved
     expect(diff.stillUnresolved).toBe(2);
@@ -225,8 +253,14 @@ describe("skipReviewLines", () => {
 
   beforeAll(async () => {
     const docId = await makeDoc();
-    lineD = await makeLine(docId, { allocationType: "rebill", matchConfirmed: 0 });
-    lineE = await makeLine(docId, { allocationType: "rebill", matchConfirmed: 0 });
+    lineD = await makeLine(docId, {
+      allocationType: "rebill",
+      matchConfirmed: 0,
+    });
+    lineE = await makeLine(docId, {
+      allocationType: "rebill",
+      matchConfirmed: 0,
+    });
   });
 
   it("sets allocationType=not_rebilled and matchConfirmed=1", async () => {
@@ -248,7 +282,9 @@ describe("skipReviewLines", () => {
       .from(auditLogTable)
       .where(eq(auditLogTable.action, "skip_review_lines"))
       .orderBy(auditLogTable.id);
-    const relevant = logs.filter((l) => l.summary.includes("Duplicitní položka"));
+    const relevant = logs.filter((l) =>
+      l.summary.includes("Duplicitní položka"),
+    );
     expect(relevant.length).toBeGreaterThan(0);
   });
 
@@ -263,7 +299,10 @@ describe("skipReviewLines", () => {
     expect(result.skipped).toBe(1);
 
     const [row] = await db
-      .select({ allocationType: billingDocumentLinesTable.allocationType, matchConfirmed: billingDocumentLinesTable.matchConfirmed })
+      .select({
+        allocationType: billingDocumentLinesTable.allocationType,
+        matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+      })
       .from(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.id, lineE));
     expect(row.allocationType).toBe("rebill");
@@ -281,8 +320,14 @@ describe("returnReviewLines", () => {
 
   beforeAll(async () => {
     const docId = await makeDoc();
-    lineF = await makeLine(docId, { allocationType: "not_rebilled", matchConfirmed: 1 });
-    lineG = await makeLine(docId, { allocationType: "rebill", matchConfirmed: 1 });
+    lineF = await makeLine(docId, {
+      allocationType: "not_rebilled",
+      matchConfirmed: 1,
+    });
+    lineG = await makeLine(docId, {
+      allocationType: "rebill",
+      matchConfirmed: 1,
+    });
   });
 
   it("resets matchConfirmed=0 for confirmed lines", async () => {
@@ -301,7 +346,10 @@ describe("returnReviewLines", () => {
     await returnReviewLines([lineF], actor);
 
     const [row] = await db
-      .select({ allocationType: billingDocumentLinesTable.allocationType, matchConfirmed: billingDocumentLinesTable.matchConfirmed })
+      .select({
+        allocationType: billingDocumentLinesTable.allocationType,
+        matchConfirmed: billingDocumentLinesTable.matchConfirmed,
+      })
       .from(billingDocumentLinesTable)
       .where(eq(billingDocumentLinesTable.id, lineF));
     expect(row.matchConfirmed).toBe(0);
@@ -329,34 +377,22 @@ describe("listReviewQueue excludes skipped lines", () => {
     skippedLine = await makeLine(activeDocId, {
       allocationType: "not_rebilled",
       matchConfirmed: 1,
-      confidence: "0.5",
+      confidence: "0.9",
     });
   });
 
-  it("skipped line (not_rebilled + confirmed) does not appear in queue since it has no review reasons", async () => {
+  it("skipped line does not appear when it has no live review reason", async () => {
     const result = await listReviewQueue({ pageSize: 200 });
     const ids = result.items.map((i) => i.lineId);
-    // A not_rebilled + matchConfirmed=1 line: missing_job only triggers when
-    // allocationType=rebill; other reasons may still apply, so check line-specific
-    // reasons to confirm it wasn't included just for missing_job
-    const found = result.items.find((i) => i.lineId === skippedLine);
-    if (found) {
-      // If found, it must have a reason OTHER than missing_job (e.g. needs_review/low_confidence)
-      expect(found.reasons.some((r) => r !== "missing_job")).toBe(true);
-      // And missing_job must NOT be among its reasons (it's not_rebilled, not rebill)
-      expect(found.reasons).not.toContain("missing_job");
-    }
-    // This is a softer assertion — we just verify the line doesn't appear for the
-    // wrong reason (missing_job on a not_rebilled line)
-    void ids;
+    expect(ids).not.toContain(skippedLine);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 7. listReviewQueue keeps matchConfirmed lines hidden after document re-open
+// 7. A legacy confirmation cannot hide an unresolved exception
 // ---------------------------------------------------------------------------
 
-describe("listReviewQueue – confirmed lines stay hidden when document is re-set to needs_review", () => {
+describe("listReviewQueue – live reasons are independent of matchConfirmed", () => {
   let confirmedLine: number;
   let unconfirmedLine: number;
   let docId: number;
@@ -381,10 +417,12 @@ describe("listReviewQueue – confirmed lines stay hidden when document is re-se
       .where(eq(billingDocumentsTable.id, docId));
   });
 
-  it("confirmed line (matchConfirmed=1) does NOT appear in queue after document re-open", async () => {
+  it("confirmed rebill line without a job remains visible after document re-open", async () => {
     const result = await listReviewQueue({ pageSize: 200 });
-    const ids = result.items.map((i) => i.lineId);
-    expect(ids).not.toContain(confirmedLine);
+    const item = result.items.find(
+      (candidate) => candidate.lineId === confirmedLine,
+    );
+    expect(item?.reasons).toContain("missing_job");
   });
 
   it("unconfirmed line (matchConfirmed=0) still appears in queue", async () => {
