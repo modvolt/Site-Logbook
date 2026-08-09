@@ -12,7 +12,7 @@ const DIGEST = `sha256:${"a".repeat(64)}`;
 
 function fixture(overrides = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "site-logbook-staging-predecessor-api",
     sourceSha: SOURCE_SHA,
     sourceTree: SOURCE_TREE,
@@ -28,6 +28,11 @@ function fixture(overrides = {}) {
     initialTagState: "absent",
     registryAction: "published",
     publisherRun: { id: "123", attempt: "1" },
+    toolchain: {
+      buildx: "v0.34.1",
+      buildkitImage:
+        "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
+    },
     image: `ghcr.io/modvolt/site-logbook-staging-api@${DIGEST}`,
     package: {
       packageName: "site-logbook-staging-api",
@@ -40,9 +45,34 @@ function fixture(overrides = {}) {
       digest: DIGEST,
       runnableManifestDigest: `sha256:${"b".repeat(64)}`,
       platform: "linux/amd64",
+      activeInventoryPaginated: true,
+      activeVersionCount: 1,
+      packageVersionCount: 1,
+      visibleDeletedTagConflictChecked: true,
+      deletedVersionCount: 0,
+      deletedHistoryScope: "visible-package-versions-only",
+      selectedVersionRefetched: true,
       remoteManifestVerified: true,
-      provenanceVerified: true,
-      sbomVerified: true,
+      runtimeMetadata: {
+        source: "https://github.com/modvolt/Site-Logbook",
+        revision: SOURCE_SHA,
+        url: `https://github.com/modvolt/Site-Logbook/commit/${SOURCE_SHA}`,
+        buildSha: SOURCE_SHA,
+      },
+      provenance: {
+        buildType: "https://mobyproject.org/buildkit@v1",
+        vcsSource: "https://github.com/modvolt/Site-Logbook",
+        vcsRevision: SOURCE_SHA,
+        dockerfile: "artifacts/api-server/Dockerfile",
+        buildSha: SOURCE_SHA,
+        baseImageDigest:
+          "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+      },
+      sbom: {
+        spdxVersion: "SPDX-2.3",
+        packageCount: 42,
+        relationshipCount: 41,
+      },
     },
     ...overrides,
   };
@@ -113,6 +143,10 @@ test("rejects source, tree and migration drift", () => {
     }),
     "PREDECESSOR_MIGRATION_CONTRACT_INVALID",
   );
+  expectCode(
+    fixture({ toolchain: { ...fixture().toolchain, buildx: "latest" } }),
+    "PREDECESSOR_TOOLCHAIN_INVALID",
+  );
 });
 
 test("rejects caller, image and package widening", () => {
@@ -127,6 +161,57 @@ test("rejects caller, image and package widening", () => {
   expectCode(
     fixture({ package: { ...fixture().package, platform: "linux/arm64" } }),
     "PREDECESSOR_PACKAGE_INVALID",
+  );
+  for (const boundary of [
+    "activeInventoryPaginated",
+    "visibleDeletedTagConflictChecked",
+    "selectedVersionRefetched",
+  ]) {
+    expectCode(
+      fixture({ package: { ...fixture().package, [boundary]: false } }),
+      "PREDECESSOR_PACKAGE_INVALID",
+    );
+  }
+  expectCode(
+    fixture({ package: { ...fixture().package, deletedVersionCount: 1 } }),
+    "PREDECESSOR_PACKAGE_INVALID",
+  );
+  expectCode(
+    fixture({ package: { ...fixture().package, packageVersionCount: 2 } }),
+    "PREDECESSOR_PACKAGE_INVALID",
+  );
+  expectCode(
+    fixture({
+      package: {
+        ...fixture().package,
+        runtimeMetadata: {
+          ...fixture().package.runtimeMetadata,
+          buildSha: "f".repeat(40),
+        },
+      },
+    }),
+    "PREDECESSOR_RUNTIME_METADATA_INVALID",
+  );
+  expectCode(
+    fixture({
+      package: {
+        ...fixture().package,
+        provenance: {
+          ...fixture().package.provenance,
+          dockerfile: "Dockerfile",
+        },
+      },
+    }),
+    "PREDECESSOR_PROVENANCE_INVALID",
+  );
+  expectCode(
+    fixture({
+      package: {
+        ...fixture().package,
+        sbom: { ...fixture().package.sbom, packageCount: 0 },
+      },
+    }),
+    "PREDECESSOR_SBOM_INVALID",
   );
 });
 

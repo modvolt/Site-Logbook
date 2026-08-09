@@ -11,6 +11,15 @@ const FIXED_CALLER_WORKFLOW_REF =
   "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main";
 const FIXED_PACKAGE = "site-logbook-staging-api";
 const FIXED_REGISTRY_REPOSITORY = `ghcr.io/modvolt/${FIXED_PACKAGE}`;
+const FIXED_BUILDX = "v0.34.1";
+const FIXED_BUILDKIT_IMAGE =
+  "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f";
+const FIXED_BASE_IMAGE_DIGEST =
+  "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7";
+const FIXED_SOURCE_URL = "https://github.com/modvolt/Site-Logbook";
+const FIXED_COMMIT_URL = `${FIXED_SOURCE_URL}/commit/${FIXED_SOURCE_SHA}`;
+const VCS_SOURCE =
+  /^(https:\/\/github\.com\/modvolt\/site-logbook(?:\.git)?|git\+https:\/\/github\.com\/modvolt\/site-logbook(?:\.git)?|git@github\.com:modvolt\/site-logbook\.git)$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const POSITIVE_DECIMAL = /^[1-9][0-9]*$/;
@@ -177,13 +186,14 @@ export function validateStagingPredecessorImage(
       "initialTagState",
       "registryAction",
       "publisherRun",
+      "toolchain",
       "image",
       "package",
     ],
     "manifest",
   );
   if (
-    manifest.schemaVersion !== 1 ||
+    manifest.schemaVersion !== 2 ||
     manifest.kind !== "site-logbook-staging-predecessor-api" ||
     manifest.sourceSha !== FIXED_SOURCE_SHA ||
     manifest.sourceTree !== FIXED_SOURCE_TREE
@@ -191,6 +201,16 @@ export function validateStagingPredecessorImage(
     fail(
       "PREDECESSOR_SOURCE_MISMATCH",
       "Manifest is not bound to the fixed audited predecessor source and tree.",
+    );
+  }
+  assertKeys(manifest.toolchain, ["buildx", "buildkitImage"], "toolchain");
+  if (
+    manifest.toolchain.buildx !== FIXED_BUILDX ||
+    manifest.toolchain.buildkitImage !== FIXED_BUILDKIT_IMAGE
+  ) {
+    fail(
+      "PREDECESSOR_TOOLCHAIN_INVALID",
+      "Publisher toolchain is not bound to the audited Buildx and BuildKit versions.",
     );
   }
   assertKeys(
@@ -277,9 +297,17 @@ export function validateStagingPredecessorImage(
       "digest",
       "runnableManifestDigest",
       "platform",
+      "activeInventoryPaginated",
+      "activeVersionCount",
+      "packageVersionCount",
+      "visibleDeletedTagConflictChecked",
+      "deletedVersionCount",
+      "deletedHistoryScope",
+      "selectedVersionRefetched",
       "remoteManifestVerified",
-      "provenanceVerified",
-      "sbomVerified",
+      "runtimeMetadata",
+      "provenance",
+      "sbom",
     ],
     "package",
   );
@@ -296,13 +324,78 @@ export function validateStagingPredecessorImage(
     pkg.digest !== digest ||
     !DIGEST.test(pkg.runnableManifestDigest) ||
     pkg.platform !== "linux/amd64" ||
-    pkg.remoteManifestVerified !== true ||
-    pkg.provenanceVerified !== true ||
-    pkg.sbomVerified !== true
+    pkg.activeInventoryPaginated !== true ||
+    !Number.isSafeInteger(pkg.activeVersionCount) ||
+    pkg.activeVersionCount < 1 ||
+    !Number.isSafeInteger(pkg.packageVersionCount) ||
+    pkg.packageVersionCount !== pkg.activeVersionCount ||
+    pkg.visibleDeletedTagConflictChecked !== true ||
+    pkg.deletedVersionCount !== 0 ||
+    pkg.deletedHistoryScope !== "visible-package-versions-only" ||
+    pkg.selectedVersionRefetched !== true ||
+    pkg.remoteManifestVerified !== true
   ) {
     fail(
       "PREDECESSOR_PACKAGE_INVALID",
       "Package evidence is not bound to the fixed private exact-digest API image.",
+    );
+  }
+  assertKeys(
+    pkg.runtimeMetadata,
+    ["source", "revision", "url", "buildSha"],
+    "package.runtimeMetadata",
+  );
+  if (
+    pkg.runtimeMetadata.source !== FIXED_SOURCE_URL ||
+    pkg.runtimeMetadata.revision !== FIXED_SOURCE_SHA ||
+    pkg.runtimeMetadata.url !== FIXED_COMMIT_URL ||
+    pkg.runtimeMetadata.buildSha !== FIXED_SOURCE_SHA
+  ) {
+    fail(
+      "PREDECESSOR_RUNTIME_METADATA_INVALID",
+      "Runtime image metadata is not bound to the exact predecessor source.",
+    );
+  }
+  assertKeys(
+    pkg.provenance,
+    [
+      "buildType",
+      "vcsSource",
+      "vcsRevision",
+      "dockerfile",
+      "buildSha",
+      "baseImageDigest",
+    ],
+    "package.provenance",
+  );
+  if (
+    pkg.provenance.buildType !== "https://mobyproject.org/buildkit@v1" ||
+    !VCS_SOURCE.test(pkg.provenance.vcsSource) ||
+    pkg.provenance.vcsRevision !== FIXED_SOURCE_SHA ||
+    pkg.provenance.dockerfile !== "artifacts/api-server/Dockerfile" ||
+    pkg.provenance.buildSha !== FIXED_SOURCE_SHA ||
+    pkg.provenance.baseImageDigest !== FIXED_BASE_IMAGE_DIGEST
+  ) {
+    fail(
+      "PREDECESSOR_PROVENANCE_INVALID",
+      "Provenance is not bound to the exact source, Dockerfile and base image.",
+    );
+  }
+  assertKeys(
+    pkg.sbom,
+    ["spdxVersion", "packageCount", "relationshipCount"],
+    "package.sbom",
+  );
+  if (
+    !["SPDX-2.2", "SPDX-2.3"].includes(pkg.sbom.spdxVersion) ||
+    !Number.isSafeInteger(pkg.sbom.packageCount) ||
+    pkg.sbom.packageCount < 1 ||
+    !Number.isSafeInteger(pkg.sbom.relationshipCount) ||
+    pkg.sbom.relationshipCount < 1
+  ) {
+    fail(
+      "PREDECESSOR_SBOM_INVALID",
+      "SBOM evidence must contain a supported SPDX package graph.",
     );
   }
 
@@ -310,7 +403,7 @@ export function validateStagingPredecessorImage(
   return Object.freeze({
     decision: trusted ? "PASS" : "INTERNALLY_CONSISTENT_UNTRUSTED",
     trusted,
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha: FIXED_SOURCE_SHA,
     sourceTree: FIXED_SOURCE_TREE,
     manifestSha256,

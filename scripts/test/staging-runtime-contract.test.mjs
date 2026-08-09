@@ -316,10 +316,28 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
     ],
     [
       workflow.replace(
+        "          provenance: mode=max,version=v0.2",
+        "          provenance: false",
+      ),
+      "STAGING_PREDECESSOR_PUBLICATION_DRIFT",
+    ],
+    [
+      workflow.replace(
         "          platforms: linux/amd64",
         "          platforms: linux/arm64",
       ),
       "STAGING_PREDECESSOR_PLATFORM_DRIFT",
+    ],
+    [
+      workflow.replace("version: v0.34.1", "version: latest"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
+        "moby/buildkit:buildx-stable-1",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
       workflow.replace(
@@ -330,6 +348,43 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
     ],
     [
       workflow.replace("length == 0", "length >= 0"),
+      "STAGING_PREDECESSOR_INVENTORY_DRIFT",
+    ],
+    [
+      workflow.replaceAll("versions?state=deleted", "versions?state=active"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replaceAll(".version_count >= 0", ".version_count >= -1"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace("length == $expected", "length >= 0"),
+      "STAGING_PREDECESSOR_INVENTORY_DRIFT",
+    ],
+    [
+      workflow.replace(
+        "versions/${selected_version_id}",
+        "versions/${EXPECTED_SOURCE_SHA}",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '.SLSA.invocation.parameters.args["build-arg:BUILD_SHA"] == $sha',
+        "([.SLSA.invocation.parameters | .. | strings | select(. == $sha)] | length) > 0",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace("($packages | length) > 0", "($packages | length) >= 0"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '$relationship.relationshipType == "CONTAINS"',
+        '$relationship.relationshipType != ""',
+      ),
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
   ]) {

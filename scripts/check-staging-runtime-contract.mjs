@@ -1214,12 +1214,37 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "site-logbook-images-publication",
     "site-logbook-staging-api",
     "artifacts/api-server/Dockerfile",
+    "version: v0.34.1",
+    "driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
     "persist-credentials: false",
     "0104_thin_sheva_callister",
     '[[ "${#sql_files[@]}" == "104" ]]',
     '[[ "${sql_files[*]}" != *"0100_"* && "${sql_files[*]}" != *"0105_"* ]]',
     "length == 0",
-    "provenance: mode=max",
+    "versions?state=active&per_page=100",
+    "versions?state=deleted&per_page=100",
+    ".version_count >= 0",
+    "length == $expected",
+    "versions/${selected_version_id}",
+    "versions/${version_id}",
+    "activeInventoryPaginated: true",
+    "visibleDeletedTagConflictChecked: true",
+    "deletedVersionCount: $deletedVersionCount",
+    'deletedHistoryScope: "visible-package-versions-only"',
+    "selectedVersionRefetched: true",
+    "org.opencontainers.image.revision",
+    "https://mobyproject.org/buildkit@v1#metadata",
+    '.SLSA.invocation.configSource.entryPoint == "artifacts/api-server/Dockerfile"',
+    '.SLSA.invocation.parameters.args["build-arg:BUILD_SHA"] == $sha',
+    "(.metadata.container.tags // []) == [$sha]",
+    "runtimeMetadata: {source: $runtimeSource",
+    'provenance: {buildType: "https://mobyproject.org/buildkit@v1"',
+    "sbom: {spdxVersion: $sbomVersion",
+    "($packages | length) > 0",
+    "($relationships | length) > 0",
+    '$relationship.relationshipType == "CONTAINS"',
+    'dataLicense == "CC0-1.0"',
+    "provenance: mode=max,version=v0.2",
     "sbom: true",
     'kind: "site-logbook-staging-predecessor-api"',
     "staging-predecessor-image.sha256",
@@ -1229,6 +1254,24 @@ export function validateStagingRuntimeContract(overrides = {}) {
       predecessorWorkflow,
       boundary,
       `fixed predecessor publication boundary ${boundary}`,
+    );
+  }
+  if (
+    (predecessorWorkflow.match(/versions\?state=active&per_page=100/g) ?? [])
+      .length !== 3 ||
+    (predecessorWorkflow.match(/versions\?state=deleted&per_page=100/g) ?? [])
+      .length !== 3 ||
+    (predecessorWorkflow.match(/length == \$expected/g) ?? []).length !== 3 ||
+    (predecessorWorkflow.match(/\n\s+length == 0 and/g) ?? []).length !== 3 ||
+    (
+      predecessorWorkflow.match(
+        /\(\.metadata\.container\.tags \/\/ \[\]\) == \[\$sha\]/g,
+      ) ?? []
+    ).length !== 2
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_INVENTORY_DRIFT",
+      "the predecessor publisher must paginate active and deleted versions at every gate, bind active count to package metadata, reject all visible tombstones and refetch an exact single tag.",
     );
   }
   for (const forbidden of [
@@ -1259,11 +1302,14 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
   if (
     (predecessorWorkflow.match(/\bpush: false\b/g) ?? []).length !== 1 ||
-    (predecessorWorkflow.match(/\bpush: true\b/g) ?? []).length !== 1
+    (predecessorWorkflow.match(/\bpush: true\b/g) ?? []).length !== 1 ||
+    (predecessorWorkflow.match(/\bprovenance: mode=max,version=v0\.2\b/g) ?? [])
+      .length !== 2 ||
+    (predecessorWorkflow.match(/\bsbom: true\b/g) ?? []).length !== 2
   ) {
     fail(
       "STAGING_PREDECESSOR_PUBLICATION_DRIFT",
-      "the fixed predecessor publisher must prebuild once without a write and publish at most one API image.",
+      "the fixed predecessor publisher must prebuild once with exact attestations and publish at most one identically attested API image.",
     );
   }
   if (

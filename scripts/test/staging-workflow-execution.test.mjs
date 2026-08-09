@@ -24,6 +24,18 @@ const ROOT_DIGESTS = PACKAGE_NAMES.map(
 const RUNNABLE_DIGEST = `sha256:${"e".repeat(64)}`;
 const ATTESTATION_DIGEST = `sha256:${"f".repeat(64)}`;
 const workflow = readWorkflow();
+const predecessorWorkflow = readWorkflow(
+  ".github/workflows/staging-predecessor-image.yml",
+);
+const predecessorScripts = Object.fromEntries(
+  Object.values(predecessorWorkflow.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .filter((step) => typeof step.run === "string")
+    .map((step, index) => [
+      `scripts/predecessor-${String(index + 1).padStart(2, "0")}.sh`,
+      step.run,
+    ]),
+);
 const packageStateScript = requireRunScript(
   workflow,
   "publish-staging-images",
@@ -332,6 +344,17 @@ shellcheck --shell=bash scripts/package-state.sh scripts/tag-absence.sh scripts/
       "scripts/tag-absence.sh": absenceScript,
       "scripts/package-verifier.sh": verifierScript,
     },
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("shellcheck accepts every fixed predecessor publisher script", () => {
+  const scripts = Object.keys(predecessorScripts).join(" ");
+  const result = runBashHarness({
+    script: `set -euo pipefail
+shellcheck --shell=bash ${scripts}
+`,
+    files: predecessorScripts,
   });
   assert.equal(result.status, 0, result.stderr);
 });
