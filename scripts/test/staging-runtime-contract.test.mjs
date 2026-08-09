@@ -498,6 +498,14 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
+      workflow.replaceAll("/users/modvolt/packages", "/user/packages"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace("/users/modvolt/packages", "/users/attacker/packages"),
+      "STAGING_PREDECESSOR_PACKAGE_API_NAMESPACE_DRIFT",
+    ],
+    [
       workflow.replace(
         "  workflow_call:",
         "  workflow_dispatch:\n  workflow_call:",
@@ -852,9 +860,13 @@ test("enforces a fixed two-stage append-only package state gate", () => {
   );
   assertWorkflowContractError(
     workflow.replace(
-      "'/user/packages?package_type=container&per_page=100'",
       "'/users/modvolt/packages?package_type=container&per_page=100'",
+      "'/user/packages?package_type=container&per_page=100'",
     ),
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace("/users/modvolt/packages", "/users/attacker/packages"),
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
   );
   assertWorkflowContractError(

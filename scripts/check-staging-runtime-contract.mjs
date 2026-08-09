@@ -987,22 +987,29 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   requirePublicationText(
     publishWorkflow,
-    "'/user/packages?package_type=container&per_page=100'",
+    "'/users/modvolt/packages?package_type=container&per_page=100'",
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-    "authenticated private package inventory",
+    "owner-qualified private package inventory",
   );
   requirePublicationText(
     publishWorkflow,
-    "user/packages/container/${package_name}/versions?per_page=100",
+    "/users/modvolt/packages/container/${package_name}",
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-    "authenticated private package version lookup",
+    "owner-qualified private package metadata lookup",
+  );
+  requirePublicationText(
+    publishWorkflow,
+    "/users/modvolt/packages/container/${package_name}/versions?per_page=100",
+    "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    "owner-qualified private package version lookup",
   );
   if (
-    /users\/\$?\{?(?:PRIVATE_REGISTRY_OWNER|[Mm]odvolt)/.test(publishWorkflow)
+    /\/user\/packages/.test(publishWorkflow) ||
+    (publishWorkflow.match(/\/users\/modvolt\/packages/g) ?? []).length !== 8
   ) {
     fail(
       "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-      "private package metadata must not use the public-user package endpoint.",
+      "every package read must use the exact owner-qualified modvolt namespace.",
     );
   }
   requirePublicationText(
@@ -1465,6 +1472,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
     "site-logbook-images-publication",
     "site-logbook-staging-api",
+    "'/users/modvolt/packages?package_type=container&per_page=100'",
+    '"/users/modvolt/packages/container/${PACKAGE_NAME}"',
     "artifacts/api-server/Dockerfile",
     "version: v0.34.1",
     "driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
@@ -1506,6 +1515,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
       predecessorWorkflow,
       boundary,
       `fixed predecessor publication boundary ${boundary}`,
+    );
+  }
+  if (
+    /\/user\/packages/.test(predecessorWorkflow) ||
+    (predecessorWorkflow.match(/\/users\/modvolt\/packages/g) ?? []).length !==
+      13
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_PACKAGE_API_NAMESPACE_DRIFT",
+      "the predecessor publisher must bind package reads to the explicit modvolt namespace.",
     );
   }
   if (

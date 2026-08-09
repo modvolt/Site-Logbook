@@ -62,18 +62,18 @@ case "$endpoint" in
   repos/modvolt/site-logbook-registry)
     cat "$HARNESS_ROOT/fixtures/caller.json"
     ;;
-  "/user/packages?package_type=container&per_page=100")
+  "/users/modvolt/packages?package_type=container&per_page=100")
     [[ "\${MOCK_INVENTORY_FAIL:-false}" != "true" ]] || exit 73
     cat "$HARNESS_ROOT/fixtures/inventory.json"
     ;;
-  user/packages/container/*/versions?per_page=100)
-    package="\${endpoint#user/packages/container/}"
+  /users/modvolt/packages/container/*/versions?per_page=100)
+    package="\${endpoint#/users/modvolt/packages/container/}"
     package="\${package%%/*}"
     [[ "\${MOCK_VERSIONS_FAIL_FOR:-}" != "$package" ]] || exit 74
     cat "$HARNESS_ROOT/fixtures/versions-$package.json"
     ;;
-  user/packages/container/*)
-    package="\${endpoint#user/packages/container/}"
+  /users/modvolt/packages/container/*)
+    package="\${endpoint#/users/modvolt/packages/container/}"
     [[ "\${MOCK_PACKAGE_FAIL_FOR:-}" != "$package" ]] || exit 75
     cat "$HARNESS_ROOT/fixtures/package-$package.json"
     ;;
