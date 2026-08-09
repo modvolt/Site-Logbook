@@ -21,6 +21,15 @@ import {
   type MigrationBundleInput,
   type StagingBackupEvidenceRow,
 } from "./external-schema-preflight.js";
+import {
+  STAGING_BASELINE_0104_CONFIRMATION,
+  STAGING_BASELINE_0104_SOURCE_SHA,
+  STAGING_BASELINE_0104_SOURCE_TREE,
+  StagingBaseline0104Error,
+  evaluateStagingBaseline0104Decision,
+  readStagingBaseline0104Environment,
+} from "./staging-baseline-0104.js";
+import { createHash } from "node:crypto";
 
 const migrationsDir = path.resolve(import.meta.dirname, "../migrations");
 const fullSha = "1c6cb0209c004d8d583c71f68132e6dbbf587b98";
@@ -31,6 +40,118 @@ function expectCode(code: string, fn: () => unknown): void {
     assert.equal(error.code, code);
     return true;
   });
+}
+
+function expectBaselineCode(code: string, fn: () => unknown): void {
+  assert.throws(fn, (error: unknown) => {
+    assert.ok(error instanceof StagingBaseline0104Error);
+    assert.equal(error.code, code);
+    return true;
+  });
+}
+
+function canonicalJson(value: unknown): string {
+  const canonical = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(canonical);
+    if (entry && typeof entry === "object") {
+      return Object.fromEntries(
+        Object.keys(entry)
+          .sort()
+          .map((key) => [
+            key,
+            canonical((entry as Record<string, unknown>)[key]),
+          ]),
+      );
+    }
+    return entry;
+  };
+  return `${JSON.stringify(canonical(value))}\n`;
+}
+
+function baselineEnv(): NodeJS.ProcessEnv {
+  const candidateImage = `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"a".repeat(64)}`;
+  const predecessorImage = `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"b".repeat(64)}`;
+  const predecessorManifest = Buffer.from(
+    `${JSON.stringify({
+      schemaVersion: 2,
+      kind: "site-logbook-staging-predecessor-api",
+      sourceSha: STAGING_BASELINE_0104_SOURCE_SHA,
+      sourceTree: STAGING_BASELINE_0104_SOURCE_TREE,
+      image: predecessorImage,
+    })}\n`,
+    "utf8",
+  );
+  const predecessorManifestSha256 = createHash("sha256")
+    .update(predecessorManifest)
+    .digest("hex");
+  const inputs = {
+    schemaVersion: 1,
+    kind: "site-logbook-staging-baseline-0104",
+    action: "apply-0104-baseline",
+    productionTargetsTouched: false,
+    environmentId: "site-logbook-staging",
+    composeProjectName: "site-logbook-staging",
+    database: {
+      host: "postgres",
+      name: "site_logbook_staging",
+      user: "site_logbook_staging",
+    },
+    externalAccountsEnabled: false,
+    candidate: {
+      sourceSha: fullSha,
+      imageManifestSha256: "c".repeat(64),
+      provisioningManifestSha256: "d".repeat(64),
+      inspectInputsSha256: "e".repeat(64),
+      apiImage: candidateImage,
+    },
+    predecessor: {
+      sourceSha: STAGING_BASELINE_0104_SOURCE_SHA,
+      sourceTree: STAGING_BASELINE_0104_SOURCE_TREE,
+      imageManifestSha256: predecessorManifestSha256,
+      apiImage: predecessorImage,
+      publisherRun: { id: "123", attempt: "1" },
+    },
+    backup: { evidenceId: 42, restoreMaxAgeHours: 24 },
+    target: {
+      migrationCount: 104,
+      latestTag: "0104_thin_sheva_callister",
+      excluded0100: true,
+      excluded0105: true,
+    },
+    nextGate: "fresh-exact-0104-backup-and-restore-required",
+    authorizes0105: false,
+  };
+  const inputBytes = Buffer.from(canonicalJson(inputs), "utf8");
+  const inputSha256 = createHash("sha256").update(inputBytes).digest("hex");
+  return {
+    STAGING_BASELINE_0104_ACTION: "apply-0104-baseline",
+    STAGING_BASELINE_0104_CONFIRMATION,
+    STAGING_BASELINE_0104_PHASE: "pre",
+    STAGING_BASELINE_0104_INPUTS_B64: inputBytes.toString("base64"),
+    STAGING_BASELINE_0104_INPUTS_SHA256: inputSha256,
+    STAGING_PREDECESSOR_0104_MANIFEST_B64:
+      predecessorManifest.toString("base64"),
+    STAGING_PREDECESSOR_0104_MANIFEST_SHA256: predecessorManifestSha256,
+    STAGING_PREDECESSOR_0104_API_IMAGE: predecessorImage,
+    STAGING_PREDECESSOR_0104_SOURCE_SHA: STAGING_BASELINE_0104_SOURCE_SHA,
+    STAGING_SCHEMA_ACTION: "inspect",
+    STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION: "",
+    STAGING_ENVIRONMENT_ID: "site-logbook-staging",
+    STAGING_COMPOSE_PROJECT_NAME: "site-logbook-staging",
+    BUILD_SHA: fullSha,
+    STAGING_BUILD_SHA: fullSha,
+    STAGING_IMAGE_MANIFEST_SOURCE_SHA: fullSha,
+    STAGING_IMAGE_MANIFEST_SHA256: "c".repeat(64),
+    STAGING_PROVISIONING_MANIFEST_SHA256: "d".repeat(64),
+    STAGING_DEPLOYMENT_INPUTS_SHA256: "e".repeat(64),
+    STAGING_API_IMAGE: candidateImage,
+    STAGING_EXTERNAL_ACCOUNTS_ENABLED: "false",
+    STAGING_DATABASE_HOST: "postgres",
+    STAGING_DATABASE_NAME: "site_logbook_staging",
+    STAGING_DATABASE_USER: "site_logbook_staging",
+    STAGING_BACKUP_EVIDENCE_ID: "42",
+    STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: "24",
+  };
 }
 
 function validEnv(): NodeJS.ProcessEnv {
@@ -301,6 +422,130 @@ describe("bound staging backup evidence", () => {
       readExternalSchemaPreflightEnvironment({
         ...validEnv(),
         STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: "169",
+      }),
+    );
+  });
+});
+
+describe("fixed staging predecessor baseline contract", () => {
+  it("binds candidate, predecessor, backup and isolated target bytes", () => {
+    const pre = readStagingBaseline0104Environment(baselineEnv());
+    assert.equal(pre.phase, "pre");
+    assert.equal(pre.candidateSourceSha, fullSha);
+    assert.equal(pre.predecessorSourceSha, STAGING_BASELINE_0104_SOURCE_SHA);
+    assert.equal(pre.backupEvidenceId, 42);
+
+    const post = readStagingBaseline0104Environment({
+      ...baselineEnv(),
+      STAGING_BASELINE_0104_PHASE: "post",
+    });
+    assert.equal(post.phase, "post");
+  });
+
+  it("rejects widened authorization, mutable primary gate and runtime drift", () => {
+    for (const [key, value, code] of [
+      ["STAGING_BASELINE_0104_CONFIRMATION", "approve", "BASELINE_CONFIRMATION_INVALID"],
+      ["STAGING_BASELINE_0104_ACTION", "apply-latest", "BASELINE_ACTION_INVALID"],
+      ["STAGING_BASELINE_0104_PHASE", "both", "BASELINE_PHASE_INVALID"],
+      ["STAGING_SCHEMA_ACTION", "apply-0105", "BASELINE_PRIMARY_GATE_UNSAFE"],
+      ["STAGING_EXTERNAL_ACCOUNTS_ENABLED", "true", "BASELINE_FEATURE_FLAG_UNSAFE"],
+      ["STAGING_BUILD_SHA", "f".repeat(40), "BASELINE_RUNTIME_BINDING_MISMATCH"],
+      ["STAGING_PREDECESSOR_0104_API_IMAGE", `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"f".repeat(64)}`, "BASELINE_RUNTIME_BINDING_MISMATCH"],
+      ["STAGING_BACKUP_EVIDENCE_ID", "43", "BASELINE_RUNTIME_BINDING_MISMATCH"],
+    ] as const) {
+      expectBaselineCode(code, () =>
+        readStagingBaseline0104Environment({ ...baselineEnv(), [key]: value }),
+      );
+    }
+  });
+
+  it("rejects changed canonical inputs and predecessor bytes", () => {
+    const env = baselineEnv();
+    expectBaselineCode("BASELINE_INPUT_HASH_MISMATCH", () =>
+      readStagingBaseline0104Environment({
+        ...env,
+        STAGING_BASELINE_0104_INPUTS_B64: Buffer.from("{}\n").toString(
+          "base64",
+        ),
+      }),
+    );
+    expectBaselineCode("BASELINE_PREDECESSOR_MANIFEST_MISMATCH", () =>
+      readStagingBaseline0104Environment({
+        ...env,
+        STAGING_PREDECESSOR_0104_MANIFEST_B64: Buffer.from("{}\n").toString(
+          "base64",
+        ),
+      }),
+    );
+
+    const decoded = Buffer.from(env.STAGING_BASELINE_0104_INPUTS_B64!, "base64");
+    const parsed = JSON.parse(decoded.toString("utf8")) as Record<string, unknown>;
+    const widened = Buffer.from(
+      canonicalJson({ ...parsed, authorizes0105: true }),
+      "utf8",
+    );
+    expectBaselineCode("BASELINE_INPUT_BOUNDARY_INVALID", () =>
+      readStagingBaseline0104Environment({
+        ...env,
+        STAGING_BASELINE_0104_INPUTS_B64: widened.toString("base64"),
+        STAGING_BASELINE_0104_INPUTS_SHA256: createHash("sha256")
+          .update(widened)
+          .digest("hex"),
+      }),
+    );
+  });
+
+  it("allows only migrate or verified-noop precheck and exact-0104 postcheck", () => {
+    assert.deepEqual(
+      evaluateStagingBaseline0104Decision("pre", {
+        decision: "BASELINE_0104_REQUIRED",
+        appliedMigrations: 103,
+        predecessorMigrations: 104,
+        latestAppliedTag: "0103_previous",
+        missingToPredecessor: 1,
+      }),
+      {
+        phase: "pre",
+        operation: "migrate",
+        decision: "BASELINE_0104_REQUIRED",
+      },
+    );
+    assert.equal(
+      evaluateStagingBaseline0104Decision("pre", {
+        decision: "READY_0104",
+        appliedMigrations: 104,
+        predecessorMigrations: 104,
+        latestAppliedTag: "0104_thin_sheva_callister",
+        missingToPredecessor: 0,
+      }).operation,
+      "verified-noop",
+    );
+    assert.equal(
+      evaluateStagingBaseline0104Decision("post", {
+        decision: "READY_0104",
+        appliedMigrations: 104,
+        predecessorMigrations: 104,
+        latestAppliedTag: "0104_thin_sheva_callister",
+        missingToPredecessor: 0,
+      }).operation,
+      "ready",
+    );
+    expectBaselineCode("BASELINE_STATE_INVALID", () =>
+      evaluateStagingBaseline0104Decision("post", {
+        decision: "BASELINE_0104_REQUIRED",
+        appliedMigrations: 103,
+        predecessorMigrations: 104,
+        latestAppliedTag: "0103_previous",
+        missingToPredecessor: 1,
+      }),
+    );
+    expectBaselineCode("BASELINE_STATE_INVALID", () =>
+      evaluateStagingBaseline0104Decision("pre", {
+        decision: "ALREADY_0105",
+        appliedMigrations: 105,
+        predecessorMigrations: 104,
+        latestAppliedTag: "0105_smooth_nitro",
+        missingToPredecessor: 0,
       }),
     );
   });

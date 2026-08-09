@@ -77,8 +77,45 @@ pnpm gate:staging-predecessor-image -- --manifest staging-predecessor-image.json
 
 Tento publisher pouze připraví immutable image. Neautorizuje GHCR zápis bez
 samostatného potvrzení, nenasazuje ji, nekontaktuje Coolify a nespouští migrátor.
-One-shot runtime vazba `apply-0104-baseline`, její backup/input checksumy a
-pre/postflight přes exact stav `0104` zůstávají samostatnou následující branou.
+
+### Manual-only runtime baseline `0104`
+
+Runtime baseline je samostatná fail-closed brána. Primární
+`STAGING_SCHEMA_ACTION` během ní zůstává `inspect` a confirmation pro `0105`
+zůstává prázdná. Candidate manifest/provisioning, čerstvý obnovený backup a
+predecessor manifest se nejprve spojí do jednoho secret-free bindingu:
+
+```powershell
+pnpm gate:staging-baseline-0104-binding -- --candidate-manifest staging-images.json --candidate-checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-candidate-manifest-sha256 <64-hex> --expected-candidate-source-sha <40-hex> --expected-candidate-caller-workflow-ref <exact-ref> --expected-candidate-run-id <id> --expected-candidate-run-attempt <attempt> --predecessor-manifest staging-predecessor-image.json --predecessor-checksum staging-predecessor-image.sha256 --expected-predecessor-manifest-sha256 <64-hex> --expected-predecessor-caller-workflow-ref modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main --expected-predecessor-run-id <id> --expected-predecessor-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-baseline-binding
+```
+
+Výstup obsahuje kanonické `staging-baseline-0104-inputs.json`, GNU checksum a
+secret-free environment JSON. Binding explicitně uvádí
+`productionTargetsTouched=false`, přesný candidate API digest, fixní predecessor
+source/tree/API digest, backup ID, target 104/`0104`, zákaz `0100` i `0105` a
+`authorizes0105=false`. Confirmation zůstává v artifactu prázdná.
+
+Po samostatném souhlasu se environment hodnoty vloží do izolovaného stagingu,
+confirmation se nastaví přesně na
+`APPLY_FIXED_PREDECESSOR_0104_TO_ISOLATED_SITE_LOGBOOK_STAGING` a spustí se pouze
+host runner:
+
+```powershell
+pnpm staging:apply-0104-baseline -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-inputs-sha256 <64-hex> --confirm APPLY_FIXED_PREDECESSOR_0104_TO_ISOLATED_SITE_LOGBOOK_STAGING --output-dir staging-baseline-execution
+```
+
+Runner čtyřikrát ověří, že jedinou běžící Compose službou je `postgres`. Candidate
+image provede read-only precheck. Pouze při přesném journal prefixu před `0104`
+se spustí profile-only `baseline-0104-migrator` z fixní predecessor image; při již
+přesném `0104` jde o ověřený no-op. Candidate postcheck musí vždy potvrdit přesně
+104 migrací, ocas `0104_thin_sheva_callister`, čerstvý svázaný backup, dark flag
+a nulový externí stav. `0105`, drift, jiná image identita nebo běžící API/web jsou
+tvrdý stop.
+
+Úspěšný runner uloží `staging-baseline-0104-execution.json` a checksum, ale
+neautorizuje `0105`. Než vznikne transition binding pro `0105`, musí se na novém
+exact-0104 stavu vytvořit nová staging-only šifrovaná záloha a úspěšně
+restore-testovat stejné nové backup ID.
 
 ## Fail-closed vstupní kontrakt
 
@@ -166,8 +203,9 @@ path, hash zálohy ani key ID.
 2. Ověřit exact-SHA CI a immutable image manifest; nespoléhat na tag bez digestu.
 3. V režimu `inspect` obnovit schválenou produkční kopii do samostatného staging
    volume a výše uvedeným příkazem read-only ověřit její exact journal. Pokud
-   inventory vrátí `BASELINE_0104_REQUIRED`, použít oddělený predecessor baseline
-   rollout; jiný drift je stop.
+   inventory vrátí `BASELINE_0104_REQUIRED`, použít výše uvedený oddělený
+   candidate-precheck/predecessor-migrator/candidate-postcheck baseline runner;
+   jiný drift je stop.
 4. Na exact stavu `0104` vytvořit novou staging-only zálohu, restore-testovat
    stejné ID a toto nejnovější ID nastavit jako schema-gate evidence.
 5. Teprve po výslovném souhlasu nastavit `STAGING_SCHEMA_ACTION=apply-0105`,

@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
     "./migrate": "./src/migrate.ts",
-    "./external-schema-preflight": "./src/external-schema-preflight.ts"
+    "./external-schema-preflight": "./src/external-schema-preflight.ts",
+    "./staging-baseline-0104": "./src/staging-baseline-0104.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",

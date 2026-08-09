@@ -29,6 +29,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/external-schema-inventory.ts"),
       path.resolve(artifactDir, "src/external-schema-steady-state.ts"),
       path.resolve(artifactDir, "src/external-schema-gate.ts"),
+      path.resolve(artifactDir, "src/external-schema-baseline-0104.ts"),
     ],
     platform: "node",
     bundle: true,

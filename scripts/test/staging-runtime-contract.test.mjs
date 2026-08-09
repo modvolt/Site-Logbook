@@ -43,6 +43,102 @@ test("accepts the immutable pull-only staging runtime", () => {
     summary.predecessorPublicationMode,
     "fixed-exact-0104-api-private-caller-no-deploy",
   );
+  assert.equal(
+    summary.predecessorBaselineMode,
+    "candidate-precheck-fixed-migrator-candidate-postcheck-no-0105",
+  );
+});
+
+test("requires the manual exact-0104 baseline control plane", () => {
+  const compose = source("docker-compose.staging.yml");
+  for (const [needle, replacement, expectedCode] of [
+    [
+      '    profiles: ["baseline-0104"]',
+      '    profiles: ["default"]',
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      '        [ "$$BUILD_SHA" = "$$STAGING_PREDECESSOR_0104_SOURCE_SHA" ]',
+      "        true",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "      - dist/external-schema-baseline-0104.mjs",
+      "      - dist/migrate.mjs",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      '  baseline-0104-preflight:\n    profiles: ["baseline-0104"]',
+      '  baseline-0104-preflight:\n    ports:\n      - "5000:5000"\n    profiles: ["baseline-0104"]',
+      "STAGING_NETWORK_BOUNDARY_DRIFT",
+    ],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "docker-compose.staging.yml": compose.replace(needle, replacement),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === expectedCode,
+    );
+  }
+
+  const apiBuild = source("artifacts/api-server/build.mjs");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "artifacts/api-server/build.mjs": apiBuild.replace(
+          '      path.resolve(artifactDir, "src/external-schema-baseline-0104.ts"),\n',
+          "",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+
+  const gate = source(
+    "artifacts/api-server/src/external-schema-baseline-0104.ts",
+  );
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "artifacts/api-server/src/external-schema-baseline-0104.ts":
+          gate.replace("authorizes0105: false", "authorizes0105: true"),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+
+  const binding = source("scripts/check-staging-baseline-0104-binding.mjs");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "scripts/check-staging-baseline-0104-binding.mjs": binding.replace(
+          'nextGate: "fresh-exact-0104-backup-and-restore-required"',
+          'nextGate: "apply-0105"',
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+
+  const runner = source("scripts/run-staging-baseline-0104.mjs");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "scripts/run-staging-baseline-0104.mjs": runner.replace(
+          'services.length !== 1 || services[0] !== "postgres"',
+          "services.length < 10",
+        ),
+      }),
+    (error) =>
+      error instanceof StagingRuntimeContractError &&
+      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
 });
 
 test("rejects a Coolify host build or resource-limit drift", () => {

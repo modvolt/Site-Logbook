@@ -60,6 +60,24 @@ const EXPECTED_RESOURCES = Object.freeze({
   web: { cpus: "0.25", memLimit: "128m", memReservation: "64m" },
 });
 
+const EXPECTED_BASELINE_RESOURCES = Object.freeze({
+  "baseline-0104-preflight": {
+    cpus: "0.25",
+    memLimit: "384m",
+    memReservation: "192m",
+  },
+  "baseline-0104-migrator": {
+    cpus: "0.25",
+    memLimit: "384m",
+    memReservation: "192m",
+  },
+  "baseline-0104-postflight": {
+    cpus: "0.25",
+    memLimit: "384m",
+    memReservation: "192m",
+  },
+});
+
 const REQUIRED_IMAGE_VARIABLES = Object.freeze([
   "STAGING_PREFLIGHT_IMAGE",
   "STAGING_MAILPIT_IMAGE",
@@ -264,6 +282,39 @@ export function validateStagingRuntimeContract(overrides = {}) {
       service,
     );
   }
+  for (const [service, resources] of Object.entries(
+    EXPECTED_BASELINE_RESOURCES,
+  )) {
+    const block = serviceBlock(compose, service);
+    requireServiceValue(block, "pull_policy", "always", service);
+    requireServiceValue(block, "cpus", `"${resources.cpus}"`, service);
+    requireServiceValue(block, "mem_limit", resources.memLimit, service);
+    requireServiceValue(
+      block,
+      "mem_reservation",
+      resources.memReservation,
+      service,
+    );
+    requireText(
+      block,
+      '    profiles: ["baseline-0104"]',
+      `${service} manual-only profile`,
+    );
+    for (const forbidden of [
+      /^ {4}ports:/m,
+      /^ {4}expose:/m,
+      /^ {4}volumes:/m,
+      /^ {4}depends_on:/m,
+      /^ {4}build:/m,
+    ]) {
+      if (forbidden.test(block)) {
+        fail(
+          "STAGING_BASELINE_SURFACE_WIDENED",
+          `${service} must remain a dependency-free one-shot service without ports or mounts.`,
+        );
+      }
+    }
+  }
 
   for (const relativePath of Object.keys(EXPECTED_BASE_IMAGES)) {
     validateDockerfile(relativePath, readSource(relativePath, overrides));
@@ -278,6 +329,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "external-schema-inventory.ts",
     "external-schema-steady-state.ts",
     "external-schema-gate.ts",
+    "external-schema-baseline-0104.ts",
   ]) {
     requireText(
       apiBuild,
@@ -322,6 +374,23 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "runExternalSchemaSteadyState",
     "external schema steady-state runner",
   );
+  const baselineGateRunner = readSource(
+    "artifacts/api-server/src/external-schema-baseline-0104.ts",
+    overrides,
+  );
+  for (const boundary of [
+    "readStagingBaseline0104Environment",
+    "runExternalSchemaInventory",
+    "evaluateStagingBaseline0104Decision",
+    'baseline.phase === "pre" ? "PRECHECK" : "POSTCHECK"',
+    "authorizes0105: false",
+  ]) {
+    requireText(
+      baselineGateRunner,
+      boundary,
+      `exact-0104 candidate gate ${boundary}`,
+    );
+  }
   const receiverDockerfile = readSource(
     "deploy/operational-alert-receiver/Dockerfile",
     overrides,
@@ -383,6 +452,74 @@ export function validateStagingRuntimeContract(overrides = {}) {
       `external schema gate boundary ${boundary}`,
     );
   }
+  const baselinePreflightBlock = serviceBlock(
+    compose,
+    "baseline-0104-preflight",
+  );
+  const baselineMigratorBlock = serviceBlock(
+    compose,
+    "baseline-0104-migrator",
+  );
+  const baselinePostflightBlock = serviceBlock(
+    compose,
+    "baseline-0104-postflight",
+  );
+  for (const [block, phase] of [
+    [baselinePreflightBlock, "pre"],
+    [baselinePostflightBlock, "post"],
+  ]) {
+    for (const boundary of [
+      "    image: ${STAGING_API_IMAGE:?set immutable API image repository@sha256:<64 hex digest>}",
+      "    restart: \"no\"",
+      "    read_only: true",
+      "      - ALL",
+      "      - no-new-privileges:true",
+      "      STAGING_SCHEMA_ACTION: ${STAGING_SCHEMA_ACTION:?keep inspect during the 0104 baseline}",
+      "      STAGING_BASELINE_0104_ACTION: ${STAGING_BASELINE_0104_ACTION-}",
+      "      STAGING_BASELINE_0104_CONFIRMATION: ${STAGING_BASELINE_0104_CONFIRMATION-}",
+      `      STAGING_BASELINE_0104_PHASE: ${phase}`,
+      "      STAGING_BASELINE_0104_INPUTS_B64: ${STAGING_BASELINE_0104_INPUTS_B64-}",
+      "      STAGING_BASELINE_0104_INPUTS_SHA256: ${STAGING_BASELINE_0104_INPUTS_SHA256-}",
+      "      STAGING_PREDECESSOR_0104_MANIFEST_B64: ${STAGING_PREDECESSOR_0104_MANIFEST_B64-}",
+      "      STAGING_PREDECESSOR_0104_MANIFEST_SHA256: ${STAGING_PREDECESSOR_0104_MANIFEST_SHA256-}",
+      "      STAGING_PREDECESSOR_0104_API_IMAGE: ${STAGING_PREDECESSOR_0104_API_IMAGE-}",
+      "      STAGING_EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
+      "      EXTERNAL_ACCOUNTS_ENABLED: ${STAGING_EXTERNAL_ACCOUNTS_ENABLED:?set false for the external account dark rollout}",
+      "      - dist/external-schema-baseline-0104.mjs",
+      "      disable: true",
+    ]) {
+      requireText(
+        block,
+        boundary,
+        `baseline ${phase}flight boundary ${boundary}`,
+      );
+    }
+    if (/^ {6}BUILD_SHA:/m.test(block)) {
+      fail(
+        "STAGING_BASELINE_BUILD_SHA_OVERRIDE_FORBIDDEN",
+        `Baseline ${phase}flight must keep the candidate image's baked BUILD_SHA.`,
+      );
+    }
+  }
+  for (const boundary of [
+    "    image: ${STAGING_PREDECESSOR_0104_API_IMAGE:-ghcr.io/modvolt/site-logbook-staging-api@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+    "    restart: \"no\"",
+    "    read_only: true",
+    "      - ALL",
+    "      - no-new-privileges:true",
+    '        [ "$$STAGING_BASELINE_0104_ACTION" = "apply-0104-baseline" ]',
+    '        [ "$$STAGING_BASELINE_0104_CONFIRMATION" = "APPLY_FIXED_PREDECESSOR_0104_TO_ISOLATED_SITE_LOGBOOK_STAGING" ]',
+    '        [ "$$STAGING_PREDECESSOR_0104_SOURCE_SHA" = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3" ]',
+    '        [ "$$BUILD_SHA" = "$$STAGING_PREDECESSOR_0104_SOURCE_SHA" ]',
+    "        exec node dist/migrate.mjs",
+    "      disable: true",
+  ]) {
+    requireText(
+      baselineMigratorBlock,
+      boundary,
+      `fixed predecessor migrator boundary ${boundary}`,
+    );
+  }
   for (const boundary of [
     "      external-schema-gate:",
     "        condition: service_completed_successfully",
@@ -433,6 +570,14 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "STAGING_EXTERNAL_SCHEMA_PREFLIGHT_CONFIRMATION=",
     "STAGING_BACKUP_EVIDENCE_ID=",
     "STAGING_BACKUP_RESTORE_MAX_AGE_HOURS=24",
+    "STAGING_BASELINE_0104_ACTION=",
+    "STAGING_BASELINE_0104_CONFIRMATION=",
+    "STAGING_BASELINE_0104_INPUTS_B64=",
+    "STAGING_BASELINE_0104_INPUTS_SHA256=",
+    "STAGING_PREDECESSOR_0104_MANIFEST_B64=",
+    "STAGING_PREDECESSOR_0104_MANIFEST_SHA256=",
+    "STAGING_PREDECESSOR_0104_API_IMAGE=",
+    "STAGING_PREDECESSOR_0104_SOURCE_SHA=",
   ]) {
     requireText(exampleEnv, input, `external schema staging input ${input}`);
   }
@@ -1356,6 +1501,51 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
 
+  const baselineBinding = readSource(
+    "scripts/check-staging-baseline-0104-binding.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "createStagingDeploymentBinding",
+    "validateStagingPredecessorImage",
+    'kind: "site-logbook-staging-baseline-0104"',
+    'const BASELINE_ACTION = "apply-0104-baseline"',
+    "productionTargetsTouched: false",
+    "migrationCount: 104",
+    'const FIXED_PREDECESSOR_TAIL = "0104_thin_sheva_callister"',
+    'nextGate: "fresh-exact-0104-backup-and-restore-required"',
+    "authorizes0105: false",
+    "staging-baseline-0104-inputs.sha256",
+  ]) {
+    requireText(
+      baselineBinding,
+      boundary,
+      `exact-0104 binding boundary ${boundary}`,
+    );
+  }
+  const baselineRunner = readSource(
+    "scripts/run-staging-baseline-0104.mjs",
+    overrides,
+  );
+  for (const boundary of [
+    "APPLY_FIXED_PREDECESSOR_0104_TO_ISOLATED_SITE_LOGBOOK_STAGING",
+    'services.length !== 1 || services[0] !== "postgres"',
+    '"baseline-0104-preflight"',
+    '"baseline-0104-migrator"',
+    '"baseline-0104-postflight"',
+    '"--no-deps"',
+    'precheck.operation === "migrate"',
+    "requiresFreshExact0104BackupAndRestore: true",
+    "authorizes0105: false",
+    "staging-baseline-0104-execution.sha256",
+  ]) {
+    requireText(
+      baselineRunner,
+      boundary,
+      `exact-0104 runner boundary ${boundary}`,
+    );
+  }
+
   const qualityWorkflow = readSource(
     ".github/workflows/quality-gate.yml",
     overrides,
@@ -1386,6 +1576,19 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "Quality gate external schema preflight tests",
   );
 
+  for (const command of [
+    "gate:staging-baseline-0104-binding",
+    "staging:apply-0104-baseline",
+    "staging-baseline-binding.test.mjs",
+    "staging-baseline-runner.test.mjs",
+  ]) {
+    requireText(
+      packageJson,
+      command,
+      `exact-0104 package command ${command}`,
+    );
+  }
+
   return Object.freeze({
     schemaVersion: 1,
     decision: "PASS",
@@ -1397,6 +1600,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     pinnedBaseImageFamilies: 5,
     publicationMode: "private-caller-ghcr-no-deploy",
     predecessorPublicationMode: "fixed-exact-0104-api-private-caller-no-deploy",
+    predecessorBaselineMode:
+      "candidate-precheck-fixed-migrator-candidate-postcheck-no-0105",
   });
 }
 
