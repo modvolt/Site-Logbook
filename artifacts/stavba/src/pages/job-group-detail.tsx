@@ -52,6 +52,19 @@ function jobLabel(
   return `#${job.jobNumber ?? job.id} ${job.title}`;
 }
 
+function apiErrorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const message = (data as { error?: unknown }).error;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+  }
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "Server neposkytl bližší důvod. Zkuste to znovu.";
+}
+
 export default function JobGroupDetail() {
   const params = useParams();
   const id = Number(params.id || 0);
@@ -65,6 +78,9 @@ export default function JobGroupDetail() {
   const [labourBillingMode, setLabourBillingMode] = useState<
     "job_price" | "recorded_time" | "none"
   >("job_price");
+  const [workGrouping, setWorkGrouping] = useState<"summary" | "worker">(
+    "summary",
+  );
   const [materialDisplayMode, setMaterialDisplayMode] =
     useState<MaterialDisplayMode>("detailed");
 
@@ -216,7 +232,7 @@ export default function JobGroupDetail() {
         data: {
           extraJobIds: Array.from(extraJobIds),
           labourBillingMode,
-          workGrouping: "summary",
+          workGrouping,
           materialDisplayMode,
         },
       },
@@ -228,11 +244,9 @@ export default function JobGroupDetail() {
           setLocation(`/billing/invoices/${invoice.id}/edit`);
         },
         onError: (error) =>
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Koncept faktury se nepodařilo vytvořit.",
-          ),
+          toast.error("Koncept faktury se nepodařilo vytvořit.", {
+            description: apiErrorMessage(error),
+          }),
       },
     );
   }
@@ -553,14 +567,17 @@ export default function JobGroupDetail() {
             {extraJobIds.size > 0 && (
               <div>
                 <div className="mb-2 text-sm font-medium">
-                  Jak účtovat práci víceprací
+                  Zdroj ceny práce
                 </div>
                 <div className="inline-flex flex-wrap rounded-md border p-1">
                   {(
                     [
-                      ["job_price", "Cena zakázky"],
-                      ["recorded_time", "Skutečný čas"],
-                      ["none", "Bez práce"],
+                      ["job_price", "Cena ze souhrnu práce"],
+                      [
+                        "recorded_time",
+                        "Odpracovaný čas × prodejní sazba",
+                      ],
+                      ["none", "Práci nefakturovat"],
                     ] as const
                   ).map(([value, label]) => (
                     <Button
@@ -577,11 +594,43 @@ export default function JobGroupDetail() {
                   ))}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Spotřebovaný oceněný materiál vybraných víceprací se přidá
-                  automaticky. Koncept lze před vystavením zkontrolovat.
+                  Volba se týká pouze práce vybraných víceprací. Oceněný
+                  materiál se přidá automaticky; koncept lze před vystavením
+                  zkontrolovat.
                 </p>
               </div>
             )}
+
+            {extraJobIds.size > 0 &&
+              labourBillingMode === "recorded_time" && (
+                <div>
+                  <div className="mb-2 text-sm font-medium">
+                    Rozdělení řádků odpracovaného času
+                  </div>
+                  <div className="inline-flex flex-wrap rounded-md border p-1">
+                    {(
+                      [
+                        ["summary", "Souhrn za zakázku a sazbu"],
+                        ["worker", "Podle pracovníků a sazby"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={workGrouping === value ? "default" : "ghost"}
+                        onClick={() => setWorkGrouping(value)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Volba mění pouze rozpad řádků faktury, ne jejich celkovou
+                    částku.
+                  </p>
+                </div>
+              )}
 
             {extraJobIds.size > 0 && (
               <InvoiceMaterialDisplayControl

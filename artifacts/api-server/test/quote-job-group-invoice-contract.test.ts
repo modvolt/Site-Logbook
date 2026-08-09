@@ -20,7 +20,7 @@ describe("quote job-group invoice contract", () => {
     expect(rollback).toContain("1783988026596");
   });
 
-  it("copies accepted quote items and includes only explicitly selected extras", () => {
+  it("copies accepted quote items and scopes worker grouping to explicitly selected extras", () => {
     const service = read("artifacts/api-server/src/lib/invoice-service.ts");
     const start = service.indexOf(
       "export async function createQuoteJobGroupInvoiceDraft",
@@ -30,6 +30,10 @@ describe("quote job-group invoice contract", () => {
     expect(block).toContain('.for("update")');
     expect(block).toContain('quote.status !== "accepted"');
     expect(block).toContain("input.extraJobIds ?? []");
+    expect(block).toContain('jobIds: extraJobIds');
+    expect(block).toContain(
+      'workGrouping: input.workGrouping ?? "summary"',
+    );
     expect(block).toContain('sourceType: "quote_item"');
     expect(block).toContain("unitPriceWithoutVat: num(item.unitPrice)");
     expect(block).toContain("ensureQuoteGroupSourceLinks");

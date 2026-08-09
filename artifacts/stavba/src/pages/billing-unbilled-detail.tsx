@@ -45,6 +45,19 @@ import {
 type UnbilledMaterial = UnbilledJob["materials"][number];
 type LabourBillingMode = "automatic" | "job_price" | "recorded_time" | "none";
 
+function apiErrorMessage(error: unknown): string | undefined {
+  if (error && typeof error === "object") {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const message = (data as { error?: unknown }).error;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+  }
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : undefined;
+}
+
 /** Material subtotal (purchase price, no markup) for a single job. */
 function jobMaterialTotal(job: UnbilledJob): number {
   let total = 0;
@@ -348,6 +361,41 @@ export default function BillingUnbilledDetail() {
     (sum, item) => sum + item.recordedWork.missingRateCount + item.recordedWork.needsReviewCount,
     0,
   );
+  const selectedRecordedWorkHours = selectedRecordedWork.reduce(
+    (sum, item) => sum + item.recordedWork.hours,
+    0,
+  );
+  const selectedRecordedWorkAmount = selectedRecordedWork.reduce(
+    (sum, item) => sum + item.recordedWork.amount,
+    0,
+  );
+  const hasUsableRecordedWork = selectedRecordedWork.some(
+    (item) =>
+      item.recordedWork.sessionCount > 0 &&
+      item.recordedWork.missingRateCount === 0 &&
+      item.recordedWork.needsReviewCount === 0,
+  );
+  const showWorkGrouping =
+    (labourBillingMode === "automatic" || labourBillingMode === "recorded_time") &&
+    hasUsableRecordedWork;
+  const noRecordedTimeSelected =
+    labourBillingMode === "recorded_time" &&
+    chosenJobIds.length + chosenActivityIds.length > 0 &&
+    selectedRecordedWork.every((item) => item.recordedWork.sessionCount === 0);
+  const selectedJobsUsingStoredPrice = jobs.filter(
+    (job) =>
+      isChecked(job.id) &&
+      (labourBillingMode === "job_price" ||
+        (labourBillingMode === "automatic" &&
+          !jobUsesRecordedWork(job, labourBillingMode))),
+  );
+  const missingContractPriceJobs = selectedJobsUsingStoredPrice.filter(
+    (job) =>
+      job.pricingMode === "fixed_price" && Number(job.contractPrice ?? 0) <= 0,
+  );
+  const missingStoredJobPriceJobs = selectedJobsUsingStoredPrice.filter(
+    (job) => job.pricingMode !== "fixed_price" && Number(job.price ?? 0) <= 0,
+  );
 
   // Material purchase-price base across selected jobs + activities, plus markup.
   const selectedMaterialBase = useMemo(
@@ -448,8 +496,12 @@ export default function BillingUnbilledDetail() {
           toast({ title: "Koncept faktury vytvořen" });
           setLocation(`/billing/invoices/${invoice.id}/edit`);
         },
-        onError: () =>
-          toast({ title: "Nepodařilo se vytvořit koncept", variant: "destructive" }),
+        onError: (error) =>
+          toast({
+            title: "Nepodařilo se vytvořit koncept",
+            description: apiErrorMessage(error),
+            variant: "destructive",
+          }),
       },
     );
   };
@@ -533,18 +585,27 @@ export default function BillingUnbilledDetail() {
       <div className="mb-4 border-y py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4" /> Způsob fakturace práce</div>
-            <div className="text-xs text-muted-foreground mt-0.5">Automaticky zachová smluvní cenu; u zakázek čas a materiál použije zaznamenané hodiny a jejich historické sazby.</div>
+            <div className="text-sm font-semibold flex items-center gap-2"><Clock className="h-4 w-4" /> Zdroj ceny práce</div>
+            <div className="text-xs text-muted-foreground mt-0.5">Automaticky zachová smluvní cenu; u zakázek v režimu Čas a materiál použije odpracovaný čas, a pokud chybí, cenu ze Souhrnu práce.</div>
           </div>
           <div className="inline-flex flex-wrap rounded-md border p-1 bg-muted/30">
-            {([['automatic', 'Automaticky'], ['job_price', 'Cena zakázky'], ['recorded_time', 'Skutečný čas'], ['none', 'Bez práce']] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={labourBillingMode === value ? "default" : "ghost"} onClick={() => setLabourBillingMode(value)}>{label}</Button>)}
+            {([['automatic', 'Automaticky'], ['job_price', 'Cena ze souhrnu práce'], ['recorded_time', 'Odpracovaný čas × prodejní sazba'], ['none', 'Práci nefakturovat']] as const).map(([value, label]) => <Button key={value} type="button" size="sm" variant={labourBillingMode === value ? "default" : "ghost"} onClick={() => setLabourBillingMode(value)}>{label}</Button>)}
           </div>
         </div>
-        {(labourBillingMode === "automatic" || labourBillingMode === "recorded_time") && <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm">Vybráno {selectedRecordedWork.reduce((sum, item) => sum + item.recordedWork.hours, 0).toLocaleString("cs-CZ")} h za {fmtKc(selectedRecordedWork.reduce((sum, item) => sum + item.recordedWork.amount, 0), 2)}</div>
-          <div className="inline-flex rounded-md border p-1"><Button size="sm" variant={workGrouping === "summary" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("summary")}>Souhrnně</Button><Button size="sm" variant={workGrouping === "worker" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("worker")}>Podle pracovníků</Button></div>
-          {recordedWorkBlockers > 0 && <div className="w-full text-sm text-amber-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" /> {recordedWorkBlockers} časových záznamů vyžaduje doplnění sazby nebo kontrolu.</div>}
+        {showWorkGrouping && <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium">Rozdělení řádků odpracovaného času</div>
+              <div className="text-xs text-muted-foreground">Vybráno {selectedRecordedWorkHours.toLocaleString("cs-CZ")} h za {fmtKc(selectedRecordedWorkAmount, 2)}</div>
+            </div>
+            <div className="inline-flex flex-wrap rounded-md border p-1"><Button size="sm" variant={workGrouping === "summary" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("summary")}>Souhrn za zakázku a sazbu</Button><Button size="sm" variant={workGrouping === "worker" ? "secondary" : "ghost"} onClick={() => setWorkGrouping("worker")}>Podle pracovníků a sazby</Button></div>
+          </div>
+          <p className="text-xs text-muted-foreground">Rozdělení mění pouze počet a názvy řádků práce; celková částka zůstane stejná.</p>
         </div>}
+        {(labourBillingMode === "automatic" || labourBillingMode === "recorded_time") && recordedWorkBlockers > 0 && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> {recordedWorkBlockers} časových záznamů vyžaduje doplnění sazby nebo kontrolu. Doplňte je, nebo zvolte jiný zdroj ceny práce.</div>}
+        {noRecordedTimeSelected && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Vybrané zakázky a akce nemají použitelný odpracovaný čas. Koncept se vytvoří bez řádků práce; materiál a ostatní náklady zůstanou zahrnuté.</div>}
+        {missingContractPriceJobs.length > 0 && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Některým vybraným zakázkám se smluvní cenou chybí smluvní cena. Doplňte ji v Souhrnu práce, nebo pro fakturu pouze za materiál zvolte Práci nefakturovat.</div>}
+        {missingStoredJobPriceJobs.length > 0 && <div className="mt-3 text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> Některé vybrané zakázky nemají v Souhrnu práce vyplněnou cenu práce. Jejich řádek práce se do konceptu nepřidá; materiál a ostatní náklady zůstanou zahrnuté.</div>}
       </div>
 
       <div className="flex items-center justify-between mb-3">
