@@ -394,3 +394,20 @@ soubor `artifacts/api-server/test/review-queue-actions.test.ts`, konkrétně dv�
 varianty job-ID fixture v jednom bloku. Publisher workflows ani D1 kontrakt se
 nekříží. Bez nového oprávnění nebyl proveden merge, rebase ani řešení konfliktu.
 Nejbližší další krok je R16-C3C3C-D1B, nikoli D2.
+
+## R16-C3C3C-D1B – public main reconciliation
+
+Public `main` `d18ddc93f87fa22d1d363b1b5a899ce8071a826b` byl bez rebase
+a bez force operace sloučen merge commitem
+`3875fdb6663e22f21caf15e74d8d79aa2ac36cab`. Jediný konflikt byl v
+`artifacts/api-server/test/review-queue-actions.test.ts`; výsledná varianta
+zachovává globální izolovanou `testJobId` fixture, její správné pořadí teardownu
+a odstraňuje automaticky zdvojený import. Publisher workflows a D1 REST kontrakt
+nebyly konfliktem změněny.
+
+Cílené billing ověření prošlo 132/132 testů. Root typecheck, API build,
+Stavba/Vite/PWA build, staging runtime contract, staging-contract 89/89, ESLint,
+peer dependency check, moderate+ audit a `git diff --check` prošly. Izolovaný
+PostgreSQL byl omezen na 0,5 CPU a 384 MiB a nesdílel data ani port se Service
+Book Keeperem. Nebyl proveden private zásah, dispatch, GHCR zápis, deploy ani
+staging/produkční migrace.
