@@ -241,3 +241,142 @@ Lokální ověření:
 Tato podfáze mění pouze veřejnou template a její kontrakt/test. Private `main`
 stále obsahuje původní group; nebyl vytvořen ani mergován private PR a nebyl
 proveden nový dispatch, GHCR zápis, deploy ani migrace.
+
+## R16-C3C3C-B2 – one-file private wrapper draft PR
+
+Po výslovném schválení vznikla nová private větev
+`agent/phase16c3-predecessor-concurrency-fix` z přesného private `main`
+`9dbc048e4597eaf9ac9d4dd5d799406e1d9ddafc`.
+
+Commit `10246b4656f6e6b5cf86b537948a36aaead82a54` mění pouze
+`.github/workflows/publish-staging-predecessor.yml`: jeden řádek group z
+`site-logbook-images-publication` na `site-logbook-registry-publication`.
+
+Draft [private PR #3](https://github.com/modvolt/site-logbook-registry/pull/3)
+je `open`, `draft`, `unmerged`, `mergeable=true`, `mergeable_state=clean`, míří
+přímo do `main` a obsahuje přesně jeden commit, jeden soubor, jednu inserci a
+jednu deleci.
+
+PR head wrapper má Git blob
+`6e0ff648028b0e7dfbe41e83ed456471969b93a7`, 1498 bytes a SHA-256
+`d16ea4e40ed8bfab9b102e19647d1a95b0f28554ee503681f6fa424232ed0a76`. Je
+bajtově shodný s veřejnou auditovanou template na zeleném public head
+`532b45799a076e4f56185366ae3e9e055ccd6723`.
+
+Private `main` zůstal nezměněný, nový PR head nemá žádný Actions run, fixed
+publisher má stále jen původní selhaný run `31335035618` a GHCR inventura stále
+obsahuje nula container i target packages. PR nebyl označen ready ani mergován;
+nebyl proveden dispatch, deploy ani migrace.
+
+## R16-C3C3C-B3 – exact-head merge opraveného private wrapperu
+
+Po samostatném výslovném schválení byl private PR
+[#3](https://github.com/modvolt/site-logbook-registry/pull/3) nejprve znovu
+ověřen jako `open`, `draft`, `mergeable`, `clean` s přesným head
+`10246b4656f6e6b5cf86b537948a36aaead82a54` a base
+`9dbc048e4597eaf9ac9d4dd5d799406e1d9ddafc`. Rozsah zůstal přesně jeden commit,
+jediný workflow soubor a změna 1+/1−.
+
+PR byl označen ready a sloučen standardním merge commitem s match-head ochranou,
+bez admin override a bez smazání zdrojové větve. Private `main` nyní ukazuje na
+merge commit `064adcfd43920d624670acad1a442375f37deee5`, jehož rodiče jsou v pořadí
+původní base `9dbc048e4597eaf9ac9d4dd5d799406e1d9ddafc` a schválený head
+`10246b4656f6e6b5cf86b537948a36aaead82a54`.
+
+Wrapper na private `main` má Git blob
+`6e0ff648028b0e7dfbe41e83ed456471969b93a7`, 1498 bytes a SHA-256
+`d16ea4e40ed8bfab9b102e19647d1a95b0f28554ee503681f6fa424232ed0a76`; je
+stále bajtově shodný s veřejnou auditovanou template. GitHub workflow ID
+`330628153` je registrováno jako `active`.
+
+Post-merge kontrola potvrzuje právě jeden historický publisher run
+`31335035618` z původního main a žádný nový run. GHCR inventura má stále nula
+container packages a nula target packages `site-logbook-staging-api`. Veřejný
+PR #15 zůstává draft, open a unmerged na head
+`532b45799a076e4f56185366ae3e9e055ccd6723`; exact-head Quality run
+`31335963994` zůstává `completed/success`.
+
+Nebyl proveden workflow dispatch, rerun, GHCR zápis, deploy, Coolify, DB, S3,
+DNS, secrets ani migrace. `0100` zůstává nezařazena a `0105` nebyla spuštěna.
+
+## R16-C3C3C-C – druhý fixed predecessor dispatch skončil fail-closed
+
+Po samostatném výslovném schválení proběhl právě jeden nový dispatch fixed
+predecessor publisheru. Run
+[`31337538887`](https://github.com/modvolt/site-logbook-registry/actions/runs/31337538887)
+je run number 2, attempt 1, event `workflow_dispatch`, head branch `main` a exact
+head `064adcfd43920d624670acad1a442375f37deee5`. Další dispatch ani rerun nebyl
+proveden.
+
+Před dispatch prošel fail-closed preflight identity `modvolt`, private
+main/wrapper blob a SHA-256, aktivní workflow ID `330628153`, public PR #15 a
+exact-head Quality run `31335963994`, predecessor source/tree, nulový aktivní
+publisher i nulový GHCR container/target stav.
+
+Run prokázal, že oprava concurrency funguje: `validate-manual-owner` job
+`93305749236` i called `validate-fixed-public-source` job `93305761011` skončily
+`success` a reusable publish job byl skutečně vytvořen. `publish-fixed-predecessor-api`
+job `93305771437` potom skončil `failure` ve svém prvním kroku
+`Require approved private manual caller and exact tag state`.
+
+Log potvrzuje exact caller repository, owner, actor, triggering actor, workflow
+ref, confirmation, source SHA/tree i `packages: write`. Následné volání
+`gh api --paginate '/user/packages?package_type=container&per_page=100'` s
+workflow `GITHUB_TOKEN` vrátilo HTTP 400 `Invalid argument`; fail-closed wrapper
+jej správně převedl na `the authenticated private package inventory could not be
+read`.
+
+Checkout, migration bundle check, Buildx, GHCR login, lokální build, recheck,
+push, digest/provenance/SBOM ověření i artifact upload byly přeskočeny. Artifact
+count je 0. Post-run inventura přes uživatelský OAuth token stále vrací 0
+private container packages a 0 target packages `site-logbook-staging-api`.
+
+Oficiální GitHub REST dokumentace popisuje `/user/packages` jako namespace
+autentizovaného uživatele a `/users/{username}/packages` jako explicitní
+uživatelský namespace; oba endpointy deklarují podporu GitHub App installation
+tokenů. Pozorovaný Actions runtime ale první variantu s repository
+`GITHUB_TOKEN` odmítl. Nejmenší kandidátní oprava je proto namespace-qualified
+package API kontrakt, musí však být samostatně implementován, mutation-testován
+a znovu projít public exact-head Quality gate. Stejný `/user/packages` vzor je
+přítomen i v candidate `staging-images.yml`, takže před jeho prvním spuštěním
+vyžaduje stejný audit.
+
+Nebyl proveden GHCR zápis, deploy, Coolify, DB, S3, DNS, secrets ani migrace.
+`0100` zůstává nezařazena a `0105` nebyla spuštěna.
+
+## R16-C3C3C-D1 – owner-qualified package REST namespace
+
+Po výslovném schválení byla implementována úzká oprava blokátoru z runu
+[`31337538887`](https://github.com/modvolt/site-logbook-registry/actions/runs/31337538887).
+Všechna package REST čtení v predecessor i candidate publisheru nyní používají
+pevný namespace `/users/modvolt/packages`; stavový automat, permissions,
+registry názvy, exact tagy a build/push logika se nezměnily.
+
+Implementation commit je `a74d8e9fc05a43c01afe76e4da70033a431f2141`.
+Runtime kontrakt vyžaduje přesně všech 8 candidate a 13 predecessor package API
+odkazů v owner-qualified namespace, odmítá návrat na `/user/packages` i změnu
+ownera a chrání inventory, metadata, active/deleted versions i refetch cesty.
+Mock execution harness používá stejné explicitní endpointy.
+
+Veřejná private-wrapper template připíná reusable workflow na implementation
+commit `a74d8e9fc05a43c01afe76e4da70033a431f2141`. Template má Git blob
+`2541a08dc41511c5b8f9c8f47a423fbec0f34347`, 1498 bytes a SHA-256
+`233ca267b59e3856575584a0f4949dd1bcf218e20a070ba42b2969f0604ad84d`.
+Historické auditní důkazy původního pinu zůstaly beze změny.
+
+Lokální ověření:
+
+- explicitní `/users/modvolt/packages` endpoint přes OAuth user token: HTTP 200,
+  nulová inventura shodná s dřívějším `/user/packages` čtením;
+- runtime/mutation testy: 22/22 PASS;
+- sériový offline Docker execution harness: PASS;
+- kompletní `test:staging-contract`: PASS;
+- `gate:staging-runtime`: PASS;
+- `gate:quality`: PASS, bez ESLint chyb, peer problémů a známých moderate+
+  dependency zranitelností;
+- Prettier a `git diff --check`: PASS.
+
+Oprava zatím není aktivní v private wrapperu na `main`; ten stále připíná starý
+reusable commit. Nebyl proveden private commit/PR/merge, workflow dispatch,
+rerun, GHCR zápis, deploy ani migrace. Další krok smí pouze po novém souhlasu
+vytvořit one-file private pin update a draft PR.

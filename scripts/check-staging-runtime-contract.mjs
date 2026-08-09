@@ -1603,7 +1603,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     '[[ "${ACTOR,,}" == "modvolt" ]]',
     '[[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]',
     "packages: write",
-    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@e7222e759b4ecf523defa0329d2dfd3fadd2c5eb",
+    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@a74d8e9fc05a43c01afe76e4da70033a431f2141",
     "confirm_predecessor_registry_publication: true",
   ]) {
     requireText(
