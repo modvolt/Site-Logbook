@@ -404,7 +404,7 @@ test("keeps the private predecessor wrapper manual, main-only and commit-pinned"
   for (const mutated of [
     workflow.replace("refs/heads/main", "refs/heads/feature"),
     workflow.replace(
-      "@a66bc2fcf5e0dd0dfbd45c450783b12d61c1c10f",
+      "@e7222e759b4ecf523defa0329d2dfd3fadd2c5eb",
       "@agent/phase16c3-staging-preflight",
     ),
     workflow.replace("packages: write", "packages: read"),
