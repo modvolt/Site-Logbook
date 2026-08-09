@@ -5,6 +5,7 @@ import {
   billingDocumentsTable,
   billingDocumentLinesTable,
   auditLogTable,
+  jobsTable,
   usersTable,
 } from "@workspace/db";
 import {
@@ -182,18 +183,32 @@ describe("bulkConfirmReviewLines – diff accuracy (stillUnresolved, withJobAssi
   let lineWithJob: number;
   let lineNoJob: number;
   let docId: number;
+  let assignedJobId: number;
 
   beforeAll(async () => {
     docId = await makeDoc("needs_review");
-    lineWithJob = await makeLine(docId, { jobId: 1, matchConfirmed: 0, confidence: "0.5" });
+    const [job] = await db
+      .insert(jobsTable)
+      .values({ title: `Zakázka ${TAG}`, date: "2026-08-09" })
+      .returning({ id: jobsTable.id });
+    assignedJobId = job.id;
+    lineWithJob = await makeLine(docId, {
+      jobId: assignedJobId,
+      matchConfirmed: 0,
+      confidence: "0.5",
+    });
     lineNoJob = await makeLine(docId, { jobId: null, matchConfirmed: 0, confidence: "0.5" });
+  });
+
+  afterAll(async () => {
+    await db.delete(jobsTable).where(eq(jobsTable.id, assignedJobId));
   });
 
   it("withJobAssigned counts only lines that have a jobId", async () => {
     const diff = await bulkConfirmReviewLines([lineWithJob, lineNoJob], actor, true);
     expect(diff.withJobAssigned).toBe(1);
     // affectedJobIds lists the actual job IDs (deduplicated)
-    expect(diff.affectedJobIds).toContain(1);
+    expect(diff.affectedJobIds).toContain(assignedJobId);
     expect(diff.affectedJobIds).toHaveLength(1);
   });
 
