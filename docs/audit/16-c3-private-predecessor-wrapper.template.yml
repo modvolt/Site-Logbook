@@ -1,0 +1,46 @@
+name: Publish fixed Site Logbook staging predecessor (manual, no deploy)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation_phrase:
+        description: Type PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: site-logbook-images-publication
+  cancel-in-progress: false
+
+jobs:
+  validate-manual-owner:
+    permissions: {}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require private main branch, owner and exact no-deploy phrase
+        shell: bash
+        env:
+          ACTOR: ${{ github.actor }}
+          CONFIRMATION_PHRASE: ${{ inputs.confirmation_phrase }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          [[ "${REPOSITORY,,}" == "modvolt/site-logbook-registry" ]]
+          [[ "$REF" == "refs/heads/main" ]]
+          [[ "${ACTOR,,}" == "modvolt" ]]
+          [[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]
+          [[ "$CONFIRMATION_PHRASE" == "PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY" ]]
+
+  publish-fixed-predecessor:
+    needs: validate-manual-owner
+    permissions:
+      contents: read
+      packages: write
+    uses: modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@a66bc2fcf5e0dd0dfbd45c450783b12d61c1c10f
+    with:
+      confirm_predecessor_registry_publication: true

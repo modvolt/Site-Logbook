@@ -1275,6 +1275,41 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
 
+  const predecessorWrapperTemplate = readSource(
+    "docs/audit/16-c3-private-predecessor-wrapper.template.yml",
+    overrides,
+  );
+  for (const boundary of [
+    "workflow_dispatch:",
+    "PUBLISH_FIXED_SITE_LOGBOOK_STAGING_PREDECESSOR_0104_NO_DEPLOY",
+    '[[ "$REF" == "refs/heads/main" ]]',
+    '[[ "${ACTOR,,}" == "modvolt" ]]',
+    '[[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]',
+    "packages: write",
+    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@a66bc2fcf5e0dd0dfbd45c450783b12d61c1c10f",
+    "confirm_predecessor_registry_publication: true",
+  ]) {
+    requireText(
+      predecessorWrapperTemplate,
+      boundary,
+      `private predecessor wrapper boundary ${boundary}`,
+    );
+  }
+  if (
+    (predecessorWrapperTemplate.match(/\bpackages: write\b/g) ?? []).length !==
+      1 ||
+    /secrets:\s*inherit/.test(predecessorWrapperTemplate) ||
+    /source_sha|source_ref|source_pr_number/i.test(
+      predecessorWrapperTemplate,
+    ) ||
+    /coolify|DATABASE_URL|\bS3_[A-Z0-9_]+\b/i.test(predecessorWrapperTemplate)
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_WRAPPER_DRIFT",
+      "the private predecessor wrapper template widened its permission, source, secret, or deployment surface.",
+    );
+  }
+
   const qualityWorkflow = readSource(
     ".github/workflows/quality-gate.yml",
     overrides,

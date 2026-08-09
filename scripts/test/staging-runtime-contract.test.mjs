@@ -342,6 +342,29 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
   }
 });
 
+test("keeps the private predecessor wrapper manual, main-only and commit-pinned", () => {
+  const relativePath =
+    "docs/audit/16-c3-private-predecessor-wrapper.template.yml";
+  const workflow = source(relativePath);
+  for (const mutated of [
+    workflow.replace("refs/heads/main", "refs/heads/feature"),
+    workflow.replace(
+      "@a66bc2fcf5e0dd0dfbd45c450783b12d61c1c10f",
+      "@agent/phase16c3-staging-preflight",
+    ),
+    workflow.replace("packages: write", "packages: read"),
+    workflow.replace(
+      "    with:\n      confirm_predecessor_registry_publication: true",
+      "    secrets: inherit\n    with:\n      confirm_predecessor_registry_publication: true",
+    ),
+  ]) {
+    assert.throws(
+      () => validateStagingRuntimeContract({ [relativePath]: mutated }),
+      (error) => error instanceof StagingRuntimeContractError,
+    );
+  }
+});
+
 test("rejects mutable base images and incomplete publication", () => {
   const apiDockerfile = source("artifacts/api-server/Dockerfile");
   assert.throws(
