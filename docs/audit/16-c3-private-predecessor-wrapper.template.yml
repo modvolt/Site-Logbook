@@ -41,6 +41,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@a74d8e9fc05a43c01afe76e4da70033a431f2141
+    uses: modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@2ab7aa1df7980180bcd334870928616d13a2ecce
+    secrets:
+      packages_metadata_token: ${{ secrets.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN }}
     with:
       confirm_predecessor_registry_publication: true

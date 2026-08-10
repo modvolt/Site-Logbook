@@ -1696,7 +1696,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     '[[ "${ACTOR,,}" == "modvolt" ]]',
     '[[ "${TRIGGERING_ACTOR,,}" == "modvolt" ]]',
     "packages: write",
-    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@a74d8e9fc05a43c01afe76e4da70033a431f2141",
+    "modvolt/Site-Logbook/.github/workflows/staging-predecessor-image.yml@2ab7aa1df7980180bcd334870928616d13a2ecce",
+    "secrets:\n      packages_metadata_token: ${{ secrets.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN }}",
     "confirm_predecessor_registry_publication: true",
   ]) {
     requireText(
@@ -1725,6 +1726,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
   if (
     (predecessorWrapperTemplate.match(/\bpackages: write\b/g) ?? []).length !==
       1 ||
+    (
+      predecessorWrapperTemplate.match(
+        /^\s+packages_metadata_token: \$\{\{ secrets\.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN \}\}$/gm,
+      ) ?? []
+    ).length !== 1 ||
+    (predecessorWrapperTemplate.match(/\$\{\{ secrets\.[A-Z0-9_]+ \}\}/g) ?? [])
+      .length !== 1 ||
     /secrets:\s*inherit/.test(predecessorWrapperTemplate) ||
     /source_sha|source_ref|source_pr_number/i.test(
       predecessorWrapperTemplate,

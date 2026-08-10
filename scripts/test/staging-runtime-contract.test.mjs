@@ -663,10 +663,18 @@ test("keeps the private predecessor wrapper manual, main-only and commit-pinned"
   for (const mutated of [
     workflow.replace("refs/heads/main", "refs/heads/feature"),
     workflow.replace(
-      "@a74d8e9fc05a43c01afe76e4da70033a431f2141",
+      "@2ab7aa1df7980180bcd334870928616d13a2ecce",
       "@agent/phase16c3-staging-preflight",
     ),
     workflow.replace("packages: write", "packages: read"),
+    workflow.replace(
+      "    secrets:\n      packages_metadata_token: ${{ secrets.SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN }}\n",
+      "",
+    ),
+    workflow.replace(
+      "SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN",
+      "BROAD_GITHUB_CLI_TOKEN",
+    ),
     workflow.replace(
       "    with:\n      confirm_predecessor_registry_publication: true",
       "    secrets: inherit\n    with:\n      confirm_predecessor_registry_publication: true",
