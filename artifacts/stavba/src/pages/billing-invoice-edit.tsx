@@ -8,6 +8,7 @@ import {
   getGetBillingSummaryQueryKey,
   type InvoiceDetail,
   type InvoiceLineInput,
+  type InvoicePresentationGroup,
   type InvoiceUpdateInput,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,9 +30,14 @@ import { fmtKc, VAT_RATE_OPTIONS, VAT_HEADER_OPTIONS } from "@/lib/billing-forma
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Save, Plus, Trash2, AlertCircle } from "lucide-react";
 import {
-  InvoiceMaterialDisplayControl,
-  type MaterialDisplayMode,
-} from "@/components/invoice-material-display-control";
+  InvoiceCustomPresentationEditor,
+  InvoicePresentationModeControl,
+  type InvoicePresentationMode,
+} from "@/components/invoice-presentation-editor";
+import {
+  initializePresentationGroups,
+  validatePresentationGroups,
+} from "@/lib/invoice-presentation";
 import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 
 function errMsg(err: unknown): string | undefined {
@@ -141,7 +147,11 @@ export default function BillingInvoiceEdit() {
   const [header, setHeader] = useState<Header | null>(null);
   const [rows, setRows] = useState<LineRow[]>([]);
   const [materialDisplayMode, setMaterialDisplayMode] =
-    useState<MaterialDisplayMode>("detailed");
+    useState<InvoicePresentationMode>("detailed");
+  const [presentationGroups, setPresentationGroups] = useState<
+    InvoicePresentationGroup[]
+  >([]);
+  const [linesDirty, setLinesDirty] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -150,6 +160,10 @@ export default function BillingInvoiceEdit() {
       setHeader(toHeader(inv));
       setRows(toRows(inv));
       setMaterialDisplayMode(inv.materialDisplayMode);
+      setPresentationGroups(
+        initializePresentationGroups(inv.lines, inv.presentationGroups),
+      );
+      setLinesDirty(false);
     }
   }, [inv, header]);
 
@@ -158,6 +172,7 @@ export default function BillingInvoiceEdit() {
 
   const setRow = (key: string, patch: Partial<LineRow>) => {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setLinesDirty(true);
     if ("description" in patch && rowErrors[key]) {
       setRowErrors((prev) => {
         const next = { ...prev };
@@ -168,7 +183,8 @@ export default function BillingInvoiceEdit() {
     }
   };
 
-  const addRow = () =>
+  const addRow = () => {
+    setLinesDirty(true);
     setRows((rs) => [
       ...rs,
       {
@@ -186,11 +202,36 @@ export default function BillingInvoiceEdit() {
         vatMode: (header?.vatModeDefault ?? "standard") as LineRow["vatMode"],
       },
     ]);
+  };
 
-  const removeRow = (key: string) => setRows((rs) => rs.filter((r) => r.key !== key));
+  const removeRow = (key: string) => {
+    setLinesDirty(true);
+    setRows((rs) => rs.filter((r) => r.key !== key));
+  };
 
   const subtotal = rows.reduce((s, r) => s + rowBaseTotal(r), 0);
   const totalVat = rows.reduce((s, r) => s + rowVat(r), 0);
+  const presentationSourceLines = rows.map((row) => ({
+    description: row.description,
+    totalWithoutVat: rowBaseTotal(row),
+    vatMode: row.vatMode,
+    vatRate: num(row.vatRate),
+  }));
+
+  const changePresentationMode = (next: InvoicePresentationMode) => {
+    if (next === "custom" && materialDisplayMode !== "custom") {
+      const storedGroups = linesDirty
+        ? []
+        : presentationGroups.length > 0
+          ? presentationGroups
+          : (inv?.presentationGroups ?? []);
+      setPresentationGroups(
+        initializePresentationGroups(presentationSourceLines, storedGroups),
+      );
+    }
+    setMaterialDisplayMode(next);
+    setSaveError(null);
+  };
 
   const handleSave = () => {
     if (!header) return;
@@ -204,6 +245,16 @@ export default function BillingInvoiceEdit() {
       setRowErrors(errors);
       setSaveError("Opravte chyby ve formuláři před uložením.");
       return;
+    }
+    if (materialDisplayMode === "custom") {
+      const presentationError = validatePresentationGroups(
+        presentationGroups,
+        presentationSourceLines,
+      );
+      if (presentationError) {
+        setSaveError(presentationError);
+        return;
+      }
     }
     setRowErrors({});
     setSaveError(null);
@@ -221,22 +272,24 @@ export default function BillingInvoiceEdit() {
       vatMode: r.vatMode,
       sortOrder: i,
     }));
+    const data: InvoiceUpdateInput = {
+      issueDate: header.issueDate || null,
+      taxableSupplyDate: header.taxableSupplyDate || null,
+      dueDate: header.dueDate || null,
+      paymentMethod: header.paymentMethod.trim() || null,
+      variableSymbol: header.variableSymbol.trim() || null,
+      constantSymbol: header.constantSymbol.trim() || null,
+      specificSymbol: header.specificSymbol.trim() || null,
+      vatModeDefault: header.vatModeDefault as InvoiceUpdateInput["vatModeDefault"],
+      materialDisplayMode,
+      notes: header.notes.trim() || null,
+      ...(linesDirty ? { lines } : {}),
+      ...(materialDisplayMode === "custom" ? { presentationGroups } : {}),
+    };
     update.mutate(
       {
         id,
-        data: {
-          issueDate: header.issueDate || null,
-          taxableSupplyDate: header.taxableSupplyDate || null,
-          dueDate: header.dueDate || null,
-          paymentMethod: header.paymentMethod.trim() || null,
-          variableSymbol: header.variableSymbol.trim() || null,
-          constantSymbol: header.constantSymbol.trim() || null,
-          specificSymbol: header.specificSymbol.trim() || null,
-          vatModeDefault: header.vatModeDefault as InvoiceUpdateInput["vatModeDefault"],
-          materialDisplayMode,
-          notes: header.notes.trim() || null,
-          lines,
-        },
+        data,
       },
       {
         onSuccess: () => {
@@ -342,25 +395,39 @@ export default function BillingInvoiceEdit() {
         </CardContent>
       </Card>
 
-      {rows.some((row) =>
-        ["material", "activity_material"].includes(row.sourceType),
-      ) && (
-        <div className="mb-4 border-y py-3">
-          <InvoiceMaterialDisplayControl
-            value={materialDisplayMode}
-            onChange={setMaterialDisplayMode}
-          />
-        </div>
+      {rows.length > 0 && (
+        <Card className="mb-4">
+          <CardContent className="p-4">
+            <InvoicePresentationModeControl
+              value={materialDisplayMode}
+              hasMaterial={rows.some((row) =>
+                ["material", "activity_material"].includes(row.sourceType),
+              )}
+              onChange={changePresentationMode}
+            />
+          </CardContent>
+        </Card>
       )}
 
-      <Card className="mb-4">
-        <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Položky</CardTitle>
-          <Button variant="outline" size="sm" onClick={addRow} className="h-9">
-            <Plus className="h-4 w-4 mr-1" /> Přidat položku
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      {materialDisplayMode === "custom" ? (
+        <Card className="mb-4">
+          <CardContent className="p-4">
+            <InvoiceCustomPresentationEditor
+              lines={presentationSourceLines}
+              groups={presentationGroups}
+              onChange={setPresentationGroups}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="mb-4">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Položky</CardTitle>
+            <Button variant="outline" size="sm" onClick={addRow} className="h-9">
+              <Plus className="h-4 w-4 mr-1" /> Přidat položku
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
           {rows.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-4">
               Žádné položky. Přidejte první položku.
@@ -428,8 +495,9 @@ export default function BillingInvoiceEdit() {
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mb-4">
         <CardContent className="p-4">

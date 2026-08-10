@@ -438,6 +438,7 @@ router.patch("/billing/invoices/:id", async (req, res): Promise<void> => {
     specificSymbol: d.specificSymbol ?? undefined,
     vatModeDefault: d.vatModeDefault ?? undefined,
     materialDisplayMode: d.materialDisplayMode ?? undefined,
+    presentationGroups: d.presentationGroups ?? undefined,
     notes: d.notes ?? undefined,
     lines: d.lines?.map(mapLineInput),
   };

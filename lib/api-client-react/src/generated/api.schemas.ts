@@ -4868,7 +4868,7 @@ export const InvoiceDetailVatModeDefault = {
 } as const;
 
 /**
- * Customer-facing material layout; source lines remain detailed
+ * Customer-facing layout; custom text is stored separately from source lines
  */
 export type InvoiceDetailMaterialDisplayMode = typeof InvoiceDetailMaterialDisplayMode[keyof typeof InvoiceDetailMaterialDisplayMode];
 
@@ -4876,6 +4876,7 @@ export type InvoiceDetailMaterialDisplayMode = typeof InvoiceDetailMaterialDispl
 export const InvoiceDetailMaterialDisplayMode = {
   detailed: 'detailed',
   summary: 'summary',
+  custom: 'custom',
 } as const;
 
 export type InvoiceLineSourceType = typeof InvoiceLineSourceType[keyof typeof InvoiceLineSourceType];
@@ -4932,6 +4933,21 @@ export interface InvoiceLine {
   sortOrder: number;
 }
 
+export interface InvoicePresentationGroup {
+  /**
+     * Freely editable customer-facing text for the grouped sources
+     * @minLength 1
+     * @maxLength 500
+     */
+  description: string;
+  /**
+     * Zero-based indexes of immutable internal invoice source lines
+     * @minItems 1
+     * @maxItems 500
+     */
+  lineIndexes: number[];
+}
+
 export interface InvoiceSourceJob {
   id: number;
   /**
@@ -4981,7 +4997,7 @@ export interface InvoiceDetail {
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceDetailVatModeDefault;
-  /** Customer-facing material layout; source lines remain detailed */
+  /** Customer-facing layout; custom text is stored separately from source lines */
   materialDisplayMode: InvoiceDetailMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -5020,6 +5036,8 @@ export interface InvoiceDetail {
   lines: InvoiceLine[];
   /** Lines rendered on the customer invoice and PDF */
   presentationLines: InvoiceLine[];
+  /** Custom customer-facing groups; source lines remain immutable and linked */
+  presentationGroups: InvoicePresentationGroup[];
   sourceJobIds: number[];
   sourceActivityIds?: number[];
   sourceJobs?: InvoiceSourceJob[];
@@ -5048,7 +5066,7 @@ export const InvoiceVatModeDefault = {
 } as const;
 
 /**
- * Customer-facing material layout; source lines remain detailed
+ * Customer-facing layout; custom text is stored separately from source lines
  */
 export type InvoiceMaterialDisplayMode = typeof InvoiceMaterialDisplayMode[keyof typeof InvoiceMaterialDisplayMode];
 
@@ -5056,6 +5074,7 @@ export type InvoiceMaterialDisplayMode = typeof InvoiceMaterialDisplayMode[keyof
 export const InvoiceMaterialDisplayMode = {
   detailed: 'detailed',
   summary: 'summary',
+  custom: 'custom',
 } as const;
 
 export interface Invoice {
@@ -5091,7 +5110,7 @@ export interface Invoice {
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault: InvoiceVatModeDefault;
-  /** Customer-facing material layout; source lines remain detailed */
+  /** Customer-facing layout; custom text is stored separately from source lines */
   materialDisplayMode: InvoiceMaterialDisplayMode;
   subtotalWithoutVat: number;
   totalVat: number;
@@ -5281,7 +5300,7 @@ export const InvoiceUpdateInputVatModeDefault = {
 } as const;
 
 /**
- * Display material as individual lines or as one amount per VAT rate
+ * Choose source lines, material summary, or custom customer-facing groups
  */
 export type InvoiceUpdateInputMaterialDisplayMode = typeof InvoiceUpdateInputMaterialDisplayMode[keyof typeof InvoiceUpdateInputMaterialDisplayMode];
 
@@ -5289,6 +5308,7 @@ export type InvoiceUpdateInputMaterialDisplayMode = typeof InvoiceUpdateInputMat
 export const InvoiceUpdateInputMaterialDisplayMode = {
   detailed: 'detailed',
   summary: 'summary',
+  custom: 'custom',
 } as const;
 
 export interface InvoiceUpdateInput {
@@ -5309,8 +5329,13 @@ export interface InvoiceUpdateInput {
   /** @nullable */
   specificSymbol?: string | null;
   vatModeDefault?: InvoiceUpdateInputVatModeDefault;
-  /** Display material as individual lines or as one amount per VAT rate */
+  /** Choose source lines, material summary, or custom customer-facing groups */
   materialDisplayMode?: InvoiceUpdateInputMaterialDisplayMode;
+  /**
+     * Custom customer-facing groups; every source line must be included exactly once
+     * @maxItems 500
+     */
+  presentationGroups?: InvoicePresentationGroup[];
   /** @nullable */
   notes?: string | null;
   /** If provided, replaces ALL lines of the draft */

@@ -55,8 +55,9 @@ export const invoicesTable = pgTable(
     constantSymbol: text("constant_symbol"),
     specificSymbol: text("specific_symbol"),
     vatModeDefault: text("vat_mode_default").notNull().default("standard"),
-    // Customer-facing material layout: detailed | summary. Source invoice
-    // lines always remain detailed so billing and warehouse provenance is kept.
+    // Customer-facing layout: detailed | summary or a versioned custom-text
+    // envelope. Source lines always remain unchanged so job, billing and
+    // warehouse provenance is kept; this does not require a schema migration.
     materialDisplayMode: text("material_display_mode")
       .notNull()
       .default("detailed"),

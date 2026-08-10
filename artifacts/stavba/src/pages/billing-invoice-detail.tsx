@@ -417,6 +417,8 @@ export default function BillingInvoiceDetail() {
   const internalMaterialLines = inv.lines.filter((line) =>
     ["material", "activity_material"].includes(line.sourceType),
   );
+  const internalSourceLines =
+    inv.materialDisplayMode === "custom" ? inv.lines : internalMaterialLines;
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -552,11 +554,13 @@ export default function BillingInvoiceDetail() {
             <InfoRow label="Variabilní symbol" value={inv.variableSymbol || "—"} />
             <InfoRow label="Režim DPH" value={vatModeLabel(inv.vatModeDefault)} />
             <InfoRow
-              label="Materiál na faktuře"
+              label="Podoba položek"
               value={
                 inv.materialDisplayMode === "summary"
-                  ? "Jednou částkou"
-                  : "Po položkách"
+                  ? "Materiál souhrnně"
+                  : inv.materialDisplayMode === "custom"
+                    ? "Vlastní texty"
+                    : "Po položkách"
               }
             />
             {inv.paidDate && (
@@ -646,14 +650,24 @@ export default function BillingInvoiceDetail() {
               </TableBody>
             </Table>
           </div>
-          {inv.materialDisplayMode === "summary" &&
-            internalMaterialLines.length > 1 && (
+          {((inv.materialDisplayMode === "summary" &&
+            internalMaterialLines.length > 1) ||
+            (inv.materialDisplayMode === "custom" &&
+              internalSourceLines.length > 0)) && (
               <details className="border-t px-4 py-3 sm:px-0">
                 <summary className="cursor-pointer text-sm font-medium">
-                  Interní rozpad materiálu ({internalMaterialLines.length})
+                  {inv.materialDisplayMode === "custom"
+                    ? `Interní zdroje (${internalSourceLines.length})`
+                    : `Interní rozpad materiálu (${internalSourceLines.length})`}
                 </summary>
+                {inv.materialDisplayMode === "custom" && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Tyto zdroje zůstávají propojené se zakázkami a skladem a
+                    zákazník je na faktuře nevidí.
+                  </p>
+                )}
                 <div className="mt-3 space-y-2 text-sm">
-                  {internalMaterialLines.map((line) => (
+                  {internalSourceLines.map((line) => (
                     <div
                       key={line.id}
                       className="flex items-start justify-between gap-3"

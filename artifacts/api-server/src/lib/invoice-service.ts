@@ -71,8 +71,12 @@ import {
   releaseInvoicedMaterials,
 } from "./cost-document-service";
 import {
+  encodeInvoicePresentation,
+  getStoredInvoicePresentationGroups,
   normalizeMaterialDisplayMode,
   presentInvoiceLines,
+  type InvoicePresentationGroup,
+  type InvoicePresentationMode,
   type MaterialDisplayMode,
 } from "./invoice-line-presentation";
 
@@ -1385,8 +1389,11 @@ export async function getInvoiceDetail(id: number) {
     lines: lines.map(serializeLine),
     presentationLines: presentInvoiceLines(
       lines,
-      normalizeMaterialDisplayMode(invoice.materialDisplayMode),
+      invoice.materialDisplayMode,
     ).map(serializeLine),
+    presentationGroups: getStoredInvoicePresentationGroups(
+      invoice.materialDisplayMode,
+    ),
     sourceJobIds: linkedJobIds,
     sourceActivityIds: linkedActivityIds,
     sourceJobs,
@@ -2705,7 +2712,8 @@ export async function createQuoteJobGroupInvoiceDraft(
 
 export interface InvoiceUpdateInput {
   vatModeDefault?: VatMode;
-  materialDisplayMode?: MaterialDisplayMode;
+  materialDisplayMode?: InvoicePresentationMode;
+  presentationGroups?: InvoicePresentationGroup[];
   issueDate?: string | null;
   taxableSupplyDate?: string | null;
   dueDate?: string | null;
@@ -2749,9 +2757,15 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
     if (input.specificSymbol !== undefined)
       set.specificSymbol = input.specificSymbol;
     if (input.notes !== undefined) set.notes = input.notes;
-    if (input.materialDisplayMode !== undefined) {
-      set.materialDisplayMode = normalizeMaterialDisplayMode(
-        input.materialDisplayMode,
+    if (
+      input.lines !== undefined &&
+      normalizeMaterialDisplayMode(invoice.materialDisplayMode) === "custom" &&
+      input.materialDisplayMode === undefined &&
+      input.presentationGroups === undefined
+    ) {
+      throw appError(
+        409,
+        "Zdrojové položky nelze měnit, dokud je aktivní vlastní podoba faktury.",
       );
     }
     await tx.update(invoicesTable).set(set).where(eq(invoicesTable.id, id));
@@ -2863,9 +2877,73 @@ export async function updateDraft(id: number, input: InvoiceUpdateInput) {
       if (quoteLink?.jobGroupId != null) {
         await ensureQuoteGroupSourceLinks(tx, id, quoteLink.jobGroupId);
       }
-    } else {
-      // VAT mode may have changed — recompute existing lines under the new mode.
+    } else if (
+      input.vatModeDefault !== undefined &&
+      input.vatModeDefault !== invoice.vatModeDefault
+    ) {
+      // VAT mode changed — recompute existing lines under the new mode.
       await recalcWithin(tx, id, vatModeDefault);
+    }
+
+    if (
+      input.materialDisplayMode !== undefined ||
+      input.presentationGroups !== undefined
+    ) {
+      const requestedMode =
+        input.materialDisplayMode ??
+        (input.presentationGroups !== undefined ? "custom" : undefined);
+      if (!requestedMode) {
+        throw appError(400, "Chybí způsob zobrazení faktury.");
+      }
+      if (
+        requestedMode !== "custom" &&
+        input.presentationGroups !== undefined
+      ) {
+        throw appError(
+          400,
+          "Vlastní skupiny lze uložit pouze v režimu vlastních textů.",
+        );
+      }
+
+      if (requestedMode === "custom") {
+        const finalLines = await tx
+          .select()
+          .from(invoiceLinesTable)
+          .where(eq(invoiceLinesTable.invoiceId, id))
+          .orderBy(invoiceLinesTable.sortOrder, invoiceLinesTable.id);
+        const groups =
+          input.presentationGroups ??
+          (normalizeMaterialDisplayMode(invoice.materialDisplayMode) ===
+          "custom"
+            ? getStoredInvoicePresentationGroups(invoice.materialDisplayMode)
+            : finalLines.map((line, index) => ({
+                description: line.description,
+                lineIndexes: [index],
+              })));
+        let storedPresentation: string;
+        try {
+          storedPresentation = encodeInvoicePresentation(groups, finalLines);
+        } catch (error) {
+          throw appError(
+            400,
+            error instanceof Error
+              ? error.message
+              : "Vlastní podobu faktury nelze uložit.",
+          );
+        }
+        await tx
+          .update(invoicesTable)
+          .set({
+            materialDisplayMode: storedPresentation,
+            updatedAt: new Date(),
+          })
+          .where(eq(invoicesTable.id, id));
+      } else {
+        await tx
+          .update(invoicesTable)
+          .set({ materialDisplayMode: requestedMode, updatedAt: new Date() })
+          .where(eq(invoicesTable.id, id));
+      }
     }
   });
   return getInvoiceDetail(id);
@@ -3094,7 +3172,7 @@ async function buildPdfData(
   const paymentQrDataUrl = await buildPaymentQrDataUrl(invoice, settings);
   const presentationLines = presentInvoiceLines(
     lines,
-    normalizeMaterialDisplayMode(invoice.materialDisplayMode),
+    invoice.materialDisplayMode,
   );
   return {
     invoiceNumber: invoice.invoiceNumber ?? "—",
