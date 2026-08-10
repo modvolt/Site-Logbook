@@ -781,6 +781,18 @@ export function validateStagingRuntimeContract(overrides = {}) {
     ".github/workflows/staging-images.yml",
     overrides,
   );
+  const validatePublicSourceJob = publishWorkflow.match(
+    /^ {2}validate-public-source:\r?\n[\s\S]*?(?=^ {2}publish-staging-images:)/m,
+  )?.[0];
+  const publishStagingImagesJob = publishWorkflow.match(
+    /^ {2}publish-staging-images:\r?\n[\s\S]*$/m,
+  )?.[0];
+  if (!validatePublicSourceJob || !publishStagingImagesJob) {
+    fail(
+      "STAGING_IMAGE_REUSABLE_TRIGGER_MISSING",
+      "the candidate publisher jobs could not be isolated for validation.",
+    );
+  }
   if (/\bworkflow_dispatch\s*:/.test(publishWorkflow)) {
     fail(
       "STAGING_IMAGE_PUBLIC_DIRECT_DISPATCH",
@@ -823,13 +835,29 @@ export function validateStagingRuntimeContract(overrides = {}) {
     ".id == 289280891",
     '.type == "User"',
     "CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    "CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}",
     'GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api',
+    '"repos/${CALLER_REPOSITORY}/git/ref/heads/main"',
+    '.default_branch == "main"',
+    ".object.sha == $workflowSha",
   ]) {
     requirePublicationText(
       publishWorkflow,
       credentialBoundary,
       "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
       `dedicated Packages metadata credential boundary ${credentialBoundary}`,
+    );
+  }
+  if (
+    (
+      publishStagingImagesJob.match(
+        /GH_TOKEN="\$CALLER_GITHUB_TOKEN" gh api/g,
+      ) ?? []
+    ).length !== 2
+  ) {
+    fail(
+      "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+      "the package-write job must use the caller token exactly for repository metadata and the live private main ref.",
     );
   }
   if (
@@ -868,6 +896,36 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "validate-public-source:\n    permissions: {}",
     "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
     "token-free public source validation job",
+  );
+  for (const callerBoundary of [
+    "Require exact private manual caller workflow",
+    "APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry",
+    "APPROVED_CALLER_WORKFLOW_REF: modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+    "CALLER_ACTOR: ${{ github.actor }}",
+    "CALLER_EVENT_NAME: ${{ github.event_name }}",
+    "CALLER_REF: ${{ github.ref }}",
+    "CALLER_REPOSITORY: ${{ github.repository }}",
+    "CALLER_TRIGGERING_ACTOR: ${{ github.triggering_actor }}",
+    "CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}",
+    '[[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]]',
+    '[[ "$CALLER_EVENT_NAME" == "workflow_dispatch" ]]',
+    '[[ "$CALLER_REF" == "refs/heads/main" ]]',
+    '[[ "${CALLER_ACTOR,,}" == "modvolt" ]]',
+    '[[ "${CALLER_TRIGGERING_ACTOR,,}" == "modvolt" ]]',
+    '[[ "${CALLER_WORKFLOW_REF,,}" == "$APPROVED_CALLER_WORKFLOW_REF" ]]',
+  ]) {
+    requirePublicationText(
+      validatePublicSourceJob,
+      callerBoundary,
+      "STAGING_IMAGE_CALLER_IDENTITY_GUARD_MISSING",
+      `exact private caller boundary ${callerBoundary}`,
+    );
+  }
+  requirePublicationText(
+    publishStagingImagesJob,
+    "APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry",
+    "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
+    "package-write job approved private caller repository",
   );
   requirePublicationText(
     publishWorkflow,

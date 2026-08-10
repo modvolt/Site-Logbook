@@ -983,8 +983,8 @@ test("requires a private caller and private package verification", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
     workflow.replace(
-      "APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry",
-      "APPROVED_CALLER_REPOSITORY: modvolt/untrusted-private-repo",
+      "          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry\n          CALLER_GITHUB_TOKEN:",
+      "          APPROVED_CALLER_REPOSITORY: modvolt/untrusted-private-repo\n          CALLER_GITHUB_TOKEN:",
     ),
     "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
   );
@@ -1027,6 +1027,54 @@ test("requires a private caller and private package verification", () => {
     ),
     "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
   );
+});
+
+test("binds candidate publication to the exact private manual caller workflow", () => {
+  const workflow = source(".github/workflows/staging-images.yml");
+  for (const [needle, replacement] of [
+    [
+      "          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry\n          APPROVED_CALLER_WORKFLOW_REF:",
+      "          APPROVED_CALLER_REPOSITORY: modvolt/untrusted-private-repo\n          APPROVED_CALLER_WORKFLOW_REF:",
+    ],
+    [
+      "APPROVED_CALLER_WORKFLOW_REF: modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      "APPROVED_CALLER_WORKFLOW_REF: modvolt/site-logbook-registry/.github/workflows/another.yml@refs/heads/main",
+    ],
+    [
+      '[[ "$CALLER_EVENT_NAME" == "workflow_dispatch" ]]',
+      '[[ -n "$CALLER_EVENT_NAME" ]]',
+    ],
+    [
+      '[[ "$CALLER_REF" == "refs/heads/main" ]]',
+      '[[ "$CALLER_REF" == refs/heads/* ]]',
+    ],
+    ['[[ "${CALLER_ACTOR,,}" == "modvolt" ]]', '[[ -n "$CALLER_ACTOR" ]]'],
+    [
+      '[[ "${CALLER_TRIGGERING_ACTOR,,}" == "modvolt" ]]',
+      '[[ -n "$CALLER_TRIGGERING_ACTOR" ]]',
+    ],
+    [
+      '[[ "${CALLER_WORKFLOW_REF,,}" == "$APPROVED_CALLER_WORKFLOW_REF" ]]',
+      '[[ "$CALLER_WORKFLOW_REF" == *publish-staging-images.yml* ]]',
+    ],
+  ]) {
+    assertWorkflowContractError(
+      workflow.replace(needle, replacement),
+      "STAGING_IMAGE_CALLER_IDENTITY_GUARD_MISSING",
+    );
+  }
+  for (const [needle, replacement] of [
+    [
+      "CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}",
+      "CALLER_WORKFLOW_SHA: ${{ github.sha }}",
+    ],
+    [".object.sha == $workflowSha", ".object.sha != $workflowSha"],
+  ]) {
+    assertWorkflowContractError(
+      workflow.replace(needle, replacement),
+      "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+    );
+  }
 });
 
 test("enforces a fixed two-stage append-only package state gate", () => {

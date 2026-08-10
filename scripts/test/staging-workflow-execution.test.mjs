@@ -11,6 +11,7 @@ import {
 } from "../workflow-execution-harness.mjs";
 
 const SOURCE_SHA = "6dddd64676631fffca6aef9baf74d79b127f8a01";
+const CALLER_WORKFLOW_SHA = "1".repeat(40);
 const PREDECESSOR_SOURCE_SHA = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
 const PACKAGE_NAMES = [
   "site-logbook-staging-preflight",
@@ -36,6 +37,11 @@ const predecessorScripts = Object.fromEntries(
       `scripts/predecessor-${String(index + 1).padStart(2, "0")}.sh`,
       step.run,
     ]),
+);
+const callerIdentityScript = requireRunScript(
+  workflow,
+  "validate-public-source",
+  "Require exact private manual caller workflow",
 );
 const metadataCredentialScript = requireRunScript(
   workflow,
@@ -96,6 +102,9 @@ EOF
     ;;
   repos/modvolt/site-logbook-registry)
     cat "$HARNESS_ROOT/fixtures/caller.json"
+    ;;
+  repos/modvolt/site-logbook-registry/git/ref/heads/main)
+    cat "$HARNESS_ROOT/fixtures/caller-main.json"
     ;;
   "/user/packages?package_type=container&visibility=private&per_page=100")
     [[ "\${MOCK_INVENTORY_FAIL:-false}" != "true" ]] || exit 73
@@ -206,6 +215,11 @@ function baseFixtureFiles() {
       full_name: "modvolt/site-logbook-registry",
       owner: { login: "modvolt" },
       private: true,
+      default_branch: "main",
+    }),
+    "fixtures/caller-main.json": JSON.stringify({
+      ref: "refs/heads/main",
+      object: { type: "commit", sha: CALLER_WORKFLOW_SHA },
     }),
   };
 }
@@ -234,12 +248,32 @@ function commonEnvironment() {
     CALLER_GITHUB_TOKEN: "mock-caller-token-not-a-secret",
     CALLER_REPOSITORY: "modvolt/site-logbook-registry",
     CALLER_REPOSITORY_OWNER: "modvolt",
+    CALLER_WORKFLOW_SHA,
     GH_TOKEN: "mock-token-not-a-secret",
     HARNESS_ROOT: "{HARNESS_ROOT}",
     PRIVATE_REGISTRY_OWNER: "modvolt",
     PUBLICATION_CONFIRMED: "true",
     SOURCE_SHA,
   };
+}
+
+function runCallerIdentity(environment = {}) {
+  return runBashHarness({
+    script: callerIdentityScript,
+    environment: {
+      APPROVED_CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      APPROVED_CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      CALLER_ACTOR: "modvolt",
+      CALLER_EVENT_NAME: "workflow_dispatch",
+      CALLER_REF: "refs/heads/main",
+      CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      CALLER_TRIGGERING_ACTOR: "modvolt",
+      CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      ...environment,
+    },
+  });
 }
 
 function runMetadataCredential(script, environment = {}) {
@@ -981,6 +1015,28 @@ test("accepts a genuinely empty inventory for first publication", () => {
   assert.equal(output.publish_remaining, "false");
 });
 
+test("executes the exact private manual caller guard fail-closed", () => {
+  const accepted = runCallerIdentity();
+  assert.equal(accepted.status, 0, accepted.stderr);
+
+  for (const [variable, value, expected] of [
+    ["CALLER_REPOSITORY", "modvolt/other", /approved private repository/u],
+    ["CALLER_EVENT_NAME", "push", /manual workflow dispatch/u],
+    ["CALLER_REF", "refs/heads/feature", /private default branch/u],
+    ["CALLER_ACTOR", "other", /caller actor/u],
+    ["CALLER_TRIGGERING_ACTOR", "other", /triggering actor/u],
+    [
+      "CALLER_WORKFLOW_REF",
+      "modvolt/site-logbook-registry/.github/workflows/other.yml@refs/heads/main",
+      /workflow path and ref/u,
+    ],
+  ]) {
+    const rejected = runCallerIdentity({ [variable]: value });
+    assert.notEqual(rejected.status, 0, `${variable} unexpectedly passed`);
+    assert.match(rejected.stderr, expected, variable);
+  }
+});
+
 test("shellcheck accepts the exact extracted workflow scripts", () => {
   const result = runBashHarness({
     script: `set -euo pipefail
@@ -1065,6 +1121,7 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
         full_name: "modvolt/site-logbook-registry",
         owner: { login: "modvolt" },
         private: false,
+        default_branch: "main",
       }),
     },
   });
@@ -1090,6 +1147,17 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
     untrustedWithoutExactTag.stderr,
     /not private.*approved private caller/u,
   );
+
+  const staleCallerMain = runPackageState("preflight-only", "00000", {
+    files: {
+      "fixtures/caller-main.json": JSON.stringify({
+        ref: "refs/heads/main",
+        object: { type: "commit", sha: "2".repeat(40) },
+      }),
+    },
+  });
+  assert.notEqual(staleCallerMain.status, 0);
+  assert.match(staleCallerMain.stderr, /not the live private main head/u);
 });
 
 test("rejects duplicate exact tags and a complete-stage digest mismatch", () => {

@@ -45,6 +45,38 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Require exact private manual caller workflow
+        shell: bash
+        env:
+          APPROVED_CALLER_REPOSITORY: modvolt/site-logbook-registry
+          APPROVED_CALLER_WORKFLOW_REF: modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main
+          CALLER_ACTOR: ${{ github.actor }}
+          CALLER_EVENT_NAME: ${{ github.event_name }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "Private staging image caller validation failed: $1" >&2
+            exit 1
+          }
+
+          [[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]] \
+            || fail "the reusable workflow must be called by the approved private repository."
+          [[ "$CALLER_EVENT_NAME" == "workflow_dispatch" ]] \
+            || fail "the caller must be a manual workflow dispatch."
+          [[ "$CALLER_REF" == "refs/heads/main" ]] \
+            || fail "the caller must run from the private default branch."
+          [[ "${CALLER_ACTOR,,}" == "modvolt" ]] \
+            || fail "the caller actor must be the repository owner."
+          [[ "${CALLER_TRIGGERING_ACTOR,,}" == "modvolt" ]] \
+            || fail "the triggering actor must be the repository owner."
+          [[ "${CALLER_WORKFLOW_REF,,}" == "$APPROVED_CALLER_WORKFLOW_REF" ]] \
+            || fail "the caller workflow path and ref are not approved."
+
       - name: Require exact green public source candidate
         shell: bash
         env:
@@ -220,6 +252,7 @@ jobs:
           CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
           EXPECTED_PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
           GH_TOKEN: ${{ secrets.packages_metadata_token }}
           PRIVATE_REGISTRY_OWNER: modvolt
@@ -242,6 +275,8 @@ jobs:
             || fail "the reusable workflow must be called by the approved private publisher repository."
           [[ "${CALLER_REPOSITORY_OWNER,,}" == "$PRIVATE_REGISTRY_OWNER" ]] \
             || fail "the reusable workflow must be called by the approved registry owner."
+          [[ "$CALLER_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "the caller workflow commit is invalid."
 
           caller_json="$(GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api "repos/${CALLER_REPOSITORY}")"
           jq -e \
@@ -249,9 +284,21 @@ jobs:
             --arg owner "$PRIVATE_REGISTRY_OWNER" \
             '(.full_name | ascii_downcase) == $caller and
              (.owner.login | ascii_downcase) == $owner and
-             .private == true' \
+             .private == true and
+             .default_branch == "main"' \
             <<<"$caller_json" >/dev/null \
             || fail "the caller repository must be private and owned by modvolt."
+          caller_main_json="$(
+            GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api \
+              "repos/${CALLER_REPOSITORY}/git/ref/heads/main"
+          )" || fail "the private caller main ref could not be read."
+          jq -e \
+            --arg workflowSha "$CALLER_WORKFLOW_SHA" \
+            '.ref == "refs/heads/main" and
+             .object.type == "commit" and
+             .object.sha == $workflowSha' \
+            <<<"$caller_main_json" >/dev/null \
+            || fail "the caller workflow commit is not the live private main head."
 
           package_names=( \
             site-logbook-staging-preflight \
