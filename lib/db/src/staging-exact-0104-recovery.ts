@@ -12,6 +12,7 @@ const FIXED_PREDECESSOR_SHA = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
 const LATEST_0104 = "0104_thin_sheva_callister";
 const MAX_INPUT_BYTES = 128 * 1024;
 const MAX_EXECUTION_BYTES = 128 * 1024;
+const MAX_BACKUP_PAYLOAD_BYTES = 256 * 1024 * 1024;
 const SENSITIVE_KEY =
   /(password|secret|token|credential|keyring|databaseurl|connectionstring|authorization|privatekey|accesskey|sessionkey)/i;
 
@@ -495,7 +496,14 @@ export function readStagingExact0104RecoveryEnvironment(
   );
   exactKeys(
     backup,
-    ["evidenceId", "restoreMaxAgeHours", "mustBeCreatedAfter"],
+    [
+      "evidenceId",
+      "restoreMaxAgeHours",
+      "mustBeCreatedAfter",
+      "sizeBytes",
+      "maxPayloadBytes",
+      "executionSha256",
+    ],
     "inputs.backup",
   );
   exactKeys(
@@ -539,6 +547,21 @@ export function readStagingExact0104RecoveryEnvironment(
     "backup.restoreMaxAgeHours",
     168,
   );
+  const backupSizeBytes = positiveInteger(
+    backup.sizeBytes,
+    "backup.sizeBytes",
+    MAX_BACKUP_PAYLOAD_BYTES,
+  );
+  if (
+    backup.maxPayloadBytes !== MAX_BACKUP_PAYLOAD_BYTES ||
+    typeof backup.executionSha256 !== "string" ||
+    !SHA256.test(backup.executionSha256)
+  ) {
+    fail(
+      "RECOVERY_BACKUP_BOUNDARY_INVALID",
+      "Recovery inputs must bind the exact backup execution and 256 MiB ceiling.",
+    );
+  }
   const baselineExecutionSha256 = requiredRaw(
     env,
     "STAGING_BASELINE_0104_EXECUTION_SHA256",
@@ -598,6 +621,12 @@ export function readStagingExact0104RecoveryEnvironment(
     inputsSha256,
     baselineExecutionSha256,
     baselineCompletedAt,
-    runtime: { ...runtime, baselineCompletedAt },
+    runtime: {
+      ...runtime,
+      baselineCompletedAt,
+      expectedBackupSizeBytes: backupSizeBytes,
+      backupMaxPayloadBytes: MAX_BACKUP_PAYLOAD_BYTES,
+      backupExecutionSha256: backup.executionSha256,
+    },
   };
 }

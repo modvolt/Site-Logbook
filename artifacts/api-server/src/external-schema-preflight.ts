@@ -7,8 +7,9 @@ import {
 async function main(): Promise<void> {
   const config = readExternalSchemaPreflightEnvironment();
   const summary = await runExternalSchemaPreflight(config);
-  // The summary deliberately excludes DATABASE_URL, object paths, hashes,
-  // encryption key ids and every secret value.
+  // The summary deliberately excludes DATABASE_URL, raw object paths,
+  // encryption key ids and every secret value. It includes only content hashes
+  // and one-way fingerprints required by the secret-free release evidence.
   process.stdout.write(
     `[external-schema-preflight] PASS ${JSON.stringify(summary)}\n`,
   );

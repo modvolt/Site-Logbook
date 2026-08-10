@@ -3,11 +3,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  STAGING_POSTGRES_INSPECT_FORMAT,
+  validateResolvedStagingComposeTarget,
+  validateRunningStagingPostgresContainer,
+  validateStagingDeploymentInputs,
+} from "./check-staging-deployment-binding.mjs";
 import { canonicalJson } from "./check-staging-provisioning.mjs";
 
 const SHA40 = /^[0-9a-f]{40}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const LATEST_0104 = "0104_thin_sheva_callister";
+const MAX_BACKUP_PAYLOAD_BYTES = 256 * 1024 * 1024;
 
 export class StagingExact0104RecoveryRunnerError extends Error {
   constructor(code, message) {
@@ -21,8 +29,8 @@ function fail(code, message) {
   throw new StagingExact0104RecoveryRunnerError(code, message);
 }
 
-function defaultExecute(args) {
-  return spawnSync("docker", args, {
+function defaultExecute(command, args) {
+  return spawnSync(command, args, {
     encoding: "utf8",
     windowsHide: true,
     maxBuffer: 1024 * 1024,
@@ -30,7 +38,7 @@ function defaultExecute(args) {
 }
 
 function executeChecked(execute, args, label) {
-  const result = execute(args);
+  const result = execute("docker", args);
   if (result?.error || result?.status !== 0) {
     fail(
       "RECOVERY_COMMAND_FAILED",
@@ -46,7 +54,13 @@ function executeChecked(execute, args, label) {
   return result.stdout;
 }
 
-function assertOnlyPostgresRunning(execute, composeArgs, label) {
+function assertOnlyPostgresRunning(
+  execute,
+  composeArgs,
+  resolvedBinding,
+  label,
+  expectedContainerId,
+) {
   const stdout = executeChecked(
     execute,
     [...composeArgs, "ps", "--status", "running", "--services"],
@@ -60,6 +74,149 @@ function assertOnlyPostgresRunning(execute, composeArgs, label) {
     fail(
       "RECOVERY_RUNTIME_NOT_QUIESCENT",
       "The isolated Compose project must have postgres as its only running service.",
+    );
+  }
+  const containerIds = executeChecked(
+    execute,
+    [...composeArgs, "ps", "--status", "running", "--quiet", "postgres"],
+    `${label} postgres container lookup`,
+  )
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (
+    containerIds.length !== 1 ||
+    !/^[0-9a-f]{12,64}$/.test(containerIds[0]) ||
+    (expectedContainerId &&
+      !expectedContainerId.startsWith(containerIds[0]) &&
+      !containerIds[0].startsWith(expectedContainerId))
+  ) {
+    fail(
+      "RECOVERY_POSTGRES_CONTAINER_INVALID",
+      "Exactly one unchanged staging postgres container is required.",
+    );
+  }
+  const expectedId = expectedContainerId ?? containerIds[0];
+  const projectionBytes = executeChecked(
+    execute,
+    ["inspect", "--format", STAGING_POSTGRES_INSPECT_FORMAT, containerIds[0]],
+    `${label} postgres container inspection`,
+  );
+  let projection;
+  try {
+    projection = JSON.parse(projectionBytes);
+  } catch {
+    fail(
+      "RECOVERY_POSTGRES_CONTAINER_INVALID",
+      "The secret-free postgres inspection must be strict JSON.",
+    );
+  }
+  try {
+    return validateRunningStagingPostgresContainer(
+      projection,
+      resolvedBinding,
+      { expectedContainerId: expectedId },
+    );
+  } catch {
+    fail(
+      "RECOVERY_POSTGRES_CONTAINER_MISMATCH",
+      "The live postgres container does not match the isolated resolved target.",
+    );
+  }
+}
+
+function parseTrustedInspectDeployment(
+  bytes,
+  checksumText,
+  expectedSha256,
+  expectedSourceSha,
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    bytes.length === 0 ||
+    !SHA256.test(expectedSha256 ?? "")
+  ) {
+    fail(
+      "RECOVERY_INSPECT_INVALID",
+      "The approved inspect deployment bytes and SHA-256 are required.",
+    );
+  }
+  const actualSha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  if (
+    actualSha256 !== expectedSha256 ||
+    checksumText !==
+      `${expectedSha256}  staging-exact-0104-recovery-inspect.json\n`
+  ) {
+    fail(
+      "RECOVERY_INSPECT_HASH_MISMATCH",
+      "Inspect deployment bytes do not match the separately approved checksum.",
+    );
+  }
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    fail(
+      "RECOVERY_INSPECT_INVALID",
+      "Inspect deployment inputs must be strict JSON.",
+    );
+  }
+  if (!bytes.equals(Buffer.from(canonicalJson(value), "utf8"))) {
+    fail(
+      "RECOVERY_INSPECT_INVALID",
+      "Inspect deployment inputs must use canonical JSON bytes.",
+    );
+  }
+  try {
+    return Object.freeze({
+      inputs: validateStagingDeploymentInputs(value, {
+        expectedSchemaAction: "inspect",
+        expectedSourceSha,
+      }),
+      sha256: actualSha256,
+    });
+  } catch {
+    fail(
+      "RECOVERY_INSPECT_INVALID",
+      "Inspect deployment inputs do not match the strict staging contract.",
+    );
+  }
+}
+
+function validateResolvedComposeTarget(
+  execute,
+  composeArgs,
+  inspectDeployment,
+  expectedInputsSha256,
+) {
+  const stdout = executeChecked(
+    execute,
+    [...composeArgs, "config", "--format", "json"],
+    "resolved Compose target inspection",
+  );
+  let value;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    fail(
+      "RECOVERY_COMPOSE_INVALID",
+      "Resolved Compose target must be strict JSON.",
+    );
+  }
+  try {
+    return validateResolvedStagingComposeTarget(
+      value,
+      inspectDeployment.inputs,
+      {
+        targetService: "exact-0104-recovery-gate",
+        deploymentInputsSha256: inspectDeployment.sha256,
+        recoveryInputsSha256: expectedInputsSha256,
+      },
+    );
+  } catch {
+    fail(
+      "RECOVERY_COMPOSE_MISMATCH",
+      "Resolved recovery target does not match the approved inspect deployment.",
     );
   }
 }
@@ -115,7 +272,7 @@ function exactKeys(value, keys, field) {
   }
 }
 
-function validateEvidence(value, expectedInputsSha256) {
+function validateEvidence(value, expectedInputsSha256, expectedSourceSha) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     fail("RECOVERY_EVIDENCE_INVALID", "Recovery evidence must be an object.");
   }
@@ -161,6 +318,8 @@ function validateEvidence(value, expectedInputsSha256) {
       "verifiedTableCount",
       "verifiedTablesSha256",
       "destructiveRestorePerformed",
+      "sourceExecutionSha256",
+      "maxPayloadBytes",
     ],
     "recovery backup evidence",
   );
@@ -169,8 +328,7 @@ function validateEvidence(value, expectedInputsSha256) {
     value.environmentId !== "site-logbook-staging" ||
     value.databaseName !== "site_logbook_staging" ||
     value.databaseUser !== "site_logbook_staging" ||
-    typeof value.buildSha !== "string" ||
-    !SHA40.test(value.buildSha) ||
+    value.buildSha !== expectedSourceSha ||
     value.expectedMigrations !== 104 ||
     value.latestExpectedTag !== LATEST_0104 ||
     value.excludedMigration0100Present !== false ||
@@ -215,6 +373,9 @@ function validateEvidence(value, expectedInputsSha256) {
     !DIGEST.test(backup.encryptionKeyIdFingerprint) ||
     !DIGEST.test(backup.objectPathFingerprint) ||
     !DIGEST.test(backup.verifiedTablesSha256) ||
+    !DIGEST.test(backup.sourceExecutionSha256) ||
+    backup.maxPayloadBytes !== MAX_BACKUP_PAYLOAD_BYTES ||
+    backup.sizeBytes > backup.maxPayloadBytes ||
     typeof backup.restoreAgeHours !== "number" ||
     !Number.isFinite(backup.restoreAgeHours) ||
     backup.restoreAgeHours < 0 ||
@@ -252,6 +413,8 @@ function validateEvidence(value, expectedInputsSha256) {
       verifiedTableCount: backup.verifiedTableCount,
       verifiedTablesSha256: backup.verifiedTablesSha256,
       destructiveRestorePerformed: false,
+      sourceExecutionSha256: backup.sourceExecutionSha256,
+      maxPayloadBytes: MAX_BACKUP_PAYLOAD_BYTES,
     }),
     recoveryInputsSha256: value.recoveryInputsSha256,
     baselineExecutionSha256: value.baselineExecutionSha256,
@@ -262,19 +425,35 @@ function validateEvidence(value, expectedInputsSha256) {
 export function runStagingExact0104Recovery({
   composeFile = "docker-compose.staging.yml",
   envFile = ".env.staging",
+  expectedSourceSha,
   expectedInputsSha256,
+  inspectDeploymentBytes,
+  inspectDeploymentChecksumText,
+  expectedInspectDeploymentSha256,
   execute = defaultExecute,
   now = () => new Date(),
 }) {
+  if (!SHA40.test(expectedSourceSha ?? "")) {
+    fail(
+      "RECOVERY_SOURCE_INVALID",
+      "The separately approved exact candidate source SHA is required.",
+    );
+  }
   if (
     typeof expectedInputsSha256 !== "string" ||
-    !/^[0-9a-f]{64}$/.test(expectedInputsSha256)
+    !SHA256.test(expectedInputsSha256)
   ) {
     fail(
       "RECOVERY_EXPECTED_INPUTS_INVALID",
       "A separately approved recovery input checksum is required.",
     );
   }
+  const inspectDeployment = parseTrustedInspectDeployment(
+    inspectDeploymentBytes,
+    inspectDeploymentChecksumText,
+    expectedInspectDeploymentSha256,
+    expectedSourceSha,
+  );
   const startedAt = now().toISOString();
   const composeArgs = [
     "compose",
@@ -285,14 +464,47 @@ export function runStagingExact0104Recovery({
     "--profile",
     "exact-0104-recovery",
   ];
-  assertOnlyPostgresRunning(execute, composeArgs, "initial quiescence check");
-  const stdout = executeChecked(
+  const resolvedBinding = validateResolvedComposeTarget(
     execute,
-    [...composeArgs, "run", "--rm", "--no-deps", "exact-0104-recovery-gate"],
-    "exact-0104 recovery gate",
+    composeArgs,
+    inspectDeployment,
+    expectedInputsSha256,
   );
-  const gate = validateEvidence(parseMarker(stdout), expectedInputsSha256);
-  assertOnlyPostgresRunning(execute, composeArgs, "final quiescence check");
+  const initialPostgres = assertOnlyPostgresRunning(
+    execute,
+    composeArgs,
+    resolvedBinding,
+    "initial quiescence check",
+  );
+  let stdout;
+  try {
+    stdout = executeChecked(
+      execute,
+      [
+        ...composeArgs,
+        "run",
+        "--rm",
+        "--no-deps",
+        "exact-0104-recovery-gate",
+        "node",
+        "dist/external-schema-exact-0104-recovery.mjs",
+      ],
+      "exact-0104 recovery gate",
+    );
+  } finally {
+    assertOnlyPostgresRunning(
+      execute,
+      composeArgs,
+      resolvedBinding,
+      "final quiescence check",
+      initialPostgres.containerId,
+    );
+  }
+  const gate = validateEvidence(
+    parseMarker(stdout),
+    expectedInputsSha256,
+    expectedSourceSha,
+  );
   return Object.freeze({
     schemaVersion: 1,
     kind: "site-logbook-staging-exact-0104-recovery-execution",
@@ -364,11 +576,40 @@ function argument(name) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+function requiredArgument(name) {
+  const value = argument(name);
+  if (!value) fail("RECOVERY_INPUT_MISSING", `${name} is required.`);
+  return value;
+}
+
+function regularFile(value, label) {
+  const absolute = path.resolve(value);
+  const stat = fs.lstatSync(absolute);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    fail("RECOVERY_INPUT_INVALID", `${label} must be a regular file.`);
+  }
+  return absolute;
+}
+
 function main() {
+  const inspect = regularFile(
+    requiredArgument("--inspect-inputs"),
+    "inspect deployment inputs",
+  );
+  const inspectChecksum = regularFile(
+    requiredArgument("--inspect-inputs-checksum"),
+    "inspect deployment inputs checksum",
+  );
   const evidence = runStagingExact0104Recovery({
     composeFile: argument("--compose-file") ?? "docker-compose.staging.yml",
     envFile: argument("--env-file") ?? ".env.staging",
-    expectedInputsSha256: argument("--expected-inputs-sha256"),
+    expectedSourceSha: requiredArgument("--expected-source-sha"),
+    expectedInputsSha256: requiredArgument("--expected-inputs-sha256"),
+    inspectDeploymentBytes: fs.readFileSync(inspect),
+    inspectDeploymentChecksumText: fs.readFileSync(inspectChecksum, "utf8"),
+    expectedInspectDeploymentSha256: requiredArgument(
+      "--expected-inspect-inputs-sha256",
+    ),
   });
   const outputDirectory = argument("--output-dir");
   if (!outputDirectory)

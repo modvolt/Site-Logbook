@@ -3,14 +3,22 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { validateStagingImageManifest } from "./verify-staging-image-manifest.mjs";
+import {
+  canonicalJson,
+  validateStagingProvisioning,
+} from "./check-staging-provisioning.mjs";
+import { validateStagingDeploymentInputs } from "./check-staging-deployment-binding.mjs";
 
 const PRODUCTION_HOSTS = new Set(["modvoltapp.cz", "www.modvoltapp.cz"]);
-const STAGING_NAME_PATTERN =
-  /(^|[._-])(stage|staging|test|qa|sandbox|preview)([._-]|$)/i;
+const LOGICAL_STAGING_ENVIRONMENT_ID = "site-logbook-staging";
 const FULL_GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const SENSITIVE_KEY_PATTERN =
   /(password|secret|token|credential|private.?key|database.?url|connection.?string)/i;
+const SAFE_SECRET_METADATA_FIELDS = new Set([
+  "adminUsernameConfigured",
+  "adminPasswordConfigured",
+]);
 
 export class StagingEvidenceError extends Error {
   constructor(code, message) {
@@ -98,6 +106,19 @@ function requireValue(actual, expected, field) {
   }
 }
 
+function exactKeys(value, expected, field) {
+  const object = objectAt(value, field);
+  const actualKeys = Object.keys(object).sort();
+  const expectedKeys = [...expected].sort();
+  if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
+    fail(
+      "EVIDENCE_ARTIFACT_SCHEMA_INVALID",
+      `${field} must contain only the exact approved fields.`,
+    );
+  }
+  return object;
+}
+
 function scanForSecrets(value, currentPath = "evidence") {
   if (Array.isArray(value)) {
     value.forEach((entry, index) =>
@@ -122,7 +143,9 @@ function scanForSecrets(value, currentPath = "evidence") {
     return;
   }
   for (const [key, entry] of Object.entries(value)) {
-    if (SENSITIVE_KEY_PATTERN.test(key)) {
+    const safeBooleanMetadata =
+      SAFE_SECRET_METADATA_FIELDS.has(key) && typeof entry === "boolean";
+    if (SENSITIVE_KEY_PATTERN.test(key) && !safeBooleanMetadata) {
       fail(
         "EVIDENCE_CONTAINS_SECRET",
         `${currentPath}.${key} is a forbidden sensitive field.`,
@@ -213,11 +236,29 @@ function jsonArtifact(bytes, field) {
   }
 }
 
+function canonicalJsonArtifact(bytes, field, format = "compact") {
+  const value = jsonArtifact(bytes, field);
+  scanForSecrets(value, field);
+  const canonical =
+    format === "pretty"
+      ? `${JSON.stringify(value, null, 2)}\n`
+      : canonicalJson(value);
+  if (!bytes.equals(Buffer.from(canonical, "utf8"))) {
+    fail(
+      "EVIDENCE_ARTIFACT_NOT_CANONICAL",
+      `${field} bytes do not match the approved canonical JSON encoding.`,
+    );
+  }
+  return value;
+}
+
 function validateBoundArtifacts({
   schemaTransition,
   backupEvidence,
   artifacts,
   commitSha,
+  environmentId,
+  baseUrl,
   steadyInputSha256,
   ciRunId,
   ciRunAttempt,
@@ -276,6 +317,31 @@ function validateBoundArtifacts({
     "schemaTransition.backupRestoreMaxAgeHours",
     { positive: true },
   );
+  const sourceBackupExecutionSha256 = digestAt(
+    schemaTransition.sourceBackupExecutionSha256,
+    "schemaTransition.sourceBackupExecutionSha256",
+  );
+  const backupMaxPayloadBytes = integerAt(
+    schemaTransition.backupMaxPayloadBytes,
+    "schemaTransition.backupMaxPayloadBytes",
+    { positive: true },
+  );
+  requireValue(
+    backupMaxPayloadBytes,
+    256 * 1024 * 1024,
+    "schemaTransition.backupMaxPayloadBytes",
+  );
+  const transitionBackupSizeBytes = integerAt(
+    schemaTransition.backupSizeBytes,
+    "schemaTransition.backupSizeBytes",
+    { positive: true },
+  );
+  if (transitionBackupSizeBytes > backupMaxPayloadBytes) {
+    fail(
+      "EVIDENCE_BACKUP_SIZE_INVALID",
+      "Transition backup exceeds the reviewed 256 MiB ceiling.",
+    );
+  }
   if (
     backupRestoreMaxAgeHours > 168 ||
     backupRestoreAgeHours > backupRestoreMaxAgeHours
@@ -303,9 +369,35 @@ function validateBoundArtifacts({
     "success",
     "backupEvidence.status",
   );
-  integerAt(backupEvidence.sizeBytes, "backupEvidence.sizeBytes", {
-    positive: true,
-  });
+  const backupSizeBytes = integerAt(
+    backupEvidence.sizeBytes,
+    "backupEvidence.sizeBytes",
+    {
+      positive: true,
+    },
+  );
+  requireValue(
+    backupSizeBytes,
+    transitionBackupSizeBytes,
+    "backupEvidence.sizeBytes",
+  );
+  requireValue(
+    digestAt(
+      backupEvidence.sourceExecutionSha256,
+      "backupEvidence.sourceExecutionSha256",
+    ),
+    sourceBackupExecutionSha256,
+    "backupEvidence.sourceExecutionSha256",
+  );
+  requireValue(
+    integerAt(
+      backupEvidence.maxPayloadBytes,
+      "backupEvidence.maxPayloadBytes",
+      { positive: true },
+    ),
+    backupMaxPayloadBytes,
+    "backupEvidence.maxPayloadBytes",
+  );
   digestAt(
     backupEvidence.encryptedBackupSha256,
     "backupEvidence.encryptedBackupSha256",
@@ -345,10 +437,19 @@ function validateBoundArtifacts({
       "Backup evidence timestamps are not chronological.",
     );
   }
+  const derivedBackupRestoreAgeHours =
+    Math.round(
+      ((backupCheckedAt - backupRestoreTestedAt) / (60 * 60 * 1000)) * 1000,
+    ) / 1000;
   requireValue(
     numberAt(backupEvidence.restoreAgeHours, "backupEvidence.restoreAgeHours"),
-    backupRestoreAgeHours,
+    derivedBackupRestoreAgeHours,
     "backupEvidence.restoreAgeHours",
+  );
+  requireValue(
+    backupRestoreAgeHours,
+    derivedBackupRestoreAgeHours,
+    "schemaTransition.backupRestoreAgeHours",
   );
   const backupEvidenceSha256 = digestAt(
     backupEvidence.evidenceArtifactSha256,
@@ -517,6 +618,11 @@ function validateBoundArtifacts({
     artifactHashAt(bytes[key], digest, `artifactBytes.${key}`);
   }
 
+  const rawImageManifest = canonicalJsonArtifact(
+    bytes.imageManifest,
+    "artifactBytes.imageManifest",
+    "pretty",
+  );
   try {
     const imageManifestHex = imageManifestSha256.slice("sha256:".length);
     validateStagingImageManifest(
@@ -539,10 +645,6 @@ function validateBoundArtifacts({
     );
   }
 
-  const rawImageManifest = jsonArtifact(
-    bytes.imageManifest,
-    "artifactBytes.imageManifest",
-  );
   requireValue(
     rawImageManifest.schemaVersion,
     3,
@@ -564,38 +666,50 @@ function validateBoundArtifacts({
     "rawImageManifest.publisherRun.attempt",
   );
 
-  const rawProvisioning = jsonArtifact(
+  const rawProvisioning = canonicalJsonArtifact(
     bytes.provisioning,
     "artifactBytes.provisioning",
   );
+  let validatedProvisioning;
+  try {
+    validatedProvisioning = validateStagingProvisioning(rawProvisioning, {
+      expectedSourceSha: commitSha,
+    });
+  } catch (error) {
+    fail(
+      "EVIDENCE_PROVISIONING_INVALID",
+      `raw provisioning failed strict verification: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   requireValue(
-    rawProvisioning.schemaVersion,
-    1,
-    "rawProvisioning.schemaVersion",
+    validatedProvisioning.decision,
+    "PASS",
+    "rawProvisioning.decision",
   );
   requireValue(
-    rawProvisioning.validationMode,
-    "observed",
-    "rawProvisioning.validationMode",
+    validatedProvisioning.manifestSha256,
+    provisioningSha256.slice("sha256:".length),
+    "rawProvisioning.manifestSha256",
   );
   requireValue(
-    rawProvisioning.productionTargetsTouched,
-    false,
-    "rawProvisioning.productionTargetsTouched",
-  );
-  requireValue(
-    rawProvisioning.coolify?.source?.exactCommitSha,
-    commitSha,
-    "rawProvisioning.coolify.source.exactCommitSha",
+    validatedProvisioning.publicAppUrl,
+    baseUrl,
+    "rawProvisioning.publicAppUrl",
   );
 
   const rawInputs = {
-    inspect: jsonArtifact(bytes.inspectInputs, "artifactBytes.inspectInputs"),
-    transition: jsonArtifact(
+    inspect: canonicalJsonArtifact(
+      bytes.inspectInputs,
+      "artifactBytes.inspectInputs",
+    ),
+    transition: canonicalJsonArtifact(
       bytes.transitionInputs,
       "artifactBytes.transitionInputs",
     ),
-    steady: jsonArtifact(bytes.steadyInputs, "artifactBytes.steadyInputs"),
+    steady: canonicalJsonArtifact(
+      bytes.steadyInputs,
+      "artifactBytes.steadyInputs",
+    ),
   };
   for (const [mode, input] of Object.entries(rawInputs)) {
     const expectedAction =
@@ -604,33 +718,57 @@ function validateBoundArtifacts({
         : mode === "inspect"
           ? "inspect"
           : "steady-0105";
-    requireValue(input.schemaVersion, 1, `rawInputs.${mode}.schemaVersion`);
-    requireValue(input.sourceSha, commitSha, `rawInputs.${mode}.sourceSha`);
+    try {
+      validateStagingDeploymentInputs(input, {
+        expectedSchemaAction: expectedAction,
+        expectedSourceSha: commitSha,
+        expectedImageManifestSha256: imageManifestSha256.slice(
+          "sha256:".length,
+        ),
+        expectedProvisioningManifestSha256: provisioningSha256.slice(
+          "sha256:".length,
+        ),
+        expectedProvisioning: validatedProvisioning,
+      });
+    } catch (error) {
+      fail(
+        "EVIDENCE_DEPLOYMENT_INPUT_INVALID",
+        `raw ${mode} deployment input failed strict verification: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    for (const [field, expected] of Object.entries({
+      imageManifestSha256: imageManifestSha256.slice("sha256:".length),
+      provisioningManifestSha256: provisioningSha256.slice("sha256:".length),
+      environmentId: "site-logbook-staging",
+      coolifyEnvironmentId: validatedProvisioning.environmentId,
+      composeProjectName: validatedProvisioning.composeProjectName,
+      publicAppUrl: validatedProvisioning.publicAppUrl,
+      nginxServerName: new URL(validatedProvisioning.publicAppUrl).hostname,
+      operationalAlertReceiverUrl: validatedProvisioning.alertReceiverUrl,
+      operationalAlertReceiverHost: validatedProvisioning.alertReceiverHost,
+      s3Endpoint: validatedProvisioning.s3.endpoint,
+      s3Region: validatedProvisioning.s3.region,
+      s3Bucket: validatedProvisioning.s3.bucket,
+      s3ForcePathStyle: validatedProvisioning.s3.forcePathStyle,
+      externalAccountsEnabled: false,
+    })) {
+      requireValue(input[field], expected, `rawInputs.${mode}.${field}`);
+    }
     requireValue(
-      input.imageManifestSha256,
-      imageManifestSha256.slice("sha256:".length),
-      `rawInputs.${mode}.imageManifestSha256`,
-    );
-    requireValue(
-      input.provisioningManifestSha256,
-      provisioningSha256.slice("sha256:".length),
-      `rawInputs.${mode}.provisioningManifestSha256`,
-    );
-    requireValue(
-      input.externalAccountsEnabled,
-      false,
-      `rawInputs.${mode}.externalAccountsEnabled`,
-    );
-    requireValue(
-      input.schemaAction,
-      expectedAction,
-      `rawInputs.${mode}.schemaAction`,
+      canonicalJson(input.images),
+      canonicalJson(rawImageManifest.images),
+      `rawInputs.${mode}.images`,
     );
   }
   requireValue(
     rawInputs.inspect.backupEvidenceId,
     transitionBackupId,
     "rawInputs.inspect.backupEvidenceId",
+  );
+  requireValue(
+    rawInputs.inspect.backupRestoreMaxAgeHours,
+    backupRestoreMaxAgeHours,
+    "rawInputs.inspect.backupRestoreMaxAgeHours",
   );
   requireValue(
     rawInputs.transition.backupEvidenceId,
@@ -652,19 +790,34 @@ function validateBoundArtifacts({
     );
   }
   requireValue(
-    JSON.stringify(rawInputs.inspect.images),
-    JSON.stringify(rawInputs.transition.images),
+    canonicalJson(rawInputs.inspect.images),
+    canonicalJson(rawInputs.transition.images),
     "rawInputs.inspect.images",
   );
   requireValue(
-    JSON.stringify(rawInputs.steady.images),
-    JSON.stringify(rawInputs.transition.images),
+    canonicalJson(rawInputs.steady.images),
+    canonicalJson(rawInputs.transition.images),
     "rawInputs.steady.images",
   );
 
-  const rawSchemaGate = jsonArtifact(
-    bytes.schemaGate,
-    "artifactBytes.schemaGate",
+  const rawSchemaGate = exactKeys(
+    canonicalJsonArtifact(bytes.schemaGate, "artifactBytes.schemaGate"),
+    [
+      "decision",
+      "sourceSha",
+      "latestExpectedTag",
+      "expectedMigrations",
+      "excludedMigration0100Present",
+      "externalStateRows",
+      "backupEvidenceId",
+      "backupRestoreAgeHours",
+      "backupRestoreMaxAgeHours",
+      "sourceBackupExecutionSha256",
+      "backupMaxPayloadBytes",
+      "backupSizeBytes",
+      "inputSha256",
+    ],
+    "rawSchemaGate",
   );
   for (const [field, expected] of Object.entries({
     decision: "APPLIED",
@@ -676,14 +829,31 @@ function validateBoundArtifacts({
     backupEvidenceId: transitionBackupId,
     backupRestoreAgeHours,
     backupRestoreMaxAgeHours,
+    sourceBackupExecutionSha256,
+    backupMaxPayloadBytes,
+    backupSizeBytes,
     inputSha256: transitionInputSha256,
   })) {
     requireValue(rawSchemaGate[field], expected, `rawSchemaGate.${field}`);
   }
 
-  const rawBackup = jsonArtifact(
-    bytes.backupEvidence,
-    "artifactBytes.backupEvidence",
+  const rawBackup = exactKeys(
+    canonicalJsonArtifact(bytes.backupEvidence, "artifactBytes.backupEvidence"),
+    [
+      "id",
+      "status",
+      "sizeBytes",
+      "encryptedBackupSha256",
+      "encryptionFormat",
+      "restoreStatus",
+      "createdAt",
+      "restoreTestedAt",
+      "checkedAt",
+      "restoreAgeHours",
+      "sourceExecutionSha256",
+      "maxPayloadBytes",
+    ],
+    "rawBackup",
   );
   for (const [field, expected] of Object.entries({
     id: backupId,
@@ -696,13 +866,98 @@ function validateBoundArtifacts({
     restoreTestedAt: backupEvidence.restoreTestedAt,
     checkedAt: backupEvidence.checkedAt,
     restoreAgeHours: backupRestoreAgeHours,
+    sourceExecutionSha256: sourceBackupExecutionSha256,
+    maxPayloadBytes: backupMaxPayloadBytes,
   })) {
     requireValue(rawBackup[field], expected, `rawBackup.${field}`);
   }
 
-  const rawBootstrap = jsonArtifact(bytes.bootstrap, "artifactBytes.bootstrap");
+  const rawBootstrap = exactKeys(
+    canonicalJsonArtifact(bytes.bootstrap, "artifactBytes.bootstrap", "pretty"),
+    [
+      "schemaVersion",
+      "sourceSha",
+      "workflowRun",
+      "bindings",
+      "environmentId",
+      "baseOrigin",
+      "expectedBuildSha",
+      "isolationConfirmed",
+      "deepStorageProbeConfirmed",
+      "mailSandboxConfirmed",
+      "externalAccountsEnabled",
+      "adminUsernameConfigured",
+      "adminPasswordConfigured",
+      "capturedAt",
+      "readiness",
+      "darkRollout",
+      "authenticated",
+    ],
+    "rawBootstrap",
+  );
+  exactKeys(
+    rawBootstrap.workflowRun,
+    ["id", "attempt"],
+    "rawBootstrap.workflowRun",
+  );
+  exactKeys(
+    rawBootstrap.bindings,
+    [
+      "imageManifestSha256",
+      "provisioningManifestSha256",
+      "deploymentInputsSha256",
+    ],
+    "rawBootstrap.bindings",
+  );
+  exactKeys(
+    rawBootstrap.readiness,
+    [
+      "status",
+      "dbStatus",
+      "migrationParity",
+      "version",
+      "latestExpectedTag",
+      "expectedMigrations",
+      "appliedMigrations",
+      "missingMigrationTags",
+      "excludedMigration0100Present",
+      "schemaAction",
+    ],
+    "rawBootstrap.readiness",
+  );
+  exactKeys(
+    rawBootstrap.darkRollout,
+    ["externalAccountsEnabled", "externalAccountCount"],
+    "rawBootstrap.darkRollout",
+  );
   requireValue(rawBootstrap.schemaVersion, 1, "rawBootstrap.schemaVersion");
   requireValue(rawBootstrap.sourceSha, commitSha, "rawBootstrap.sourceSha");
+  requireValue(
+    rawBootstrap.environmentId,
+    environmentId,
+    "rawBootstrap.environmentId",
+  );
+  requireValue(rawBootstrap.baseOrigin, baseUrl, "rawBootstrap.baseOrigin");
+  requireValue(
+    rawBootstrap.expectedBuildSha,
+    commitSha,
+    "rawBootstrap.expectedBuildSha",
+  );
+  for (const field of [
+    "isolationConfirmed",
+    "deepStorageProbeConfirmed",
+    "mailSandboxConfirmed",
+    "adminUsernameConfigured",
+    "adminPasswordConfigured",
+    "authenticated",
+  ]) {
+    requireValue(rawBootstrap[field], true, `rawBootstrap.${field}`);
+  }
+  requireValue(
+    rawBootstrap.externalAccountsEnabled,
+    false,
+    "rawBootstrap.externalAccountsEnabled",
+  );
   requireValue(
     rawBootstrap.capturedAt,
     bootstrapArtifact.capturedAt,
@@ -734,6 +989,9 @@ function validateBoundArtifacts({
     "rawBootstrap.bindings.deploymentInputsSha256",
   );
   for (const [field, expected] of Object.entries({
+    status: "ok",
+    dbStatus: "ok",
+    version: commitSha,
     latestExpectedTag: "0105_smooth_nitro",
     expectedMigrations: 105,
     appliedMigrations: 105,
@@ -745,6 +1003,15 @@ function validateBoundArtifacts({
       rawBootstrap.readiness?.[field],
       expected,
       `rawBootstrap.readiness.${field}`,
+    );
+  }
+  if (
+    !Array.isArray(rawBootstrap.readiness?.missingMigrationTags) ||
+    rawBootstrap.readiness.missingMigrationTags.length !== 0
+  ) {
+    fail(
+      "EVIDENCE_GATE_NOT_PASSED",
+      "rawBootstrap.readiness.missingMigrationTags must be an empty array.",
     );
   }
   requireValue(
@@ -787,12 +1054,24 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
   const alerts = objectAt(root.alerts, "alerts");
   const approvals = objectAt(root.approvals, "approvals");
 
+  exactKeys(
+    isolation,
+    [
+      "confirmed",
+      "productionTargetsTouched",
+      "productionCopyPresentInsideApprovedBoundary",
+      "rawProductionDataOutsideApprovedBoundary",
+      "mailSandbox",
+    ],
+    "isolation",
+  );
+
   const runId = stringAt(run.id, "run.id");
   const environmentId = stringAt(run.environmentId, "run.environmentId");
-  if (!STAGING_NAME_PATTERN.test(environmentId)) {
+  if (environmentId !== LOGICAL_STAGING_ENVIRONMENT_ID) {
     fail(
       "EVIDENCE_ENVIRONMENT_UNSAFE",
-      "run.environmentId does not identify staging/test/qa/sandbox/preview.",
+      `run.environmentId must equal ${LOGICAL_STAGING_ENVIRONMENT_ID}.`,
     );
   }
   const baseUrl = validateExternalStagingUrl(run.baseUrl);
@@ -843,11 +1122,19 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
   );
   requireValue(
     booleanAt(
-      isolation.rawProductionDataExposed,
-      "isolation.rawProductionDataExposed",
+      isolation.productionCopyPresentInsideApprovedBoundary,
+      "isolation.productionCopyPresentInsideApprovedBoundary",
+    ),
+    true,
+    "isolation.productionCopyPresentInsideApprovedBoundary",
+  );
+  requireValue(
+    booleanAt(
+      isolation.rawProductionDataOutsideApprovedBoundary,
+      "isolation.rawProductionDataOutsideApprovedBoundary",
     ),
     false,
-    "isolation.rawProductionDataExposed",
+    "isolation.rawProductionDataOutsideApprovedBoundary",
   );
   requireValue(
     booleanAt(isolation.mailSandbox, "isolation.mailSandbox"),
@@ -1064,6 +1351,8 @@ export function validateStagingReleaseEvidence(evidence, options = {}) {
     backupEvidence,
     artifacts,
     commitSha,
+    environmentId,
+    baseUrl,
     steadyInputSha256,
     ciRunId,
     ciRunAttempt,

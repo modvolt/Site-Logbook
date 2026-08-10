@@ -11,7 +11,7 @@ const VALID_ENV = Object.freeze({
   STAGING_DEEP_STORAGE_PROBE_CONFIRMED: "true",
   STAGING_MAIL_SANDBOX_CONFIRMED: "true",
   STAGING_EXTERNAL_ACCOUNTS_ENABLED: "false",
-  STAGING_ENVIRONMENT_ID: "modvolt-staging-eu1",
+  STAGING_ENVIRONMENT_ID: "site-logbook-staging",
   STAGING_BASE_URL: "https://stage-173.example.test",
   STAGING_EXPECTED_BUILD_SHA: "0123456789abcdef0123456789abcdef01234567",
   STAGING_ADMIN_USERNAME: "staging-release-admin",
@@ -78,6 +78,14 @@ test("rejects production, local, insecure, and non-origin URLs", () => {
 });
 
 test("rejects ambiguous environment IDs and non-full commit identifiers", () => {
+  assert.throws(
+    () =>
+      readStagingReleaseEnvironment({
+        ...VALID_ENV,
+        STAGING_ENVIRONMENT_ID: "modvolt-staging-eu1",
+      }),
+    /STAGING_ENVIRONMENT_ID_UNSAFE/,
+  );
   assert.throws(
     () =>
       readStagingReleaseEnvironment({

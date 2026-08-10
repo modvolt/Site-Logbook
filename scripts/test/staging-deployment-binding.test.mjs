@@ -16,6 +16,7 @@ import {
   buildStagingDeploymentInputs,
   createStagingDeploymentBinding,
   deploymentInputsSha256,
+  validateStagingDeploymentInputs,
   writeBindingArtifacts,
 } from "../check-staging-deployment-binding.mjs";
 
@@ -631,6 +632,18 @@ test("accepts only observed isolated Coolify provisioning", () => {
     () => validateStagingProvisioning(secret),
     /PROVISIONING_SECRET_MATERIAL/,
   );
+  const hiddenToken = provisioningFixture();
+  hiddenToken.observations = { note: `ghp_${"A".repeat(32)}` };
+  assert.throws(
+    () => validateStagingProvisioning(hiddenToken),
+    /PROVISIONING_SECRET_MATERIAL|PROVISIONING_SCHEMA_INVALID/,
+  );
+  const harmlessUnknown = provisioningFixture();
+  harmlessUnknown.observations = { note: "unexpected metadata" };
+  assert.throws(
+    () => validateStagingProvisioning(harmlessUnknown),
+    /PROVISIONING_SCHEMA_INVALID/,
+  );
   const placeholder = provisioningFixture();
   placeholder.coolify.resourceId = "PENDING";
   assert.throws(
@@ -652,10 +665,67 @@ test("creates different inspect, transition and steady deployment bindings", () 
   assert.notEqual(result.transition.sha256, result.steady.sha256);
   assert.equal(result.steady.inputs.backupEvidenceId, undefined);
   assert.equal(result.transition.inputs.backupEvidenceId, 77);
+  assert.equal(result.transition.inputs.environmentId, "site-logbook-staging");
+  assert.equal(
+    result.transition.inputs.coolifyEnvironmentId,
+    "staging-environment",
+  );
   assert.equal(
     result.steady.environment.STAGING_DEPLOYMENT_INPUTS_SHA256,
     deploymentInputsSha256(result.steady.inputs),
   );
+});
+
+test("strict deployment inputs separate logical and Coolify identities", () => {
+  const binding = validBinding();
+  assert.doesNotThrow(() =>
+    validateStagingDeploymentInputs(binding.inspect.inputs, {
+      expectedSchemaAction: "inspect",
+      expectedSourceSha: SOURCE_SHA,
+      expectedImageManifestSha256: binding.imageManifestSha256,
+      expectedProvisioningManifestSha256: binding.provisioningManifestSha256,
+      expectedProvisioning: validateStagingProvisioning(provisioningFixture()),
+    }),
+  );
+  for (const mutate of [
+    (value) => {
+      value.environmentId = value.coolifyEnvironmentId;
+    },
+    (value) => {
+      value.coolifyEnvironmentId = value.environmentId;
+    },
+    (value) => {
+      value.s3Bucket = `${value.s3Bucket}-pending`;
+    },
+    (value) => {
+      value.s3Endpoint = "https://storage.staging.internal";
+    },
+    (value) => {
+      value.publicAppUrl = "https://staging.modvoltapp.cz";
+      value.nginxServerName = "staging.modvoltapp.cz";
+    },
+    (value) => {
+      value.operationalAlertReceiverUrl =
+        "https://alerts.staging.internal/v1/operational-alerts";
+      value.operationalAlertReceiverHost = "alerts.staging.internal";
+    },
+    (value) => {
+      value.operationalAlertReceiverUrl = `${value.publicAppUrl}v1/operational-alerts`;
+      value.operationalAlertReceiverHost = value.nginxServerName;
+    },
+    (value) => {
+      value.extra = true;
+    },
+  ]) {
+    const value = structuredClone(binding.inspect.inputs);
+    mutate(value);
+    assert.throws(() =>
+      validateStagingDeploymentInputs(value, {
+        expectedSchemaAction: "inspect",
+        expectedSourceSha: SOURCE_SHA,
+      }),
+    );
+  }
 });
 
 test("writes deployment evidence atomically and never overwrites it", () => {
@@ -665,13 +735,20 @@ test("writes deployment evidence atomically and never overwrites it", () => {
     assert.deepEqual(Object.keys(files).sort(), [
       "environment",
       "inspectInputs",
+      "inspectInputsChecksum",
       "provisioning",
       "steadyInputs",
+      "steadyInputsChecksum",
       "transitionInputs",
+      "transitionInputsChecksum",
     ]);
     assert.equal(
       JSON.parse(fs.readFileSync(files.steadyInputs, "utf8")).schemaAction,
       "steady-0105",
+    );
+    assert.equal(
+      fs.readFileSync(files.transitionInputsChecksum, "utf8"),
+      `${validBinding().transition.sha256}  staging-deployment-transition.json\n`,
     );
     assert.throws(
       () => writeBindingArtifacts(directory, validBinding()),

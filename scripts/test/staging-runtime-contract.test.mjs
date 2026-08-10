@@ -51,6 +51,207 @@ test("accepts the immutable pull-only staging runtime", () => {
     summary.exact0104RecoveryMode,
     "new-encrypted-backup-restore-evidence-read-only-no-0105",
   );
+  assert.equal(
+    summary.exact0104BackupMode,
+    "one-shot-create-restore-test-no-prune-no-api-no-0105",
+  );
+  assert.equal(
+    summary.schemaTransitionEvidenceMode,
+    "ready-0104-intent-single-snapshot-atomic-finalization",
+  );
+});
+
+test("requires the isolated exact-0104 backup and durable transition evidence planes", () => {
+  const compose = source("docker-compose.staging.yml");
+  for (const mutated of [
+    compose.replace(
+      '    profiles: ["exact-0104-backup"]',
+      '    profiles: ["default"]',
+    ),
+    compose.replace(
+      "      - /tmp:size=536870912,mode=1777",
+      "      - /tmp:size=1048576,mode=1777",
+    ),
+    compose.replace(
+      '      BACKUP_ENABLED: "true"',
+      '      BACKUP_ENABLED: "false"',
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "docker-compose.staging.yml": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const objectStorage = source("artifacts/api-server/src/lib/objectStorage.ts");
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "artifacts/api-server/src/lib/objectStorage.ts": objectStorage.replace(
+          "totalBytes > options.maxBytes",
+          "totalBytes < options.maxBytes",
+        ),
+      }),
+    StagingRuntimeContractError,
+  );
+
+  const backupEntrypoint = source(
+    "artifacts/api-server/src/external-schema-exact-0104-backup.ts",
+  );
+  assert.throws(
+    () =>
+      validateStagingRuntimeContract({
+        "artifacts/api-server/src/external-schema-exact-0104-backup.ts":
+          backupEntrypoint.replace(
+            "skipRetentionPrune: true",
+            "skipRetentionPrune: false",
+          ),
+      }),
+    StagingRuntimeContractError,
+  );
+
+  for (const mutated of [
+    backupEntrypoint.replace(
+      "STAGING_EXACT_0104_BACKUP_MAX_PAYLOAD_BYTES = 256 * 1024 * 1024",
+      "STAGING_EXACT_0104_BACKUP_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024",
+    ),
+    backupEntrypoint.replace(
+      "maxPayloadBytes: STAGING_EXACT_0104_BACKUP_MAX_PAYLOAD_BYTES",
+      "maxPayloadBytes: undefined",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "artifacts/api-server/src/external-schema-exact-0104-backup.ts":
+            mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const evidenceValidator = source(
+    "scripts/check-staging-release-evidence.mjs",
+  );
+  for (const mutated of [
+    evidenceValidator.replaceAll(
+      "productionCopyPresentInsideApprovedBoundary",
+      "rawProductionDataExposed",
+    ),
+    evidenceValidator.replaceAll(
+      "rawProductionDataOutsideApprovedBoundary",
+      "rawProductionDataExposed",
+    ),
+    evidenceValidator.replaceAll(
+      "canonicalJsonArtifact",
+      "permissiveJsonArtifact",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/check-staging-release-evidence.mjs": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const gateEntrypoint = source(
+    "artifacts/api-server/src/external-schema-gate.ts",
+  );
+  for (const mutated of [
+    gateEntrypoint.replace(
+      'migration.newlyApplied === 1 ? "APPLIED" : "NOOP"',
+      'migration.newlyApplied >= 0 ? "APPLIED" : "NOOP"',
+    ),
+    gateEntrypoint.replace(
+      "MIGRATION_APPLY_COUNT_INVALID",
+      "MIGRATION_APPLY_COUNT_IGNORED",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "artifacts/api-server/src/external-schema-gate.ts": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const deploymentBinding = source(
+    "scripts/check-staging-deployment-binding.mjs",
+  );
+  for (const mutated of [
+    deploymentBinding.replace(
+      'value.environmentId !== "site-logbook-staging"',
+      'value.environmentId !== "staging-environment"',
+    ),
+    deploymentBinding.replaceAll(
+      "validateResolvedStagingComposeTarget",
+      "trustUnresolvedComposeTarget",
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/check-staging-deployment-binding.mjs": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const backupRunner = source("scripts/run-staging-exact-0104-backup.mjs");
+  for (const mutated of [
+    backupRunner.replace(
+      'targetService: "exact-0104-backup"',
+      'targetService: "external-schema-gate"',
+    ),
+    backupRunner.replace(
+      '"config", "--format", "json"',
+      '"config", "--format", "yaml"',
+    ),
+    backupRunner.replace(
+      "value.maxPayloadBytes !== MAX_PAYLOAD_BYTES",
+      "value.maxPayloadBytes > MAX_PAYLOAD_BYTES",
+    ),
+    backupRunner.replace('"final quiescence check"', '"unverified completion"'),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/run-staging-exact-0104-backup.mjs": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
+
+  const transitionRunner = source("scripts/run-staging-schema-transition.mjs");
+  for (const mutated of [
+    transitionRunner.replace(
+      'value.decision !== "READY_0104"',
+      'value.decision !== "ALREADY_0105"',
+    ),
+    transitionRunner.replace(
+      "SCHEMA_TRANSITION_UNEXPECTED_NOOP",
+      "SCHEMA_TRANSITION_ACCEPT_ANY_NOOP",
+    ),
+    transitionRunner.replaceAll("writeFinalBundle", "writeFilesSeparately"),
+    transitionRunner.replace(
+      '"post-inventory quiescence check"',
+      '"unchecked inventory completion"',
+    ),
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "scripts/run-staging-schema-transition.mjs": mutated,
+        }),
+      StagingRuntimeContractError,
+    );
+  }
 });
 
 test("requires the manual exact-0104 baseline control plane", () => {
@@ -187,6 +388,19 @@ test("requires the read-only exact-0104 recovery evidence plane", () => {
       "RECOVERY_BINDING_SECRET_MATERIAL",
       "RECOVERY_BINDING_ACCEPT_SECRET_MATERIAL",
     ),
+    binding.replace('"--backup-execution"', '"--backup-id"'),
+    binding.replace(
+      "maxPayloadBytes: exactBackup.maxPayloadBytes",
+      "maxPayloadBytes: Number.MAX_SAFE_INTEGER",
+    ),
+    binding.replace(
+      "backupEvidenceId: exactBackup.backupId",
+      "backupEvidenceId: baseline.oldBackupId",
+    ),
+    binding.replace(
+      "STAGING_DEPLOYMENT_INPUTS_SHA256: recoveryInspectSha256",
+      "STAGING_DEPLOYMENT_INPUTS_SHA256: baseline.candidate.inspectInputsSha256",
+    ),
   ]) {
     assert.throws(
       () =>
@@ -209,6 +423,35 @@ test("requires the read-only exact-0104 recovery evidence plane", () => {
       "RECOVERY_EVIDENCE_SCHEMA_INVALID",
       "RECOVERY_EVIDENCE_SCHEMA_PERMISSIVE",
     ),
+    runner.replace(
+      "backup.sizeBytes > backup.maxPayloadBytes",
+      "backup.sizeBytes < 0",
+    ),
+    runner.replace(
+      'targetService: "exact-0104-recovery-gate"',
+      'targetService: "external-schema-gate"',
+    ),
+    runner.replace(
+      '"config", "--format", "json"',
+      '"config", "--format", "yaml"',
+    ),
+    runner.replace(
+      "staging-exact-0104-recovery-inspect.json",
+      "staging-deployment-inspect.json",
+    ),
+    runner.replaceAll(
+      "validateRunningStagingPostgresContainer",
+      "trustRunningPostgresContainer",
+    ),
+    runner.replace(
+      '"dist/external-schema-exact-0104-recovery.mjs"',
+      '"dist/index.mjs"',
+    ),
+    runner.replace(
+      "value.buildSha !== expectedSourceSha",
+      "!SHA40.test(value.buildSha)",
+    ),
+    runner.replace('"final quiescence check"', '"unchecked completion"'),
   ]) {
     assert.throws(
       () =>
@@ -386,18 +629,35 @@ test("separates inventory, transition and steady-state restart gates", () => {
   }
 
   const gateRunner = source("artifacts/api-server/src/external-schema-gate.ts");
-  assert.throws(
-    () =>
-      validateStagingRuntimeContract({
-        "artifacts/api-server/src/external-schema-gate.ts": gateRunner.replace(
-          'if (action === "steady-0105")',
-          'if (action === "apply-0105")',
-        ),
-      }),
-    (error) =>
-      error instanceof StagingRuntimeContractError &&
-      error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
-  );
+  for (const mutated of [
+    gateRunner.replace(
+      'if (action === "steady-0105")',
+      'if (action === "apply-0105")',
+    ),
+    gateRunner.replace(
+      "dependencies.migrate ?? runMigrations",
+      "dependencies.migrate ?? runLegacyMigrator",
+    ),
+    gateRunner.replace(
+      'migration.newlyApplied === 1 ? "APPLIED" : "NOOP"',
+      'migration.newlyApplied === 1 ? "APPLIED" : "APPLIED"',
+    ),
+    gateRunner.replace(
+      "[external-schema-gate] ${result.mode} ${JSON.stringify(result.evidence)}",
+      "[external-schema-gate] APPLIED ${JSON.stringify(result.evidence)}",
+    ),
+    `${gateRunner}\nimport { spawn } from "node:child_process";\n`,
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          "artifacts/api-server/src/external-schema-gate.ts": mutated,
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
 });
 
 test("keeps the external schema preflight in the exact-SHA Quality gate", () => {
@@ -1431,6 +1691,42 @@ test("keeps the active staging runbook aligned with the one-shot schema-v4 gate"
       "není doložena anonymizace recovery pointu",
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
+    [
+      "STAGING_EXTERNAL_ACCOUNTS_ENABLED",
+      "STAGING_EXTERNAL_ACCOUNTS_UNDOCUMENTED",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "`diagnostics.view` i `users.manage`",
+      "`diagnostics.view`",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "staging:create-exact-0104-backup",
+      "staging:manual-backup-outside-contract",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "--expected-inputs-sha256 <64-hex> --inspect-inputs <recovery-binding-dir>\\staging-exact-0104-recovery-inspect.json",
+      "--untrusted-inspect-inputs",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "gate:staging-exact-0104-recovery-binding",
+      "manual-recovery-binding",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      "staging:verify-exact-0104-recovery",
+      "docker compose run exact-0104-recovery-gate",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    ["newlyApplied=0", "newlyApplied-any", "STAGING_RUNTIME_CONTRACT_MISSING"],
+    [
+      "staging:apply-0105-transition",
+      "docker compose run external-schema-gate",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
   ]) {
     assert.throws(
       () =>
@@ -1442,6 +1738,11 @@ test("keeps the active staging runbook aligned with the one-shot schema-v4 gate"
         error.code === expectedCode,
     );
   }
+  assert.doesNotThrow(() =>
+    validateStagingRuntimeContract({
+      [relativePath]: runbook.replace(/\r?\n/g, "\r\n"),
+    }),
+  );
 });
 
 test("requires all validation and publication builds to remain linux/amd64", () => {

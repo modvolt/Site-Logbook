@@ -13,15 +13,19 @@ druhého člověka, je povolen pouze explicitní `solo_maintainer` režim: revie
 Quality gate a branch-restricted Environment. AI kontrola se neeviduje jako nezávislý
 lidský reviewer. Hodnoty secretů se nesmí zapisovat do repozitáře ani evidence JSON.
 
-| Typ      | Název                                 | Kontrakt                                                                                                                  |
-| -------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| variable | `STAGING_BASE_URL`                    | čistý externí HTTPS origin; nikdy `modvoltapp.cz`, jeho subdoména ani localhost                                           |
-| variable | `STAGING_ENVIRONMENT_ID`              | jednoznačný název s odděleným segmentem `staging`, `test`, `qa`, `sandbox` nebo `preview`                                 |
-| variable | `STAGING_MAIL_SANDBOX_CONFIRMED`      | přesně `true`, pouze pokud žádný staging e-mail nemůže dojít skutečnému zákazníkovi                                       |
-| variable | `STAGING_ALERT_RECEIVER_URL`          | samostatný veřejný HTTPS endpoint končící přesně `/v1/operational-alerts`; hostname se nesmí shodovat se staging aplikací |
-| secret   | `STAGING_ADMIN_USERNAME`              | dedikovaná staging identita s `diagnostics.view`; nesdílet s produkcí                                                     |
-| secret   | `STAGING_ADMIN_PASSWORD`              | unikátní staging heslo alespoň 16 znaků; nesdílet s produkcí                                                              |
-| secret   | `STAGING_ALERT_RECEIVER_BEARER_TOKEN` | náhodná base64url hodnota z alespoň 32 bajtů, uložená pouze v GitHub Environment a secret manageru receiveru              |
+| Typ      | Název                                  | Kontrakt                                                                                                                  |
+| -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| variable | `STAGING_BASE_URL`                     | čistý externí HTTPS origin; nikdy `modvoltapp.cz`, jeho subdoména ani localhost                                           |
+| variable | `STAGING_ENVIRONMENT_ID`               | přesně logické runtime ID `site-logbook-staging`; opaque Coolify environment ID je samostatné pole deployment artefaktu   |
+| variable | `STAGING_MAIL_SANDBOX_CONFIRMED`       | přesně `true`, pouze pokud žádný staging e-mail nemůže dojít skutečnému zákazníkovi                                       |
+| variable | `STAGING_ALERT_RECEIVER_URL`           | samostatný veřejný HTTPS endpoint končící přesně `/v1/operational-alerts`; hostname se nesmí shodovat se staging aplikací |
+| variable | `STAGING_EXTERNAL_ACCOUNTS_ENABLED`    | přesně `false`; změna flagu je až samostatná pilotní fáze                                                                 |
+| variable | `STAGING_IMAGE_MANIFEST_SHA256`        | 64 malých hex znaků, přesně schválený SHA-256 raw `staging-images.json`                                                   |
+| variable | `STAGING_PROVISIONING_MANIFEST_SHA256` | 64 malých hex znaků, SHA-256 validovaného observed provisioning artefaktu                                                 |
+| variable | `STAGING_DEPLOYMENT_INPUTS_SHA256`     | 64 malých hex znaků, hash právě aktivního kanonického inspect/transition/steady vstupu                                    |
+| secret   | `STAGING_ADMIN_USERNAME`               | dedikovaná staging identita s `diagnostics.view` i `users.manage`; nesdílet s produkcí                                    |
+| secret   | `STAGING_ADMIN_PASSWORD`               | unikátní staging heslo alespoň 16 znaků; nesdílet s produkcí                                                              |
+| secret   | `STAGING_ALERT_RECEIVER_BEARER_TOKEN`  | náhodná base64url hodnota z alespoň 32 bajtů, uložená pouze v GitHub Environment a secret manageru receiveru              |
 
 Dále musí být známé, ale neukládají se do GitHub workflow:
 
@@ -64,6 +68,83 @@ Okamžitě zastavte běh, pokud platí alespoň jedno:
    obnovitelná.
 6. Receiver provozujte za veřejným TLS proxy, s vlastním hostname, persistentním
    volume a platformními log alerty. Jeho volume ani logy nesmí sdílet API proces.
+
+### 3A. Exact-0104 recovery point a kanonický přechod
+
+Po baseline na exact `0104` nesmí kvůli vytvoření zálohy startovat běžné API.
+Po samostatném souhlasu spusťte pouze profile-only one-shot; jako jediná jiná
+běžící služba musí zůstat `postgres`:
+
+```powershell
+pnpm staging:create-exact-0104-backup -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-source-sha <40-hex> --baseline-execution <baseline-execution-dir>\staging-baseline-0104-execution.json --baseline-execution-checksum <baseline-execution-dir>\staging-baseline-0104-execution.sha256 --expected-baseline-execution-sha256 <64-hex> --inspect-inputs <initial-binding-dir>\staging-deployment-inspect.json --inspect-inputs-checksum <initial-binding-dir>\staging-deployment-inspect.sha256 --expected-inspect-inputs-sha256 <64-hex> --confirm CREATE_FRESH_EXACT_0104_STAGING_BACKUP_AND_RESTORE_TEST --output-dir <backup-execution-dir>
+```
+
+Recovery binding musí převzít přesné bajty a samostatně schválený checksum
+`<backup-execution-dir>\staging-exact-0104-backup-execution.json`; nové backup ID
+se nesmí ručně přepsat. Binding tak zachová source execution SHA, 256 MiB strop a
+skutečnou velikost. Před read-only recovery runnerem instalujte přesné hodnoty z
+vygenerovaného `staging-exact-0104-recovery-environment.json` do `.env.staging`.
+Binding z přesných původních inspect bajtů odvodí nový
+`staging-exact-0104-recovery-inspect.json`: změní pouze backup ID a schválený
+restore max-age, přepočítá checksum a stejný nový hash vloží do recovery
+environmentu. Ruční přepis ID nebo opětovné použití starého inspect checksumu je
+zakázané.
+
+Tyto dva kroky jsou povinné a nesmějí se nahradit ručním backup ID ani holým
+`docker compose run`:
+
+```powershell
+pnpm gate:staging-exact-0104-recovery-binding -- --baseline-inputs <baseline-binding-dir>\staging-baseline-0104-inputs.json --baseline-inputs-checksum <baseline-binding-dir>\staging-baseline-0104-inputs.sha256 --expected-baseline-inputs-sha256 <64-hex> --baseline-execution <baseline-execution-dir>\staging-baseline-0104-execution.json --baseline-execution-checksum <baseline-execution-dir>\staging-baseline-0104-execution.sha256 --expected-baseline-execution-sha256 <64-hex> --backup-execution <backup-execution-dir>\staging-exact-0104-backup-execution.json --backup-execution-checksum <backup-execution-dir>\staging-exact-0104-backup-execution.sha256 --expected-backup-execution-sha256 <64-hex> --inspect-inputs <initial-binding-dir>\staging-deployment-inspect.json --inspect-inputs-checksum <initial-binding-dir>\staging-deployment-inspect.sha256 --expected-inspect-inputs-sha256 <64-hex> --backup-restore-max-age-hours 24 --output-dir <recovery-binding-dir>
+```
+
+Po kontrole a instalaci hodnot z
+`<recovery-binding-dir>\staging-exact-0104-recovery-environment.json`:
+
+```powershell
+pnpm staging:verify-exact-0104-recovery -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-source-sha <40-hex> --expected-inputs-sha256 <64-hex> --inspect-inputs <recovery-binding-dir>\staging-exact-0104-recovery-inspect.json --inspect-inputs-checksum <recovery-binding-dir>\staging-exact-0104-recovery-inspect.sha256 --expected-inspect-inputs-sha256 <64-hex> --output-dir <recovery-execution-dir>
+```
+
+Detailní fail-closed kontrakt a pořadí kontrol jsou závazně popsány v
+`docs/audit/16-c3-staging-schema-gate-runbook.md`; tento aktivní runbook je
+nezkracuje ani neobchází.
+
+One-shot před zápisem sváže kanonické inspect inputs se skutečně resolved Compose
+projektem, exact API digestem, staging DB identitou a schváleným S3 targetem.
+Opaque Coolify environment ID zůstává oddělené od logického runtime ID
+`site-logbook-staging`. Potom vytvoří právě jednu novou `mve1` zálohu, vypne retenční promazávání a
+restore-testuje stejné nové ID do dočasné DB. Výsledek neautorizuje `0105`.
+One-shot používá pevný 256 MiB payload limit a 512 MiB `/tmp` tmpfs; překročení
+dumpu nebo uloženého payloadu je fail-closed stop před jakoukoli migrací.
+Exact bindingem převzaté ID použije read-only recovery runner bez ruční změny.
+Z ověřeného recovery výsledku poté znovu spusťte
+`gate:staging-deployment-binding` do nového prázdného adresáře s tímto novým ID;
+původní inspect/transition/steady artefakty svázané se starým ID jsou neplatné.
+Zaznamenejte absolutní cestu nového binding adresáře a recovery execution
+adresáře. V novém `staging-deployment-environment.json` zkontrolujte blok
+`transition` a instalujte jeho přesné hodnoty do `.env.staging`; starší inspect
+nebo transition hodnoty se nesmí znovu použít.
+
+Teprve po dalším výslovném souhlasu spusťte přechod přes host runner, nikoli
+holým `docker compose run`:
+
+```powershell
+pnpm staging:apply-0105-transition -- --env-file .env.staging --compose-file docker-compose.staging.yml --expected-source-sha <40-hex> --transition-inputs <new-binding-dir>\staging-deployment-transition.json --transition-inputs-checksum <new-binding-dir>\staging-deployment-transition.sha256 --expected-transition-inputs-sha256 <64-hex> --recovery-execution <recovery-execution-dir>\staging-exact-0104-recovery-execution.json --recovery-execution-checksum <recovery-execution-dir>\staging-exact-0104-recovery-execution.sha256 --expected-recovery-execution-sha256 <64-hex> --confirm APPLY_0105_TO_ISOLATED_SITE_LOGBOOK_STAGING --output-dir staging-schema-transition
+```
+
+Runner před migrací uloží checksumově svázaný intent pouze po živém
+`READY_0104`. Z jediného post-migration DB snapshotu pak atomicky zpřístupní
+`final/staging-schema-gate.json`, `final/staging-backup-evidence.json` a oba
+checksumy. Když host po úspěšné migraci skončí před finalizací, další běh smí
+přijmout `ALREADY_0105` pouze s již existujícím shodným intentem; první no-op bez
+předchozího intentu je stop. Recovery no-op znovu provede plný post-preflight a
+oba finální artefakty vytvoří z jednoho nového repeatable-read snapshotu; nesmí
+zkopírovat starší backup age z recovery artefaktu.
+Před intentem runner také ověří resolved Compose project, exact API digest,
+staging DB identitu a source/input hashe proti transition artefaktu. Databázový
+migrátor serializuje samotné aplikování migrací: proces s `newlyApplied=1` vrátí
+`APPLIED`, souběžný proces s `newlyApplied=0` vrátí `NOOP`. První NOOP se
+nepovažuje za úspěch; finalizace je možná jen opakováním se stejným již uloženým
+reviewovaným intentem.
 
 ## 4. Ruční staging smoke
 

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import test from "node:test";
 import { validateStagingReleaseEvidence } from "../check-staging-release-evidence.mjs";
+import {
+  canonicalJson,
+  validateStagingProvisioning,
+} from "../check-staging-provisioning.mjs";
+import { buildStagingDeploymentInputs } from "../check-staging-deployment-binding.mjs";
 
 const NOW = new Date("2026-08-02T12:30:00.000Z");
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -184,43 +190,79 @@ function candidateImageManifest() {
   };
 }
 
+function provisioningManifest() {
+  const manifest = JSON.parse(
+    fs.readFileSync(
+      new URL(
+        "../../docs/audit/16-c3-staging-provisioning.template.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  delete manifest._templateStatus;
+  Object.assign(manifest.coolify, {
+    serverId: "staging-server",
+    projectId: "staging-project",
+    environmentId: "staging-environment",
+    resourceId: "staging-resource",
+  });
+  manifest.coolify.source.exactCommitSha = SHA;
+  Object.assign(manifest.forbiddenProductionTargets, {
+    resourceIds: ["production-resource"],
+    environmentIds: ["production-environment"],
+    networkIds: ["production-network"],
+    volumeNames: ["production-postgres-data"],
+    s3Buckets: ["site-logbook-production"],
+  });
+  manifest.publicRoutes[0].origin = "https://stage-site-logbook.cz";
+  manifest.publicRoutes[1].origin = "https://stage-alert-site-logbook.cz";
+  Object.assign(manifest.network, {
+    observedNetworkId: "staging-network",
+    sharedResourceIds: ["staging-resource"],
+  });
+  const fingerprint = `sha256:${"a".repeat(64)}`;
+  for (const volume of manifest.volumes) {
+    volume.platformName = `site-logbook-staging-r1-${volume.name}`;
+    volume.fingerprint = fingerprint;
+  }
+  Object.assign(manifest.s3, {
+    endpoint: "https://fsn1.your-objectstorage.com",
+    region: "fsn1",
+    bucket: "site-logbook-staging-r1",
+    targetFingerprint: fingerprint,
+  });
+  return manifest;
+}
+
 function fixtureArtifacts() {
-  const jsonBytes = (value) => Buffer.from(`${JSON.stringify(value)}\n`);
-  const imageManifest = jsonBytes(candidateImageManifest());
-  const provisioning = jsonBytes({
-    schemaVersion: 1,
-    validationMode: "observed",
-    productionTargetsTouched: false,
-    coolify: { source: { exactCommitSha: SHA } },
+  const compactBytes = (value) => Buffer.from(canonicalJson(value), "utf8");
+  const prettyBytes = (value) =>
+    Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const manifestValue = candidateImageManifest();
+  const imageManifest = prettyBytes(manifestValue);
+  const provisioningValue = provisioningManifest();
+  const validatedProvisioning = validateStagingProvisioning(provisioningValue, {
+    expectedSourceSha: SHA,
   });
-  const bound = {
-    schemaVersion: 1,
-    sourceSha: SHA,
+  const provisioning = compactBytes(provisioningValue);
+  const common = {
+    images: manifestValue.images,
     imageManifestSha256: digest(imageManifest).slice("sha256:".length),
-    provisioningManifestSha256: digest(provisioning).slice("sha256:".length),
-    externalAccountsEnabled: false,
-    images: {
-      preflight: "preflight",
-      mailpit: "mailpit",
-      api: "api",
-      web: "web",
-      alertReceiver: "alert-receiver",
-    },
+    provisioning: validatedProvisioning,
+    backupEvidenceId: 71,
+    backupRestoreMaxAgeHours: 24,
   };
-  const inspectInputs = jsonBytes({
-    ...bound,
-    schemaAction: "inspect",
-    backupEvidenceId: 71,
-    backupRestoreMaxAgeHours: 24,
-  });
-  const transitionInputs = jsonBytes({
-    ...bound,
-    schemaAction: "apply-0105",
-    backupEvidenceId: 71,
-    backupRestoreMaxAgeHours: 24,
-  });
-  const steadyInputs = jsonBytes({ ...bound, schemaAction: "steady-0105" });
-  const schemaGate = jsonBytes({
+  const inspectInputs = compactBytes(
+    buildStagingDeploymentInputs({ ...common, schemaAction: "inspect" }),
+  );
+  const transitionInputs = compactBytes(
+    buildStagingDeploymentInputs({ ...common, schemaAction: "apply-0105" }),
+  );
+  const steadyInputs = compactBytes(
+    buildStagingDeploymentInputs({ ...common, schemaAction: "steady-0105" }),
+  );
+  const schemaGate = compactBytes({
     decision: "APPLIED",
     sourceSha: SHA,
     latestExpectedTag: "0105_smooth_nitro",
@@ -228,11 +270,14 @@ function fixtureArtifacts() {
     excludedMigration0100Present: false,
     externalStateRows: 0,
     backupEvidenceId: 71,
-    backupRestoreAgeHours: 2,
+    backupRestoreAgeHours: 1,
     backupRestoreMaxAgeHours: 24,
+    sourceBackupExecutionSha256: `sha256:${"9".repeat(64)}`,
+    backupMaxPayloadBytes: 256 * 1024 * 1024,
+    backupSizeBytes: 1024,
     inputSha256: digest(transitionInputs),
   });
-  const backupEvidence = jsonBytes({
+  const backupEvidence = compactBytes({
     id: 71,
     status: "success",
     sizeBytes: 1024,
@@ -242,23 +287,38 @@ function fixtureArtifacts() {
     createdAt: "2026-08-02T07:45:00.000Z",
     restoreTestedAt: "2026-08-02T08:45:00.000Z",
     checkedAt: "2026-08-02T09:45:00.000Z",
-    restoreAgeHours: 2,
+    restoreAgeHours: 1,
+    sourceExecutionSha256: `sha256:${"9".repeat(64)}`,
+    maxPayloadBytes: 256 * 1024 * 1024,
   });
-  const bootstrap = jsonBytes({
+  const bootstrap = prettyBytes({
     schemaVersion: 1,
     sourceSha: SHA,
-    capturedAt: "2026-08-02T11:30:00.000Z",
     workflowRun: { id: 123456789, attempt: 1 },
     bindings: {
       imageManifestSha256: digest(imageManifest).slice("sha256:".length),
       provisioningManifestSha256: digest(provisioning).slice("sha256:".length),
       deploymentInputsSha256: digest(steadyInputs).slice("sha256:".length),
     },
+    environmentId: "site-logbook-staging",
+    baseOrigin: "https://stage-site-logbook.cz",
+    expectedBuildSha: SHA,
+    isolationConfirmed: true,
+    deepStorageProbeConfirmed: true,
+    mailSandboxConfirmed: true,
+    externalAccountsEnabled: false,
+    adminUsernameConfigured: true,
+    adminPasswordConfigured: true,
+    capturedAt: "2026-08-02T11:30:00.000Z",
     readiness: {
+      status: "ok",
+      dbStatus: "ok",
+      migrationParity: true,
+      version: SHA,
       latestExpectedTag: "0105_smooth_nitro",
       expectedMigrations: 105,
       appliedMigrations: 105,
-      migrationParity: true,
+      missingMigrationTags: [],
       excludedMigration0100Present: false,
       schemaAction: "steady-0105",
     },
@@ -266,6 +326,7 @@ function fixtureArtifacts() {
       externalAccountsEnabled: false,
       externalAccountCount: 0,
     },
+    authenticated: true,
   });
   return {
     imageManifest,
@@ -283,6 +344,19 @@ function digest(bytes) {
   return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
 }
 
+function mutateArtifact(artifactBytes, key, mutate, { canonical = true } = {}) {
+  const value = JSON.parse(artifactBytes[key].toString("utf8"));
+  mutate(value);
+  const pretty = key === "imageManifest" || key === "bootstrap";
+  const bytes = canonical
+    ? Buffer.from(
+        pretty ? `${JSON.stringify(value, null, 2)}\n` : canonicalJson(value),
+        "utf8",
+      )
+    : Buffer.from(JSON.stringify(value), "utf8");
+  return { ...artifactBytes, [key]: bytes };
+}
+
 function validEvidence(artifactBytes = fixtureArtifacts()) {
   const hashes = Object.fromEntries(
     Object.entries(artifactBytes).map(([key, bytes]) => [key, digest(bytes)]),
@@ -291,8 +365,8 @@ function validEvidence(artifactBytes = fixtureArtifacts()) {
     schemaVersion: 4,
     run: {
       id: "phase16-20260802-001",
-      environmentId: "modvolt-staging-eu1",
-      baseUrl: "https://stage-173.example.test",
+      environmentId: "site-logbook-staging",
+      baseUrl: "https://stage-site-logbook.cz",
       commitSha: SHA,
       startedAt: "2026-08-02T10:00:00.000Z",
       completedAt: "2026-08-02T12:00:00.000Z",
@@ -300,7 +374,8 @@ function validEvidence(artifactBytes = fixtureArtifacts()) {
     isolation: {
       confirmed: true,
       productionTargetsTouched: false,
-      rawProductionDataExposed: false,
+      productionCopyPresentInsideApprovedBoundary: true,
+      rawProductionDataOutsideApprovedBoundary: false,
       mailSandbox: true,
     },
     ci: {
@@ -338,8 +413,11 @@ function validEvidence(artifactBytes = fixtureArtifacts()) {
       expectedMigrations: 105,
       externalStateRows: 0,
       backupEvidenceId: 71,
-      backupRestoreAgeHours: 2,
+      backupRestoreAgeHours: 1,
       backupRestoreMaxAgeHours: 24,
+      sourceBackupExecutionSha256: `sha256:${"9".repeat(64)}`,
+      backupMaxPayloadBytes: 256 * 1024 * 1024,
+      backupSizeBytes: 1024,
       inputSha256: hashes.transitionInputs,
       evidenceArtifactSha256: hashes.schemaGate,
     },
@@ -353,7 +431,9 @@ function validEvidence(artifactBytes = fixtureArtifacts()) {
       createdAt: "2026-08-02T07:45:00.000Z",
       restoreTestedAt: "2026-08-02T08:45:00.000Z",
       checkedAt: "2026-08-02T09:45:00.000Z",
-      restoreAgeHours: 2,
+      restoreAgeHours: 1,
+      sourceExecutionSha256: `sha256:${"9".repeat(64)}`,
+      maxPayloadBytes: 256 * 1024 * 1024,
       evidenceArtifactSha256: hashes.backupEvidence,
     },
     artifacts: {
@@ -463,6 +543,13 @@ test("rejects production targets, secrets, stale evidence, and commit drift", ()
     /EVIDENCE_TARGET_UNSAFE/,
   );
 
+  const logicalEnvironmentDrift = validEvidence(artifactBytes);
+  logicalEnvironmentDrift.run.environmentId = "modvolt-staging-eu1";
+  assert.throws(
+    () => validate(logicalEnvironmentDrift, artifactBytes),
+    /EVIDENCE_ENVIRONMENT_UNSAFE/,
+  );
+
   const secret = validEvidence(artifactBytes);
   secret.notes = { apiToken: "must-never-be-here" };
   assert.throws(
@@ -540,7 +627,7 @@ test("strictly verifies the complete schema-v3 image manifest before trusting re
     mutate(manifest);
     const invalidBytes = {
       ...artifactBytes,
-      imageManifest: Buffer.from(`${JSON.stringify(manifest)}\n`),
+      imageManifest: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`),
     };
     const evidence = validEvidence(invalidBytes);
     assert.throws(() => validate(evidence, invalidBytes), pattern);
@@ -551,6 +638,174 @@ test("strictly verifies the complete schema-v3 image manifest before trusting re
   assert.throws(
     () => validate(callerDrift, artifactBytes),
     /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_CALLER_MISMATCH/,
+  );
+});
+
+test("requires canonical exact bytes for all eight raw artifacts", () => {
+  for (const key of [
+    "imageManifest",
+    "inspectInputs",
+    "transitionInputs",
+    "steadyInputs",
+    "schemaGate",
+    "backupEvidence",
+    "provisioning",
+    "bootstrap",
+  ]) {
+    const noncanonical = mutateArtifact(
+      fixtureArtifacts(),
+      key,
+      () => undefined,
+      { canonical: false },
+    );
+    assert.throws(
+      () => validate(validEvidence(noncanonical), noncanonical),
+      /EVIDENCE_ARTIFACT_NOT_CANONICAL/,
+      key,
+    );
+  }
+});
+
+test("rejects secret-bearing raw artifacts before they can become release evidence", () => {
+  for (const key of [
+    "imageManifest",
+    "inspectInputs",
+    "transitionInputs",
+    "steadyInputs",
+    "schemaGate",
+    "backupEvidence",
+    "provisioning",
+    "bootstrap",
+  ]) {
+    const secretBearing = mutateArtifact(fixtureArtifacts(), key, (value) => {
+      value.credential = "must-not-be-retained";
+    });
+    assert.throws(
+      () => validate(validEvidence(secretBearing), secretBearing),
+      /EVIDENCE_CONTAINS_SECRET|EVIDENCE_PROVISIONING_INVALID.*PROVISIONING_SECRET_MATERIAL/,
+      key,
+    );
+  }
+});
+
+test("strictly revalidates provisioning, deployment inputs and final raw schemas", () => {
+  const mutations = [
+    [
+      "provisioning",
+      (value) => {
+        value.validationMode = "plan";
+      },
+      /EVIDENCE_PROVISIONING_INVALID|EVIDENCE_GATE_NOT_PASSED/,
+    ],
+    [
+      "provisioning",
+      (value) => {
+        value.observations = { note: `ghp_${"A".repeat(32)}` };
+      },
+      /EVIDENCE_PROVISIONING_INVALID.*(?:PROVISIONING_SECRET_MATERIAL|PROVISIONING_SCHEMA_INVALID)/,
+    ],
+    [
+      "inspectInputs",
+      (value) => {
+        value.coolifyEnvironmentId = value.environmentId;
+      },
+      /EVIDENCE_DEPLOYMENT_INPUT_INVALID/,
+    ],
+    [
+      "inspectInputs",
+      (value) => {
+        value.backupRestoreMaxAgeHours = 23;
+      },
+      /EVIDENCE_GATE_NOT_PASSED/,
+    ],
+    [
+      "transitionInputs",
+      (value) => {
+        value.unexpected = false;
+      },
+      /EVIDENCE_DEPLOYMENT_INPUT_INVALID/,
+    ],
+    [
+      "schemaGate",
+      (value) => {
+        value.unexpected = false;
+      },
+      /EVIDENCE_ARTIFACT_SCHEMA_INVALID/,
+    ],
+    [
+      "backupEvidence",
+      (value) => {
+        value.unexpected = false;
+      },
+      /EVIDENCE_ARTIFACT_SCHEMA_INVALID/,
+    ],
+    [
+      "bootstrap",
+      (value) => {
+        value.readiness.unexpected = false;
+      },
+      /EVIDENCE_ARTIFACT_SCHEMA_INVALID/,
+    ],
+    [
+      "bootstrap",
+      (value) => {
+        value.readiness.missingMigrationTags = ["0105_smooth_nitro"];
+      },
+      /EVIDENCE_GATE_NOT_PASSED/,
+    ],
+  ];
+  for (const [key, mutate, expected] of mutations) {
+    const invalid = mutateArtifact(fixtureArtifacts(), key, mutate);
+    assert.throws(
+      () => validate(validEvidence(invalid), invalid),
+      expected,
+      key,
+    );
+  }
+});
+
+test("records the restricted production copy without denying its presence", () => {
+  const artifactBytes = fixtureArtifacts();
+  const oldField = validEvidence(artifactBytes);
+  delete oldField.isolation.productionCopyPresentInsideApprovedBoundary;
+  oldField.isolation.rawProductionDataExposed = false;
+  assert.throws(
+    () => validate(oldField, artifactBytes),
+    /EVIDENCE_ARTIFACT_SCHEMA_INVALID/,
+  );
+
+  for (const [field, value] of [
+    ["productionCopyPresentInsideApprovedBoundary", false],
+    ["rawProductionDataOutsideApprovedBoundary", true],
+  ]) {
+    const invalid = validEvidence(artifactBytes);
+    invalid.isolation[field] = value;
+    assert.throws(
+      () => validate(invalid, artifactBytes),
+      /EVIDENCE_GATE_NOT_PASSED/,
+    );
+  }
+});
+
+test("derives restore age from raw timestamps instead of trusting declarations", () => {
+  const artifactBytes = mutateArtifact(
+    fixtureArtifacts(),
+    "backupEvidence",
+    (value) => {
+      value.createdAt = "2026-08-01T07:45:00.000Z";
+      value.restoreTestedAt = "2026-08-01T08:45:00.000Z";
+      value.checkedAt = "2026-08-02T09:45:00.000Z";
+      value.restoreAgeHours = 1;
+    },
+  );
+  const evidence = validEvidence(artifactBytes);
+  evidence.backupEvidence.createdAt = "2026-08-01T07:45:00.000Z";
+  evidence.backupEvidence.restoreTestedAt = "2026-08-01T08:45:00.000Z";
+  evidence.backupEvidence.checkedAt = "2026-08-02T09:45:00.000Z";
+  evidence.backupEvidence.restoreAgeHours = 1;
+  assert.throws(
+    () => validate(evidence, artifactBytes),
+    /EVIDENCE_GATE_NOT_PASSED|EVIDENCE_BACKUP_STALE/,
   );
 });
 
@@ -567,6 +822,20 @@ test("rejects backup, transition, workflow-run, and input-binding drift", () => 
   wrongBackup.backupEvidence.id = 72;
   assert.throws(
     () => validate(wrongBackup, artifactBytes),
+    /EVIDENCE_GATE_NOT_PASSED/,
+  );
+
+  const oversized = validEvidence(artifactBytes);
+  oversized.schemaTransition.backupSizeBytes = 256 * 1024 * 1024 + 1;
+  assert.throws(
+    () => validate(oversized, artifactBytes),
+    /EVIDENCE_BACKUP_SIZE_INVALID/,
+  );
+
+  const wrongBackupExecution = validEvidence(artifactBytes);
+  wrongBackupExecution.backupEvidence.sourceExecutionSha256 = `sha256:${"8".repeat(64)}`;
+  assert.throws(
+    () => validate(wrongBackupExecution, artifactBytes),
     /EVIDENCE_GATE_NOT_PASSED/,
   );
 

@@ -1049,13 +1049,30 @@ export class ObjectStorageService {
   /** Read bytes plus content type so a recovery copy preserves object metadata. */
   async readPrivateObjectForRecovery(
     objectPath: string,
+    options: { maxBytes?: number } = {},
   ): Promise<{ body: Buffer; contentType: string }> {
+    if (
+      options.maxBytes !== undefined &&
+      (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 1)
+    ) {
+      throw new Error(
+        "Recovery object byte ceiling must be a positive safe integer.",
+      );
+    }
     const opened = await this.openPrivateObjectRecoveryStream(objectPath);
     const chunks: Buffer[] = [];
+    let totalBytes = 0;
     for await (const value of opened.body) {
-      chunks.push(
-        Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array),
-      );
+      const chunk = Buffer.isBuffer(value)
+        ? value
+        : Buffer.from(value as Uint8Array);
+      totalBytes += chunk.length;
+      if (options.maxBytes !== undefined && totalBytes > options.maxBytes) {
+        throw new Error(
+          `Recovery object exceeds the approved ${options.maxBytes}-byte ceiling.`,
+        );
+      }
+      chunks.push(chunk);
     }
     return { body: Buffer.concat(chunks), contentType: opened.contentType };
   }
@@ -1124,8 +1141,11 @@ export class ObjectStorageService {
    * the restore flow, which needs the dump bytes on the local filesystem before
    * handing them to pg_restore. Throws ObjectNotFoundError if missing.
    */
-  async getPrivateObjectBuffer(objectPath: string): Promise<Buffer> {
-    return (await this.readPrivateObjectForRecovery(objectPath)).body;
+  async getPrivateObjectBuffer(
+    objectPath: string,
+    options: { maxBytes?: number } = {},
+  ): Promise<Buffer> {
+    return (await this.readPrivateObjectForRecovery(objectPath, options)).body;
   }
 
   /** Stream a private object ("/objects/<entityId>") to the response. */

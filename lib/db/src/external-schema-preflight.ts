@@ -833,6 +833,11 @@ export interface Exact0104RecoveryBackupEvidence {
   destructiveRestorePerformed: false;
 }
 
+export interface Exact0104RecoveryBoundBackupEvidence extends Exact0104RecoveryBackupEvidence {
+  sourceExecutionSha256: string;
+  maxPayloadBytes: number;
+}
+
 function timestamp(value: Date | string | null, label: string): number {
   const millis =
     value instanceof Date ? value.getTime() : Date.parse(value ?? "");
@@ -932,28 +937,21 @@ function canonicalTableCounts(
 }
 
 /**
- * Tightens the ordinary freshness check for the new backup that is created
- * after the exact-0104 baseline. It deliberately emits fingerprints rather
- * than object paths or key ids.
+ * Builds the secret-free rich backup snapshot used by the transition and
+ * release evidence. Object paths and key ids are represented only by their
+ * fingerprints. The separate exact-0104 validator adds the baseline time
+ * fence before this snapshot can authorize the next binding.
  */
-export function validateExact0104RecoveryBackupEvidence(
+export function validateStagingBackupEvidenceSnapshot(
   row: StagingBackupEvidenceRow | undefined,
   expected: Pick<
     ExternalSchemaPreflightEnvironment,
     "backupEvidenceId" | "backupRestoreMaxAgeHours"
   >,
-  baselineCompletedAt: Date,
 ): Exact0104RecoveryBackupEvidence {
   const ordinary = validateStagingBackupEvidence(row, expected);
   if (!row) {
     fail("BACKUP_EVIDENCE_MISSING", "The staging backup row is required.");
-  }
-  const baselineCompleted = baselineCompletedAt.getTime();
-  if (!Number.isFinite(baselineCompleted)) {
-    fail(
-      "BASELINE_COMPLETION_TIME_INVALID",
-      "Baseline completion must be a valid timestamp.",
-    );
   }
   const createdAt = timestamp(row.created_at, "backup created_at");
   const restoreTestedAt = timestamp(
@@ -961,12 +959,6 @@ export function validateExact0104RecoveryBackupEvidence(
     "backup restore_tested_at",
   );
   const checkedAt = timestamp(row.checked_at, "database checked_at");
-  if (createdAt <= baselineCompleted) {
-    fail(
-      "BACKUP_NOT_AFTER_BASELINE",
-      "The exact-0104 backup must be created after baseline completion.",
-    );
-  }
   if (row.restored_at !== null) {
     fail(
       "BACKUP_DESTRUCTIVE_RESTORE_PRESENT",
@@ -1010,6 +1002,65 @@ export function validateExact0104RecoveryBackupEvidence(
     verifiedTableCount: Object.keys(verifiedTables).length,
     verifiedTablesSha256,
     destructiveRestorePerformed: false,
+  };
+}
+
+/**
+ * Tightens the rich snapshot for the new backup that must have been created
+ * strictly after the approved exact-0104 baseline execution.
+ */
+export function validateExact0104RecoveryBackupEvidence(
+  row: StagingBackupEvidenceRow | undefined,
+  expected: Pick<
+    ExternalSchemaPreflightEnvironment,
+    "backupEvidenceId" | "backupRestoreMaxAgeHours"
+  >,
+  baselineCompletedAt: Date,
+): Exact0104RecoveryBackupEvidence {
+  const evidence = validateStagingBackupEvidenceSnapshot(row, expected);
+  const baselineCompleted = baselineCompletedAt.getTime();
+  if (!Number.isFinite(baselineCompleted)) {
+    fail(
+      "BASELINE_COMPLETION_TIME_INVALID",
+      "Baseline completion must be a valid timestamp.",
+    );
+  }
+  if (Date.parse(evidence.createdAt) <= baselineCompleted) {
+    fail(
+      "BACKUP_NOT_AFTER_BASELINE",
+      "The exact-0104 backup must be created after baseline completion.",
+    );
+  }
+  return evidence;
+}
+
+export function bindExact0104RecoveryBackupExecution(
+  evidence: Exact0104RecoveryBackupEvidence,
+  expected: Pick<
+    ExternalSchemaExact0104RecoveryEnvironment,
+    | "expectedBackupSizeBytes"
+    | "backupMaxPayloadBytes"
+    | "backupExecutionSha256"
+  >,
+): Exact0104RecoveryBoundBackupEvidence {
+  if (
+    !Number.isSafeInteger(expected.expectedBackupSizeBytes) ||
+    expected.expectedBackupSizeBytes < 1 ||
+    !Number.isSafeInteger(expected.backupMaxPayloadBytes) ||
+    expected.backupMaxPayloadBytes !== 256 * 1024 * 1024 ||
+    evidence.sizeBytes !== expected.expectedBackupSizeBytes ||
+    evidence.sizeBytes > expected.backupMaxPayloadBytes ||
+    !/^[0-9a-f]{64}$/.test(expected.backupExecutionSha256)
+  ) {
+    fail(
+      "BACKUP_RECOVERY_EXECUTION_MISMATCH",
+      "The live backup must match the reviewed exact-0104 backup execution and payload ceiling.",
+    );
+  }
+  return {
+    ...evidence,
+    sourceExecutionSha256: `sha256:${expected.backupExecutionSha256}`,
+    maxPayloadBytes: expected.backupMaxPayloadBytes,
   };
 }
 
@@ -1136,6 +1187,7 @@ export interface ExternalSchemaPreflightSummary {
   externalStateRows: number;
   backupEvidenceId: number;
   backupRestoreAgeHours: number;
+  backupEvidence: Exact0104RecoveryBackupEvidence;
 }
 
 export interface ExternalSchemaInventorySummary extends ExternalSchemaInventoryClassification {
@@ -1160,6 +1212,9 @@ export interface ExternalSchemaSteadyStateSummary {
 
 export interface ExternalSchemaExact0104RecoveryEnvironment extends ExternalSchemaEnvironment {
   baselineCompletedAt: Date;
+  expectedBackupSizeBytes: number;
+  backupMaxPayloadBytes: number;
+  backupExecutionSha256: string;
 }
 
 export interface ExternalSchemaExact0104RecoverySummary {
@@ -1174,7 +1229,7 @@ export interface ExternalSchemaExact0104RecoverySummary {
   excludedMigration0105Present: false;
   externalStateRows: 0;
   baselineCompletedAt: string;
-  backup: Exact0104RecoveryBackupEvidence;
+  backup: Exact0104RecoveryBoundBackupEvidence;
   authorizes0105: false;
 }
 
@@ -1212,6 +1267,7 @@ export async function runExternalSchemaExact0104Recovery(
         config,
         config.baselineCompletedAt,
       );
+      const boundBackup = bindExact0104RecoveryBackupExecution(backup, config);
       await client.query("COMMIT");
       transactionOpen = false;
       return {
@@ -1226,7 +1282,7 @@ export async function runExternalSchemaExact0104Recovery(
         excludedMigration0105Present: false,
         externalStateRows: 0,
         baselineCompletedAt: config.baselineCompletedAt.toISOString(),
-        backup,
+        backup: boundBackup,
         authorizes0105: false,
       };
     } catch (error) {
@@ -1401,8 +1457,9 @@ export async function runExternalSchemaPreflight(
         "SELECT created_at, hash FROM drizzle.__drizzle_migrations ORDER BY created_at, id",
       );
       validateExactAppliedMigrationSet(config.mode, applied.rows, bundle);
-      const backup = validateStagingBackupEvidence(
-        await readLatestBackupEvidence(client),
+      const backupRow = await readLatestBackupEvidence(client);
+      const backupEvidence = validateStagingBackupEvidenceSnapshot(
+        backupRow,
         config,
       );
       const state = await readDatabaseState(client, config.mode);
@@ -1423,8 +1480,9 @@ export async function runExternalSchemaPreflight(
           state.externalAccounts +
           state.externalScopes +
           state.externalEvents,
-        backupEvidenceId: backup.id,
-        backupRestoreAgeHours: Math.round(backup.restoreAgeHours * 1000) / 1000,
+        backupEvidenceId: backupEvidence.id,
+        backupRestoreAgeHours: backupEvidence.restoreAgeHours,
+        backupEvidence,
       };
     } catch (error) {
       if (transactionOpen)

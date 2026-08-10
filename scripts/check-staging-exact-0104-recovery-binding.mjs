@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateStagingDeploymentInputs } from "./check-staging-deployment-binding.mjs";
 import { canonicalJson } from "./check-staging-provisioning.mjs";
 
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -9,6 +10,7 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const API_IMAGE =
   /^ghcr\.io\/modvolt\/site-logbook-staging-api@sha256:[0-9a-f]{64}$/;
 const LATEST_0104 = "0104_thin_sheva_callister";
+const MAX_BACKUP_PAYLOAD_BYTES = 256 * 1024 * 1024;
 const FIXED_PREDECESSOR_SHA = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
 const FIXED_PREDECESSOR_TREE = "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c";
 const SENSITIVE_KEY =
@@ -467,6 +469,151 @@ function validateBaselineExecution(value, executionSha256, baseline) {
   };
 }
 
+function validateExact0104BackupExecution(
+  value,
+  executionSha256,
+  baselineExecution,
+  baseline,
+) {
+  exactKeys(
+    value,
+    [
+      "schemaVersion",
+      "kind",
+      "decision",
+      "productionTargetsTouched",
+      "startedAt",
+      "completedAt",
+      "sourceSha",
+      "baselineExecutionSha256",
+      "inspectDeploymentInputsSha256",
+      "gate",
+      "runtimeIsolation",
+      "nextGate",
+      "authorizes0105",
+    ],
+    "exact-0104 backup execution",
+  );
+  const gate = objectAt(value.gate, "exact-0104 backup execution gate");
+  const isolation = objectAt(
+    value.runtimeIsolation,
+    "exact-0104 backup execution runtimeIsolation",
+  );
+  exactKeys(
+    gate,
+    [
+      "decision",
+      "environmentId",
+      "databaseName",
+      "databaseUser",
+      "buildSha",
+      "expectedMigrations",
+      "latestExpectedTag",
+      "excludedMigration0100Present",
+      "excludedMigration0105Present",
+      "externalStateRows",
+      "previousBackupId",
+      "backupId",
+      "createdAt",
+      "restoreTestedAt",
+      "restoreDurationMs",
+      "verifiedTableCount",
+      "sizeBytes",
+      "maxPayloadBytes",
+      "encryptionFormat",
+      "retentionPruned",
+      "destructiveRestorePerformed",
+      "nextGate",
+      "authorizes0105",
+    ],
+    "exact-0104 backup execution gate",
+  );
+  exactKeys(
+    isolation,
+    [
+      "onlyPostgresRunningAtEveryBoundary",
+      "apiStarted",
+      "webStarted",
+      "externalSchema0105GateStarted",
+    ],
+    "exact-0104 backup execution runtimeIsolation",
+  );
+  const startedAt = canonicalTimestamp(
+    value.startedAt,
+    "exact-0104 backup startedAt",
+  );
+  const completedAt = canonicalTimestamp(
+    value.completedAt,
+    "exact-0104 backup completedAt",
+  );
+  const createdAt = canonicalTimestamp(
+    gate.createdAt,
+    "exact-0104 backup createdAt",
+  );
+  const restoreTestedAt = canonicalTimestamp(
+    gate.restoreTestedAt,
+    "exact-0104 backup restoreTestedAt",
+  );
+  const backupId = positiveInteger(gate.backupId, "exact-0104 backup id");
+  const sizeBytes = positiveInteger(
+    gate.sizeBytes,
+    "exact-0104 backup sizeBytes",
+    MAX_BACKUP_PAYLOAD_BYTES,
+  );
+  if (
+    value.schemaVersion !== 1 ||
+    value.kind !== "site-logbook-staging-exact-0104-backup-execution" ||
+    value.decision !== "PASS" ||
+    value.productionTargetsTouched !== false ||
+    value.sourceSha !== baseline.candidate.sourceSha ||
+    value.baselineExecutionSha256 !==
+      `sha256:${baselineExecution.executionSha256}` ||
+    value.inspectDeploymentInputsSha256 !==
+      `sha256:${baseline.candidate.inspectInputsSha256}` ||
+    value.nextGate !== "exact-0104-recovery-binding-required" ||
+    value.authorizes0105 !== false ||
+    gate.decision !== "CREATED_AND_RESTORE_VERIFIED" ||
+    gate.environmentId !== baseline.environmentId ||
+    gate.databaseName !== baseline.database.name ||
+    gate.databaseUser !== baseline.database.user ||
+    gate.buildSha !== baseline.candidate.sourceSha ||
+    gate.expectedMigrations !== 104 ||
+    gate.latestExpectedTag !== LATEST_0104 ||
+    gate.excludedMigration0100Present !== false ||
+    gate.excludedMigration0105Present !== false ||
+    gate.externalStateRows !== 0 ||
+    gate.previousBackupId !== baseline.oldBackupId ||
+    backupId <= baseline.oldBackupId ||
+    gate.maxPayloadBytes !== MAX_BACKUP_PAYLOAD_BYTES ||
+    gate.encryptionFormat !== "mve1" ||
+    gate.retentionPruned !== false ||
+    gate.destructiveRestorePerformed !== false ||
+    gate.nextGate !== "exact-0104-recovery-binding-required" ||
+    gate.authorizes0105 !== false ||
+    positiveInteger(gate.restoreDurationMs, "restore duration") < 1 ||
+    positiveInteger(gate.verifiedTableCount, "verified table count") < 1 ||
+    isolation.onlyPostgresRunningAtEveryBoundary !== true ||
+    isolation.apiStarted !== false ||
+    isolation.webStarted !== false ||
+    isolation.externalSchema0105GateStarted !== false ||
+    new Date(startedAt) > new Date(createdAt) ||
+    new Date(createdAt) <= new Date(baselineExecution.completedAt) ||
+    new Date(createdAt) > new Date(restoreTestedAt) ||
+    new Date(restoreTestedAt) > new Date(completedAt)
+  ) {
+    fail(
+      "RECOVERY_BINDING_BACKUP_EXECUTION_INVALID",
+      "Exact-0104 backup execution does not bind the reviewed post-baseline bounded backup.",
+    );
+  }
+  return Object.freeze({
+    executionSha256,
+    backupId,
+    sizeBytes,
+    maxPayloadBytes: MAX_BACKUP_PAYLOAD_BYTES,
+  });
+}
+
 export function createStagingExact0104RecoveryBinding({
   baselineInputsBytes,
   baselineInputsChecksumText,
@@ -474,7 +621,12 @@ export function createStagingExact0104RecoveryBinding({
   baselineExecutionBytes,
   baselineExecutionChecksumText,
   expectedBaselineExecutionSha256,
-  backupEvidenceId,
+  exact0104BackupExecutionBytes,
+  exact0104BackupExecutionChecksumText,
+  expectedExact0104BackupExecutionSha256,
+  inspectDeploymentBytes,
+  inspectDeploymentChecksumText,
+  expectedInspectDeploymentSha256,
   backupRestoreMaxAgeHours,
 }) {
   const inputsArtifact = parseTrustedArtifact(
@@ -500,18 +652,83 @@ export function createStagingExact0104RecoveryBinding({
     executionArtifact.sha256,
     baseline,
   );
-  const newBackupId = positiveInteger(backupEvidenceId, "backupEvidenceId");
-  if (newBackupId <= baseline.oldBackupId) {
-    fail(
-      "RECOVERY_BINDING_BACKUP_NOT_NEW",
-      "Recovery backup id must be newer than the backup used for baseline.",
-    );
-  }
+  const exactBackupArtifact = parseTrustedArtifact(
+    exact0104BackupExecutionBytes,
+    exact0104BackupExecutionChecksumText,
+    expectedExact0104BackupExecutionSha256,
+    "staging-exact-0104-backup-execution.json",
+    "exact-0104 backup execution",
+  );
+  const exactBackup = validateExact0104BackupExecution(
+    exactBackupArtifact.value,
+    exactBackupArtifact.sha256,
+    execution,
+    baseline,
+  );
   const restoreMaxAgeHours = positiveInteger(
     backupRestoreMaxAgeHours,
     "backupRestoreMaxAgeHours",
     168,
   );
+  const inspectArtifact = parseTrustedArtifact(
+    inspectDeploymentBytes,
+    inspectDeploymentChecksumText,
+    expectedInspectDeploymentSha256,
+    "staging-deployment-inspect.json",
+    "pre-backup inspect deployment inputs",
+  );
+  let originalInspect;
+  try {
+    originalInspect = validateStagingDeploymentInputs(inspectArtifact.value, {
+      expectedSchemaAction: "inspect",
+      expectedSourceSha: baseline.candidate.sourceSha,
+    });
+  } catch {
+    fail(
+      "RECOVERY_BINDING_INSPECT_INVALID",
+      "Pre-backup inspect deployment inputs do not match the strict staging contract.",
+    );
+  }
+  if (
+    inspectArtifact.sha256 !== baseline.candidate.inspectInputsSha256 ||
+    originalInspect.imageManifestSha256 !==
+      baseline.candidate.imageManifestSha256 ||
+    originalInspect.provisioningManifestSha256 !==
+      baseline.candidate.provisioningManifestSha256 ||
+    originalInspect.images.api !== baseline.candidate.apiImage ||
+    originalInspect.environmentId !== baseline.environmentId ||
+    originalInspect.composeProjectName !== baseline.composeProjectName ||
+    originalInspect.backupEvidenceId !== baseline.oldBackupId
+  ) {
+    fail(
+      "RECOVERY_BINDING_INSPECT_MISMATCH",
+      "Pre-backup inspect deployment inputs are not bound to the approved baseline.",
+    );
+  }
+  const recoveryInspectInputs = Object.freeze({
+    ...structuredClone(originalInspect),
+    backupEvidenceId: exactBackup.backupId,
+    backupRestoreMaxAgeHours: restoreMaxAgeHours,
+  });
+  try {
+    validateStagingDeploymentInputs(recoveryInspectInputs, {
+      expectedSchemaAction: "inspect",
+      expectedSourceSha: baseline.candidate.sourceSha,
+    });
+  } catch {
+    fail(
+      "RECOVERY_BINDING_INSPECT_INVALID",
+      "Derived recovery inspect deployment inputs are invalid.",
+    );
+  }
+  const recoveryInspectBytes = Buffer.from(
+    canonicalJson(recoveryInspectInputs),
+    "utf8",
+  );
+  const recoveryInspectSha256 = crypto
+    .createHash("sha256")
+    .update(recoveryInspectBytes)
+    .digest("hex");
   const recoveryInputs = Object.freeze({
     schemaVersion: 1,
     kind: "site-logbook-staging-exact-0104-recovery",
@@ -521,7 +738,7 @@ export function createStagingExact0104RecoveryBinding({
       apiImage: baseline.candidate.apiImage,
       imageManifestSha256: baseline.candidate.imageManifestSha256,
       provisioningManifestSha256: baseline.candidate.provisioningManifestSha256,
-      inspectInputsSha256: baseline.candidate.inspectInputsSha256,
+      inspectInputsSha256: recoveryInspectSha256,
     }),
     database: Object.freeze({
       environmentId: baseline.environmentId,
@@ -537,9 +754,12 @@ export function createStagingExact0104RecoveryBinding({
       operation: execution.operation,
     }),
     backup: Object.freeze({
-      evidenceId: newBackupId,
+      evidenceId: exactBackup.backupId,
       restoreMaxAgeHours,
       mustBeCreatedAfter: execution.completedAt,
+      sizeBytes: exactBackup.sizeBytes,
+      maxPayloadBytes: exactBackup.maxPayloadBytes,
+      executionSha256: exactBackup.executionSha256,
     }),
     target: Object.freeze({
       migrationCount: 104,
@@ -568,12 +788,12 @@ export function createStagingExact0104RecoveryBinding({
     STAGING_IMAGE_MANIFEST_SHA256: baseline.candidate.imageManifestSha256,
     STAGING_PROVISIONING_MANIFEST_SHA256:
       baseline.candidate.provisioningManifestSha256,
-    STAGING_DEPLOYMENT_INPUTS_SHA256: baseline.candidate.inspectInputsSha256,
+    STAGING_DEPLOYMENT_INPUTS_SHA256: recoveryInspectSha256,
     STAGING_API_IMAGE: baseline.candidate.apiImage,
     STAGING_DATABASE_HOST: baseline.database.host,
     STAGING_DATABASE_NAME: baseline.database.name,
     STAGING_DATABASE_USER: baseline.database.user,
-    STAGING_BACKUP_EVIDENCE_ID: String(newBackupId),
+    STAGING_BACKUP_EVIDENCE_ID: String(exactBackup.backupId),
     STAGING_BACKUP_RESTORE_MAX_AGE_HOURS: String(restoreMaxAgeHours),
     STAGING_EXACT_0104_RECOVERY_INPUTS_B64: recoveryBytes.toString("base64"),
     STAGING_EXACT_0104_RECOVERY_INPUTS_SHA256: recoverySha256,
@@ -584,6 +804,10 @@ export function createStagingExact0104RecoveryBinding({
     decision: "PASS",
     inputs: recoveryInputs,
     inputsSha256: recoverySha256,
+    inspect: Object.freeze({
+      inputs: recoveryInspectInputs,
+      sha256: recoveryInspectSha256,
+    }),
     environment,
   });
 }
@@ -626,6 +850,7 @@ export function writeStagingExact0104RecoveryBinding(directory, result) {
     );
   }
   const inputName = "staging-exact-0104-recovery-inputs.json";
+  const inspectName = "staging-exact-0104-recovery-inspect.json";
   return Object.freeze({
     inputs: atomicWriteExclusive(
       absolute,
@@ -636,6 +861,16 @@ export function writeStagingExact0104RecoveryBinding(directory, result) {
       absolute,
       "staging-exact-0104-recovery-inputs.sha256",
       `${result.inputsSha256}  ${inputName}\n`,
+    ),
+    inspect: atomicWriteExclusive(
+      absolute,
+      inspectName,
+      canonicalJson(result.inspect.inputs),
+    ),
+    inspectChecksum: atomicWriteExclusive(
+      absolute,
+      "staging-exact-0104-recovery-inspect.sha256",
+      `${result.inspect.sha256}  ${inspectName}\n`,
     ),
     environment: atomicWriteExclusive(
       absolute,
@@ -682,6 +917,22 @@ function main() {
     requiredArgument("--baseline-execution-checksum"),
     "baseline execution checksum",
   );
+  const exact0104BackupExecution = regularFile(
+    requiredArgument("--backup-execution"),
+    "exact-0104 backup execution",
+  );
+  const exact0104BackupExecutionChecksum = regularFile(
+    requiredArgument("--backup-execution-checksum"),
+    "exact-0104 backup execution checksum",
+  );
+  const inspectDeployment = regularFile(
+    requiredArgument("--inspect-inputs"),
+    "pre-backup inspect deployment inputs",
+  );
+  const inspectDeploymentChecksum = regularFile(
+    requiredArgument("--inspect-inputs-checksum"),
+    "pre-backup inspect deployment inputs checksum",
+  );
   const result = createStagingExact0104RecoveryBinding({
     baselineInputsBytes: fs.readFileSync(baselineInputs),
     baselineInputsChecksumText: fs.readFileSync(baselineInputsChecksum, "utf8"),
@@ -696,7 +947,22 @@ function main() {
     expectedBaselineExecutionSha256: requiredArgument(
       "--expected-baseline-execution-sha256",
     ),
-    backupEvidenceId: Number(requiredArgument("--backup-evidence-id")),
+    exact0104BackupExecutionBytes: fs.readFileSync(exact0104BackupExecution),
+    exact0104BackupExecutionChecksumText: fs.readFileSync(
+      exact0104BackupExecutionChecksum,
+      "utf8",
+    ),
+    expectedExact0104BackupExecutionSha256: requiredArgument(
+      "--expected-backup-execution-sha256",
+    ),
+    inspectDeploymentBytes: fs.readFileSync(inspectDeployment),
+    inspectDeploymentChecksumText: fs.readFileSync(
+      inspectDeploymentChecksum,
+      "utf8",
+    ),
+    expectedInspectDeploymentSha256: requiredArgument(
+      "--expected-inspect-inputs-sha256",
+    ),
     backupRestoreMaxAgeHours: Number(
       requiredArgument("--backup-restore-max-age-hours"),
     ),

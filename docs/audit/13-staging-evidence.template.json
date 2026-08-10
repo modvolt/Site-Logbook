@@ -3,7 +3,7 @@
   "schemaVersion": 4,
   "run": {
     "id": "PENDING",
-    "environmentId": "modvolt-staging-PENDING",
+    "environmentId": "site-logbook-staging",
     "baseUrl": "https://replace-me.invalid",
     "commitSha": "0000000000000000000000000000000000000000",
     "startedAt": "PENDING",
@@ -12,7 +12,8 @@
   "isolation": {
     "confirmed": false,
     "productionTargetsTouched": false,
-    "rawProductionDataExposed": false,
+    "productionCopyPresentInsideApprovedBoundary": true,
+    "rawProductionDataOutsideApprovedBoundary": false,
     "mailSandbox": false
   },
   "ci": {
@@ -51,6 +52,9 @@
     "backupEvidenceId": 0,
     "backupRestoreAgeHours": 0,
     "backupRestoreMaxAgeHours": 24,
+    "sourceBackupExecutionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "backupMaxPayloadBytes": 268435456,
+    "backupSizeBytes": 0,
     "inputSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "evidenceArtifactSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   },
@@ -65,6 +69,8 @@
     "restoreTestedAt": "PENDING",
     "checkedAt": "PENDING",
     "restoreAgeHours": 0,
+    "sourceExecutionSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "maxPayloadBytes": 268435456,
     "evidenceArtifactSha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   },
   "artifacts": {

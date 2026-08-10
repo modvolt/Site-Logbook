@@ -9,6 +9,8 @@ const PROJECT = /^site-logbook-staging(?:-[a-z0-9-]+)?$/;
 const PLACEHOLDER = /(pending|replace(?:-me)?)/i;
 const SENSITIVE_KEY =
   /(^|_)(password|secret|token|keyring|database.?url|authorization|private.?key)($|_)/i;
+const SENSITIVE_VALUE =
+  /(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+[A-Za-z0-9._~+/=-]{16,})/;
 const SAFE_PRIVATE_SERVICES = Object.freeze([
   "api",
   "external-schema-gate",
@@ -66,6 +68,22 @@ function objectAt(value, field) {
     fail("PROVISIONING_SCHEMA_INVALID", `${field} must be an object.`);
   }
   return value;
+}
+
+function exactKeys(value, required, field, optional = []) {
+  const object = objectAt(value, field);
+  const actual = Object.keys(object);
+  const approved = new Set([...required, ...optional]);
+  if (
+    required.some((key) => !Object.hasOwn(object, key)) ||
+    actual.some((key) => !approved.has(key))
+  ) {
+    fail(
+      "PROVISIONING_SCHEMA_INVALID",
+      `${field} must contain only the exact approved fields.`,
+    );
+  }
+  return object;
 }
 
 function stringAt(value, field) {
@@ -127,6 +145,12 @@ function scanForSecrets(value, currentPath = "provisioning") {
         `${currentPath}.${key} is a forbidden secret field.`,
       );
     }
+    if (typeof entry === "string" && SENSITIVE_VALUE.test(entry)) {
+      fail(
+        "PROVISIONING_SECRET_MATERIAL",
+        `${currentPath}.${key} contains recognizable secret material.`,
+      );
+    }
     if (typeof entry === "string" && /^[a-z][a-z0-9+.-]*:\/\//i.test(entry)) {
       try {
         const url = new URL(entry);
@@ -181,7 +205,27 @@ function intersects(left, right) {
 
 export function validateStagingProvisioning(manifest, options = {}) {
   scanForSecrets(manifest);
-  const root = objectAt(manifest, "manifest");
+  const root = exactKeys(
+    manifest,
+    [
+      "schemaVersion",
+      "kind",
+      "validationMode",
+      "productionTargetsTouched",
+      "coolify",
+      "forbiddenProductionTargets",
+      "publicRoutes",
+      "privateServices",
+      "hostPortBindings",
+      "network",
+      "volumes",
+      "s3",
+      "mail",
+      "limits",
+    ],
+    "manifest",
+    ["_templateStatus"],
+  );
   if (
     root.schemaVersion !== 1 ||
     root.kind !== "site-logbook-coolify-staging"
@@ -199,9 +243,38 @@ export function validateStagingProvisioning(manifest, options = {}) {
     fail("PRODUCTION_TOUCH_TRUE", "Production targets must remain untouched.");
   }
 
-  const coolify = objectAt(root.coolify, "coolify");
-  const source = objectAt(coolify.source, "coolify.source");
-  const settings = objectAt(coolify.settings, "coolify.settings");
+  const coolify = exactKeys(
+    root.coolify,
+    [
+      "serverId",
+      "projectId",
+      "environmentId",
+      "resourceId",
+      "environmentName",
+      "resourceName",
+      "composeProjectName",
+      "source",
+      "settings",
+    ],
+    "coolify",
+  );
+  const source = exactKeys(
+    coolify.source,
+    ["repository", "exactCommitSha", "composeFile"],
+    "coolify.source",
+  );
+  const settings = exactKeys(
+    coolify.settings,
+    [
+      "createdFromProductionClone",
+      "autoDeploy",
+      "previewDeployments",
+      "rawComposeDeployment",
+      "connectToPredefinedNetwork",
+      "forceHttps",
+    ],
+    "coolify.settings",
+  );
   const composeProjectName = stringAt(
     coolify.composeProjectName,
     "coolify.composeProjectName",
@@ -247,8 +320,17 @@ export function validateStagingProvisioning(manifest, options = {}) {
   if (settings.forceHttps !== true)
     fail("COOLIFY_SETTING_UNSAFE", "forceHttps must be true.");
 
-  const forbidden = objectAt(
+  const forbidden = exactKeys(
     root.forbiddenProductionTargets,
+    [
+      "resourceIds",
+      "environmentIds",
+      "networkIds",
+      "volumeNames",
+      "s3Buckets",
+      "names",
+      "hosts",
+    ],
     "forbiddenProductionTargets",
   );
   for (const key of [
@@ -335,6 +417,16 @@ export function validateStagingProvisioning(manifest, options = {}) {
       "Public routes must be web and alert-receiver only.",
     );
   }
+  exactKeys(
+    routes.web,
+    ["service", "containerPort", "origin"],
+    "publicRoutes.web",
+  );
+  exactKeys(
+    routes["alert-receiver"],
+    ["service", "containerPort", "origin", "webhookPath"],
+    "publicRoutes.alert-receiver",
+  );
   const webOrigin = publicOrigin(routes.web.origin, "publicRoutes.web.origin");
   const alertOrigin = publicOrigin(
     routes["alert-receiver"].origin,
@@ -360,7 +452,16 @@ export function validateStagingProvisioning(manifest, options = {}) {
     fail("HOST_PORT_FORBIDDEN", "Host port bindings are forbidden.");
   }
 
-  const network = objectAt(root.network, "network");
+  const network = exactKeys(
+    root.network,
+    [
+      "mode",
+      "observedNetworkId",
+      "connectToPredefinedNetwork",
+      "sharedResourceIds",
+    ],
+    "network",
+  );
   if (
     network.mode !== "coolify-per-resource" ||
     network.connectToPredefinedNetwork !== false
@@ -398,10 +499,28 @@ export function validateStagingProvisioning(manifest, options = {}) {
     root.volumes.map((volume) => [volume.name, volume]),
   );
   for (const [name, mounts] of Object.entries(EXPECTED_VOLUMES)) {
-    const volume = objectAt(volumeMap[name], `volumes.${name}`);
+    const volume = exactKeys(
+      volumeMap[name],
+      ["name", "platformName", "fingerprint", "reused", "mounts"],
+      `volumes.${name}`,
+    );
+    if (!Array.isArray(volume.mounts)) {
+      fail(
+        "PROVISIONING_SCHEMA_INVALID",
+        `volumes.${name}.mounts must be an array.`,
+      );
+    }
+    for (const [index, mount] of volume.mounts.entries()) {
+      exactKeys(
+        mount,
+        ["service", "target", "readOnly"],
+        `volumes.${name}.mounts[${index}]`,
+      );
+    }
     if (
       volume.reused !== false ||
-      JSON.stringify(volume.mounts) !== JSON.stringify(mounts) ||
+      JSON.stringify(canonicalValue(volume.mounts)) !==
+        JSON.stringify(canonicalValue(mounts)) ||
       intersects([volume.platformName], forbidden.volumeNames)
     ) {
       fail("VOLUME_REUSE", `${name} is reused or has unexpected mounts.`);
@@ -424,7 +543,20 @@ export function validateStagingProvisioning(manifest, options = {}) {
     }
   }
 
-  const s3 = objectAt(root.s3, "s3");
+  const s3 = exactKeys(
+    root.s3,
+    [
+      "endpoint",
+      "region",
+      "bucket",
+      "targetFingerprint",
+      "accessBoundary",
+      "productionBucketAccess",
+      "prefixes",
+      "forcePathStyle",
+    ],
+    "s3",
+  );
   const s3Origin = publicOrigin(s3.endpoint, "s3.endpoint");
   if (!s3Origin || !/^[a-z0-9-]{1,63}$/.test(s3.region)) {
     fail("S3_NAMESPACE_UNSAFE", "S3 endpoint/region is invalid.");
@@ -448,7 +580,18 @@ export function validateStagingProvisioning(manifest, options = {}) {
     fail("S3_NAMESPACE_UNSAFE", "Observed S3 target fingerprint is missing.");
   }
 
-  const mail = objectAt(root.mail, "mail");
+  const mail = exactKeys(
+    root.mail,
+    [
+      "service",
+      "publicRoute",
+      "relayConfigured",
+      "forwardingConfigured",
+      "externalSmtpConfigured",
+      "deliveryBoundary",
+    ],
+    "mail",
+  );
   if (
     mail.service !== "mailpit" ||
     mail.publicRoute !== false ||
@@ -463,9 +606,22 @@ export function validateStagingProvisioning(manifest, options = {}) {
     );
   }
 
-  const limits = objectAt(root.limits, "limits");
+  const limits = exactKeys(
+    root.limits,
+    ["services", "totalCpu", "totalMemoryMiB", "totalReservationMiB"],
+    "limits",
+  );
+  exactKeys(limits.services, Object.keys(EXPECTED_LIMITS), "limits.services");
+  for (const service of Object.keys(EXPECTED_LIMITS)) {
+    exactKeys(
+      limits.services[service],
+      ["cpus", "memoryMiB", "reservationMiB"],
+      `limits.services.${service}`,
+    );
+  }
   if (
-    JSON.stringify(limits.services) !== JSON.stringify(EXPECTED_LIMITS) ||
+    JSON.stringify(canonicalValue(limits.services)) !==
+      JSON.stringify(canonicalValue(EXPECTED_LIMITS)) ||
     limits.totalCpu !== 2.75 ||
     limits.totalMemoryMiB !== 2816 ||
     limits.totalReservationMiB !== 1792

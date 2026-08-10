@@ -14,6 +14,7 @@ import {
   readExternalSchemaPreflightEnvironment,
   readExternalSchemaRuntimeEnvironment,
   validateExactAppliedMigrationSet,
+  bindExact0104RecoveryBackupExecution,
   validateExternalSchemaDatabaseState,
   validateExternalSchemaMigrationBundle,
   validateExact0104RecoveryBackupEvidence,
@@ -283,6 +284,9 @@ function recoveryEnv(
       evidenceId: 43,
       restoreMaxAgeHours: 24,
       mustBeCreatedAfter: "2026-08-09T18:01:00.000Z",
+      sizeBytes: 1024,
+      maxPayloadBytes: 256 * 1024 * 1024,
+      executionSha256: "f".repeat(64),
     },
     target: {
       migrationCount: 104,
@@ -622,6 +626,35 @@ describe("bound staging backup evidence", () => {
       ),
     );
   });
+
+  it("binds the live row to the reviewed backup execution size and ceiling", () => {
+    const evidence = validateExact0104RecoveryBackupEvidence(
+      {
+        ...validBackup(),
+        size_bytes: 1024,
+        restored_at: null,
+        restore_duration_ms: 1250,
+        restore_verified_tables: { users: 3 },
+      },
+      expected,
+      new Date("2026-08-05T07:59:59.000Z"),
+    );
+    const bound = bindExact0104RecoveryBackupExecution(evidence, {
+      expectedBackupSizeBytes: 1024,
+      backupMaxPayloadBytes: 256 * 1024 * 1024,
+      backupExecutionSha256: "f".repeat(64),
+    });
+    assert.equal(bound.sizeBytes, 1024);
+    assert.equal(bound.maxPayloadBytes, 256 * 1024 * 1024);
+    assert.equal(bound.sourceExecutionSha256, `sha256:${"f".repeat(64)}`);
+    expectCode("BACKUP_RECOVERY_EXECUTION_MISMATCH", () =>
+      bindExact0104RecoveryBackupExecution(evidence, {
+        expectedBackupSizeBytes: 1025,
+        backupMaxPayloadBytes: 256 * 1024 * 1024,
+        backupExecutionSha256: "f".repeat(64),
+      }),
+    );
+  });
 });
 
 describe("exact-0104 recovery runtime binding", () => {
@@ -629,6 +662,9 @@ describe("exact-0104 recovery runtime binding", () => {
     const result = readStagingExact0104RecoveryEnvironment(recoveryEnv());
     assert.equal(result.runtime.buildSha, fullSha);
     assert.equal(result.runtime.backupEvidenceId, 43);
+    assert.equal(result.runtime.expectedBackupSizeBytes, 1024);
+    assert.equal(result.runtime.backupMaxPayloadBytes, 256 * 1024 * 1024);
+    assert.equal(result.runtime.backupExecutionSha256, "f".repeat(64));
     assert.equal(
       result.baselineCompletedAt.toISOString(),
       "2026-08-09T18:01:00.000Z",
@@ -650,6 +686,9 @@ describe("exact-0104 recovery runtime binding", () => {
               evidenceId: 42,
               restoreMaxAgeHours: 24,
               mustBeCreatedAfter: "2026-08-09T18:01:00.000Z",
+              sizeBytes: 1024,
+              maxPayloadBytes: 256 * 1024 * 1024,
+              executionSha256: "f".repeat(64),
             },
           },
         ),
@@ -660,6 +699,23 @@ describe("exact-0104 recovery runtime binding", () => {
         ...recoveryEnv(),
         STAGING_API_IMAGE: `ghcr.io/modvolt/site-logbook-staging-api@sha256:${"f".repeat(64)}`,
       }),
+    );
+    expectRecoveryCode("RECOVERY_BACKUP_BOUNDARY_INVALID", () =>
+      readStagingExact0104RecoveryEnvironment(
+        recoveryEnv(
+          {},
+          {
+            backup: {
+              evidenceId: 43,
+              restoreMaxAgeHours: 24,
+              mustBeCreatedAfter: "2026-08-09T18:01:00.000Z",
+              sizeBytes: 1024,
+              maxPayloadBytes: 256 * 1024 * 1024 + 1,
+              executionSha256: "f".repeat(64),
+            },
+          },
+        ),
+      ),
     );
     expectRecoveryCode("RECOVERY_SECRET_MATERIAL", () =>
       readStagingExact0104RecoveryEnvironment(

@@ -6,8 +6,7 @@ const LOCAL_HOSTS = new Set([
   "[::1]",
   "0.0.0.0",
 ]);
-const STAGING_NAME_PATTERN =
-  /(^|[._-])(stage|staging|test|qa|sandbox|preview)([._-]|$)/i;
+const LOGICAL_STAGING_ENVIRONMENT_ID = "site-logbook-staging";
 const FULL_GIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 
 class StagingReleaseGuardError extends Error {
@@ -111,10 +110,10 @@ function readStagingReleaseEnvironment(env = process.env) {
   }
 
   const environmentId = required(env, "STAGING_ENVIRONMENT_ID");
-  if (!STAGING_NAME_PATTERN.test(environmentId)) {
+  if (environmentId !== LOGICAL_STAGING_ENVIRONMENT_ID) {
     fail(
       "STAGING_ENVIRONMENT_ID_UNSAFE",
-      "STAGING_ENVIRONMENT_ID must contain a distinct stage, staging, test, qa, sandbox, or preview segment.",
+      `STAGING_ENVIRONMENT_ID must equal ${LOGICAL_STAGING_ENVIRONMENT_ID}.`,
     );
   }
 
