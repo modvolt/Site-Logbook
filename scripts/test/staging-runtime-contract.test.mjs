@@ -1077,6 +1077,65 @@ test("binds candidate publication to the exact private manual caller workflow", 
   }
 });
 
+test("requires a canonical reviewed visible-history registry ledger before candidate publication", () => {
+  const workflow = source(".github/workflows/staging-images.yml");
+  for (const [needle, replacement] of [
+    [
+      "ACCEPT_EXTERNAL_LEDGER_RESIDUAL_WITHOUT_DELETED_HISTORY_PROOF_NO_DEPLOY",
+      "ACCEPT_UNREVIEWED_REGISTRY_HISTORY",
+    ],
+    [
+      '[[ "$canonical_ledger" == "$REGISTRY_LEDGER_JSON" ]]',
+      '[[ -n "$canonical_ledger" ]]',
+    ],
+    ["historicalAbsenceProven: false", "historicalAbsenceProven: true"],
+    [
+      '[[ "$GITHUB_RUN_ATTEMPT_VALUE" == "1" ]]',
+      '[[ "$GITHUB_RUN_ATTEMPT_VALUE" =~ ^[1-9][0-9]*$ ]]',
+    ],
+    ["actions/runs/${GITHUB_RUN_ID_VALUE}", "actions/runs?per_page=100"],
+    [
+      "actions/workflows/publish-staging-images.yml/runs?event=workflow_dispatch&per_page=100",
+      "actions/workflows/publish-staging-images.yml/runs?per_page=100",
+    ],
+    [".[0] < 1000", ".[0] <= 1000"],
+    ["registryLedger: $registryLedger[0]", "registryLedger: {}"],
+    [
+      'sha256sum "${RUNNER_TEMP}/staging-registry-ledger-entry.json"',
+      'sha256sum "staging-images.json"',
+    ],
+    [
+      '[[ "$state" == "$expected_initial_state" ]]',
+      '[[ -n "$expected_initial_state" ]]',
+    ],
+    ["ledger_preflight_digest", "unbound_preflight_digest"],
+  ]) {
+    assertWorkflowContractError(
+      workflow.replaceAll(needle, replacement),
+      "STAGING_IMAGE_REGISTRY_LEDGER_GUARD_MISSING",
+    );
+  }
+
+  assertWorkflowContractError(
+    workflow.replace(
+      "registry_history_acceptance:\n        description: Exact reviewed acceptance of the external-ledger residual limitation\n        required: true",
+      "registry_history_acceptance:\n        description: Exact reviewed acceptance of the external-ledger residual limitation\n        required: false",
+    ),
+    "STAGING_IMAGE_REGISTRY_LEDGER_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace("      actions: read\n", ""),
+    "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "            staging-images.sha256\n            staging-registry-ledger-entry.json",
+      "            staging-images.sha256\n            ${{ runner.temp }}/staging-registry-ledger-entry.json",
+    ),
+    "STAGING_RUNTIME_CONTRACT_MISSING",
+  );
+});
+
 test("enforces a fixed two-stage append-only package state gate", () => {
   const workflow = source(".github/workflows/staging-images.yml");
   assertWorkflowContractError(
@@ -1094,7 +1153,7 @@ test("enforces a fixed two-stage append-only package state gate", () => {
     "STAGING_IMAGE_STAGE_GUARD_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace("preflight-only:00000", "preflight-only:11111"),
+    workflow.replaceAll("preflight-only:00000", "preflight-only:11111"),
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
   );
   assertWorkflowContractError(

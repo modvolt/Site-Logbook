@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import test from "node:test";
 import {
   dockerIsolationArgs,
@@ -12,6 +13,9 @@ import {
 
 const SOURCE_SHA = "6dddd64676631fffca6aef9baf74d79b127f8a01";
 const CALLER_WORKFLOW_SHA = "1".repeat(40);
+const LEDGER_RUN_ID = "31420000001";
+const REGISTRY_HISTORY_ACCEPTANCE =
+  "ACCEPT_EXTERNAL_LEDGER_RESIDUAL_WITHOUT_DELETED_HISTORY_PROOF_NO_DEPLOY";
 const PREDECESSOR_SOURCE_SHA = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
 const PACKAGE_NAMES = [
   "site-logbook-staging-preflight",
@@ -87,6 +91,11 @@ const callerIdentityScript = requireRunScript(
   "validate-public-source",
   "Require exact private manual caller workflow",
 );
+const registryLedgerScript = requireRunScript(
+  workflow,
+  "publish-staging-images",
+  "Require canonical reviewed visible-history registry ledger",
+);
 const metadataCredentialScript = requireRunScript(
   workflow,
   "publish-staging-images",
@@ -127,6 +136,11 @@ const preflightEvidenceScript = requireRunScript(
   "publish-staging-images",
   "Create secret-free preflight publication evidence",
 );
+const completeEvidenceScript = requireRunScript(
+  workflow,
+  "publish-staging-images",
+  "Create and validate secret-free immutable image manifest",
+);
 const absenceScript = extractQuotedHeredoc(
   verifierSetupScript,
   "ABSENCE_SCRIPT",
@@ -154,6 +168,12 @@ EOF
     ;;
   repos/modvolt/site-logbook-registry/git/ref/heads/main)
     cat "$HARNESS_ROOT/fixtures/caller-main.json"
+    ;;
+  repos/modvolt/site-logbook-registry/actions/runs/*)
+    cat "$HARNESS_ROOT/fixtures/current-run.json"
+    ;;
+  "repos/modvolt/site-logbook-registry/actions/workflows/publish-staging-images.yml/runs?event=workflow_dispatch&per_page=100")
+    cat "$HARNESS_ROOT/fixtures/run-history.json"
     ;;
   "/user/packages?package_type=container&visibility=private&per_page=100")
     [[ "\${MOCK_INVENTORY_FAIL:-false}" != "true" ]] || exit 73
@@ -300,6 +320,87 @@ function stateFixtureFiles(state) {
   });
   files["fixtures/inventory.json"] = JSON.stringify(inventory);
   return files;
+}
+
+function registryLedger(stage = "preflight-only", overrides = {}) {
+  const complete = stage === "complete";
+  const value = {
+    deletedHistoryControl: {
+      decision: "explicitly-accepted-external-ledger",
+      deletedApiQueried: false,
+      historicalAbsenceProven: false,
+      mode: "reviewed-caller-visible-history-ledger",
+    },
+    expectedInitialPackageState: complete ? "10000" : "00000",
+    kind: "site-logbook-staging-registry-ledger-entry",
+    packageNames: [...PACKAGE_NAMES],
+    previousEntry: {
+      ledgerEntrySha256: complete ? `sha256:${"9".repeat(64)}` : null,
+      preflightDigest: complete ? ROOT_DIGESTS[0] : null,
+    },
+    schemaVersion: 1,
+    sourceSha: SOURCE_SHA,
+    stage,
+    ...overrides,
+  };
+  return JSON.stringify(value);
+}
+
+function ledgerSha256(ledger) {
+  return `sha256:${crypto.createHash("sha256").update(ledger).digest("hex")}`;
+}
+
+function callerRun(overrides = {}) {
+  return {
+    id: Number(LEDGER_RUN_ID),
+    run_attempt: 1,
+    event: "workflow_dispatch",
+    head_branch: "main",
+    head_sha: CALLER_WORKFLOW_SHA,
+    path: ".github/workflows/publish-staging-images.yml",
+    head_repository: { full_name: "modvolt/site-logbook-registry" },
+    status: "in_progress",
+    ...overrides,
+  };
+}
+
+function runRegistryLedger({
+  stage = "preflight-only",
+  ledger = registryLedger(stage),
+  currentRun = callerRun(),
+  historyRuns = [callerRun()],
+  environment = {},
+} = {}) {
+  return runBashHarness({
+    script: registryLedgerScript,
+    files: {
+      ...baseFixtureFiles(),
+      "fixtures/current-run.json": JSON.stringify(currentRun),
+      "fixtures/run-history.json": JSON.stringify({
+        total_count: historyRuns.length,
+        workflow_runs: historyRuns,
+      }),
+    },
+    environment: {
+      CALLER_GITHUB_TOKEN: "mock-caller-token-not-a-secret",
+      CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      CALLER_WORKFLOW_SHA,
+      EXPECTED_PREFLIGHT_DIGEST: stage === "complete" ? ROOT_DIGESTS[0] : "",
+      GITHUB_OUTPUT: "{HARNESS_ROOT}/github-output.txt",
+      GITHUB_RUN_ATTEMPT_VALUE: "1",
+      GITHUB_RUN_ID_VALUE: LEDGER_RUN_ID,
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      PUBLICATION_STAGE: stage,
+      REGISTRY_HISTORY_ACCEPTANCE,
+      REGISTRY_LEDGER_JSON: ledger,
+      RUNNER_TEMP: "{HARNESS_ROOT}",
+      SOURCE_SHA,
+      ...environment,
+    },
+    captureFiles: ["github-output.txt", "staging-registry-ledger-entry.json"],
+  });
 }
 
 function commonEnvironment() {
@@ -669,6 +770,13 @@ function parseGithubOutput(raw) {
 
 function runPackageState(stage, state, options = {}) {
   const files = { ...stateFixtureFiles(state), ...(options.files ?? {}) };
+  const previousEntry =
+    state === "00000"
+      ? { ledgerEntrySha256: null, preflightDigest: null }
+      : {
+          ledgerEntrySha256: `sha256:${"9".repeat(64)}`,
+          preflightDigest: ROOT_DIGESTS[0],
+        };
   return runBashHarness({
     script: packageStateScript,
     files,
@@ -679,6 +787,10 @@ function runPackageState(stage, state, options = {}) {
         (stage === "complete" ? ROOT_DIGESTS[0] : ""),
       GITHUB_OUTPUT: "{HARNESS_ROOT}/github-output.txt",
       PUBLICATION_STAGE: stage,
+      REGISTRY_LEDGER_JSON: registryLedger(stage, {
+        expectedInitialPackageState: state,
+        previousEntry,
+      }),
       ...(options.environment ?? {}),
     },
     captureFiles: ["github-output.txt"],
@@ -853,28 +965,88 @@ function candidatePackageEvidence(index = 0) {
 }
 
 function runPreflightEvidence(packageEvidence = candidatePackageEvidence()) {
+  const ledger = registryLedger("preflight-only");
   return runBashHarness({
     script: preflightEvidenceScript,
     files: {
-      "preflight-package.json": JSON.stringify(packageEvidence),
+      "runner-temp/preflight-package.json": JSON.stringify(packageEvidence),
+      "runner-temp/staging-registry-ledger-entry.json": ledger,
     },
     environment: {
       CALLER_REPOSITORY: "modvolt/site-logbook-registry",
       CALLER_WORKFLOW_REF:
         "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      CALLER_WORKFLOW_SHA,
       HARNESS_ROOT: "{HARNESS_ROOT}",
       INITIAL_PACKAGE_STATE: "00000",
+      LEDGER_ENTRY_SHA256: ledgerSha256(ledger),
       PREFLIGHT_DIGEST: ROOT_DIGESTS[0],
       PREFLIGHT_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-preflight",
       REGISTRY_WRITE: "true",
       RUN_ATTEMPT: "1",
       RUN_ID: "31400000000",
-      RUNNER_TEMP: "{HARNESS_ROOT}",
+      RUNNER_TEMP: "{HARNESS_ROOT}/runner-temp",
       SOURCE_SHA,
     },
     captureFiles: [
       "preflight-publication.json",
       "preflight-publication.sha256",
+      "staging-registry-ledger-entry.json",
+    ],
+  });
+}
+
+function runCompleteEvidence({
+  packageEvidence = PACKAGE_NAMES.map((_, index) =>
+    candidatePackageEvidence(index),
+  ),
+  initialPackageState = "10000",
+  registryWrite = "true",
+  runAttempt = "1",
+} = {}) {
+  const [preflight, mailpit, api, web, alertReceiver] = packageEvidence;
+  const ledger = registryLedger("complete", {
+    expectedInitialPackageState: initialPackageState,
+  });
+  return runBashHarness({
+    script: completeEvidenceScript,
+    files: {
+      "runner-temp/preflight-package.json": JSON.stringify(preflight),
+      "runner-temp/mailpit-package.json": JSON.stringify(mailpit),
+      "runner-temp/api-package.json": JSON.stringify(api),
+      "runner-temp/web-package.json": JSON.stringify(web),
+      "runner-temp/alert-receiver-package.json": JSON.stringify(alertReceiver),
+      "runner-temp/staging-registry-ledger-entry.json": ledger,
+    },
+    environment: {
+      ALERT_RECEIVER_DIGEST: ROOT_DIGESTS[4],
+      ALERT_RECEIVER_REPOSITORY:
+        "ghcr.io/modvolt/site-logbook-staging-alert-receiver",
+      API_DIGEST: ROOT_DIGESTS[2],
+      API_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-api",
+      CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      CALLER_WORKFLOW_SHA,
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      INITIAL_PACKAGE_STATE: initialPackageState,
+      LEDGER_ENTRY_SHA256: ledgerSha256(ledger),
+      MAILPIT_DIGEST: ROOT_DIGESTS[1],
+      MAILPIT_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-mailpit",
+      PREFLIGHT_DIGEST: ROOT_DIGESTS[0],
+      PREFLIGHT_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-preflight",
+      REGISTRY_WRITE: registryWrite,
+      RUN_ATTEMPT: runAttempt,
+      RUN_ID: "31400000001",
+      RUNNER_TEMP: "{HARNESS_ROOT}/runner-temp",
+      SOURCE_SHA,
+      WEB_DIGEST: ROOT_DIGESTS[3],
+      WEB_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-web",
+    },
+    captureFiles: [
+      "staging-images.json",
+      "staging-images.sha256",
+      "staging-registry-ledger-entry.json",
     ],
   });
 }
@@ -903,8 +1075,37 @@ test("parses the workflow as strict unique-key YAML and exposes the exact interf
   assert.equal(workflow.on.workflow_dispatch, undefined);
   assert.deepEqual(workflow.permissions, {});
   assert.deepEqual(workflow.jobs["publish-staging-images"].permissions, {
+    actions: "read",
     contents: "read",
     packages: "write",
+  });
+  const publisherSteps = workflow.jobs["publish-staging-images"].steps;
+  assert.equal(
+    publisherSteps.find(
+      (step) => step.name === "Upload preflight-only publication evidence",
+    ).with.path,
+    "preflight-publication.json\npreflight-publication.sha256\nstaging-registry-ledger-entry.json\n",
+  );
+  assert.equal(
+    publisherSteps.find(
+      (step) => step.name === "Upload immutable image manifest",
+    ).with.path,
+    "staging-images.json\nstaging-images.sha256\nstaging-registry-ledger-entry.json\n",
+  );
+  assert.deepEqual(
+    workflow.on.workflow_call.inputs.registry_history_acceptance,
+    {
+      description:
+        "Exact reviewed acceptance of the external-ledger residual limitation",
+      required: true,
+      type: "string",
+    },
+  );
+  assert.deepEqual(workflow.on.workflow_call.inputs.registry_ledger_json, {
+    description:
+      "Canonical stage-specific external-ledger entry hard-coded by the reviewed private caller",
+    required: true,
+    type: "string",
   });
   assert.deepEqual(workflow.on.workflow_call.secrets.packages_metadata_token, {
     description:
@@ -1232,12 +1433,124 @@ test("executes the exact private manual caller guard fail-closed", () => {
   }
 });
 
+test("accepts canonical stage-specific registry ledgers and binds their exact bytes", () => {
+  for (const stage of ["preflight-only", "complete"]) {
+    const expected = registryLedger(stage);
+    const result = runRegistryLedger({ stage, ledger: expected });
+    assert.equal(result.status, 0, `${stage}: ${result.stderr}`);
+    assert.equal(
+      result.captured["staging-registry-ledger-entry.json"],
+      expected,
+      stage,
+    );
+    const output = parseGithubOutput(result.captured["github-output.txt"]);
+    const digest = crypto.createHash("sha256").update(expected).digest("hex");
+    assert.equal(output.ledger_sha256, `sha256:${digest}`, stage);
+  }
+});
+
+test("rejects malformed, noncanonical, duplicate-key, or semantically widened registry ledgers", () => {
+  const mutations = [
+    `${registryLedger()} `,
+    registryLedger().replace(
+      '"schemaVersion":1',
+      '"schemaVersion":1,"schemaVersion":1',
+    ),
+    registryLedger("preflight-only", { sourceSha: "0".repeat(40) }),
+    registryLedger("preflight-only", { stage: "complete" }),
+    registryLedger("preflight-only", {
+      expectedInitialPackageState: "11111",
+    }),
+    registryLedger("preflight-only", { packageNames: [PACKAGE_NAMES[0]] }),
+    registryLedger("preflight-only", {
+      deletedHistoryControl: {
+        decision: "historical-absence-proven",
+        deletedApiQueried: false,
+        historicalAbsenceProven: true,
+        mode: "reviewed-caller-visible-history-ledger",
+      },
+    }),
+    registryLedger("complete", {
+      previousEntry: {
+        ledgerEntrySha256: "not-a-digest",
+        preflightDigest: ROOT_DIGESTS[0],
+      },
+    }),
+    registryLedger("complete", {
+      previousEntry: {
+        ledgerEntrySha256: `sha256:${"9".repeat(64)}`,
+        preflightDigest: `sha256:${"0".repeat(64)}`,
+      },
+    }),
+  ];
+  for (const ledger of mutations) {
+    const result = runRegistryLedger({
+      stage: ledger.includes('"stage":"complete"')
+        ? "complete"
+        : "preflight-only",
+      ledger,
+    });
+    assert.notEqual(result.status, 0, ledger);
+    assert.match(result.stderr, /ledger|canonical|stage contract/u);
+  }
+
+  const acceptance = runRegistryLedger({
+    environment: { REGISTRY_HISTORY_ACCEPTANCE: "ACCEPT_ANYTHING" },
+  });
+  assert.notEqual(acceptance.status, 0);
+  assert.match(acceptance.stderr, /acceptance phrase/u);
+});
+
+test("enforces a first attempt and unique visible dispatch for each reviewed private caller commit", () => {
+  for (const [currentRun, environment, pattern] of [
+    [callerRun({ run_attempt: 2 }), {}, /first-attempt/u],
+    [callerRun({ path: ".github/workflows/other.yml" }), {}, /first-attempt/u],
+    [callerRun({ head_sha: "2".repeat(40) }), {}, /first-attempt/u],
+    [callerRun({ status: "completed" }), {}, /first-attempt/u],
+    [callerRun(), { GITHUB_RUN_ATTEMPT_VALUE: "2" }, /first attempt/u],
+  ]) {
+    const result = runRegistryLedger({ currentRun, environment });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, pattern);
+  }
+
+  const replay = runRegistryLedger({
+    historyRuns: [
+      callerRun(),
+      callerRun({ id: Number(LEDGER_RUN_ID) + 1, status: "completed" }),
+    ],
+  });
+  assert.notEqual(replay.status, 0);
+  assert.match(replay.stderr, /already dispatched|ambiguous/u);
+
+  const duplicateIds = runRegistryLedger({
+    historyRuns: [callerRun(), callerRun()],
+  });
+  assert.notEqual(duplicateIds.status, 0);
+  assert.match(duplicateIds.stderr, /already dispatched|ambiguous/u);
+
+  const apiCap = runRegistryLedger({
+    historyRuns: Array.from({ length: 1000 }, (_, index) =>
+      index === 0
+        ? callerRun()
+        : callerRun({
+            id: Number(LEDGER_RUN_ID) + index,
+            head_sha: index.toString(16).padStart(40, "0"),
+            status: "completed",
+          }),
+    ),
+  });
+  assert.notEqual(apiCap.status, 0);
+  assert.match(apiCap.stderr, /ambiguous|non-unique/u);
+});
+
 test("shellcheck accepts the exact extracted workflow scripts", () => {
   const result = runBashHarness({
     script: `set -euo pipefail
-shellcheck --shell=bash scripts/metadata-credential.sh scripts/package-state.sh scripts/tag-absence.sh scripts/package-verifier.sh
+shellcheck --shell=bash scripts/registry-ledger.sh scripts/metadata-credential.sh scripts/package-state.sh scripts/tag-absence.sh scripts/package-verifier.sh
 `,
     files: {
+      "scripts/registry-ledger.sh": registryLedgerScript,
       "scripts/metadata-credential.sh": metadataCredentialScript,
       "scripts/package-state.sh": packageStateScript,
       "scripts/tag-absence.sh": absenceScript,
@@ -1274,7 +1587,7 @@ test("executes all 64 stage and exact-SHA package-state combinations fail-closed
         assert.notEqual(result.status, 0, `${key} unexpectedly passed`);
         assert.match(
           result.stderr,
-          /partial recovery requires a separate review/u,
+          /the reviewed ledger initial package state is invalid|partial recovery requires a separate review/u,
           key,
         );
         continue;
@@ -1486,14 +1799,27 @@ test("executes remote package, amd64, attestation, provenance, and SBOM verifica
   }
 });
 
-test("emits and validates schema-v2 preflight publication evidence", () => {
+test("emits and validates schema-v3 preflight publication evidence", () => {
   const result = runPreflightEvidence();
   assert.equal(result.status, 0, result.stderr);
   const evidence = JSON.parse(result.captured["preflight-publication.json"]);
-  assert.equal(evidence.schemaVersion, 2);
+  assert.equal(evidence.schemaVersion, 3);
   assert.equal(evidence.kind, "site-logbook-staging-preflight-publication");
   assert.equal(evidence.initialPackageState, "00000");
   assert.equal(evidence.registryAction, "published");
+  assert.deepEqual(evidence.deletedHistoryControl, {
+    mode: "reviewed-caller-visible-history-ledger",
+    decision: "explicitly-accepted-external-ledger",
+    ledgerEntrySha256: ledgerSha256(registryLedger("preflight-only")),
+    callerWorkflowSha: CALLER_WORKFLOW_SHA,
+    visibleRunUniquenessVerified: true,
+    workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap",
+    deletedApiQueried: false,
+  });
+  assert.deepEqual(
+    evidence.registryLedger,
+    JSON.parse(result.captured["staging-registry-ledger-entry.json"]),
+  );
   assert.equal(evidence.package.packageName, PACKAGE_NAMES[0]);
   assert.equal(evidence.package.deletedVersionCount, null);
   assert.equal(
@@ -1509,6 +1835,64 @@ test("emits and validates schema-v2 preflight publication evidence", () => {
   invalid.sbom.packageCount = 0;
   const rejected = runPreflightEvidence(invalid);
   assert.notEqual(rejected.status, 0);
+});
+
+test("emits and validates schema-v3 complete publication evidence for all packages", () => {
+  const result = runCompleteEvidence();
+  assert.equal(result.status, 0, result.stderr);
+  const evidence = JSON.parse(result.captured["staging-images.json"]);
+  assert.equal(evidence.schemaVersion, 3);
+  assert.equal(evidence.kind, "site-logbook-staging-images");
+  assert.equal(evidence.publicationStage, "complete");
+  assert.equal(evidence.initialPackageState, "10000");
+  assert.equal(evidence.registryAction, "published");
+  assert.deepEqual(evidence.deletedHistoryControl, {
+    mode: "reviewed-caller-visible-history-ledger",
+    decision: "explicitly-accepted-external-ledger",
+    ledgerEntrySha256: ledgerSha256(registryLedger("complete")),
+    callerWorkflowSha: CALLER_WORKFLOW_SHA,
+    visibleRunUniquenessVerified: true,
+    workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap",
+    deletedApiQueried: false,
+  });
+  assert.deepEqual(
+    evidence.registryLedger,
+    JSON.parse(result.captured["staging-registry-ledger-entry.json"]),
+  );
+  assert.deepEqual(Object.keys(evidence.packages).sort(), [
+    "alertReceiver",
+    "api",
+    "mailpit",
+    "preflight",
+    "web",
+  ]);
+  for (const [index, key] of [
+    "preflight",
+    "mailpit",
+    "api",
+    "web",
+    "alertReceiver",
+  ].entries()) {
+    assert.equal(evidence.packages[key].packageName, PACKAGE_NAMES[index]);
+    assert.equal(evidence.packages[key].digest, ROOT_DIGESTS[index]);
+  }
+  assert.match(
+    result.captured["staging-images.sha256"],
+    /^[0-9a-f]{64}[ ]{2}staging-images\.json\n$/u,
+  );
+
+  const noop = runCompleteEvidence({
+    initialPackageState: "11111",
+    registryWrite: "false",
+  });
+  assert.equal(noop.status, 0, noop.stderr);
+  assert.equal(
+    JSON.parse(noop.captured["staging-images.json"]).registryAction,
+    "verified-noop",
+  );
+
+  const wrongAttempt = runCompleteEvidence({ runAttempt: "2" });
+  assert.notEqual(wrongAttempt.status, 0);
 });
 
 test("rejects candidate inventory, runtime metadata, provenance, and SBOM drift", () => {

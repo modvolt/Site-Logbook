@@ -361,7 +361,7 @@ function validateBoundArtifacts({
   );
   requireValue(
     imageManifest.schemaVersion,
-    2,
+    3,
     "artifacts.imageManifest.schemaVersion",
   );
   requireValue(
@@ -376,6 +376,19 @@ function validateBoundArtifacts({
     imageManifest.sha256,
     "artifacts.imageManifest.sha256",
   );
+  const callerWorkflowSha = stringAt(
+    imageManifest.callerWorkflowSha,
+    "artifacts.imageManifest.callerWorkflowSha",
+  ).toLowerCase();
+  if (
+    !FULL_GIT_SHA_PATTERN.test(callerWorkflowSha) ||
+    /^0{40}$/.test(callerWorkflowSha)
+  ) {
+    fail(
+      "EVIDENCE_SHA_INVALID",
+      "artifacts.imageManifest.callerWorkflowSha must be a non-placeholder full Git SHA.",
+    );
+  }
   const publisherRunId = stringAt(
     imageManifest.publisherRunId,
     "artifacts.imageManifest.publisherRunId",
@@ -514,6 +527,7 @@ function validateBoundArtifacts({
         expectedSourceSha: commitSha,
         expectedCallerWorkflowRef:
           "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+        expectedCallerWorkflowSha: callerWorkflowSha,
         expectedRunId: publisherRunId,
         expectedRunAttempt: String(publisherRunAttempt),
       },
@@ -531,7 +545,7 @@ function validateBoundArtifacts({
   );
   requireValue(
     rawImageManifest.schemaVersion,
-    2,
+    3,
     "rawImageManifest.schemaVersion",
   );
   requireValue(

@@ -86,7 +86,7 @@ zůstává prázdná. Candidate manifest/provisioning, čerstvý obnovený backu
 predecessor manifest se nejprve spojí do jednoho secret-free bindingu:
 
 ```powershell
-pnpm gate:staging-baseline-0104-binding -- --candidate-manifest staging-images.json --candidate-checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-candidate-manifest-sha256 <64-hex> --expected-candidate-source-sha <40-hex> --expected-candidate-caller-workflow-ref <exact-ref> --expected-candidate-run-id <id> --expected-candidate-run-attempt <attempt> --predecessor-manifest staging-predecessor-image.json --predecessor-checksum staging-predecessor-image.sha256 --expected-predecessor-manifest-sha256 <64-hex> --expected-predecessor-caller-workflow-ref modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main --expected-predecessor-run-id <id> --expected-predecessor-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-baseline-binding
+pnpm gate:staging-baseline-0104-binding -- --candidate-manifest staging-images.json --candidate-checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-candidate-manifest-sha256 <64-hex> --expected-candidate-source-sha <40-hex> --expected-candidate-caller-workflow-ref <exact-ref> --expected-candidate-caller-workflow-sha <private-main-40-hex> --expected-candidate-run-id <id> --expected-candidate-run-attempt <attempt> --predecessor-manifest staging-predecessor-image.json --predecessor-checksum staging-predecessor-image.sha256 --expected-predecessor-manifest-sha256 <64-hex> --expected-predecessor-caller-workflow-ref modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main --expected-predecessor-run-id <id> --expected-predecessor-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-baseline-binding
 ```
 
 Výstup obsahuje kanonické `staging-baseline-0104-inputs.json`, GNU checksum a
@@ -190,11 +190,21 @@ gate následně porovná také `BUILD_SHA` zapečené v immutable API image.
 
 ## Offline supply-chain a provisioning vazba
 
+Candidate manifest musi byt schema version 3 a musi obsahovat
+`deletedHistoryControl` svazany s kanonickym stage-specific ledgerem, exact private
+caller workflow SHA, first-attempt runem a jedinecnosti v aktualne viditelne Actions
+historii pod API limitem 1000 zaznamu. Stage `preflight-only`
+a stage `complete` pouzivaji dva ruzne, samostatne reviewovane private-main caller
+commity; druhy ledger navic odkazuje na checksum prvniho ledgeru a na schvaleny
+preflight digest. Actions runy lze smazat, proto ani tento reviewed visible-history
+ledger neprokazuje historickou neexistenci runu nebo smazanych GHCR verzi. Bez samostatneho prijeti
+tohoto residualu zustava prvni candidate dispatch `NO-GO`.
+
 Pět image referencí se nesmí přepisovat samostatně. Po stažení image artifactu
 se nejprve ověří raw manifest, jeho GNU checksum a odděleně schválený checksum:
 
 ```powershell
-pnpm gate:staging-image-manifest -- --manifest staging-images.json --checksum staging-images.sha256 --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-run-id <id> --expected-run-attempt <attempt>
+pnpm gate:staging-image-manifest -- --manifest staging-images.json --checksum staging-images.sha256 --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-caller-workflow-sha <private-main-40-hex> --expected-run-id <id> --expected-run-attempt <attempt>
 ```
 
 Nový Coolify resource se popíše kopií
@@ -211,7 +221,7 @@ Teprve oba PASS výsledky smějí atomicky vytvořit tři kanonické input artef
 secret-free Coolify hodnoty. Existující evidence adresář se nepřepisuje:
 
 ```powershell
-pnpm gate:staging-deployment-binding -- --manifest staging-images.json --checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-run-id <id> --expected-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-binding-evidence
+pnpm gate:staging-deployment-binding -- --manifest staging-images.json --checksum staging-images.sha256 --provisioning staging-provisioning.json --expected-manifest-sha256 <64-hex> --expected-source-sha <40-hex> --expected-caller-workflow-ref <exact-ref> --expected-caller-workflow-sha <private-main-40-hex> --expected-run-id <id> --expected-run-attempt <attempt> --backup-evidence-id <id> --backup-restore-max-age-hours 24 --output-dir staging-binding-evidence
 ```
 
 `staging-provisioning-observed.json` je kanonická podoba provisioning artefaktu,

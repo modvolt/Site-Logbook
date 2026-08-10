@@ -733,10 +733,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
     '[ "$STAGING_IMAGE_MANIFEST_SOURCE_SHA" = "$STAGING_BUILD_SHA" ]',
     "printf '%s' \"$STAGING_IMAGE_MANIFEST_B64\" | base64 -d",
     '[ "$manifest_sha256" = "$STAGING_IMAGE_MANIFEST_SHA256" ]',
+    "registry_ledger=$(jq -cS '.registryLedger' \"$manifest_file\")",
+    "embedded registry ledger does not match its canonical checksum",
     '.callerRepository == "modvolt/site-logbook-registry"',
     '.platform == "linux/amd64"',
-    ".schemaVersion == 2",
+    ".schemaVersion == 3",
     '.kind == "site-logbook-staging-images"',
+    '.registryLedger.stage == "complete"',
     ".activeInventoryPaginated == true",
     '.deletedInventoryMode == "not-queryable-exact-read-scope"',
     '.runtimeMetadata == {source: "https://github.com/modvolt/Site-Logbook"',
@@ -830,6 +833,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "publication_stage:",
     "expected_preflight_digest:",
     "confirm_registry_publication:",
+    "registry_history_acceptance:",
+    "registry_ledger_json:",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -868,10 +873,22 @@ export function validateStagingRuntimeContract(overrides = {}) {
   }
   if (
     (
+      publishWorkflow.match(
+        /CALLER_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/g,
+      ) ?? []
+    ).length !== 4
+  ) {
+    fail(
+      "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+      "every caller ledger, metadata and evidence boundary must bind the exact caller workflow SHA.",
+    );
+  }
+  if (
+    (
       publishStagingImagesJob.match(
         /GH_TOKEN="\$CALLER_GITHUB_TOKEN" gh api/g,
       ) ?? []
-    ).length !== 2
+    ).length !== 4
   ) {
     fail(
       "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
@@ -886,7 +903,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
     ).length !== 13 ||
     /^\s+GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}$/m.test(publishWorkflow) ||
     (publishWorkflow.match(/\$\{\{ secrets\.GITHUB_TOKEN \}\}/g) ?? [])
-      .length !== 3 ||
+      .length !== 4 ||
     (
       publishWorkflow.match(/\$\{\{ secrets\.packages_metadata_token \}\}/g) ??
       []
@@ -947,7 +964,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   requirePublicationText(
     publishWorkflow,
-    "publish-staging-images:\n    needs: validate-public-source\n    permissions:\n      contents: read\n      packages: write",
+    "publish-staging-images:\n    needs: validate-public-source\n    permissions:\n      actions: read\n      contents: read\n      packages: write",
     "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
     "isolated package publication permission",
   );
@@ -955,6 +972,51 @@ export function validateStagingRuntimeContract(overrides = {}) {
     fail(
       "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
       "only the package publication job may receive packages: write.",
+    );
+  }
+  if ((publishWorkflow.match(/actions: read/g) ?? []).length !== 1) {
+    fail(
+      "STAGING_IMAGE_PERMISSION_BOUNDARY_BROKEN",
+      "only the package publication job may read private caller Actions history.",
+    );
+  }
+  for (const inputBoundary of [
+    "registry_history_acceptance:\n        description: Exact reviewed acceptance of the external-ledger residual limitation\n        required: true\n        type: string",
+    "registry_ledger_json:\n        description: Canonical stage-specific external-ledger entry hard-coded by the reviewed private caller\n        required: true\n        type: string",
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      inputBoundary,
+      "STAGING_IMAGE_REGISTRY_LEDGER_GUARD_MISSING",
+      `reviewed visible-history registry ledger input ${inputBoundary}`,
+    );
+  }
+  for (const ledgerBoundary of [
+    "Require canonical reviewed visible-history registry ledger",
+    "ACCEPT_EXTERNAL_LEDGER_RESIDUAL_WITHOUT_DELETED_HISTORY_PROOF_NO_DEPLOY",
+    'canonical_ledger="$(jq -cS . <<<"$REGISTRY_LEDGER_JSON")"',
+    '[[ "$canonical_ledger" == "$REGISTRY_LEDGER_JSON" ]]',
+    '.kind == "site-logbook-staging-registry-ledger-entry"',
+    'decision: "explicitly-accepted-external-ledger"',
+    "historicalAbsenceProven: false",
+    '[[ "$GITHUB_RUN_ATTEMPT_VALUE" == "1" ]]',
+    "actions/runs/${GITHUB_RUN_ID_VALUE}",
+    "actions/workflows/publish-staging-images.yml/runs?event=workflow_dispatch&per_page=100",
+    "totalCounts",
+    ".[0] < 1000",
+    "the reviewed private caller commit has an ambiguous or non-unique visible dispatch history",
+    "staging-registry-ledger-entry.json",
+    "ledger_sha256=",
+    "registryLedger: $registryLedger[0]",
+    'sha256sum "${RUNNER_TEMP}/staging-registry-ledger-entry.json"',
+    '[[ "$state" == "$expected_initial_state" ]]',
+    "ledger_preflight_digest",
+  ]) {
+    requirePublicationText(
+      publishStagingImagesJob,
+      ledgerBoundary,
+      "STAGING_IMAGE_REGISTRY_LEDGER_GUARD_MISSING",
+      `reviewed visible-history registry ledger boundary ${ledgerBoundary}`,
     );
   }
   requirePublicationText(
@@ -1477,7 +1539,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "callerWorkflowRef",
     'kind: "site-logbook-staging-images"',
     'publicationStage: "complete"',
-    "schemaVersion: 2",
+    "schemaVersion: 3",
+    "deletedHistoryControl",
+    'mode: "reviewed-caller-visible-history-ledger"',
+    'decision: "explicitly-accepted-external-ledger"',
+    "ledgerEntrySha256",
+    "callerWorkflowSha",
+    "visibleRunUniquenessVerified: true",
+    'workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap"',
+    "deletedApiQueried: false",
+    "registryLedger",
     "activeVersionCount",
     "packageVersionCount",
     "buildShaEnv",
@@ -1487,6 +1558,16 @@ export function validateStagingRuntimeContract(overrides = {}) {
       publishWorkflow,
       evidenceField,
       `publication evidence field ${evidenceField}`,
+    );
+  }
+  for (const flatArtifactPath of [
+    "path: |\n            preflight-publication.json\n            preflight-publication.sha256\n            staging-registry-ledger-entry.json",
+    "path: |\n            staging-images.json\n            staging-images.sha256\n            staging-registry-ledger-entry.json",
+  ]) {
+    requireText(
+      publishWorkflow,
+      flatArtifactPath,
+      `flat publication artifact path ${flatArtifactPath}`,
     );
   }
   if (/\b(?:coolify|kubectl|ssh)\b/i.test(publishWorkflow)) {
@@ -1542,6 +1623,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
     'schemaAction: "steady-0105"',
     "STAGING_IMAGE_MANIFEST_B64",
     "STAGING_DEPLOYMENT_INPUTS_SHA256",
+    "expectedCallerWorkflowSha",
+    '"--expected-caller-workflow-sha"',
     "DEPLOYMENT_BINDING_PROVISIONING_UNOBSERVED",
   ]) {
     requireText(
@@ -1556,6 +1639,7 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   for (const boundary of [
     'requireValue(root.schemaVersion, 4, "schemaVersion")',
+    "expectedCallerWorkflowSha: callerWorkflowSha",
     '"0105_smooth_nitro"',
     "excludedMigration0100Present",
     "production-copy-restricted",
@@ -1948,6 +2032,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   for (const boundary of [
     "createStagingDeploymentBinding",
+    "expectedCandidateCallerWorkflowSha",
+    '"--expected-candidate-caller-workflow-sha"',
     "validateStagingPredecessorImage",
     'kind: "site-logbook-staging-baseline-0104"',
     'const BASELINE_ACTION = "apply-0104-baseline"',

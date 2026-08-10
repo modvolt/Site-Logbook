@@ -28,6 +28,14 @@ on:
         description: Publish only the explicitly selected staging stage to private GHCR without deploying it
         required: true
         type: boolean
+      registry_history_acceptance:
+        description: Exact reviewed acceptance of the external-ledger residual limitation
+        required: true
+        type: string
+      registry_ledger_json:
+        description: Canonical stage-specific external-ledger entry hard-coded by the reviewed private caller
+        required: true
+        type: string
     secrets:
       packages_metadata_token:
         description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata
@@ -184,11 +192,158 @@ jobs:
   publish-staging-images:
     needs: validate-public-source
     permissions:
+      actions: read
       contents: read
       packages: write
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
+      - name: Require canonical reviewed visible-history registry ledger
+        id: registry-ledger
+        shell: bash
+        env:
+          CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EXPECTED_PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          PUBLICATION_STAGE: ${{ inputs.publication_stage }}
+          REGISTRY_HISTORY_ACCEPTANCE: ${{ inputs.registry_history_acceptance }}
+          REGISTRY_LEDGER_JSON: ${{ inputs.registry_ledger_json }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            echo "External registry ledger validation failed: $1" >&2
+            exit 1
+          }
+
+          approved_acceptance="ACCEPT_EXTERNAL_LEDGER_RESIDUAL_WITHOUT_DELETED_HISTORY_PROOF_NO_DEPLOY"
+          approved_workflow_ref="modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main"
+          approved_workflow_path=".github/workflows/publish-staging-images.yml"
+          [[ "$REGISTRY_HISTORY_ACCEPTANCE" == "$approved_acceptance" ]] \
+            || fail "the exact reviewed residual-acceptance phrase is required."
+          [[ "${CALLER_REPOSITORY,,}" == "modvolt/site-logbook-registry" ]] \
+            || fail "the ledger caller repository is not approved."
+          [[ "${CALLER_WORKFLOW_REF,,}" == "$approved_workflow_ref" ]] \
+            || fail "the ledger caller workflow path and ref are not approved."
+          [[ "$CALLER_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "the caller workflow commit is invalid."
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || fail "the source commit is invalid."
+          [[ "$GITHUB_RUN_ID_VALUE" =~ ^[1-9][0-9]*$ ]] \
+            || fail "the caller run id is invalid."
+          [[ "$GITHUB_RUN_ATTEMPT_VALUE" == "1" ]] \
+            || fail "the reviewed caller run must be the first attempt and cannot be rerun."
+          [[ "${#REGISTRY_LEDGER_JSON}" -le 8192 ]] \
+            || fail "the canonical ledger entry exceeds the bounded size."
+
+          canonical_ledger="$(jq -cS . <<<"$REGISTRY_LEDGER_JSON")" \
+            || fail "the registry ledger entry is not valid JSON."
+          [[ "$canonical_ledger" == "$REGISTRY_LEDGER_JSON" ]] \
+            || fail "the registry ledger entry must be exact canonical JSON without duplicate, reordered or extra whitespace content."
+          jq -e \
+            --arg expectedPreflightDigest "$EXPECTED_PREFLIGHT_DIGEST" \
+            --arg sourceSha "$SOURCE_SHA" \
+            --arg stage "$PUBLICATION_STAGE" \
+            '
+              (keys == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"]) and
+              .schemaVersion == 1 and
+              .kind == "site-logbook-staging-registry-ledger-entry" and
+              .sourceSha == $sourceSha and
+              .stage == $stage and
+              .packageNames == [
+                "site-logbook-staging-preflight",
+                "site-logbook-staging-mailpit",
+                "site-logbook-staging-api",
+                "site-logbook-staging-web",
+                "site-logbook-staging-alert-receiver"
+              ] and
+              .deletedHistoryControl == {
+                mode: "reviewed-caller-visible-history-ledger",
+                decision: "explicitly-accepted-external-ledger",
+                deletedApiQueried: false,
+                historicalAbsenceProven: false
+              } and
+              (.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+              (if $stage == "preflight-only" then
+                 $expectedPreflightDigest == "" and
+                 ((.expectedInitialPackageState == "00000" and
+                   .previousEntry == {ledgerEntrySha256: null, preflightDigest: null}) or
+                  (.expectedInitialPackageState == "10000" and
+                   (.previousEntry.ledgerEntrySha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+                   (.previousEntry.preflightDigest | type == "string" and test("^sha256:[0-9a-f]{64}$"))))
+               elif $stage == "complete" then
+                 (.expectedInitialPackageState == "10000" or .expectedInitialPackageState == "11111") and
+                 (.previousEntry.ledgerEntrySha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+                 .previousEntry.preflightDigest == $expectedPreflightDigest and
+                 ($expectedPreflightDigest | test("^sha256:[0-9a-f]{64}$"))
+               else false end)
+            ' <<<"$canonical_ledger" >/dev/null \
+            || fail "the registry ledger entry does not match the exact stage contract."
+
+          current_run_json="$(
+            GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${CALLER_REPOSITORY}/actions/runs/${GITHUB_RUN_ID_VALUE}"
+          )" || fail "the current private caller run could not be read."
+          jq -e \
+            --arg headSha "$CALLER_WORKFLOW_SHA" \
+            --arg repository "${CALLER_REPOSITORY,,}" \
+            --arg runId "$GITHUB_RUN_ID_VALUE" \
+            --arg workflowPath "$approved_workflow_path" \
+            '(.id | tostring) == $runId and
+             .run_attempt == 1 and
+             .event == "workflow_dispatch" and
+             .head_branch == "main" and
+             .head_sha == $headSha and
+             .path == $workflowPath and
+             (.head_repository.full_name | ascii_downcase) == $repository and
+             (.status == "queued" or .status == "in_progress")' \
+            <<<"$current_run_json" >/dev/null \
+            || fail "the current caller run is not the exact first-attempt private-main dispatch."
+
+          run_history_json="$(
+            GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api --paginate \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "repos/${CALLER_REPOSITORY}/actions/workflows/publish-staging-images.yml/runs?event=workflow_dispatch&per_page=100" |
+              jq -s '{totalCounts: ([.[].total_count] | unique), workflowRuns: [.[].workflow_runs[]]}'
+          )" || fail "the private caller dispatch history could not be read."
+          jq -e \
+            --arg headSha "$CALLER_WORKFLOW_SHA" \
+            --arg runId "$GITHUB_RUN_ID_VALUE" \
+            --arg workflowPath "$approved_workflow_path" \
+            '. as $root |
+             (.totalCounts | type == "array" and length == 1 and .[0] >= 1 and .[0] < 1000) and
+             (.workflowRuns | type == "array" and length == $root.totalCounts[0]) and
+             ([.workflowRuns[].id] | length) == ([.workflowRuns[].id] | unique | length) and
+             ([.workflowRuns[] |
+               select(
+                 .event == "workflow_dispatch" and
+                 .head_branch == "main" and
+                 .head_sha == $headSha and
+                 .path == $workflowPath
+               )] | length) == 1 and
+             ([.workflowRuns[] |
+               select(
+                 .event == "workflow_dispatch" and
+                 .head_branch == "main" and
+                 .head_sha == $headSha and
+                 .path == $workflowPath
+               )][0].id | tostring) == $runId' \
+            <<<"$run_history_json" >/dev/null \
+            || fail "the reviewed private caller commit has an ambiguous or non-unique visible dispatch history."
+
+          ledger_path="${RUNNER_TEMP}/staging-registry-ledger-entry.json"
+          printf '%s' "$canonical_ledger" >"$ledger_path"
+          ledger_sha256="sha256:$(sha256sum "$ledger_path" | awk '{print $1}')"
+          [[ "$ledger_sha256" =~ ^sha256:[0-9a-f]{64}$ ]] \
+            || fail "the canonical ledger checksum is invalid."
+          echo "ledger_sha256=${ledger_sha256}" >>"$GITHUB_OUTPUT"
+
       - name: Require dedicated read-only Packages metadata credential
         shell: bash
         env:
@@ -258,6 +413,7 @@ jobs:
           PRIVATE_REGISTRY_OWNER: modvolt
           PUBLICATION_CONFIRMED: ${{ inputs.confirm_registry_publication }}
           PUBLICATION_STAGE: ${{ inputs.publication_stage }}
+          REGISTRY_LEDGER_JSON: ${{ inputs.registry_ledger_json }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
@@ -277,6 +433,11 @@ jobs:
             || fail "the reusable workflow must be called by the approved registry owner."
           [[ "$CALLER_WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || fail "the caller workflow commit is invalid."
+          expected_initial_state="$(jq -r '.expectedInitialPackageState' <<<"$REGISTRY_LEDGER_JSON")"
+          case "${PUBLICATION_STAGE}:${expected_initial_state}" in
+            preflight-only:00000|preflight-only:10000|complete:10000|complete:11111) ;;
+            *) fail "the reviewed ledger initial package state is invalid." ;;
+          esac
 
           caller_json="$(GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api "repos/${CALLER_REPOSITORY}")"
           jq -e \
@@ -418,6 +579,14 @@ jobs:
                 ;;
             esac
           done
+
+          [[ "$state" == "$expected_initial_state" ]] \
+            || fail "the live exact-SHA package state does not match the reviewed ledger entry."
+          if [[ "$state" == "10000" || "$state" == "11111" ]]; then
+            ledger_preflight_digest="$(jq -r '.previousEntry.preflightDigest' <<<"$REGISTRY_LEDGER_JSON")"
+            [[ "$ledger_preflight_digest" == "${exact_digests[preflight]}" ]] \
+              || fail "the reviewed ledger preflight digest does not match the live exact tag."
+          fi
 
           publish_preflight=false
           publish_remaining=false
@@ -966,7 +1135,9 @@ jobs:
         env:
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
           INITIAL_PACKAGE_STATE: ${{ steps.package-state.outputs.state }}
+          LEDGER_ENTRY_SHA256: ${{ steps.registry-ledger.outputs.ledger_sha256 }}
           PREFLIGHT_DIGEST: ${{ steps.selected-preflight.outputs.digest }}
           PREFLIGHT_REPOSITORY: ${{ steps.names.outputs.preflight }}
           REGISTRY_WRITE: ${{ steps.package-state.outputs.publish_preflight }}
@@ -977,28 +1148,46 @@ jobs:
           set -euo pipefail
           [[ "$PREFLIGHT_REPOSITORY" == "ghcr.io/modvolt/site-logbook-staging-preflight" ]]
           [[ "$PREFLIGHT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "sha256:$(sha256sum "${RUNNER_TEMP}/staging-registry-ledger-entry.json" | awk '{print $1}')" == "$LEDGER_ENTRY_SHA256" ]]
+          cp "${RUNNER_TEMP}/staging-registry-ledger-entry.json" staging-registry-ledger-entry.json
           if [[ "$REGISTRY_WRITE" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
           jq -n \
             --arg callerRepository "$CALLER_REPOSITORY" \
             --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
             --arg initialPackageState "$INITIAL_PACKAGE_STATE" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
             --arg registryAction "$registry_action" \
             --arg repositoryDigest "${PREFLIGHT_REPOSITORY}@${PREFLIGHT_DIGEST}" \
             --arg runAttempt "$RUN_ATTEMPT" \
             --arg runId "$RUN_ID" \
             --arg sourceSha "$SOURCE_SHA" \
             --slurpfile package "${RUNNER_TEMP}/preflight-package.json" \
-            '{schemaVersion: 2, kind: "site-logbook-staging-preflight-publication", stage: "preflight-only", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, run: {id: $runId, attempt: $runAttempt}, toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, repositoryDigest: $repositoryDigest, package: $package[0]}' \
+            --slurpfile registryLedger "${RUNNER_TEMP}/staging-registry-ledger-entry.json" \
+            '{schemaVersion: 3, kind: "site-logbook-staging-preflight-publication", stage: "preflight-only", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, run: {id: $runId, attempt: $runAttempt}, deletedHistoryControl: {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false}, registryLedger: $registryLedger[0], toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, repositoryDigest: $repositoryDigest, package: $package[0]}' \
             > preflight-publication.json
           jq -e \
             --arg digest "$PREFLIGHT_DIGEST" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
             --arg sha "$SOURCE_SHA" \
-            '.schemaVersion == 2 and
+            '.schemaVersion == 3 and
              .kind == "site-logbook-staging-preflight-publication" and
              .stage == "preflight-only" and
              .sourceSha == $sha and
              ((.initialPackageState == "00000" and .registryAction == "published") or
               (.initialPackageState == "10000" and .registryAction == "verified-noop")) and
+             .run.attempt == "1" and
+             .deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false} and
+             (.registryLedger | keys) == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"] and
+             .registryLedger.schemaVersion == 1 and .registryLedger.kind == "site-logbook-staging-registry-ledger-entry" and
+             .registryLedger.sourceSha == $sha and .registryLedger.stage == "preflight-only" and
+             .registryLedger.expectedInitialPackageState == .initialPackageState and
+             .registryLedger.packageNames == ["site-logbook-staging-preflight", "site-logbook-staging-mailpit", "site-logbook-staging-api", "site-logbook-staging-web", "site-logbook-staging-alert-receiver"] and
+             .registryLedger.deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", deletedApiQueried: false, historicalAbsenceProven: false} and
+             (.registryLedger.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+             ((.initialPackageState == "00000" and .registryLedger.previousEntry == {ledgerEntrySha256: null, preflightDigest: null}) or
+              (.initialPackageState == "10000" and (.registryLedger.previousEntry.ledgerEntrySha256 | test("^sha256:[0-9a-f]{64}$")) and .registryLedger.previousEntry.preflightDigest == $digest)) and
              .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
              .package.packageName == "site-logbook-staging-preflight" and
              .package.visibility == "private" and .package.repository == "modvolt/site-logbook-registry" and
@@ -1034,6 +1223,7 @@ jobs:
           path: |
             preflight-publication.json
             preflight-publication.sha256
+            staging-registry-ledger-entry.json
           if-no-files-found: error
           retention-days: 30
 
@@ -1451,7 +1641,9 @@ jobs:
           API_REPOSITORY: ${{ steps.names.outputs.api }}
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_WORKFLOW_SHA: ${{ github.workflow_sha }}
           INITIAL_PACKAGE_STATE: ${{ steps.package-state.outputs.state }}
+          LEDGER_ENTRY_SHA256: ${{ steps.registry-ledger.outputs.ledger_sha256 }}
           MAILPIT_DIGEST: ${{ steps.selected-mailpit.outputs.digest }}
           MAILPIT_REPOSITORY: ${{ steps.names.outputs.mailpit }}
           PREFLIGHT_DIGEST: ${{ inputs.expected_preflight_digest }}
@@ -1484,10 +1676,12 @@ jobs:
           require_digest api "$API_DIGEST"
           require_digest web "$WEB_DIGEST"
           require_digest alert-receiver "$ALERT_RECEIVER_DIGEST"
+          [[ "sha256:$(sha256sum "${RUNNER_TEMP}/staging-registry-ledger-entry.json" | awk '{print $1}')" == "$LEDGER_ENTRY_SHA256" ]]
+          cp "${RUNNER_TEMP}/staging-registry-ledger-entry.json" staging-registry-ledger-entry.json
           if [[ "$REGISTRY_WRITE" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
 
           jq -n \
-            --arg schemaVersion "2" \
+            --arg schemaVersion "3" \
             --arg sourceSha "$SOURCE_SHA" \
             --arg preflight "${PREFLIGHT_REPOSITORY}@${PREFLIGHT_DIGEST}" \
             --arg mailpit "${MAILPIT_REPOSITORY}@${MAILPIT_DIGEST}" \
@@ -1495,7 +1689,9 @@ jobs:
             --arg alertReceiver "${ALERT_RECEIVER_REPOSITORY}@${ALERT_RECEIVER_DIGEST}" \
             --arg callerRepository "$CALLER_REPOSITORY" \
             --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
             --arg initialPackageState "$INITIAL_PACKAGE_STATE" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
             --arg registryAction "$registry_action" \
             --arg web "${WEB_REPOSITORY}@${WEB_DIGEST}" \
             --arg runAttempt "$RUN_ATTEMPT" \
@@ -1504,17 +1700,31 @@ jobs:
             --slurpfile alertReceiverPackage "${RUNNER_TEMP}/alert-receiver-package.json" \
             --slurpfile mailpitPackage "${RUNNER_TEMP}/mailpit-package.json" \
             --slurpfile preflightPackage "${RUNNER_TEMP}/preflight-package.json" \
+            --slurpfile registryLedger "${RUNNER_TEMP}/staging-registry-ledger-entry.json" \
             --slurpfile webPackage "${RUNNER_TEMP}/web-package.json" \
-            '{schemaVersion: ($schemaVersion | tonumber), kind: "site-logbook-staging-images", publicationStage: "complete", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web, alertReceiver: $alertReceiver}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0], alertReceiver: $alertReceiverPackage[0]}}' \
+            '{schemaVersion: ($schemaVersion | tonumber), kind: "site-logbook-staging-images", publicationStage: "complete", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, deletedHistoryControl: {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false}, registryLedger: $registryLedger[0], toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web, alertReceiver: $alertReceiver}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0], alertReceiver: $alertReceiverPackage[0]}}' \
             > staging-images.json
 
           jq -e \
+            --arg callerWorkflowSha "$CALLER_WORKFLOW_SHA" \
+            --arg ledgerEntrySha256 "$LEDGER_ENTRY_SHA256" \
             --arg sha "$SOURCE_SHA" \
-            '.schemaVersion == 2 and
+            '.schemaVersion == 3 and
              .kind == "site-logbook-staging-images" and .publicationStage == "complete" and
              .sourceSha == $sha and
              ((.initialPackageState == "10000" and .registryAction == "published") or
               (.initialPackageState == "11111" and .registryAction == "verified-noop")) and
+             .publisherRun.attempt == "1" and
+             .deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", ledgerEntrySha256: $ledgerEntrySha256, callerWorkflowSha: $callerWorkflowSha, visibleRunUniquenessVerified: true, workflowRunHistoryScope: "github-visible-workflow-runs-below-1000-api-cap", deletedApiQueried: false} and
+             (.registryLedger | keys) == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"] and
+             .registryLedger.schemaVersion == 1 and .registryLedger.kind == "site-logbook-staging-registry-ledger-entry" and
+             .registryLedger.sourceSha == $sha and .registryLedger.stage == "complete" and
+             .registryLedger.expectedInitialPackageState == .initialPackageState and
+             .registryLedger.packageNames == ["site-logbook-staging-preflight", "site-logbook-staging-mailpit", "site-logbook-staging-api", "site-logbook-staging-web", "site-logbook-staging-alert-receiver"] and
+             .registryLedger.deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", deletedApiQueried: false, historicalAbsenceProven: false} and
+             (.registryLedger.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+             (.registryLedger.previousEntry.ledgerEntrySha256 | test("^sha256:[0-9a-f]{64}$")) and
+             .registryLedger.previousEntry.preflightDigest == (.images.preflight | split("@")[1]) and
              .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
              (.images | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
              (.images.preflight | test("^ghcr\\.io/modvolt/site-logbook-staging-preflight@sha256:[0-9a-f]{64}$")) and
@@ -1563,5 +1773,6 @@ jobs:
           path: |
             staging-images.json
             staging-images.sha256
+            staging-registry-ledger-entry.json
           if-no-files-found: error
           retention-days: 30

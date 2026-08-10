@@ -96,6 +96,7 @@ export function createStagingDeploymentBinding({
   expectedManifestSha256,
   expectedSourceSha,
   expectedCallerWorkflowRef,
+  expectedCallerWorkflowSha,
   expectedRunId,
   expectedRunAttempt,
   backupEvidenceId,
@@ -105,6 +106,7 @@ export function createStagingDeploymentBinding({
     expectedManifestSha256,
     expectedSourceSha,
     expectedCallerWorkflowRef,
+    expectedCallerWorkflowSha,
     expectedRunId,
     expectedRunAttempt,
   });
@@ -284,17 +286,19 @@ function main() {
   const expectedManifestSha256 = argument("--expected-manifest-sha256");
   const expectedSourceSha = argument("--expected-source-sha");
   const expectedCallerWorkflowRef = argument("--expected-caller-workflow-ref");
+  const expectedCallerWorkflowSha = argument("--expected-caller-workflow-sha");
   if (
     !manifestPath ||
     !checksumPath ||
     !provisioningPath ||
     !expectedManifestSha256 ||
     !expectedSourceSha ||
-    !expectedCallerWorkflowRef
+    !expectedCallerWorkflowRef ||
+    !expectedCallerWorkflowSha
   ) {
     fail(
       "DEPLOYMENT_BINDING_INPUT_MISSING",
-      "Pass manifest, checksum, provisioning, approved manifest checksum, source SHA and caller workflow ref.",
+      "Pass manifest, checksum, provisioning, approved manifest checksum, source SHA, caller workflow ref and caller workflow SHA.",
     );
   }
   const result = createStagingDeploymentBinding({
@@ -306,6 +310,7 @@ function main() {
     expectedManifestSha256,
     expectedSourceSha,
     expectedCallerWorkflowRef,
+    expectedCallerWorkflowSha,
     expectedRunId: argument("--expected-run-id"),
     expectedRunAttempt: argument("--expected-run-attempt"),
     backupEvidenceId: Number(argument("--backup-evidence-id")),

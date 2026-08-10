@@ -22,6 +22,7 @@ import {
 const SOURCE_SHA = "0123456789abcdef0123456789abcdef01234567";
 const CALLER_REF =
   "modvolt/site-logbook-registry/.github/workflows/publish.yml@refs/heads/main";
+const CALLER_WORKFLOW_SHA = "f".repeat(40);
 const SPECS = {
   preflight: [
     "site-logbook-staging-preflight",
@@ -70,6 +71,21 @@ const SPECS = {
     ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"],
   ],
 };
+
+function canonicalCompactJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalCompactJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) => `${JSON.stringify(key)}:${canonicalCompactJson(value[key])}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
 
 function manifestFixture() {
   const images = {};
@@ -121,8 +137,30 @@ function manifestFixture() {
       sbom: { spdxVersion: "SPDX-2.3", packageCount: 1, relationshipCount: 1 },
     };
   }
+  const registryLedger = {
+    schemaVersion: 1,
+    kind: "site-logbook-staging-registry-ledger-entry",
+    sourceSha: SOURCE_SHA,
+    stage: "complete",
+    expectedInitialPackageState: "10000",
+    packageNames: Object.values(SPECS).map(([packageName]) => packageName),
+    deletedHistoryControl: {
+      mode: "reviewed-caller-visible-history-ledger",
+      decision: "explicitly-accepted-external-ledger",
+      deletedApiQueried: false,
+      historicalAbsenceProven: false,
+    },
+    previousEntry: {
+      ledgerEntrySha256: `sha256:${"d".repeat(64)}`,
+      preflightDigest: images.preflight.split("@")[1],
+    },
+  };
+  const ledgerEntrySha256 = `sha256:${crypto
+    .createHash("sha256")
+    .update(canonicalCompactJson(registryLedger))
+    .digest("hex")}`;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "site-logbook-staging-images",
     publicationStage: "complete",
     sourceSha: SOURCE_SHA,
@@ -131,6 +169,17 @@ function manifestFixture() {
     initialPackageState: "10000",
     registryAction: "published",
     publisherRun: { id: "123456", attempt: "1" },
+    deletedHistoryControl: {
+      mode: "reviewed-caller-visible-history-ledger",
+      decision: "explicitly-accepted-external-ledger",
+      ledgerEntrySha256,
+      callerWorkflowSha: CALLER_WORKFLOW_SHA,
+      visibleRunUniquenessVerified: true,
+      workflowRunHistoryScope:
+        "github-visible-workflow-runs-below-1000-api-cap",
+      deletedApiQueried: false,
+    },
+    registryLedger,
     toolchain: {
       buildx: "v0.34.1",
       buildkitImage:
@@ -301,6 +350,7 @@ function validBinding() {
     expectedManifestSha256: fixture.sha256,
     expectedSourceSha: SOURCE_SHA,
     expectedCallerWorkflowRef: CALLER_REF,
+    expectedCallerWorkflowSha: CALLER_WORKFLOW_SHA,
     expectedRunId: "123456",
     expectedRunAttempt: "1",
     backupEvidenceId: 77,
@@ -316,6 +366,7 @@ test("validates raw image bytes and only authorizes a separately approved checks
     {
       expectedSourceSha: SOURCE_SHA,
       expectedCallerWorkflowRef: CALLER_REF,
+      expectedCallerWorkflowSha: CALLER_WORKFLOW_SHA,
     },
   );
   assert.equal(untrusted.decision, "INTERNALLY_CONSISTENT_UNTRUSTED");
@@ -328,12 +379,20 @@ test("validates raw image bytes and only authorizes a separately approved checks
       expectedManifestSha256: fixture.sha256,
       expectedSourceSha: SOURCE_SHA,
       expectedCallerWorkflowRef: CALLER_REF,
+      expectedCallerWorkflowSha: CALLER_WORKFLOW_SHA,
       expectedRunId: "123456",
       expectedRunAttempt: "1",
     },
   );
   assert.equal(trusted.decision, "PASS");
   assert.equal(trusted.images.api, manifestFixture().images.api);
+  assert.throws(
+    () =>
+      validateStagingImageManifest(fixture.bytes, fixture.checksum, {
+        expectedCallerWorkflowSha: "a".repeat(40),
+      }),
+    /IMAGE_MANIFEST_CALLER_MISMATCH/,
+  );
 });
 
 test("rejects image checksum, schema, package, and publication-state drift", () => {
@@ -383,8 +442,8 @@ test("rejects image checksum, schema, package, and publication-state drift", () 
     fixture.bytes
       .toString("utf8")
       .replace(
-        '"schemaVersion": 2,',
-        '"schemaVersion": 2, "schemaVersion": 2,',
+        '"schemaVersion": 3,',
+        '"schemaVersion": 3, "schemaVersion": 3,',
       ),
   );
   const duplicateSha = crypto
@@ -407,7 +466,7 @@ test("rejects image checksum, schema, package, and publication-state drift", () 
   );
 });
 
-test("rejects candidate inventory, runtime, toolchain, provenance, and SBOM evidence drift", () => {
+test("rejects candidate ledger, inventory, runtime, toolchain, provenance, and SBOM evidence drift", () => {
   for (const [mutate, code] of [
     [
       (value) => {
@@ -420,6 +479,60 @@ test("rejects candidate inventory, runtime, toolchain, provenance, and SBOM evid
         value.toolchain.buildx = "latest";
       },
       "IMAGE_MANIFEST_TOOLCHAIN_INVALID",
+    ],
+    [
+      (value) => {
+        value.deletedHistoryControl.decision = "historical-absence-proven";
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.deletedHistoryControl.ledgerEntrySha256 = "sha256:bad";
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.deletedHistoryControl.callerWorkflowSha = "0".repeat(40);
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.deletedHistoryControl.visibleRunUniquenessVerified = false;
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.registryLedger.sourceSha = "0".repeat(40);
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.registryLedger.previousEntry.preflightDigest = `sha256:${"0".repeat(64)}`;
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.registryLedger.packageNames.pop();
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.deletedHistoryControl.deletedApiQueried = true;
+      },
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+    ],
+    [
+      (value) => {
+        value.publisherRun.attempt = "2";
+      },
+      "IMAGE_MANIFEST_RUN_MISMATCH",
     ],
     [
       (value) => {

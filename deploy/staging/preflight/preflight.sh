@@ -120,6 +120,10 @@ printf '%s' "$STAGING_IMAGE_MANIFEST_B64" | base64 -d >"$manifest_file" 2>/dev/n
 manifest_sha256=$(sha256sum "$manifest_file" | awk '{print $1}')
 [ "$manifest_sha256" = "$STAGING_IMAGE_MANIFEST_SHA256" ] \
   || fail "image manifest bytes do not match the approved checksum"
+registry_ledger=$(jq -cS '.registryLedger' "$manifest_file")
+registry_ledger_sha256="sha256:$(printf '%s' "$registry_ledger" | sha256sum | awk '{print $1}')"
+[ "$registry_ledger_sha256" = "$(jq -r '.deletedHistoryControl.ledgerEntrySha256' "$manifest_file")" ] \
+  || fail "embedded registry ledger does not match its canonical checksum"
 jq -e \
   --arg sourceSha "$STAGING_BUILD_SHA" \
   --arg preflight "$STAGING_PREFLIGHT_IMAGE" \
@@ -155,7 +159,8 @@ jq -e \
       (.sbom.spdxVersion == "SPDX-2.2" or .sbom.spdxVersion == "SPDX-2.3") and
       (.sbom.packageCount | type) == "number" and .sbom.packageCount > 0 and
       (.sbom.relationshipCount | type) == "number" and .sbom.relationshipCount > 0;
-    .schemaVersion == 2 and
+    (keys == ["callerRepository", "callerWorkflowRef", "deletedHistoryControl", "images", "initialPackageState", "kind", "packages", "publicationStage", "publisherRun", "registryAction", "registryLedger", "schemaVersion", "sourceSha", "toolchain"]) and
+    .schemaVersion == 3 and
     .kind == "site-logbook-staging-images" and .publicationStage == "complete" and
     .sourceSha == $sourceSha and
     .callerRepository == "modvolt/site-logbook-registry" and
@@ -163,7 +168,24 @@ jq -e \
     ((.initialPackageState == "10000" and .registryAction == "published") or
      (.initialPackageState == "11111" and .registryAction == "verified-noop")) and
     (.publisherRun.id | type == "string" and test("^[1-9][0-9]*$")) and
-    (.publisherRun.attempt | type == "string" and test("^[1-9][0-9]*$")) and
+    .publisherRun.attempt == "1" and
+    (.deletedHistoryControl | keys) == ["callerWorkflowSha", "decision", "deletedApiQueried", "ledgerEntrySha256", "mode", "visibleRunUniquenessVerified", "workflowRunHistoryScope"] and
+    .deletedHistoryControl.mode == "reviewed-caller-visible-history-ledger" and
+    .deletedHistoryControl.decision == "explicitly-accepted-external-ledger" and
+    (.deletedHistoryControl.ledgerEntrySha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+    (.deletedHistoryControl.callerWorkflowSha | type == "string" and test("^[0-9a-f]{40}$") and (test("^0{40}$") | not)) and
+    .deletedHistoryControl.visibleRunUniquenessVerified == true and
+    .deletedHistoryControl.workflowRunHistoryScope == "github-visible-workflow-runs-below-1000-api-cap" and
+    .deletedHistoryControl.deletedApiQueried == false and
+    (.registryLedger | keys) == ["deletedHistoryControl", "expectedInitialPackageState", "kind", "packageNames", "previousEntry", "schemaVersion", "sourceSha", "stage"] and
+    .registryLedger.schemaVersion == 1 and .registryLedger.kind == "site-logbook-staging-registry-ledger-entry" and
+    .registryLedger.sourceSha == $sourceSha and .registryLedger.stage == "complete" and
+    .registryLedger.expectedInitialPackageState == .initialPackageState and
+    .registryLedger.packageNames == ["site-logbook-staging-preflight", "site-logbook-staging-mailpit", "site-logbook-staging-api", "site-logbook-staging-web", "site-logbook-staging-alert-receiver"] and
+    .registryLedger.deletedHistoryControl == {mode: "reviewed-caller-visible-history-ledger", decision: "explicitly-accepted-external-ledger", deletedApiQueried: false, historicalAbsenceProven: false} and
+    (.registryLedger.previousEntry | keys) == ["ledgerEntrySha256", "preflightDigest"] and
+    (.registryLedger.previousEntry.ledgerEntrySha256 | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
+    .registryLedger.previousEntry.preflightDigest == (.images.preflight | split("@")[1]) and
     .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
     (.images | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
     (.packages | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and

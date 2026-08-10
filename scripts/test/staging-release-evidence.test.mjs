@@ -7,6 +7,7 @@ const NOW = new Date("2026-08-02T12:30:00.000Z");
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const CALLER_REF =
   "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main";
+const CALLER_WORKFLOW_SHA = "1".repeat(40);
 const IMAGE_SPECS = {
   preflight: [
     "site-logbook-staging-preflight",
@@ -55,6 +56,21 @@ const IMAGE_SPECS = {
     ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"],
   ],
 };
+
+function canonicalCompactJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalCompactJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) => `${JSON.stringify(key)}:${canonicalCompactJson(value[key])}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
 
 function candidateImageManifest() {
   const images = {};
@@ -113,8 +129,32 @@ function candidateImageManifest() {
       sbom: { spdxVersion: "SPDX-2.3", packageCount: 1, relationshipCount: 1 },
     };
   }
+  const registryLedger = {
+    schemaVersion: 1,
+    kind: "site-logbook-staging-registry-ledger-entry",
+    sourceSha: SHA,
+    stage: "complete",
+    expectedInitialPackageState: "10000",
+    packageNames: Object.values(IMAGE_SPECS).map(
+      ([packageName]) => packageName,
+    ),
+    deletedHistoryControl: {
+      mode: "reviewed-caller-visible-history-ledger",
+      decision: "explicitly-accepted-external-ledger",
+      deletedApiQueried: false,
+      historicalAbsenceProven: false,
+    },
+    previousEntry: {
+      ledgerEntrySha256: `sha256:${"3".repeat(64)}`,
+      preflightDigest: images.preflight.split("@")[1],
+    },
+  };
+  const ledgerEntrySha256 = `sha256:${crypto
+    .createHash("sha256")
+    .update(canonicalCompactJson(registryLedger))
+    .digest("hex")}`;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "site-logbook-staging-images",
     publicationStage: "complete",
     sourceSha: SHA,
@@ -123,6 +163,17 @@ function candidateImageManifest() {
     initialPackageState: "10000",
     registryAction: "published",
     publisherRun: { id: "987654321", attempt: "1" },
+    deletedHistoryControl: {
+      mode: "reviewed-caller-visible-history-ledger",
+      decision: "explicitly-accepted-external-ledger",
+      ledgerEntrySha256,
+      callerWorkflowSha: CALLER_WORKFLOW_SHA,
+      visibleRunUniquenessVerified: true,
+      workflowRunHistoryScope:
+        "github-visible-workflow-runs-below-1000-api-cap",
+      deletedApiQueried: false,
+    },
+    registryLedger,
     toolchain: {
       buildx: "v0.34.1",
       buildkitImage:
@@ -307,9 +358,10 @@ function validEvidence(artifactBytes = fixtureArtifacts()) {
     },
     artifacts: {
       imageManifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceSha: SHA,
         sha256: hashes.imageManifest,
+        callerWorkflowSha: CALLER_WORKFLOW_SHA,
         publisherWorkflowUrl:
           "https://github.com/modvolt/site-logbook-registry/actions/runs/987654321",
         publisherRunId: "987654321",
@@ -462,18 +514,43 @@ test("recomputes every artifact hash and rejects byte tampering", () => {
   assert.throws(() => validate(evidence, missing), /EVIDENCE_ARTIFACT_MISSING/);
 });
 
-test("strictly verifies the complete schema-v2 image manifest before trusting release evidence", () => {
+test("strictly verifies the complete schema-v3 image manifest before trusting release evidence", () => {
   const artifactBytes = fixtureArtifacts();
-  const manifest = candidateImageManifest();
-  manifest.packages.api.sbom.packageCount = 0;
-  const invalidBytes = {
-    ...artifactBytes,
-    imageManifest: Buffer.from(`${JSON.stringify(manifest)}\n`),
-  };
-  const evidence = validEvidence(invalidBytes);
+  for (const [mutate, pattern] of [
+    [
+      (manifest) => {
+        manifest.packages.api.sbom.packageCount = 0;
+      },
+      /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_SBOM_INVALID/,
+    ],
+    [
+      (manifest) => {
+        manifest.deletedHistoryControl.visibleRunUniquenessVerified = false;
+      },
+      /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID/,
+    ],
+    [
+      (manifest) => {
+        manifest.registryLedger.previousEntry.preflightDigest = `sha256:${"0".repeat(64)}`;
+      },
+      /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID/,
+    ],
+  ]) {
+    const manifest = candidateImageManifest();
+    mutate(manifest);
+    const invalidBytes = {
+      ...artifactBytes,
+      imageManifest: Buffer.from(`${JSON.stringify(manifest)}\n`),
+    };
+    const evidence = validEvidence(invalidBytes);
+    assert.throws(() => validate(evidence, invalidBytes), pattern);
+  }
+
+  const callerDrift = validEvidence(artifactBytes);
+  callerDrift.artifacts.imageManifest.callerWorkflowSha = "2".repeat(40);
   assert.throws(
-    () => validate(evidence, invalidBytes),
-    /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_SBOM_INVALID/,
+    () => validate(callerDrift, artifactBytes),
+    /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_CALLER_MISMATCH/,
   );
 });
 

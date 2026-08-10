@@ -6,10 +6,8 @@ import { canonicalJson } from "./check-staging-provisioning.mjs";
 import { createStagingDeploymentBinding } from "./check-staging-deployment-binding.mjs";
 import { validateStagingPredecessorImage } from "./verify-staging-predecessor-image.mjs";
 
-const FIXED_PREDECESSOR_SHA =
-  "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
-const FIXED_PREDECESSOR_TREE =
-  "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c";
+const FIXED_PREDECESSOR_SHA = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
+const FIXED_PREDECESSOR_TREE = "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c";
 const FIXED_PREDECESSOR_TAIL = "0104_thin_sheva_callister";
 const BASELINE_ACTION = "apply-0104-baseline";
 
@@ -45,7 +43,11 @@ function requireImage(value, field) {
   return value;
 }
 
-function requirePositiveInteger(value, field, maximum = Number.MAX_SAFE_INTEGER) {
+function requirePositiveInteger(
+  value,
+  field,
+  maximum = Number.MAX_SAFE_INTEGER,
+) {
   if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
     fail(
       "BASELINE_BINDING_NUMBER_INVALID",
@@ -89,7 +91,10 @@ export function buildStagingBaseline0104Inputs({
   }
 
   const candidate = candidateBinding.inspect.inputs;
-  const candidateApiImage = requireImage(candidate.images?.api, "candidate API image");
+  const candidateApiImage = requireImage(
+    candidate.images?.api,
+    "candidate API image",
+  );
   const predecessorApiImage = requireImage(
     predecessor.image,
     "predecessor API image",
@@ -101,7 +106,10 @@ export function buildStagingBaseline0104Inputs({
     );
   }
 
-  const evidenceId = requirePositiveInteger(backupEvidenceId, "backupEvidenceId");
+  const evidenceId = requirePositiveInteger(
+    backupEvidenceId,
+    "backupEvidenceId",
+  );
   const restoreMaxAge = requirePositiveInteger(
     backupRestoreMaxAgeHours,
     "backupRestoreMaxAgeHours",
@@ -163,7 +171,10 @@ export function buildStagingBaseline0104Inputs({
 }
 
 export function baseline0104InputsSha256(inputs) {
-  return crypto.createHash("sha256").update(canonicalJson(inputs)).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(canonicalJson(inputs))
+    .digest("hex");
 }
 
 export function createStagingBaseline0104Binding({
@@ -173,6 +184,7 @@ export function createStagingBaseline0104Binding({
   expectedCandidateManifestSha256,
   expectedCandidateSourceSha,
   expectedCandidateCallerWorkflowRef,
+  expectedCandidateCallerWorkflowSha,
   expectedCandidateRunId,
   expectedCandidateRunAttempt,
   predecessorManifestBytes,
@@ -191,6 +203,7 @@ export function createStagingBaseline0104Binding({
     expectedManifestSha256: expectedCandidateManifestSha256,
     expectedSourceSha: expectedCandidateSourceSha,
     expectedCallerWorkflowRef: expectedCandidateCallerWorkflowRef,
+    expectedCallerWorkflowSha: expectedCandidateCallerWorkflowSha,
     expectedRunId: expectedCandidateRunId,
     expectedRunAttempt: expectedCandidateRunAttempt,
     backupEvidenceId,
@@ -337,9 +350,14 @@ function main() {
     expectedCandidateManifestSha256: requiredArgument(
       "--expected-candidate-manifest-sha256",
     ),
-    expectedCandidateSourceSha: requiredArgument("--expected-candidate-source-sha"),
+    expectedCandidateSourceSha: requiredArgument(
+      "--expected-candidate-source-sha",
+    ),
     expectedCandidateCallerWorkflowRef: requiredArgument(
       "--expected-candidate-caller-workflow-ref",
+    ),
+    expectedCandidateCallerWorkflowSha: requiredArgument(
+      "--expected-candidate-caller-workflow-sha",
     ),
     expectedCandidateRunId: requiredArgument("--expected-candidate-run-id"),
     expectedCandidateRunAttempt: requiredArgument(

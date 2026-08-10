@@ -104,6 +104,21 @@ function requireString(value, pattern, field) {
   return value;
 }
 
+function canonicalCompactJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalCompactJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) => `${JSON.stringify(key)}:${canonicalCompactJson(value[key])}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function parseStrictJson(bytes) {
   if (!Buffer.isBuffer(bytes)) {
     fail("IMAGE_MANIFEST_INPUT_INVALID", "Manifest input must be raw bytes.");
@@ -194,14 +209,16 @@ export function validateStagingImageManifest(
       "initialPackageState",
       "registryAction",
       "publisherRun",
+      "deletedHistoryControl",
+      "registryLedger",
       "toolchain",
       "images",
       "packages",
     ],
     "manifest",
   );
-  if (manifest.schemaVersion !== 2) {
-    fail("IMAGE_MANIFEST_SCHEMA_INVALID", "schemaVersion must equal 2.");
+  if (manifest.schemaVersion !== 3) {
+    fail("IMAGE_MANIFEST_SCHEMA_INVALID", "schemaVersion must equal 3.");
   }
   if (
     manifest.kind !== "site-logbook-staging-images" ||
@@ -266,6 +283,12 @@ export function validateStagingImageManifest(
     POSITIVE_DECIMAL,
     "publisherRun.attempt",
   );
+  if (manifest.publisherRun.attempt !== "1") {
+    fail(
+      "IMAGE_MANIFEST_RUN_MISMATCH",
+      "publisherRun.attempt must equal the reviewed first attempt.",
+    );
+  }
   if (
     options.expectedRunId &&
     manifest.publisherRun.id !== options.expectedRunId
@@ -282,6 +305,117 @@ export function validateStagingImageManifest(
     fail(
       "IMAGE_MANIFEST_RUN_MISMATCH",
       "publisherRun.attempt does not match trusted evidence.",
+    );
+  }
+  assertKeys(
+    manifest.deletedHistoryControl,
+    [
+      "mode",
+      "decision",
+      "ledgerEntrySha256",
+      "callerWorkflowSha",
+      "visibleRunUniquenessVerified",
+      "workflowRunHistoryScope",
+      "deletedApiQueried",
+    ],
+    "deletedHistoryControl",
+  );
+  if (
+    manifest.deletedHistoryControl.mode !==
+      "reviewed-caller-visible-history-ledger" ||
+    manifest.deletedHistoryControl.decision !==
+      "explicitly-accepted-external-ledger" ||
+    typeof manifest.deletedHistoryControl.ledgerEntrySha256 !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(
+      manifest.deletedHistoryControl.ledgerEntrySha256,
+    ) ||
+    typeof manifest.deletedHistoryControl.callerWorkflowSha !== "string" ||
+    !SHA40.test(manifest.deletedHistoryControl.callerWorkflowSha) ||
+    /^0{40}$/.test(manifest.deletedHistoryControl.callerWorkflowSha) ||
+    manifest.deletedHistoryControl.visibleRunUniquenessVerified !== true ||
+    manifest.deletedHistoryControl.workflowRunHistoryScope !==
+      "github-visible-workflow-runs-below-1000-api-cap" ||
+    manifest.deletedHistoryControl.deletedApiQueried !== false
+  ) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "deletedHistoryControl is not the reviewed visible-history external-ledger decision.",
+    );
+  }
+  if (
+    options.expectedCallerWorkflowSha !== undefined &&
+    manifest.deletedHistoryControl.callerWorkflowSha !==
+      options.expectedCallerWorkflowSha
+  ) {
+    fail(
+      "IMAGE_MANIFEST_CALLER_MISMATCH",
+      "deletedHistoryControl.callerWorkflowSha does not match trusted evidence.",
+    );
+  }
+
+  assertKeys(
+    manifest.registryLedger,
+    [
+      "schemaVersion",
+      "kind",
+      "sourceSha",
+      "stage",
+      "expectedInitialPackageState",
+      "packageNames",
+      "deletedHistoryControl",
+      "previousEntry",
+    ],
+    "registryLedger",
+  );
+  assertKeys(
+    manifest.registryLedger.deletedHistoryControl,
+    ["mode", "decision", "deletedApiQueried", "historicalAbsenceProven"],
+    "registryLedger.deletedHistoryControl",
+  );
+  assertKeys(
+    manifest.registryLedger.previousEntry,
+    ["ledgerEntrySha256", "preflightDigest"],
+    "registryLedger.previousEntry",
+  );
+  const expectedPackageNames = Object.values(IMAGE_SPECS).map(
+    (spec) => spec.packageName,
+  );
+  if (
+    manifest.registryLedger.schemaVersion !== 1 ||
+    manifest.registryLedger.kind !==
+      "site-logbook-staging-registry-ledger-entry" ||
+    manifest.registryLedger.sourceSha !== sourceSha ||
+    manifest.registryLedger.stage !== "complete" ||
+    manifest.registryLedger.expectedInitialPackageState !==
+      manifest.initialPackageState ||
+    JSON.stringify(manifest.registryLedger.packageNames) !==
+      JSON.stringify(expectedPackageNames) ||
+    manifest.registryLedger.deletedHistoryControl.mode !==
+      "reviewed-caller-visible-history-ledger" ||
+    manifest.registryLedger.deletedHistoryControl.decision !==
+      "explicitly-accepted-external-ledger" ||
+    manifest.registryLedger.deletedHistoryControl.deletedApiQueried !== false ||
+    manifest.registryLedger.deletedHistoryControl.historicalAbsenceProven !==
+      false ||
+    typeof manifest.registryLedger.previousEntry.ledgerEntrySha256 !==
+      "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(
+      manifest.registryLedger.previousEntry.ledgerEntrySha256,
+    )
+  ) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "registryLedger does not match the exact complete-stage reviewed ledger contract.",
+    );
+  }
+  const ledgerSha256 = `sha256:${crypto
+    .createHash("sha256")
+    .update(canonicalCompactJson(manifest.registryLedger))
+    .digest("hex")}`;
+  if (ledgerSha256 !== manifest.deletedHistoryControl.ledgerEntrySha256) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "registryLedger canonical bytes do not match ledgerEntrySha256.",
     );
   }
 
@@ -416,16 +550,29 @@ export function validateStagingImageManifest(
       fail("IMAGE_MANIFEST_SBOM_INVALID", `packages.${key}.sbom is invalid.`);
     }
   }
+  if (
+    manifest.registryLedger.previousEntry.preflightDigest !==
+    manifest.images.preflight.split("@")[1]
+  ) {
+    fail(
+      "IMAGE_MANIFEST_DELETED_HISTORY_CONTROL_INVALID",
+      "registryLedger previous preflight digest does not match the immutable preflight image.",
+    );
+  }
 
   const trusted = options.expectedManifestSha256 !== undefined;
   return Object.freeze({
     decision: trusted ? "PASS" : "INTERNALLY_CONSISTENT_UNTRUSTED",
     trusted,
-    schemaVersion: 2,
+    schemaVersion: 3,
     sourceSha,
     manifestSha256,
     callerWorkflowRef: manifest.callerWorkflowRef,
     publisherRun: Object.freeze({ ...manifest.publisherRun }),
+    deletedHistoryControl: Object.freeze({
+      ...manifest.deletedHistoryControl,
+    }),
+    registryLedger: Object.freeze({ ...manifest.registryLedger }),
     images: Object.freeze({ ...manifest.images }),
     manifestBase64: trusted ? manifestBytes.toString("base64") : undefined,
   });
@@ -461,6 +608,7 @@ function main() {
       expectedManifestSha256: argument("--expected-manifest-sha256"),
       expectedSourceSha: argument("--expected-source-sha"),
       expectedCallerWorkflowRef: argument("--expected-caller-workflow-ref"),
+      expectedCallerWorkflowSha: argument("--expected-caller-workflow-sha"),
       expectedRunId: argument("--expected-run-id"),
       expectedRunAttempt: argument("--expected-run-attempt"),
     },
