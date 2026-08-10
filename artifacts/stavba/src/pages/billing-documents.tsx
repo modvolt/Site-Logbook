@@ -54,6 +54,7 @@ import type { CostDocumentDuplicate } from "@workspace/api-client-react";
 import { ArrowLeft, CheckCircle2, FileText, Files, GripVertical, Inbox, Loader2, RefreshCw, Sparkles, Upload } from "lucide-react";
 import { QueryErrorState } from "@/components/query-error-state";
 import { openFilePicker } from "@/lib/file-picker";
+import { useBillingListNavigation } from "@/hooks/use-billing-navigation";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -104,10 +105,16 @@ function readDocumentFilters(search: string) {
   };
 }
 
-function buildDocumentFilterSearch(status: string, docType: string) {
-  const params = new URLSearchParams();
-  if (status !== "all") params.set("status", status);
-  if (docType !== "all") params.set("docType", docType);
+function buildDocumentFilterSearch(
+  status: string,
+  docType: string,
+  currentSearch = "",
+) {
+  const params = new URLSearchParams(currentSearch);
+  if (status === "all") params.delete("status");
+  else params.set("status", status);
+  if (docType === "all") params.delete("docType");
+  else params.set("docType", docType);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -154,13 +161,13 @@ export default function BillingDocuments() {
 
   const setStatusFilter = (status: string) => {
     setStatusFilterState(status);
-    setLocation(buildDocumentFilterSearch(status, docTypeFilter), {
+    setLocation(buildDocumentFilterSearch(status, docTypeFilter, search), {
       replace: true,
     });
   };
   const setDocTypeFilter = (docType: string) => {
     setDocTypeFilterState(docType);
-    setLocation(buildDocumentFilterSearch(statusFilter, docType), {
+    setLocation(buildDocumentFilterSearch(statusFilter, docType, search), {
       replace: true,
     });
   };
@@ -180,6 +187,7 @@ export default function BillingDocuments() {
   const { data: docs, isLoading, isError, error, refetch } = useListCostDocuments(params, {
     query: { queryKey: getListCostDocumentsQueryKey(params) },
   });
+  const { openDetail } = useBillingListNavigation(!isLoading);
 
   const { data: aiReviewDocs } = useListCostDocuments(AI_REVIEW_PARAMS, {
     query: { queryKey: getListCostDocumentsQueryKey(AI_REVIEW_PARAMS) },
@@ -279,7 +287,7 @@ export default function BillingDocuments() {
       toast({ title: "Doklad nahrán" });
       setConflict(null);
       setPendingFile(null);
-      setLocation(`/billing/documents/${detail.document.id}`);
+      openDetail(`/billing/documents/${detail.document.id}`);
     } catch (err) {
       if (err instanceof DuplicateCostDocumentError) {
         setPendingFile(file);
@@ -354,7 +362,7 @@ export default function BillingDocuments() {
       refresh();
       toast({ title: `Vícestránkový doklad nahrán (${files.length} stránek)` });
       if (lastDocumentId != null) {
-        setLocation(`/billing/documents/${lastDocumentId}`);
+        openDetail(`/billing/documents/${lastDocumentId}`);
       }
     } catch (err) {
       toast({
@@ -463,7 +471,7 @@ export default function BillingDocuments() {
       setSelectedDocumentIds(new Set());
       refresh();
       toast({ title: `Sloučeno ${mergeOrder.length} stran do jednoho dokladu` });
-      setLocation(`/billing/documents/${result.primaryDocumentId}`);
+      openDetail(`/billing/documents/${result.primaryDocumentId}`);
     } catch (error) {
       toast({ title: "Doklady nelze sloučit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
@@ -513,7 +521,7 @@ export default function BillingDocuments() {
             variant="outline"
             size="sm"
             className="w-full whitespace-normal sm:w-auto"
-            onClick={() => setLocation("/billing/documents/review")}
+            onClick={() => openDetail("/billing/documents/review")}
           >
             <Sparkles className="h-4 w-4 mr-1" /> Kontrola AI dokladů
             {aiReviewCount > 0 && (
@@ -634,7 +642,7 @@ export default function BillingDocuments() {
             <DocumentCard
               key={doc.id}
               doc={doc}
-              onClick={() => setLocation(`/billing/documents/${doc.id}`)}
+              onClick={() => openDetail(`/billing/documents/${doc.id}`)}
               onApprove={() => handleApprove(doc)}
               isApproving={approvingId === doc.id}
               selected={selectedDocumentIds.has(doc.id)}

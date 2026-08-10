@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation, useRoute } from "wouter";
+import { useRoute } from "wouter";
 import {
   useGetInvoice,
   useUpdateInvoice,
@@ -32,6 +32,7 @@ import {
   InvoiceMaterialDisplayControl,
   type MaterialDisplayMode,
 } from "@/components/invoice-material-display-control";
+import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 
 function errMsg(err: unknown): string | undefined {
   if (err && typeof err === "object") {
@@ -126,7 +127,9 @@ function rowVat(r: LineRow): number {
 export default function BillingInvoiceEdit() {
   const [, params] = useRoute("/billing/invoices/:id/edit");
   const id = Number(params?.id);
-  const [, setLocation] = useLocation();
+  const { navigate: setLocation, preserveReturnTo } =
+    useBillingReturnNavigation("/billing/invoices");
+  const invoiceDetailLocation = preserveReturnTo(`/billing/invoices/${id}`);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -240,7 +243,7 @@ export default function BillingInvoiceEdit() {
           setSaveError(null);
           invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept uložen" });
-          setLocation(`/billing/invoices/${id}`);
+          setLocation(invoiceDetailLocation);
         },
         onError: (err: unknown) => {
           const msg = errMsg(err) ?? "Uložení se nezdařilo. Zkuste to prosím znovu.";
@@ -267,7 +270,7 @@ export default function BillingInvoiceEdit() {
         <p className="text-sm text-muted-foreground mb-4">
           Vystavenou fakturu nelze upravovat.
         </p>
-        <Button onClick={() => setLocation(`/billing/invoices/${id}`)}>Zpět na fakturu</Button>
+        <Button onClick={() => setLocation(invoiceDetailLocation)}>Zpět na fakturu</Button>
       </div>
     );
   }
@@ -278,7 +281,7 @@ export default function BillingInvoiceEdit() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation(`/billing/invoices/${id}`)}
+        onClick={() => setLocation(invoiceDetailLocation)}
       >
         <ArrowLeft className="h-4 w-4 mr-1" /> Zpět na fakturu
       </Button>
@@ -458,7 +461,7 @@ export default function BillingInvoiceEdit() {
       )}
 
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={() => setLocation(`/billing/invoices/${id}`)}>
+        <Button variant="ghost" onClick={() => setLocation(invoiceDetailLocation)}>
           Zrušit
         </Button>
         <Button onClick={handleSave} disabled={update.isPending} className="h-11 px-6">

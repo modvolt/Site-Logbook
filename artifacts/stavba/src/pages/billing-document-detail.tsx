@@ -112,6 +112,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
+import { markCurrentDocumentAsDuplicate } from "@/lib/billing-document-actions";
 
 const DOC_TYPE_OPTIONS = ["receipt", "delivery_note", "invoice", "credit_note"];
 const LINE_TYPE_OPTIONS = ["material", "work", "transport", "other"];
@@ -161,7 +163,15 @@ function saveErrorMessage(error: unknown): string | undefined {
 export default function BillingDocumentDetail() {
   const [, params] = useRoute("/billing/documents/:id");
   const id = Number(params?.id);
-  const [, setLocation] = useLocation();
+  const {
+    childLocation,
+    goBack,
+    navigate: setLocation,
+    returnTo,
+  } = useBillingReturnNavigation("/billing/documents");
+  const backLabel = returnTo.startsWith("/billing/documents/review")
+    ? "Výjimky v položkách"
+    : "Přijaté doklady";
   const { openConfirm, dialogProps } = useConfirmDialog();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -279,8 +289,8 @@ export default function BillingDocumentDetail() {
         <Button variant="outline" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" /> Zkusit znovu
         </Button>
-        <Button variant="ghost" onClick={() => setLocation("/billing/documents")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na doklady
+        <Button variant="ghost" onClick={goBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> {backLabel}
         </Button>
       </div>
     );
@@ -291,8 +301,8 @@ export default function BillingDocumentDetail() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
         <FileText className="h-12 w-12 opacity-20" />
         <p className="font-medium">Doklad nenalezen.</p>
-        <Button variant="ghost" onClick={() => setLocation("/billing/documents")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na doklady
+        <Button variant="ghost" onClick={goBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> {backLabel}
         </Button>
       </div>
     );
@@ -335,21 +345,33 @@ export default function BillingDocumentDetail() {
     );
   };
 
-  const handleMarkDuplicate = (duplicateDocumentId: number) => {
-    markDuplicate.mutate(
-      { id: duplicateDocumentId, data: { primaryDocumentId: id } },
+  const handleMarkDuplicate = (
+    primaryDocumentId: number,
+    primaryDocumentLabel: string,
+  ) => {
+    openConfirm(
       {
-        onSuccess: () => {
-          invalidate();
-          toast({ title: "Doklad spárován jako duplicita" });
-        },
-        onError: (error) =>
-          toast({
-            title: "Párování se nezdařilo",
-            description: saveErrorMessage(error),
-            variant: "destructive",
-          }),
+        title: "Označit tento doklad jako duplicitu?",
+        description: `Aktuální doklad #${id} bude označen jako duplicita dokladu ${primaryDocumentLabel} (#${primaryDocumentId}). Vybraný doklad zůstane primární.`,
+        confirmLabel: "Označit jako duplicitu",
+        destructive: false,
       },
+      () =>
+        markDuplicate.mutate(
+          markCurrentDocumentAsDuplicate(id, primaryDocumentId),
+          {
+            onSuccess: () => {
+              invalidate();
+              toast({ title: "Aktuální doklad označen jako duplicita" });
+            },
+            onError: (error) =>
+              toast({
+                title: "Párování se nezdařilo",
+                description: saveErrorMessage(error),
+                variant: "destructive",
+              }),
+          },
+        ),
     );
   };
 
@@ -424,7 +446,7 @@ export default function BillingDocumentDetail() {
         await revertCostDocumentMerge(pageMerge.id);
         invalidate();
         toast({ title: "Sloučení bylo rozděleno zpět" });
-        setLocation("/billing/documents");
+        goBack();
       } catch (error) {
         toast({ title: "Sloučení nelze rozdělit", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
       } finally {
@@ -441,7 +463,7 @@ export default function BillingDocumentDetail() {
         onSuccess: () => {
           invalidate();
           toast({ title: "Doklad smazán" });
-          setLocation("/billing/documents");
+          goBack();
         },
         onError: (err) =>
           toast({
@@ -471,9 +493,9 @@ export default function BillingDocumentDetail() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation("/billing/documents")}
+        onClick={goBack}
       >
-        <ArrowLeft className="h-4 w-4 mr-1" /> Přijaté doklady
+        <ArrowLeft className="h-4 w-4 mr-1" /> {backLabel}
       </Button>
 
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
@@ -847,7 +869,7 @@ export default function BillingDocumentDetail() {
                   Toto je duplicita dokladu{" "}
                   <button
                     className="underline hover:no-underline"
-                    onClick={() => setLocation(`/billing/documents/${data.duplicateOf!.id}`)}
+                    onClick={() => setLocation(childLocation(`/billing/documents/${data.duplicateOf!.id}`))}
                   >
                     #{data.duplicateOf.id}
                   </button>
@@ -928,7 +950,7 @@ export default function BillingDocumentDetail() {
                 >
                   <button
                     className="text-left hover:underline"
-                    onClick={() => setLocation(`/billing/documents/${d.id}`)}
+                    onClick={() => setLocation(childLocation(`/billing/documents/${d.id}`))}
                   >
                     {d.supplierName || "Neznámý dodavatel"}
                     {d.documentNumber ? ` · ${d.documentNumber}` : ""} —{" "}
@@ -937,10 +959,17 @@ export default function BillingDocumentDetail() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => handleMarkDuplicate(d.id)}
+                    onClick={() =>
+                      handleMarkDuplicate(
+                        d.id,
+                        d.documentNumber ||
+                          d.supplierName ||
+                          "vybraného dokladu",
+                      )
+                    }
                     disabled={markDuplicate.isPending}
                   >
-                    <Link2 className="h-3.5 w-3.5 mr-1" /> Spárovat jako duplicitu
+                    <Link2 className="h-3.5 w-3.5 mr-1" /> Tento doklad je duplicita
                   </Button>
                 </div>
               ))}
@@ -972,7 +1001,7 @@ export default function BillingDocumentDetail() {
                   <div key={d.id} className="rounded border p-3 space-y-2">
                     <button
                       className="block text-left hover:underline text-muted-foreground"
-                      onClick={() => setLocation(`/billing/documents/${d.id}`)}
+                      onClick={() => setLocation(childLocation(`/billing/documents/${d.id}`))}
                     >
                       #{d.id} — {d.supplierName || "Neznámý dodavatel"}
                       {d.documentNumber ? ` · ${d.documentNumber}` : ""}
@@ -1984,7 +2013,8 @@ function ReferencesSection({
   docType: string;
   onChanged: () => void;
 }) {
-  const [, navigate] = useLocation();
+  const { childLocation, navigate } =
+    useBillingReturnNavigation("/billing/documents");
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState("delivery_note");
@@ -2143,7 +2173,7 @@ function ReferencesSection({
                     size="sm"
                     className="h-8 shrink-0"
                     onClick={() =>
-                      navigate(`/billing/documents/${candidate.documentId}`)
+                      navigate(childLocation(`/billing/documents/${candidate.documentId}`))
                     }
                   >
                     Otevřít fakturu
@@ -2203,7 +2233,8 @@ function ReferenceCard({
   onChanged: () => void;
   onDocumentLinked: () => void;
 }) {
-  const [, navigate] = useLocation();
+  const { childLocation, navigate } =
+    useBillingReturnNavigation("/billing/documents");
   const { toast } = useToast();
   const updateRef = useUpdateCostDocumentReference();
   const deleteRef = useDeleteCostDocumentReference();
@@ -2308,7 +2339,11 @@ function ReferenceCard({
                 size="sm"
                 className="h-auto p-0 mt-1"
                 onClick={() =>
-                  navigate(`/billing/documents/${reference.matchedDocumentId}`)
+                  navigate(
+                    childLocation(
+                      `/billing/documents/${reference.matchedDocumentId}`,
+                    ),
+                  )
                 }
               >
                 <FileText className="h-3.5 w-3.5 mr-1" />

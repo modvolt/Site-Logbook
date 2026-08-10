@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation, useRoute } from "wouter";
+import { useRoute } from "wouter";
 import {
   useGetInvoice,
   useRecalculateInvoice,
@@ -54,6 +54,7 @@ import {
 import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
 import { fmtKc, fmtDate, vatModeLabel, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
+import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 import {
   ArrowLeft,
   ExternalLink,
@@ -76,7 +77,18 @@ import {
 export default function BillingInvoiceDetail() {
   const [, params] = useRoute("/billing/invoices/:id");
   const id = Number(params?.id);
-  const [, setLocation] = useLocation();
+  const {
+    childLocation,
+    goBack,
+    navigate: setLocation,
+    preserveReturnTo,
+    returnTo,
+  } = useBillingReturnNavigation("/billing/invoices");
+  const backLabel = returnTo.startsWith("/billing/recurring-templates/")
+    ? "Šablona paušálu"
+    : returnTo.startsWith("/billing/unbilled")
+      ? "Nevyfakturované zakázky"
+      : "Faktury";
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -164,7 +176,7 @@ export default function BillingInvoiceDetail() {
         onSuccess: () => {
           invalidateData(queryClient, "billingInvoices");
           toast({ title: "Koncept smazán" });
-          setLocation("/billing/invoices");
+          goBack();
         },
         onError: () => {
           setConfirmDelete(false);
@@ -378,8 +390,8 @@ export default function BillingInvoiceDetail() {
         <Button variant="outline" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" /> Zkusit znovu
         </Button>
-        <Button variant="ghost" onClick={() => setLocation("/billing/invoices")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na faktury
+        <Button variant="ghost" onClick={goBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> {backLabel}
         </Button>
       </div>
     );
@@ -390,8 +402,8 @@ export default function BillingInvoiceDetail() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-muted-foreground gap-3">
         <AlertCircle className="h-12 w-12 opacity-20" />
         <p className="font-medium">Faktura nenalezena.</p>
-        <Button variant="ghost" onClick={() => setLocation("/billing/invoices")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Zpět na faktury
+        <Button variant="ghost" onClick={goBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> {backLabel}
         </Button>
       </div>
     );
@@ -412,9 +424,9 @@ export default function BillingInvoiceDetail() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation("/billing/invoices")}
+        onClick={goBack}
       >
-        <ArrowLeft className="h-4 w-4 mr-1" /> Faktury
+        <ArrowLeft className="h-4 w-4 mr-1" /> {backLabel}
       </Button>
 
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
@@ -426,7 +438,7 @@ export default function BillingInvoiceDetail() {
             {inv.recurringTemplateId != null && (
               <button
                 type="button"
-                onClick={() => setLocation(`/billing/recurring-templates/${inv.recurringTemplateId}`)}
+                onClick={() => setLocation(childLocation(`/billing/recurring-templates/${inv.recurringTemplateId}`))}
                 className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 hover:opacity-80 transition-opacity"
               >
                 <CalendarClock className="h-3 w-3" /> Paušál
@@ -448,7 +460,7 @@ export default function BillingInvoiceDetail() {
       <div className="flex flex-wrap gap-2 mb-6">
         {isDraft && (
           <>
-            <Button onClick={() => setLocation(`/billing/invoices/${id}/edit`)} className="h-10">
+            <Button onClick={() => setLocation(preserveReturnTo(`/billing/invoices/${id}/edit`))} className="h-10">
               <Pencil className="h-4 w-4 mr-2" /> Upravit
             </Button>
             <Button variant="outline" onClick={handleRecalc} disabled={recalc.isPending} className="h-10">

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useRoute } from "wouter";
+import { useRoute } from "wouter";
 import {
   useGetRecurringTemplate,
   useUpdateRecurringTemplate,
@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { fmtDate, fmtKc, VAT_RATE_OPTIONS, VAT_HEADER_OPTIONS, VAT_MODE_LABELS } from "@/lib/billing-format";
 import { InvoiceStatusBadge } from "@/components/badges";
+import { useBillingReturnNavigation } from "@/hooks/use-billing-navigation";
 
 const INTERVAL_LABELS: Record<string, string> = {
   monthly: "Měsíčně",
@@ -62,7 +63,15 @@ const INTERVAL_LABELS: Record<string, string> = {
 export default function BillingRecurringTemplateDetail() {
   const [, params] = useRoute("/billing/recurring-templates/:id");
   const id = Number(params?.id);
-  const [, setLocation] = useLocation();
+  const {
+    childLocation,
+    goBack,
+    navigate: setLocation,
+    returnTo,
+  } = useBillingReturnNavigation("/billing/recurring-templates");
+  const backLabel = returnTo.startsWith("/billing/invoices/")
+    ? "Faktura"
+    : "Šablony";
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [showDelete, setShowDelete] = useState(false);
@@ -164,7 +173,7 @@ export default function BillingRecurringTemplateDetail() {
       await deleteTemplate.mutateAsync({ id });
       invalidateData(queryClient, "billingRecurringTemplates");
       toast({ title: "Šablona smazána" });
-      setLocation("/billing/recurring-templates");
+      goBack();
     } catch {
       toast({ title: "Smazání se nezdařilo", variant: "destructive" });
     }
@@ -213,8 +222,8 @@ export default function BillingRecurringTemplateDetail() {
   if (isError || !template) {
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto w-full">
-        <Button variant="ghost" size="sm" className="mb-3 -ml-2 text-muted-foreground" onClick={() => setLocation("/billing/recurring-templates")}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Šablony
+        <Button variant="ghost" size="sm" className="mb-3 -ml-2 text-muted-foreground" onClick={goBack}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> {backLabel}
         </Button>
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
           <AlertCircle className="h-10 w-10 opacity-30" />
@@ -230,9 +239,9 @@ export default function BillingRecurringTemplateDetail() {
         variant="ghost"
         size="sm"
         className="mb-3 -ml-2 text-muted-foreground"
-        onClick={() => setLocation("/billing/recurring-templates")}
+        onClick={goBack}
       >
-        <ArrowLeft className="h-4 w-4 mr-1" /> Šablony
+        <ArrowLeft className="h-4 w-4 mr-1" /> {backLabel}
       </Button>
 
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
@@ -517,7 +526,7 @@ export default function BillingRecurringTemplateDetail() {
                         key={gen.id}
                         type="button"
                         className="w-full text-left"
-                        onClick={() => setLocation(`/billing/invoices/${gen.invoiceId}`)}
+                        onClick={() => setLocation(childLocation(`/billing/invoices/${gen.invoiceId}`))}
                       >
                         <div className="flex items-center justify-between py-2 border-b last:border-0 hover:opacity-80 transition-opacity">
                           <div className="flex items-center gap-3">

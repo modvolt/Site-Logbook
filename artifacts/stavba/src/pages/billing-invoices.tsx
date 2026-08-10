@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   useListInvoices,
   useListCustomers,
@@ -32,6 +32,7 @@ import {
 import { InvoiceStatusBadge, OverdueBadge } from "@/components/badges";
 import { fmtKc, fmtDate, overdueDays } from "@/lib/billing-format";
 import { useToast } from "@/hooks/use-toast";
+import { useBillingListNavigation } from "@/hooks/use-billing-navigation";
 import { zipSync } from "fflate";
 import {
   ArrowLeft,
@@ -56,13 +57,21 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Stornováno" },
 ];
 
-function initialStatus(): string {
-  if (typeof window === "undefined") return "all";
-  const sp = new URLSearchParams(window.location.search);
+function readInvoiceStatus(search: string): string {
+  const sp = new URLSearchParams(search);
   // Accept both ?status=overdue and ?overdue=true (deep-link from dashboard)
   const param =
     sp.get("status") ?? (sp.get("overdue") === "true" ? "overdue" : null);
   return param && STATUS_OPTIONS.some((o) => o.value === param) ? param : "all";
+}
+
+function buildInvoiceSearch(status: string, currentSearch: string): string {
+  const params = new URLSearchParams(currentSearch);
+  params.delete("overdue");
+  if (status === "all") params.delete("status");
+  else params.set("status", status);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 type PeriodType = "month" | "year" | "custom";
@@ -90,9 +99,10 @@ function safeFilename(value: string): string {
 
 export default function BillingInvoices() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [status, setStatus] = useState(initialStatus);
+  const status = readInvoiceStatus(search);
   const today = new Date();
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [periodType, setPeriodType] = useState<PeriodType>("month");
@@ -110,6 +120,13 @@ export default function BillingInvoices() {
   const { data, isLoading, isError } = useListInvoices(params, {
     query: { queryKey: getListInvoicesQueryKey(params) },
   });
+  const { openDetail } = useBillingListNavigation(!isLoading);
+
+  const setStatus = (nextStatus: string) => {
+    setLocation(`/billing/invoices${buildInvoiceSearch(nextStatus, search)}`, {
+      replace: true,
+    });
+  };
 
   const markPaid = useUpdateInvoiceStatus();
   const sendReminder = useSendInvoiceReminder();
@@ -294,7 +311,7 @@ export default function BillingInvoices() {
             <Download className="h-4 w-4 mr-2" /> Stáhnout
           </Button>
           <Button
-            onClick={() => setLocation("/billing/unbilled")}
+            onClick={() => openDetail("/billing/unbilled")}
             className="h-10"
           >
             <Plus className="h-4 w-4 mr-2" /> Vytvořit fakturu
@@ -465,7 +482,7 @@ export default function BillingInvoices() {
                 <CardContent className="p-4 flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setLocation(`/billing/invoices/${inv.id}`)}
+                    onClick={() => openDetail(`/billing/invoices/${inv.id}`)}
                     className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                     aria-label={`Otevřít fakturu ${inv.invoiceNumber || "koncept"}`}
                   >
@@ -503,7 +520,7 @@ export default function BillingInvoices() {
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setLocation(`/billing/invoices/${inv.id}`)}
+                      onClick={() => openDetail(`/billing/invoices/${inv.id}`)}
                       className="text-right focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                     >
                       <div className="font-bold">{fmtKc(inv.totalWithVat)}</div>
