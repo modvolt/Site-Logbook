@@ -735,8 +735,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
     '[ "$manifest_sha256" = "$STAGING_IMAGE_MANIFEST_SHA256" ]',
     '.callerRepository == "modvolt/site-logbook-registry"',
     '.platform == "linux/amd64"',
-    ".provenanceVerified == true",
-    ".sbomVerified == true",
+    ".schemaVersion == 2",
+    '.kind == "site-logbook-staging-images"',
+    ".activeInventoryPaginated == true",
+    '.deletedInventoryMode == "not-queryable-exact-read-scope"',
+    '.runtimeMetadata == {source: "https://github.com/modvolt/Site-Logbook"',
+    '.provenance.buildType == "https://mobyproject.org/buildkit@v1"',
+    ".sbom.packageCount > 0",
     "deployment_inputs_sha256=$(printf '%s\\n' \"$deployment_inputs\" | sha256sum",
     '[ "$deployment_inputs_sha256" = "$STAGING_DEPLOYMENT_INPUTS_SHA256" ]',
     'case "$STAGING_SCHEMA_ACTION" in',
@@ -792,6 +797,19 @@ export function validateStagingRuntimeContract(overrides = {}) {
       "STAGING_IMAGE_REUSABLE_TRIGGER_MISSING",
       "the candidate publisher jobs could not be isolated for validation.",
     );
+  }
+  for (const [dockerfile, buildIdentity, expectedCount] of [
+    ["deploy/staging/preflight/Dockerfile", "ENV BUILD_SHA=$BUILD_SHA", 1],
+    ["deploy/staging/mailpit/Dockerfile", "ENV BUILD_SHA=$BUILD_SHA", 1],
+    ["artifacts/stavba/Dockerfile", "ENV VITE_BUILD_SHA=$VITE_BUILD_SHA", 2],
+  ]) {
+    const dockerfileSource = readSource(dockerfile, overrides);
+    if (dockerfileSource.split(buildIdentity).length - 1 !== expectedCount) {
+      fail(
+        "STAGING_RUNTIME_CONTRACT_MISSING",
+        `immutable candidate runtime identity ${dockerfile} is missing or duplicated.`,
+      );
+    }
   }
   if (/\bworkflow_dispatch\s*:/.test(publishWorkflow)) {
     fail(
@@ -1100,13 +1118,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   requirePublicationText(
     publishWorkflow,
-    "/user/packages/container/${package_name}/versions?per_page=100",
+    "/user/packages/container/${package_name}/versions?state=active&per_page=100",
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
     "identity-bound private package version lookup",
   );
   if (
     /\/users\/modvolt\/packages/.test(publishWorkflow) ||
-    (publishWorkflow.match(/\/user\/packages/g) ?? []).length !== 8 ||
+    (publishWorkflow.match(/\/user\/packages/g) ?? []).length !== 10 ||
     (
       publishWorkflow.match(
         /\/user\/packages\?package_type=container&visibility=private&per_page=100/g,
@@ -1119,6 +1137,17 @@ export function validateStagingRuntimeContract(overrides = {}) {
     fail(
       "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
       "every package read must use the authenticated-user namespace only after the exact metadata identity and scope gate.",
+    );
+  }
+  if (
+    (publishWorkflow.match(/versions\?state=active&per_page=100/g) ?? [])
+      .length !== 3 ||
+    (publishWorkflow.match(/length == \$expected/g) ?? []).length !== 3 ||
+    (publishWorkflow.match(/versions\/\$\{version_id\}/g) ?? []).length !== 2
+  ) {
+    fail(
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+      "candidate package state, absence and final verification must bind complete active pagination and exact selected-version refetches.",
     );
   }
   requirePublicationText(
@@ -1188,21 +1217,33 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "docker buildx imagetools inspect",
     "--format '{{json .Provenance}}'",
     "--format '{{json .SBOM}}'",
+    "--format '{{json .Image}}'",
     ".schemaVersion == 2 and",
     '.mediaType == "application/vnd.oci.image.index.v1+json" and',
     "($runnable | length) == 1",
-    '$runnable[0].mediaType == "application/vnd.oci.image.manifest.v1+json"',
+    "($manifests | length) == 2",
+    '(.size | type) == "number" and .size > 0',
     "($attestations | length) == 1",
     "all($attestations[];",
     "vnd.docker.reference.digest",
     '.SLSA.buildType == "https://mobyproject.org/buildkit@v1"',
     '.SLSA.invocation.environment.platform == "linux/amd64"',
+    ".SLSA.metadata.completeness.parameters == true",
+    '.SLSA.invocation.parameters.args["build-arg:" + $argName] == $sha',
+    "vcs:localdir:dockerfile",
+    "org.opencontainers.image.url",
     '.SPDX.SPDXID == "SPDXRef-DOCUMENT"',
-    '(.SPDX.spdxVersion | test("^SPDX-[0-9]+\\\\.[0-9]+$"))',
+    '.SPDX.dataLicense == "CC0-1.0"',
+    '$relationship.relationshipType == "CONTAINS"',
     "remoteManifestVerified: true",
     "runnableManifestDigest",
-    "provenanceVerified: true",
-    "sbomVerified: true",
+    "activeInventoryPaginated: true",
+    'deletedInventoryMode: "not-queryable-exact-read-scope"',
+    'deletedHistoryScope: "external-audit-ledger-only"',
+    "selectedVersionRefetched: true",
+    "runtimeMetadata:",
+    "provenance:",
+    "sbom:",
   ]) {
     requirePublicationText(
       publishWorkflow,
@@ -1274,13 +1315,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
   if (
     (
       publishWorkflow.match(
-        /org\.opencontainers\.image\.source=\$\{\{ github\.server_url \}\}\/\$\{\{ github\.repository \}\}/g,
+        /org\.opencontainers\.image\.source=https:\/\/github\.com\/modvolt\/Site-Logbook/g,
       ) ?? []
     ).length !== 5
   ) {
     fail(
       "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
-      "all five images must link to the private caller repository.",
+      "all five images must link to the exact public source repository.",
     );
   }
   if (
@@ -1356,10 +1397,23 @@ export function validateStagingRuntimeContract(overrides = {}) {
       "all ten validation and publication builds must target the approved linux/amd64 host.",
     );
   }
-  if ((publishWorkflow.match(/provenance: mode=max/g) ?? []).length !== 5) {
+  if (
+    (publishWorkflow.match(/provenance: mode=max,version=v0\.2/g) ?? [])
+      .length !== 5
+  ) {
     fail(
       "STAGING_IMAGE_ATTESTATION_MISSING",
       "all five custom images must publish maximum BuildKit provenance.",
+    );
+  }
+  for (const toolchainPin of [
+    "version: v0.34.1",
+    "driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
+  ]) {
+    requireText(
+      publishWorkflow,
+      toolchainPin,
+      `candidate publisher toolchain pin ${toolchainPin}`,
     );
   }
   if ((publishWorkflow.match(/\bsbom: true\b/g) ?? []).length !== 5) {
@@ -1421,6 +1475,13 @@ export function validateStagingRuntimeContract(overrides = {}) {
     "initialPackageState",
     "registryAction",
     "callerWorkflowRef",
+    'kind: "site-logbook-staging-images"',
+    'publicationStage: "complete"',
+    "schemaVersion: 2",
+    "activeVersionCount",
+    "packageVersionCount",
+    "buildShaEnv",
+    "verifiedBaseImageDigests",
   ]) {
     requireText(
       publishWorkflow,

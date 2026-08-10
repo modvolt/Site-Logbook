@@ -128,7 +128,7 @@ jq -e \
   --arg web "$STAGING_WEB_IMAGE" \
   --arg alertReceiver "$STAGING_ALERT_RECEIVER_IMAGE" \
   '
-    def verified_package($name; $repository; $source; $digest):
+    def verified_package($name; $repository; $source; $digest; $env; $dockerfile; $buildArg; $bases):
       .packageName == $name and
       (.packageId | type == "string" and test("^[1-9][0-9]*$")) and
       .visibility == "private" and
@@ -139,10 +139,24 @@ jq -e \
       .digest == $digest and
       (.runnableManifestDigest | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
       .platform == "linux/amd64" and
-      .remoteManifestVerified == true and
-      .provenanceVerified == true and
-      .sbomVerified == true;
-    .schemaVersion == 1 and
+      .activeInventoryPaginated == true and
+      (.activeVersionCount | type) == "number" and .activeVersionCount >= 1 and
+      .packageVersionCount == .activeVersionCount and
+      .deletedInventoryMode == "not-queryable-exact-read-scope" and
+      .visibleDeletedTagConflictChecked == false and .deletedVersionCount == null and
+      .deletedHistoryScope == "external-audit-ledger-only" and
+      .selectedVersionRefetched == true and .remoteManifestVerified == true and
+      .runtimeMetadata == {source: "https://github.com/modvolt/Site-Logbook", revision: $source, url: ("https://github.com/modvolt/Site-Logbook/commit/" + $source), buildSha: $source, buildShaEnv: $env} and
+      .provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+      .provenance.vcsRevision == $source and .provenance.dockerfile == $dockerfile and
+      .provenance.buildArg == $buildArg and .provenance.buildSha == $source and
+      .provenance.verifiedBaseImageDigests == $bases and
+      (.provenance.vcsSource | ascii_downcase | test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+      (.sbom.spdxVersion == "SPDX-2.2" or .sbom.spdxVersion == "SPDX-2.3") and
+      (.sbom.packageCount | type) == "number" and .sbom.packageCount > 0 and
+      (.sbom.relationshipCount | type) == "number" and .sbom.relationshipCount > 0;
+    .schemaVersion == 2 and
+    .kind == "site-logbook-staging-images" and .publicationStage == "complete" and
     .sourceSha == $sourceSha and
     .callerRepository == "modvolt/site-logbook-registry" and
     (.callerWorkflowRef | type == "string" and length > 0) and
@@ -150,6 +164,7 @@ jq -e \
      (.initialPackageState == "11111" and .registryAction == "verified-noop")) and
     (.publisherRun.id | type == "string" and test("^[1-9][0-9]*$")) and
     (.publisherRun.attempt | type == "string" and test("^[1-9][0-9]*$")) and
+    .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
     (.images | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
     (.packages | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
     .images.preflight == $preflight and
@@ -157,11 +172,11 @@ jq -e \
     .images.api == $api and
     .images.web == $web and
     .images.alertReceiver == $alertReceiver and
-    (.packages.preflight | verified_package("site-logbook-staging-preflight"; "ghcr.io/modvolt/site-logbook-staging-preflight"; $sourceSha; ($preflight | split("@")[1]))) and
-    (.packages.mailpit | verified_package("site-logbook-staging-mailpit"; "ghcr.io/modvolt/site-logbook-staging-mailpit"; $sourceSha; ($mailpit | split("@")[1]))) and
-    (.packages.api | verified_package("site-logbook-staging-api"; "ghcr.io/modvolt/site-logbook-staging-api"; $sourceSha; ($api | split("@")[1]))) and
-    (.packages.web | verified_package("site-logbook-staging-web"; "ghcr.io/modvolt/site-logbook-staging-web"; $sourceSha; ($web | split("@")[1]))) and
-    (.packages.alertReceiver | verified_package("site-logbook-staging-alert-receiver"; "ghcr.io/modvolt/site-logbook-staging-alert-receiver"; $sourceSha; ($alertReceiver | split("@")[1])))
+    (.packages.preflight | verified_package("site-logbook-staging-preflight"; "ghcr.io/modvolt/site-logbook-staging-preflight"; $sourceSha; ($preflight | split("@")[1]); "BUILD_SHA"; "deploy/staging/preflight/Dockerfile"; "BUILD_SHA"; ["sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"])) and
+    (.packages.mailpit | verified_package("site-logbook-staging-mailpit"; "ghcr.io/modvolt/site-logbook-staging-mailpit"; $sourceSha; ($mailpit | split("@")[1]); "BUILD_SHA"; "deploy/staging/mailpit/Dockerfile"; "BUILD_SHA"; ["sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d", "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"])) and
+    (.packages.api | verified_package("site-logbook-staging-api"; "ghcr.io/modvolt/site-logbook-staging-api"; $sourceSha; ($api | split("@")[1]); "BUILD_SHA"; "artifacts/api-server/Dockerfile"; "BUILD_SHA"; ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"])) and
+    (.packages.web | verified_package("site-logbook-staging-web"; "ghcr.io/modvolt/site-logbook-staging-web"; $sourceSha; ($web | split("@")[1]); "VITE_BUILD_SHA"; "artifacts/stavba/Dockerfile"; "VITE_BUILD_SHA"; ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7", "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"])) and
+    (.packages.alertReceiver | verified_package("site-logbook-staging-alert-receiver"; "ghcr.io/modvolt/site-logbook-staging-alert-receiver"; $sourceSha; ($alertReceiver | split("@")[1]); "RECEIVER_BUILD_SHA"; "deploy/operational-alert-receiver/Dockerfile"; "BUILD_SHA"; ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"]))
   ' "$manifest_file" >/dev/null \
   || fail "image manifest is not the exact complete private amd64 package set"
 rm -f "$manifest_file"

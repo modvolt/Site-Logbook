@@ -5,14 +5,137 @@ import { validateStagingReleaseEvidence } from "../check-staging-release-evidenc
 
 const NOW = new Date("2026-08-02T12:30:00.000Z");
 const SHA = "0123456789abcdef0123456789abcdef01234567";
+const CALLER_REF =
+  "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main";
+const IMAGE_SPECS = {
+  preflight: [
+    "site-logbook-staging-preflight",
+    "a",
+    "BUILD_SHA",
+    "deploy/staging/preflight/Dockerfile",
+    "BUILD_SHA",
+    ["sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"],
+  ],
+  mailpit: [
+    "site-logbook-staging-mailpit",
+    "b",
+    "BUILD_SHA",
+    "deploy/staging/mailpit/Dockerfile",
+    "BUILD_SHA",
+    [
+      "sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d",
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
+  ],
+  api: [
+    "site-logbook-staging-api",
+    "c",
+    "BUILD_SHA",
+    "artifacts/api-server/Dockerfile",
+    "BUILD_SHA",
+    ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"],
+  ],
+  web: [
+    "site-logbook-staging-web",
+    "d",
+    "VITE_BUILD_SHA",
+    "artifacts/stavba/Dockerfile",
+    "VITE_BUILD_SHA",
+    [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+      "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+    ],
+  ],
+  alertReceiver: [
+    "site-logbook-staging-alert-receiver",
+    "e",
+    "RECEIVER_BUILD_SHA",
+    "deploy/operational-alert-receiver/Dockerfile",
+    "BUILD_SHA",
+    ["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"],
+  ],
+};
+
+function candidateImageManifest() {
+  const images = {};
+  const packages = {};
+  let id = 10;
+  for (const [
+    key,
+    [
+      packageName,
+      seed,
+      buildShaEnv,
+      dockerfile,
+      buildArg,
+      verifiedBaseImageDigests,
+    ],
+  ] of Object.entries(IMAGE_SPECS)) {
+    const registryRepository = `ghcr.io/modvolt/${packageName}`;
+    const imageDigest = `sha256:${seed.repeat(64)}`;
+    images[key] = `${registryRepository}@${imageDigest}`;
+    packages[key] = {
+      packageName,
+      packageId: String(id++),
+      visibility: "private",
+      repository: "modvolt/site-logbook-registry",
+      registryRepository,
+      sourceSha: SHA,
+      versionId: String(id++),
+      digest: imageDigest,
+      runnableManifestDigest: `sha256:${"f".repeat(64)}`,
+      platform: "linux/amd64",
+      activeInventoryPaginated: true,
+      activeVersionCount: 1,
+      packageVersionCount: 1,
+      deletedInventoryMode: "not-queryable-exact-read-scope",
+      visibleDeletedTagConflictChecked: false,
+      deletedVersionCount: null,
+      deletedHistoryScope: "external-audit-ledger-only",
+      selectedVersionRefetched: true,
+      remoteManifestVerified: true,
+      runtimeMetadata: {
+        source: "https://github.com/modvolt/Site-Logbook",
+        revision: SHA,
+        url: `https://github.com/modvolt/Site-Logbook/commit/${SHA}`,
+        buildSha: SHA,
+        buildShaEnv,
+      },
+      provenance: {
+        buildType: "https://mobyproject.org/buildkit@v1",
+        vcsSource: "https://github.com/modvolt/Site-Logbook",
+        vcsRevision: SHA,
+        dockerfile,
+        buildArg,
+        buildSha: SHA,
+        verifiedBaseImageDigests,
+      },
+      sbom: { spdxVersion: "SPDX-2.3", packageCount: 1, relationshipCount: 1 },
+    };
+  }
+  return {
+    schemaVersion: 2,
+    kind: "site-logbook-staging-images",
+    publicationStage: "complete",
+    sourceSha: SHA,
+    callerRepository: "modvolt/site-logbook-registry",
+    callerWorkflowRef: CALLER_REF,
+    initialPackageState: "10000",
+    registryAction: "published",
+    publisherRun: { id: "987654321", attempt: "1" },
+    toolchain: {
+      buildx: "v0.34.1",
+      buildkitImage:
+        "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
+    },
+    images,
+    packages,
+  };
+}
 
 function fixtureArtifacts() {
   const jsonBytes = (value) => Buffer.from(`${JSON.stringify(value)}\n`);
-  const imageManifest = jsonBytes({
-    schemaVersion: 1,
-    sourceSha: SHA,
-    publisherRun: { id: "987654321", attempt: "1" },
-  });
+  const imageManifest = jsonBytes(candidateImageManifest());
   const provisioning = jsonBytes({
     schemaVersion: 1,
     validationMode: "observed",
@@ -184,7 +307,7 @@ function validEvidence(artifactBytes = fixtureArtifacts()) {
     },
     artifacts: {
       imageManifest: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         sourceSha: SHA,
         sha256: hashes.imageManifest,
         publisherWorkflowUrl:
@@ -337,6 +460,21 @@ test("recomputes every artifact hash and rejects byte tampering", () => {
   const missing = { ...artifactBytes };
   delete missing.schemaGate;
   assert.throws(() => validate(evidence, missing), /EVIDENCE_ARTIFACT_MISSING/);
+});
+
+test("strictly verifies the complete schema-v2 image manifest before trusting release evidence", () => {
+  const artifactBytes = fixtureArtifacts();
+  const manifest = candidateImageManifest();
+  manifest.packages.api.sbom.packageCount = 0;
+  const invalidBytes = {
+    ...artifactBytes,
+    imageManifest: Buffer.from(`${JSON.stringify(manifest)}\n`),
+  };
+  const evidence = validEvidence(invalidBytes);
+  assert.throws(
+    () => validate(evidence, invalidBytes),
+    /EVIDENCE_IMAGE_MANIFEST_INVALID.*IMAGE_MANIFEST_SBOM_INVALID/,
+  );
 });
 
 test("rejects backup, transition, workflow-run, and input-binding drift", () => {

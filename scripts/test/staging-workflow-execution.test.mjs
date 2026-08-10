@@ -20,6 +20,50 @@ const PACKAGE_NAMES = [
   "site-logbook-staging-web",
   "site-logbook-staging-alert-receiver",
 ];
+const PACKAGE_BUILD_SPECS = [
+  {
+    dockerfileDir: "deploy/staging/preflight",
+    buildArg: "BUILD_SHA",
+    buildEnv: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
+  },
+  {
+    dockerfileDir: "deploy/staging/mailpit",
+    buildArg: "BUILD_SHA",
+    buildEnv: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d",
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
+  },
+  {
+    dockerfileDir: "artifacts/api-server",
+    buildArg: "BUILD_SHA",
+    buildEnv: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+    ],
+  },
+  {
+    dockerfileDir: "artifacts/stavba",
+    buildArg: "VITE_BUILD_SHA",
+    buildEnv: "VITE_BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+      "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+    ],
+  },
+  {
+    dockerfileDir: "deploy/operational-alert-receiver",
+    buildArg: "BUILD_SHA",
+    buildEnv: "RECEIVER_BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+    ],
+  },
+];
 const ROOT_DIGESTS = PACKAGE_NAMES.map(
   (_, index) => `sha256:${String.fromCharCode(97 + index).repeat(64)}`,
 );
@@ -78,6 +122,11 @@ const verifierSetupScript = requireRunScript(
   "publish-staging-images",
   "Configure fail-closed private package verifier",
 );
+const preflightEvidenceScript = requireRunScript(
+  workflow,
+  "publish-staging-images",
+  "Create secret-free preflight publication evidence",
+);
 const absenceScript = extractQuotedHeredoc(
   verifierSetupScript,
   "ABSENCE_SCRIPT",
@@ -110,7 +159,12 @@ EOF
     [[ "\${MOCK_INVENTORY_FAIL:-false}" != "true" ]] || exit 73
     cat "$HARNESS_ROOT/fixtures/inventory.json"
     ;;
-  /user/packages/container/*/versions?per_page=100)
+  /user/packages/container/*/versions/*)
+    package="\${endpoint#/user/packages/container/}"
+    package="\${package%%/*}"
+    cat "$HARNESS_ROOT/fixtures/selected-$package.json"
+    ;;
+  "/user/packages/container/"*"/versions?state=active&per_page=100")
     package="\${endpoint#/user/packages/container/}"
     package="\${package%%/*}"
     [[ "\${MOCK_VERSIONS_FAIL_FOR:-}" != "$package" ]] || exit 74
@@ -132,6 +186,7 @@ const MOCK_DOCKER = `#!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
   *"{{json .Manifest}}"*) cat "$HARNESS_ROOT/fixtures/manifest.json" ;;
+  *"{{json .Image}}"*) cat "$HARNESS_ROOT/fixtures/image.json" ;;
   *"{{json .Provenance}}"*) cat "$HARNESS_ROOT/fixtures/provenance.json" ;;
   *"{{json .SBOM}}"*) cat "$HARNESS_ROOT/fixtures/sbom.json" ;;
   *) echo "Unexpected mocked docker call: $*" >&2; exit 77 ;;
@@ -185,7 +240,7 @@ case "$*" in
 esac
 `;
 
-function packageMetadata(name, index) {
+function packageMetadata(name, index, versionCount = 1) {
   return {
     id: 1000 + index,
     name,
@@ -196,7 +251,7 @@ function packageMetadata(name, index) {
       full_name: "modvolt/site-logbook-registry",
       private: true,
     },
-    version_count: 1,
+    version_count: versionCount,
   };
 }
 
@@ -204,7 +259,7 @@ function packageVersion(index, tags = [SOURCE_SHA]) {
   return {
     id: 2000 + index,
     name: ROOT_DIGESTS[index],
-    metadata: { container: { tags } },
+    metadata: { package_type: "container", container: { tags } },
   };
 }
 
@@ -237,6 +292,11 @@ function stateFixtureFiles(state) {
         ? packageVersion(index)
         : packageVersion(index, ["another-source-sha"]),
     ]);
+    if (present) {
+      files[`fixtures/selected-${name}.json`] = JSON.stringify(
+        packageVersion(index),
+      );
+    }
   });
   files["fixtures/inventory.json"] = JSON.stringify(inventory);
   return files;
@@ -641,6 +701,7 @@ function runAbsenceCheck(packageName, files, environment = {}) {
 
 function validRemoteFixtureFiles(packageName = PACKAGE_NAMES[0]) {
   const index = PACKAGE_NAMES.indexOf(packageName);
+  const spec = PACKAGE_BUILD_SPECS[index];
   const metadata = packageMetadata(packageName, index);
   return {
     ...baseFixtureFiles(),
@@ -651,6 +712,9 @@ function validRemoteFixtureFiles(packageName = PACKAGE_NAMES[0]) {
     [`fixtures/versions-${packageName}.json`]: JSON.stringify([
       packageVersion(index),
     ]),
+    [`fixtures/selected-${packageName}.json`]: JSON.stringify(
+      packageVersion(index),
+    ),
     "fixtures/manifest.json": JSON.stringify({
       schemaVersion: 2,
       mediaType: "application/vnd.oci.image.index.v1+json",
@@ -659,11 +723,13 @@ function validRemoteFixtureFiles(packageName = PACKAGE_NAMES[0]) {
         {
           mediaType: "application/vnd.oci.image.manifest.v1+json",
           digest: RUNNABLE_DIGEST,
+          size: 1234,
           platform: { os: "linux", architecture: "amd64" },
         },
         {
           mediaType: "application/vnd.oci.image.manifest.v1+json",
           digest: ATTESTATION_DIGEST,
+          size: 4321,
           annotations: {
             "vnd.docker.reference.type": "attestation-manifest",
             "vnd.docker.reference.digest": RUNNABLE_DIGEST,
@@ -672,16 +738,145 @@ function validRemoteFixtureFiles(packageName = PACKAGE_NAMES[0]) {
         },
       ],
     }),
+    "fixtures/image.json": JSON.stringify({
+      architecture: "amd64",
+      os: "linux",
+      config: {
+        Labels: {
+          "org.opencontainers.image.source":
+            "https://github.com/modvolt/Site-Logbook",
+          "org.opencontainers.image.revision": SOURCE_SHA,
+          "org.opencontainers.image.url": `https://github.com/modvolt/Site-Logbook/commit/${SOURCE_SHA}`,
+        },
+        Env: [`${spec.buildEnv}=${SOURCE_SHA}`],
+      },
+    }),
     "fixtures/provenance.json": JSON.stringify({
       SLSA: {
         buildType: "https://mobyproject.org/buildkit@v1",
-        invocation: { environment: { platform: "linux/amd64" } },
+        invocation: {
+          environment: { platform: "linux/amd64" },
+          configSource: { entryPoint: "Dockerfile" },
+          parameters: {
+            args: { [`build-arg:${spec.buildArg}`]: SOURCE_SHA },
+            root: {
+              configSource: { path: "Dockerfile" },
+              request: {
+                args: {
+                  "vcs:localdir:context": ".",
+                  "vcs:localdir:dockerfile": spec.dockerfileDir,
+                  "vcs:revision": SOURCE_SHA,
+                  "vcs:source": "https://github.com/modvolt/Site-Logbook",
+                },
+              },
+            },
+          },
+        },
+        metadata: {
+          completeness: { parameters: true, environment: true },
+          "https://mobyproject.org/buildkit@v1#metadata": {
+            vcs: {
+              source: "https://github.com/modvolt/Site-Logbook",
+              revision: SOURCE_SHA,
+            },
+          },
+        },
+        materials: spec.baseImageDigests.map((digest) => ({
+          digest: { sha256: digest.slice("sha256:".length) },
+        })),
       },
     }),
     "fixtures/sbom.json": JSON.stringify({
-      SPDX: { SPDXID: "SPDXRef-DOCUMENT", spdxVersion: "SPDX-2.3" },
+      SPDX: {
+        SPDXID: "SPDXRef-DOCUMENT",
+        spdxVersion: "SPDX-2.3",
+        dataLicense: "CC0-1.0",
+        documentNamespace: "https://github.com/modvolt/Site-Logbook/sbom/test",
+        creationInfo: {
+          created: "2026-08-10T00:00:00Z",
+          creators: ["Tool: buildkit-syft-scanner"],
+        },
+        packages: [{ SPDXID: "SPDXRef-Package", name: packageName }],
+        relationships: [
+          {
+            spdxElementId: "SPDXRef-DOCUMENT",
+            relationshipType: "CONTAINS",
+            relatedSpdxElement: "SPDXRef-Package",
+          },
+        ],
+      },
     }),
   };
+}
+
+function candidatePackageEvidence(index = 0) {
+  const packageName = PACKAGE_NAMES[index];
+  const spec = PACKAGE_BUILD_SPECS[index];
+  return {
+    packageName,
+    packageId: String(1000 + index),
+    visibility: "private",
+    repository: "modvolt/site-logbook-registry",
+    registryRepository: `ghcr.io/modvolt/${packageName}`,
+    sourceSha: SOURCE_SHA,
+    versionId: String(2000 + index),
+    digest: ROOT_DIGESTS[index],
+    runnableManifestDigest: RUNNABLE_DIGEST,
+    platform: "linux/amd64",
+    activeInventoryPaginated: true,
+    activeVersionCount: 1,
+    packageVersionCount: 1,
+    deletedInventoryMode: "not-queryable-exact-read-scope",
+    visibleDeletedTagConflictChecked: false,
+    deletedVersionCount: null,
+    deletedHistoryScope: "external-audit-ledger-only",
+    selectedVersionRefetched: true,
+    remoteManifestVerified: true,
+    runtimeMetadata: {
+      source: "https://github.com/modvolt/Site-Logbook",
+      revision: SOURCE_SHA,
+      url: `https://github.com/modvolt/Site-Logbook/commit/${SOURCE_SHA}`,
+      buildSha: SOURCE_SHA,
+      buildShaEnv: spec.buildEnv,
+    },
+    provenance: {
+      buildType: "https://mobyproject.org/buildkit@v1",
+      vcsSource: "https://github.com/modvolt/Site-Logbook",
+      vcsRevision: SOURCE_SHA,
+      dockerfile: `${spec.dockerfileDir}/Dockerfile`,
+      buildArg: spec.buildArg,
+      buildSha: SOURCE_SHA,
+      verifiedBaseImageDigests: spec.baseImageDigests,
+    },
+    sbom: { spdxVersion: "SPDX-2.3", packageCount: 1, relationshipCount: 1 },
+  };
+}
+
+function runPreflightEvidence(packageEvidence = candidatePackageEvidence()) {
+  return runBashHarness({
+    script: preflightEvidenceScript,
+    files: {
+      "preflight-package.json": JSON.stringify(packageEvidence),
+    },
+    environment: {
+      CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      INITIAL_PACKAGE_STATE: "00000",
+      PREFLIGHT_DIGEST: ROOT_DIGESTS[0],
+      PREFLIGHT_REPOSITORY: "ghcr.io/modvolt/site-logbook-staging-preflight",
+      REGISTRY_WRITE: "true",
+      RUN_ATTEMPT: "1",
+      RUN_ID: "31400000000",
+      RUNNER_TEMP: "{HARNESS_ROOT}",
+      SOURCE_SHA,
+    },
+    captureFiles: [
+      "preflight-publication.json",
+      "preflight-publication.sha256",
+    ],
+  });
 }
 
 function runVerifier({ files = {}, packageName = PACKAGE_NAMES[0] } = {}) {
@@ -1161,11 +1356,24 @@ test("rejects malformed, duplicate, untrusted, or unavailable package metadata",
 });
 
 test("rejects duplicate exact tags and a complete-stage digest mismatch", () => {
+  const duplicateMetadata = packageMetadata(PACKAGE_NAMES[0], 0, 2);
   const duplicateTag = runPackageState("preflight-only", "10000", {
     files: {
+      "fixtures/inventory.json": JSON.stringify([
+        duplicateMetadata,
+        ...PACKAGE_NAMES.slice(1).map((name, index) =>
+          packageMetadata(name, index + 1),
+        ),
+      ]),
+      [`fixtures/package-${PACKAGE_NAMES[0]}.json`]:
+        JSON.stringify(duplicateMetadata),
       [`fixtures/versions-${PACKAGE_NAMES[0]}.json`]: JSON.stringify([
         packageVersion(0),
-        { ...packageVersion(0), id: 2999 },
+        {
+          ...packageVersion(0),
+          id: 2999,
+          name: `sha256:${"9".repeat(64)}`,
+        },
       ]),
     },
   });
@@ -1177,6 +1385,34 @@ test("rejects duplicate exact tags and a complete-stage digest mismatch", () => 
   });
   assert.notEqual(digestMismatch.status, 0);
   assert.match(digestMismatch.stderr, /approved preflight digest/u);
+});
+
+test("binds candidate state reads to complete active inventory and immutable refetch", () => {
+  const name = PACKAGE_NAMES[0];
+  const parityMetadata = packageMetadata(name, 0, 2);
+  const parity = runPackageState("preflight-only", "10000", {
+    files: {
+      "fixtures/inventory.json": JSON.stringify([
+        parityMetadata,
+        ...PACKAGE_NAMES.slice(1).map((packageName, index) =>
+          packageMetadata(packageName, index + 1),
+        ),
+      ]),
+      [`fixtures/package-${name}.json`]: JSON.stringify(parityMetadata),
+    },
+  });
+  assert.notEqual(parity.status, 0);
+  assert.match(parity.stderr, /package versions.*malformed/u);
+
+  const aliased = runPackageState("preflight-only", "10000", {
+    files: {
+      [`fixtures/selected-${name}.json`]: JSON.stringify(
+        packageVersion(0, [SOURCE_SHA, "mutable-alias"]),
+      ),
+    },
+  });
+  assert.notEqual(aliased.status, 0);
+  assert.match(aliased.stderr, /not immutable/u);
 });
 
 test("executes the immediate tag-absence guard and catches a TOCTOU tag appearance", () => {
@@ -1207,15 +1443,161 @@ test("executes the immediate tag-absence guard and catches a TOCTOU tag appearan
 });
 
 test("executes remote package, amd64, attestation, provenance, and SBOM verification", () => {
-  const result = runVerifier();
+  for (const [index, packageName] of PACKAGE_NAMES.entries()) {
+    const spec = PACKAGE_BUILD_SPECS[index];
+    const result = runVerifier({ packageName });
+    assert.equal(result.status, 0, `${packageName}: ${result.stderr}`);
+    const evidence = JSON.parse(result.captured["evidence.json"]);
+    assert.equal(evidence.digest, ROOT_DIGESTS[index]);
+    assert.equal(evidence.runnableManifestDigest, RUNNABLE_DIGEST);
+    assert.equal(evidence.platform, "linux/amd64");
+    assert.equal(evidence.activeInventoryPaginated, true);
+    assert.equal(evidence.activeVersionCount, 1);
+    assert.equal(evidence.packageVersionCount, 1);
+    assert.equal(
+      evidence.deletedInventoryMode,
+      "not-queryable-exact-read-scope",
+    );
+    assert.equal(evidence.visibleDeletedTagConflictChecked, false);
+    assert.equal(evidence.deletedVersionCount, null);
+    assert.equal(evidence.deletedHistoryScope, "external-audit-ledger-only");
+    assert.equal(evidence.selectedVersionRefetched, true);
+    assert.equal(evidence.remoteManifestVerified, true);
+    assert.deepEqual(evidence.runtimeMetadata, {
+      source: "https://github.com/modvolt/Site-Logbook",
+      revision: SOURCE_SHA,
+      url: `https://github.com/modvolt/Site-Logbook/commit/${SOURCE_SHA}`,
+      buildSha: SOURCE_SHA,
+      buildShaEnv: spec.buildEnv,
+    });
+    assert.equal(evidence.provenance.vcsRevision, SOURCE_SHA);
+    assert.equal(
+      evidence.provenance.dockerfile,
+      `${spec.dockerfileDir}/Dockerfile`,
+    );
+    assert.equal(evidence.provenance.buildArg, spec.buildArg);
+    assert.deepEqual(
+      evidence.provenance.verifiedBaseImageDigests,
+      spec.baseImageDigests,
+    );
+    assert.equal(evidence.sbom.spdxVersion, "SPDX-2.3");
+    assert.equal(evidence.sbom.packageCount, 1);
+    assert.equal(evidence.sbom.relationshipCount, 1);
+  }
+});
+
+test("emits and validates schema-v2 preflight publication evidence", () => {
+  const result = runPreflightEvidence();
   assert.equal(result.status, 0, result.stderr);
-  const evidence = JSON.parse(result.captured["evidence.json"]);
-  assert.equal(evidence.digest, ROOT_DIGESTS[0]);
-  assert.equal(evidence.runnableManifestDigest, RUNNABLE_DIGEST);
-  assert.equal(evidence.platform, "linux/amd64");
-  assert.equal(evidence.remoteManifestVerified, true);
-  assert.equal(evidence.provenanceVerified, true);
-  assert.equal(evidence.sbomVerified, true);
+  const evidence = JSON.parse(result.captured["preflight-publication.json"]);
+  assert.equal(evidence.schemaVersion, 2);
+  assert.equal(evidence.kind, "site-logbook-staging-preflight-publication");
+  assert.equal(evidence.initialPackageState, "00000");
+  assert.equal(evidence.registryAction, "published");
+  assert.equal(evidence.package.packageName, PACKAGE_NAMES[0]);
+  assert.equal(evidence.package.deletedVersionCount, null);
+  assert.equal(
+    evidence.package.provenance.verifiedBaseImageDigests[0],
+    PACKAGE_BUILD_SPECS[0].baseImageDigests[0],
+  );
+  assert.match(
+    result.captured["preflight-publication.sha256"],
+    /^[0-9a-f]{64}[ ]{2}preflight-publication\.json\n$/u,
+  );
+
+  const invalid = candidatePackageEvidence();
+  invalid.sbom.packageCount = 0;
+  const rejected = runPreflightEvidence(invalid);
+  assert.notEqual(rejected.status, 0);
+});
+
+test("rejects candidate inventory, runtime metadata, provenance, and SBOM drift", () => {
+  const base = validRemoteFixtureFiles();
+  const metadata = JSON.parse(
+    base[`fixtures/package-${PACKAGE_NAMES[0]}.json`],
+  );
+  metadata.version_count = 2;
+  const parity = runVerifier({
+    files: {
+      [`fixtures/package-${PACKAGE_NAMES[0]}.json`]: JSON.stringify(metadata),
+    },
+  });
+  assert.notEqual(parity.status, 0);
+  assert.match(parity.stderr, /ACTIVE_VERSION_INVENTORY_NOT_READY/u);
+
+  const selected = JSON.parse(
+    base[`fixtures/selected-${PACKAGE_NAMES[0]}.json`],
+  );
+  selected.metadata.container.tags.push("mutable-alias");
+  const refetch = runVerifier({
+    files: {
+      [`fixtures/selected-${PACKAGE_NAMES[0]}.json`]: JSON.stringify(selected),
+    },
+  });
+  assert.notEqual(refetch.status, 0);
+  assert.match(refetch.stderr, /SELECTED_VERSION_REFETCH_NOT_READY/u);
+
+  for (const [fixture, mutate, diagnostic] of [
+    [
+      "fixtures/image.json",
+      (value) => {
+        value.config.Labels["org.opencontainers.image.source"] =
+          "https://github.com/modvolt/site-logbook-registry";
+      },
+      "RUNTIME_METADATA_NOT_READY",
+    ],
+    [
+      "fixtures/image.json",
+      (value) => {
+        value.config.Env = ["BUILD_SHA=wrong"];
+      },
+      "RUNTIME_METADATA_NOT_READY",
+    ],
+    [
+      "fixtures/provenance.json",
+      (value) => {
+        value.SLSA.invocation.parameters.args["build-arg:BUILD_SHA"] =
+          "0".repeat(40);
+      },
+      "PROVENANCE_NOT_READY",
+    ],
+    [
+      "fixtures/provenance.json",
+      (value) => {
+        value.SLSA.invocation.parameters.root.request.args[
+          "vcs:localdir:dockerfile"
+        ] = "artifacts/stavba";
+      },
+      "PROVENANCE_NOT_READY",
+    ],
+    [
+      "fixtures/provenance.json",
+      (value) => {
+        value.SLSA.materials = [];
+      },
+      "PROVENANCE_NOT_READY",
+    ],
+    [
+      "fixtures/sbom.json",
+      (value) => {
+        value.SPDX.packages = [];
+      },
+      "SBOM_NOT_READY",
+    ],
+    [
+      "fixtures/sbom.json",
+      (value) => {
+        value.SPDX.relationships[0].relationshipType = "DESCRIBES";
+      },
+      "SBOM_NOT_READY",
+    ],
+  ]) {
+    const value = JSON.parse(base[fixture]);
+    mutate(value);
+    const result = runVerifier({ files: { [fixture]: JSON.stringify(value) } });
+    assert.notEqual(result.status, 0, fixture);
+    assert.match(result.stderr, new RegExp(diagnostic, "u"), fixture);
+  }
 });
 
 test("rejects extra runnable platforms and unbound or malformed attestations", () => {

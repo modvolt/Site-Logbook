@@ -1,131 +1,119 @@
-# FÁZE 13.8G-D-A – private GHCR publication preflight
+# Private GHCR staging publisher runbook
 
-- **Datum dokončení:** 2026-08-04.
-- **Verdikt:** **STOP – WORKFLOW NELZE DISPATCHNOUT A PRIVATE VISIBILITY NENÍ ZAJIŠTĚNA**.
-- **Schválený source kandidát:** `01606ff564456f49ac9e3094c564917db023b977`.
-- **Quality gate:** [run 30856976202](https://github.com/modvolt/Site-Logbook/actions/runs/30856976202), `completed/success`.
-- **Registry zápis:** neproveden.
-- **Deploy:** neproveden.
-- **Migrace `0100`:** nepřítomná, nedotčená a nespouštěná.
+Status: candidate publication control plane; no deployment or migration is authorized by this document.
 
-## Ověřený stav
+This runbook covers the private caller in `modvolt/site-logbook-registry` and the reusable public workflow `.github/workflows/staging-images.yml` in `modvolt/Site-Logbook`. The publisher is deliberately split into two separately reviewed manual runs. A pull request, merge, Quality gate, or evidence download never deploys an image and never runs a database migration.
 
-GitHub metadata a dvě nezávislé agentní kontroly potvrdily:
+## Immutable inputs
 
-- repozitář `modvolt/Site-Logbook` je **public**, vlastníkem je osobní účet `modvolt`;
-- PR #1 je otevřený, draft a nesloučený; head je přesně `01606ff…`, base `main` je
-  `a25c3128e317c7efe6feaa3a6a8a40eecd6cdc0f`;
-- lokální HEAD `7a49fc65e17597dbf933c0516db6716f93561abb` se od remote kandidáta liší pouze dvěma
-  auditními dokumenty F13.8G-C a worktree byl před tímto checkpointem čistý;
-- GitHub Actions jsou povolené, `allowed_actions=all`, defaultní `GITHUB_TOKEN` je read-only;
-  publication workflow si explicitně žádá pouze `contents: read` a `packages: write`;
-- aktuální `gh` přihlášení je platné, ale má scopes `gist`, `read:org`, `repo` a nemá
-  `read:packages`; úplný privátní package inventory proto skončil očekávaným HTTP 403;
-- v registrovaném Actions seznamu je pouze `Quality gate`; žádný image-publication run
-  ani workflow zde není.
+Before either run, record and re-read live:
 
-## STOP-1 – workflow není dispatchovatelný
+- `SOURCE_SHA`: exact head of public draft PR #15;
+- `SOURCE_REF`: `agent/phase16c3-staging-preflight`;
+- `SOURCE_PR_NUMBER`: `15`;
+- `PRIVATE_MAIN`: exact private `main` commit containing the reviewed one-file caller;
+- exact successful public `Quality gate` run and job for `SOURCE_SHA`;
+- current private GHCR inventory and active publisher runs.
 
-Soubor `.github/workflows/staging-images.yml` existuje na kandidátu jako blob
-`6c1ceb5ba995ef08831cfb892b0484440efaa4c8`, ale stejná cesta na defaultní větvi `main`
-vrací z GitHub Contents API 404. GitHub vyžaduje, aby workflow s `workflow_dispatch`
-existoval na defaultní větvi, teprve potom lze zvolit jinou branch přes `--ref`.
+The public PR must remain open, draft and unmerged. `SOURCE_SHA` must be both the current source branch head and the exact successful pull-request Quality run head. The private workflow must execute from the live private `main` commit under the `modvolt` account.
 
-Zdroj: [GitHub – Manually running a workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+The metadata credential is the repository secret `SITE_LOGBOOK_GHCR_METADATA_READ_TOKEN`. It is a distinct classic PAT owned by `modvolt` with exactly `read:packages`. The workflow `GITHUB_TOKEN` is used only for GHCR login and the separately approved write step.
 
-Pokus o dispatch současného souboru by proto nebyl funkční. Nebyl proveden ani zkušební
-dispatch, rerun nebo alternativní event.
+## Fixed package order and state
 
-## STOP-2 – současný model by nezaručil private GHCR
+The five state bits are ordered exactly as follows:
 
-Workflow se autentizuje `${{ secrets.GITHUB_TOKEN }}` z veřejného source repozitáře.
-GitHub pro package vytvořenou workflow pomocí `GITHUB_TOKEN` uvádí, že standardně dědí
-visibility a permission model repozitáře, ve kterém workflow běží. V tomto případě by
-výchozí model byl public. Všechny čtyři Dockerfiles navíc obsahují
-`org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook`, takže package
-je před prvním publikováním explicitně propojena s veřejným repozitářem.
+1. `site-logbook-staging-preflight`;
+2. `site-logbook-staging-mailpit`;
+3. `site-logbook-staging-api`;
+4. `site-logbook-staging-web`;
+5. `site-logbook-staging-alert-receiver`.
 
-Zdroje:
+Only these transitions are valid:
 
-- [GitHub – package defaults for workflows](https://docs.github.com/en/enterprise-cloud@latest/packages/managing-github-packages-using-github-actions-workflows/publishing-and-installing-a-package-with-github-actions#default-permissions-and-access-settings-for-packages-modified-through-workflows)
-- [GitHub – package access and visibility](https://docs.github.com/en/enterprise-cloud@latest/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)
+| Stage            | Initial exact-SHA state | Decision                                  |
+| ---------------- | ----------------------- | ----------------------------------------- |
+| `preflight-only` | `00000`                 | publish only preflight                    |
+| `preflight-only` | `10000`                 | verify existing preflight, no write       |
+| `complete`       | `10000`                 | publish the remaining four in fixed order |
+| `complete`       | `11111`                 | verify all five, no write                 |
 
-Obecné pravidlo „první GHCR package je private“ platí pro běžný registry push, ale není
-bezpečné jím přebít konkrétní workflow inheritance pravidlo. Navíc GitHub upozorňuje, že
-jednou zveřejněnou package nelze změnit zpět na private. Nesmí proto vzniknout ani krátké
-public okno s následnou opravou visibility.
+Every other state is a hard stop. In particular, a partial state such as `11000` never triggers automatic recovery or overwrite.
 
-## Zamýšlené registry objekty
+## Required verification
 
-Současný workflow by publikoval přesně tyto čtyři názvy, vždy jen pro `linux/amd64`:
+For each present exact tag the reusable workflow must prove:
 
-```text
-ghcr.io/modvolt/site-logbook-staging-preflight
-ghcr.io/modvolt/site-logbook-staging-mailpit
-ghcr.io/modvolt/site-logbook-staging-api
-ghcr.io/modvolt/site-logbook-staging-web
-```
+- one private package linked to `modvolt/site-logbook-registry`;
+- a fully paginated active-version inventory whose length equals `version_count`;
+- unique version IDs, digests and tags;
+- one exact SHA tag, followed by a selected-version refetch with exactly that one tag;
+- one OCI index with one `linux/amd64` runnable manifest and one linked attestation manifest;
+- exact public source, revision and commit URL in runtime labels;
+- the package-specific build SHA environment variable;
+- pinned Buildx `v0.34.1` and BuildKit `v0.30.0` image digest;
+- BuildKit provenance v0.2 bound to the public VCS revision, Dockerfile, build argument and the package-specific required subset of pinned base-image material digests;
+- an SPDX 2.2 or 2.3 SBOM containing packages and a package-bound `CONTAINS` relationship.
 
-Každý build používá SHA-pinned `docker/build-push-action`, `push: true`, BuildKit
-`provenance: mode=max` a `sbom: true`. Výstupní `staging-images.json` má obsahovat source
-SHA a čtyři `repository@sha256` reference a je uchován 30 dní jako Actions artifact.
+The final verifier uses at most 36 attempts separated by five seconds and emits a non-secret diagnostic code. Exhaustion is failure, never implicit success.
 
-Tyto kladné vlastnosti nezmírňují oba STOP blokátory. Manifest navíc nyní explicitně
-neodmítá prázdný nebo neplatný digest, neověřuje GHCR namespace a není kryptograficky
-ověřován před budoucím použitím.
+## Stage 1: preflight-only
 
-## Další supply-chain mezery
+This stage requires a separate dispatch approval. Inputs are:
 
-- vstupní `expected_sha` se porovnává pouze s právě zvoleným `github.sha`; workflow
-  neověřuje povolenou source větev, aktuální PR head ani úspěšný exact-SHA Quality gate;
-- confirmation boolean není svázán s chráněným registry environmentem;
-- BuildKit provenance a SBOM jsou OCI attestations, ale workflow nevytváří samostatnou
-  GitHub-signed attestation ani ji před použitím neověřuje;
-- stejný SHA tag lze znovu publikovat a některé build-time OS balíčky i runner zůstávají
-  časově proměnlivé, takže source SHA sám negarantuje reprodukovatelný image digest;
-- existující kontraktní testy ověřují hlavně počet výskytů a syntaktický tvar; nezachytí
-  absenci workflow na default branch, public inheritance, vazbu na PR/Quality gate ani
-  malformed digest output.
+- `publication_stage`: `preflight-only`;
+- `expected_preflight_digest`: empty;
+- `confirm_registry_publication`: `true`;
+- confirmation phrase: `PUBLISH_SITE_LOGBOOK_STAGING_PREFLIGHT_IMAGE_NO_DEPLOY`.
 
-## Relevantní lokální kontroly
+Only state `00000` may reach the one preflight push. Immediately before the push, the workflow re-reads the active inventory and requires the exact source tag to remain absent.
 
-- `pnpm gate:staging-runtime`: **PASS**;
-- `pnpm test:staging-contract`: **16/16 PASS**;
-- runtime kontrakt potvrzuje čtyři immutable digest reference, `pull_policy: always`,
-  celkový limit 2,25 CPU / 2304 MiB a zákaz host buildů;
-- zelené syntaktické kontrakty nejsou důkazem reálné dispatchability nebo private
-  visibility; právě tyto dvě mezery read-only live preflight odhalil.
+Download both files from artifact `preflight-publication-<SOURCE_SHA>`:
 
-## Doporučená oprava publikačního modelu
+- `preflight-publication.json`;
+- `preflight-publication.sha256`.
 
-Doporučený model je oddělený soukromý publisher repozitář, například
-`modvolt/site-logbook-registry`, nikoli vložení write tokenu do veřejného repozitáře:
+The JSON is schema version 2, kind `site-logbook-staging-preflight-publication`, and binds the source, private caller, run, pinned toolchain, immutable digest and rich package evidence. Verify the GNU checksum against the raw JSON bytes and separately approve the recorded preflight digest before stage 2.
 
-1. vytvořit nový **private** repozitář s minimálním default-branch dispatch wrapperem;
-2. source workflow převést na bezpečně volatelný, commit-pinned publication workflow nebo
-   vložit ekvivalentní minimální workflow přímo do private publisheru;
-3. buildovat pouze explicitní source SHA z `modvolt/Site-Logbook`, fail-closed ověřit PR
-   head a úspěšný Quality gate;
-4. pro GHCR publish použít krátkodobý `GITHUB_TOKEN` private publisher repozitáře s
-   `packages: write`, nikoli dlouhodobý osobní write PAT;
-5. přepsat OCI source label na private publisher repo a ponechat source commit jako
-   revision/metadata, aby package nezdědila public visibility;
-6. před publikací validovat čtyři image názvy, po buildu čtyři neprázdné SHA-256 digesty a
-   secret-free manifest;
-7. po prvním zápisu okamžitě read-only potvrdit `visibility=private`; při jakékoli odchylce
-   zastavit další image a nikdy nepokračovat k deployi;
-8. až později vytvořit pro Coolify samostatný PAT classic pouze s `read:packages` a uložit
-   jej do Docker credential store správného OS uživatele na hostu, nikoli do Compose,
-   source Git nebo auditní evidence.
+## Stage 2: complete
 
-Coolify dokumentuje registry login pod stejným OS uživatelem, který je nakonfigurován pro
-server: [Coolify – Docker Registry](https://coolify.io/docs/knowledge-base/docker/registry).
+This stage requires another separate dispatch approval. Inputs are:
 
-## Negativní důkazy
+- `publication_stage`: `complete`;
+- `expected_preflight_digest`: exact approved `sha256:<64 hex>` from stage 1;
+- `confirm_registry_publication`: `true`;
+- confirmation phrase: `PUBLISH_REMAINING_SITE_LOGBOOK_STAGING_IMAGES_NO_DEPLOY`.
 
-- žádný workflow dispatch, rerun, image build, pull nebo push;
-- žádný GHCR package write, delete, visibility change nebo token creation;
-- žádný nový repozitář, větev, PR, commit na remote ani změna `main`;
-- žádná změna GitHub Actions settings, environmentu, secrets nebo oprávnění;
-- žádný kontakt s Coolify, Docker hostem, S3, DNS, stagingem ani produkcí;
-- žádná DB, migrace, restore, backfill ani migrace `0100`.
+Only state `10000` may publish. Mailpit, API, web and alert receiver are processed sequentially. Each image has an immediate absence recheck, write, strict verification and durable partial-publication evidence before the next image can be written.
+
+Download both files from artifact `staging-images-<SOURCE_SHA>`:
+
+- `staging-images.json`;
+- `staging-images.sha256`.
+
+The JSON is schema version 2, kind `site-logbook-staging-images`, publication stage `complete`, and contains all five immutable digest references plus package-level inventory, runtime metadata, provenance and SBOM evidence. Validate it with `scripts/verify-staging-image-manifest.mjs` and a separately approved checksum before creating deployment inputs.
+
+## Deleted-version limitation and current dispatch blocker
+
+The exact-scope `read:packages` credential has not been able to read the deleted-version endpoint in the observed private-package recovery path. The workflow therefore does not claim a deleted-version inventory check. Every package evidence object says exactly:
+
+- `deletedInventoryMode: not-queryable-exact-read-scope`;
+- `visibleDeletedTagConflictChecked: false`;
+- `deletedVersionCount: null`;
+- `deletedHistoryScope: external-audit-ledger-only`.
+
+This is an explicit residual limitation, not proof that deleted versions never existed. Before the first candidate write, one separately approved decision is still required: either prove the deleted endpoint through a no-write credential probe, approve a narrowly reviewed metadata-scope change, or explicitly accept the external audit ledger as the remaining control. Do not weaken the workflow silently and do not represent a 403/404 response as an empty deleted inventory.
+
+## Approval boundaries
+
+Each item below is independent and requires its own explicit authorization:
+
+- merging or modifying the private caller;
+- each workflow dispatch;
+- each possible GHCR write stage;
+- changing the metadata credential scope;
+- provisioning or modifying Coolify staging;
+- deployment;
+- database migration, including `0105`; migration `0100` remains excluded.
+
+No step in this runbook touches the existing production Coolify resource, production database, production S3 bucket, production DNS or `modvoltapp.cz`.

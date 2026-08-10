@@ -348,22 +348,36 @@ jobs:
             jq -e \
               --arg caller "$APPROVED_CALLER_REPOSITORY" \
               --arg package "$package_name" \
-              '.name == $package and
+              '(.id | type) == "number" and .id > 0 and
+               .name == $package and
                .package_type == "container" and
                (.owner.login | ascii_downcase) == "modvolt" and
                .visibility == "private" and
                (.repository.full_name | ascii_downcase) == $caller and
-               .repository.private == true' \
+               .repository.private == true and
+               (.version_count | type) == "number" and .version_count >= 0' \
               <<<"$package_json" >/dev/null \
               || fail "package ${package_name} is not private and linked to the approved private caller."
 
             versions_json="$(
               gh api --paginate \
                 --header 'X-GitHub-Api-Version: 2022-11-28' \
-                "/user/packages/container/${package_name}/versions?per_page=100" |
+                "/user/packages/container/${package_name}/versions?state=active&per_page=100" |
                 jq -s 'add'
             )" || fail "package versions for ${package_name} could not be read."
-            jq -e 'type == "array"' <<<"$versions_json" >/dev/null \
+            jq -e \
+              --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+              'type == "array" and length == $expected and
+               ([.[].id] | length) == ([.[].id] | unique | length) and
+               ([.[].name] | length) == ([.[].name] | unique | length) and
+               all(.[];
+                 (.id | type) == "number" and .id > 0 and
+                 (.name | type) == "string" and (.name | test("^sha256:[0-9a-f]{64}$")) and
+                 .metadata.package_type == "container" and
+                 ((.metadata.container.tags // []) | type) == "array" and
+                 ((.metadata.container.tags // []) | length) == ((.metadata.container.tags // []) | unique | length) and
+                 all((.metadata.container.tags // [])[]; type == "string"))' \
+              <<<"$versions_json" >/dev/null \
               || fail "package versions for ${package_name} are malformed."
             matches_json="$(
               jq -c \
@@ -378,9 +392,24 @@ jobs:
                 state+="0"
                 ;;
               1)
-                digest="$(jq -r '.[0].name' <<<"$matches_json")"
+                version_json="$(jq -c '.[0]' <<<"$matches_json")"
+                version_id="$(jq -r '.id' <<<"$version_json")"
+                digest="$(jq -r '.name' <<<"$version_json")"
                 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
                   || fail "the exact source tag for ${package_name} has an invalid digest."
+                selected_version_json="$(
+                  gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                    "/user/packages/container/${package_name}/versions/${version_id}"
+                )" || fail "the exact source version for ${package_name} could not be refetched."
+                jq -e \
+                  --arg digest "$digest" \
+                  --arg sha "$SOURCE_SHA" \
+                  --argjson id "$version_id" \
+                  '.id == $id and .name == $digest and
+                   .metadata.package_type == "container" and
+                   (.metadata.container.tags // []) == [$sha]' \
+                  <<<"$selected_version_json" >/dev/null \
+                  || fail "the refetched exact source version for ${package_name} is not immutable."
                 exact_digests["$package_key"]="$digest"
                 state+="1"
                 ;;
@@ -432,6 +461,9 @@ jobs:
 
       - name: Configure Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.34.1
+          driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f
 
       - name: Authenticate to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -470,9 +502,41 @@ jobs:
           evidence_path="${3:?evidence path required}"
           source_sha="${SOURCE_SHA:?source SHA required}"
           approved_caller="modvolt/site-logbook-registry"
+          verification_attempts=36
+          verification_poll_seconds=5
+          expected_source="https://github.com/modvolt/Site-Logbook"
 
           case "$package_name" in
-            site-logbook-staging-preflight|site-logbook-staging-mailpit|site-logbook-staging-api|site-logbook-staging-web|site-logbook-staging-alert-receiver) ;;
+            site-logbook-staging-preflight)
+              expected_dockerfile_dir="deploy/staging/preflight"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="BUILD_SHA"
+              expected_base_digests='["sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"]'
+              ;;
+            site-logbook-staging-mailpit)
+              expected_dockerfile_dir="deploy/staging/mailpit"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="BUILD_SHA"
+              expected_base_digests='["sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d","sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"]'
+              ;;
+            site-logbook-staging-api)
+              expected_dockerfile_dir="artifacts/api-server"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="BUILD_SHA"
+              expected_base_digests='["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"]'
+              ;;
+            site-logbook-staging-web)
+              expected_dockerfile_dir="artifacts/stavba"
+              expected_build_arg="VITE_BUILD_SHA"
+              expected_build_env="VITE_BUILD_SHA"
+              expected_base_digests='["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7","sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10"]'
+              ;;
+            site-logbook-staging-alert-receiver)
+              expected_dockerfile_dir="deploy/operational-alert-receiver"
+              expected_build_arg="BUILD_SHA"
+              expected_build_env="RECEIVER_BUILD_SHA"
+              expected_base_digests='["sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"]'
+              ;;
             *) echo "Unexpected package name: ${package_name}" >&2; exit 1 ;;
           esac
           [[ "$expected_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
@@ -484,7 +548,18 @@ jobs:
             exit 1
           }
 
-          for attempt in $(seq 1 12); do
+          retry_verification() {
+            local diagnostic_code="$1"
+            echo "::notice title=Candidate image verifier::attempt ${attempt}/${verification_attempts}: ${diagnostic_code}"
+            if [[ "$attempt" == "$verification_attempts" ]]; then
+              echo "Candidate image verification exhausted after ${verification_attempts} attempts: ${diagnostic_code}." >&2
+              exit 1
+            fi
+            sleep "$verification_poll_seconds"
+          }
+
+          for attempt in $(seq 1 "$verification_attempts"); do
+            diagnostic_code="PACKAGE_METADATA_NOT_READY"
             package_json="$(
               gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
                 "/user/packages/container/${package_name}" 2>/dev/null
@@ -492,85 +567,181 @@ jobs:
             versions_json="$(
               gh api --paginate \
                 --header 'X-GitHub-Api-Version: 2022-11-28' \
-                "/user/packages/container/${package_name}/versions?per_page=100" 2>/dev/null |
+                "/user/packages/container/${package_name}/versions?state=active&per_page=100" 2>/dev/null |
                 jq -s 'add'
             )" || versions_json=""
 
-            if jq -e \
+            if ! jq -e \
               --arg caller "$approved_caller" \
               --arg package "$package_name" \
-              '.name == $package and
+              '(.id | type) == "number" and .id > 0 and
+               .name == $package and
                .package_type == "container" and
                (.owner.login | ascii_downcase) == "modvolt" and
                .visibility == "private" and
                (.repository.full_name | ascii_downcase) == $caller and
                .repository.private == true and
-               .version_count >= 1' \
-              <<<"$package_json" >/dev/null 2>&1 &&
-              jq -e \
+               (.version_count | type) == "number" and .version_count >= 0' \
+              <<<"$package_json" >/dev/null 2>&1
+            then
+              diagnostic_code="PACKAGE_METADATA_NOT_READY"
+            elif ! jq -e \
                 --arg digest "$expected_digest" \
                 --arg sha "$source_sha" \
-                '[.[] |
-                  select(((.metadata.container.tags // []) | index($sha)) != null)] |
-                 length == 1 and .[0].name == $digest' \
+                --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+                'type == "array" and length == $expected and
+                 ([.[].id] | length) == ([.[].id] | unique | length) and
+                 ([.[].name] | length) == ([.[].name] | unique | length) and
+                 all(.[];
+                   (.id | type) == "number" and .id > 0 and
+                   (.name | type) == "string" and (.name | test("^sha256:[0-9a-f]{64}$")) and
+                   .metadata.package_type == "container" and
+                   ((.metadata.container.tags // []) | type) == "array" and
+                   ((.metadata.container.tags // []) | length) == ((.metadata.container.tags // []) | unique | length) and
+                   all((.metadata.container.tags // [])[]; type == "string")) and
+                 ([.[] | select(((.metadata.container.tags // []) | index($sha)) != null)] |
+                  length == 1 and .[0].name == $digest)' \
                 <<<"$versions_json" >/dev/null 2>&1
             then
+              diagnostic_code="ACTIVE_VERSION_INVENTORY_NOT_READY"
+            else
               version_json="$(
                 jq -c --arg sha "$source_sha" \
                   '.[] | select(((.metadata.container.tags // []) | index($sha)) != null)' \
                   <<<"$versions_json"
               )"
+              version_id="$(jq -r '.id' <<<"$version_json")"
+              selected_version_json="$(
+                gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
+                  "/user/packages/container/${package_name}/versions/${version_id}" 2>/dev/null
+              )" || selected_version_json=""
+              if ! jq -e \
+                --arg digest "$expected_digest" \
+                --arg sha "$source_sha" \
+                --argjson id "$version_id" \
+                '.id == $id and .name == $digest and
+                 .metadata.package_type == "container" and
+                 (.metadata.container.tags // []) == [$sha]' \
+                <<<"$selected_version_json" >/dev/null 2>&1
+              then
+                retry_verification "SELECTED_VERSION_REFETCH_NOT_READY"
+                continue
+              fi
               repository="ghcr.io/modvolt/${package_name}"
               reference="${repository}@${expected_digest}"
               manifest_json="$(
                 docker buildx imagetools inspect "$reference" \
                   --format '{{json .Manifest}}' 2>/dev/null
               )" || manifest_json=""
-              provenance_json="$(
-                docker buildx imagetools inspect "$reference" \
-                  --format '{{json .Provenance}}' 2>/dev/null
-              )" || provenance_json=""
-              sbom_json="$(
-                docker buildx imagetools inspect "$reference" \
-                  --format '{{json .SBOM}}' 2>/dev/null
-              )" || sbom_json=""
+              runnable_digest_candidate="$(
+                jq -r '[.manifests[]? | select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")][0].digest // empty' \
+                  <<<"$manifest_json" 2>/dev/null
+              )" || runnable_digest_candidate=""
+              if [[ "$runnable_digest_candidate" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                image_json="$(
+                  docker buildx imagetools inspect \
+                    "${repository}@${runnable_digest_candidate}" \
+                    --format '{{json .Image}}' 2>/dev/null
+                )" || image_json=""
+              else
+                image_json=""
+              fi
+              provenance_json="$(docker buildx imagetools inspect "$reference" --format '{{json .Provenance}}' 2>/dev/null)" || provenance_json=""
+              sbom_json="$(docker buildx imagetools inspect "$reference" --format '{{json .SBOM}}' 2>/dev/null)" || sbom_json=""
 
-              if jq -e \
-                --arg digest "$expected_digest" \
+              if ! jq -e --arg digest "$expected_digest" \
                 '.schemaVersion == 2 and
                  .mediaType == "application/vnd.oci.image.index.v1+json" and
                  .digest == $digest and
                  ((.manifests // []) as $manifests |
-                  ($manifests |
-                    map(select(
-                      (.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"
-                    ))) as $runnable |
-                  ($manifests |
-                    map(select(
-                      .annotations["vnd.docker.reference.type"] == "attestation-manifest"
-                    ))) as $attestations |
+                  ($manifests | map(select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest"))) as $runnable |
+                  ($manifests | map(select(.annotations["vnd.docker.reference.type"] == "attestation-manifest"))) as $attestations |
+                  ($manifests | length) == 2 and
+                  ([ $manifests[].digest ] | length) == ([ $manifests[].digest ] | unique | length) and
+                  all($manifests[];
+                    .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+                    (.size | type) == "number" and .size > 0 and
+                    (.digest | test("^sha256:[0-9a-f]{64}$"))) and
                   ($runnable | length) == 1 and
-                  $runnable[0].mediaType == "application/vnd.oci.image.manifest.v1+json" and
                   $runnable[0].platform.os == "linux" and
                   $runnable[0].platform.architecture == "amd64" and
-                  ($runnable[0].digest | test("^sha256:[0-9a-f]{64}$")) and
                   ($attestations | length) == 1 and
                   all($attestations[];
-                    .mediaType == "application/vnd.oci.image.manifest.v1+json" and
-                    (.digest | test("^sha256:[0-9a-f]{64}$")) and
                     .annotations["vnd.docker.reference.digest"] == $runnable[0].digest and
                     .platform.os == "unknown" and
                     .platform.architecture == "unknown"))' \
-                <<<"$manifest_json" >/dev/null 2>&1 &&
-                jq -e \
-                  '.SLSA.buildType == "https://mobyproject.org/buildkit@v1" and
-                   .SLSA.invocation.environment.platform == "linux/amd64"' \
-                  <<<"$provenance_json" >/dev/null 2>&1 &&
-                jq -e \
-                  '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and
-                   (.SPDX.spdxVersion | test("^SPDX-[0-9]+\\.[0-9]+$"))' \
-                  <<<"$sbom_json" >/dev/null 2>&1
+                <<<"$manifest_json" >/dev/null 2>&1
               then
+                diagnostic_code="OCI_INDEX_NOT_READY"
+              elif ! jq -e \
+                --arg envKey "$expected_build_env" \
+                --arg sha "$source_sha" \
+                --arg source "$expected_source" \
+                '.architecture == "amd64" and .os == "linux" and
+                 .config.Labels["org.opencontainers.image.source"] == $source and
+                 .config.Labels["org.opencontainers.image.revision"] == $sha and
+                 .config.Labels["org.opencontainers.image.url"] == ($source + "/commit/" + $sha) and
+                 ((.config.Env // []) | index($envKey + "=" + $sha)) != null' \
+                <<<"$image_json" >/dev/null 2>&1
+              then
+                diagnostic_code="RUNTIME_METADATA_NOT_READY"
+              elif ! jq -e \
+                --arg argName "$expected_build_arg" \
+                --arg dockerfileDir "$expected_dockerfile_dir" \
+                --arg sha "$source_sha" \
+                --argjson bases "$expected_base_digests" \
+                '(.SLSA.materials // []) as $materials |
+                 .SLSA.buildType == "https://mobyproject.org/buildkit@v1" and
+                 .SLSA.invocation.environment.platform == "linux/amd64" and
+                 .SLSA.metadata.completeness.parameters == true and
+                 .SLSA.metadata.completeness.environment == true and
+                 .SLSA.invocation.configSource.entryPoint == "Dockerfile" and
+                 .SLSA.invocation.parameters.root.configSource.path == "Dockerfile" and
+                 .SLSA.invocation.parameters.root.request.args["vcs:localdir:context"] == "." and
+                 .SLSA.invocation.parameters.root.request.args["vcs:localdir:dockerfile"] == $dockerfileDir and
+                 .SLSA.invocation.parameters.root.request.args["vcs:revision"] == $sha and
+                 ((.SLSA.invocation.parameters.root.request.args["vcs:source"] | ascii_downcase) |
+                  test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+                 .SLSA.invocation.parameters.args["build-arg:" + $argName] == $sha and
+                 ($materials | length) > 0 and
+                 all($bases[];
+                   . as $base |
+                   any($materials[]?; .digest.sha256 == ($base | sub("^sha256:"; "")))) and
+                 (.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs as $vcs |
+                  $vcs.revision == $sha and
+                  (($vcs.source | ascii_downcase) |
+                   test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")))' \
+                <<<"$provenance_json" >/dev/null 2>&1
+              then
+                diagnostic_code="PROVENANCE_NOT_READY"
+              elif ! jq -e \
+                '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and
+                 .SPDX.dataLicense == "CC0-1.0" and
+                 (.SPDX.spdxVersion == "SPDX-2.2" or .SPDX.spdxVersion == "SPDX-2.3") and
+                 (.SPDX.documentNamespace | type) == "string" and
+                 (.SPDX.documentNamespace | test("^https://")) and
+                 (.SPDX.creationInfo.created | type) == "string" and
+                 (.SPDX.creationInfo.created | length) > 0 and
+                 ((.SPDX.creationInfo.creators // []) | length) > 0 and
+                 all(.SPDX.creationInfo.creators[]; type == "string" and length > 0) and
+                 ((.SPDX.packages // []) as $packages |
+                  (.SPDX.relationships // []) as $relationships |
+                  ([ $packages[].SPDXID ]) as $packageIds |
+                  ($packages | length) > 0 and
+                  ($packageIds | length) == ($packageIds | unique | length) and
+                  all($packages[];
+                    (.SPDXID | type) == "string" and (.SPDXID | length) > 0 and
+                    (.name | type) == "string" and (.name | length) > 0) and
+                  ($relationships | length) > 0 and
+                  any($relationships[];
+                    . as $relationship |
+                    $relationship.relationshipType == "CONTAINS" and
+                    (($packageIds | index($relationship.spdxElementId)) != null or
+                     ($packageIds | index($relationship.relatedSpdxElement)) != null)))' \
+                <<<"$sbom_json" >/dev/null 2>&1
+              then
+                diagnostic_code="SBOM_NOT_READY"
+              else
                 runnable_manifest_digest="$(
                   jq -r \
                     '[.manifests[] |
@@ -579,25 +750,52 @@ jobs:
                       )][0].digest' \
                     <<<"$manifest_json"
                 )"
+                active_version_count="$(jq -r 'length' <<<"$versions_json")"
+                package_version_count="$(jq -r '.version_count' <<<"$package_json")"
+                runtime_source="$(jq -r '.config.Labels["org.opencontainers.image.source"]' <<<"$image_json")"
+                runtime_revision="$(jq -r '.config.Labels["org.opencontainers.image.revision"]' <<<"$image_json")"
+                runtime_url="$(jq -r '.config.Labels["org.opencontainers.image.url"]' <<<"$image_json")"
+                provenance_vcs_source="$(jq -r '.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.source' <<<"$provenance_json")"
+                provenance_vcs_revision="$(jq -r '.SLSA.metadata["https://mobyproject.org/buildkit@v1#metadata"].vcs.revision' <<<"$provenance_json")"
+                provenance_build_sha="$(jq -r --arg argName "$expected_build_arg" '.SLSA.invocation.parameters.args["build-arg:" + $argName]' <<<"$provenance_json")"
+                sbom_version="$(jq -r '.SPDX.spdxVersion' <<<"$sbom_json")"
+                sbom_package_count="$(jq -r '(.SPDX.packages // []) | length' <<<"$sbom_json")"
+                sbom_relationship_count="$(jq -r '(.SPDX.relationships // []) | length' <<<"$sbom_json")"
                 jq -n \
+                  --argjson activeVersionCount "$active_version_count" \
+                  --arg buildShaEnv "$expected_build_env" \
+                  --arg buildArg "$expected_build_arg" \
+                  --argjson baseImageDigests "$expected_base_digests" \
                   --arg digest "$expected_digest" \
                   --arg packageId "$(jq -r '.id' <<<"$package_json")" \
                   --arg packageName "$package_name" \
+                  --argjson packageVersionCount "$package_version_count" \
+                  --arg provenanceBuildSha "$provenance_build_sha" \
+                  --arg provenanceDockerfile "${expected_dockerfile_dir}/Dockerfile" \
+                  --arg provenanceVcsRevision "$provenance_vcs_revision" \
+                  --arg provenanceVcsSource "$provenance_vcs_source" \
                   --arg registryRepository "$repository" \
                   --arg repository "$(jq -r '.repository.full_name' <<<"$package_json")" \
                   --arg runnableManifestDigest "$runnable_manifest_digest" \
+                  --arg runtimeRevision "$runtime_revision" \
+                  --arg runtimeSource "$runtime_source" \
+                  --arg runtimeUrl "$runtime_url" \
+                  --argjson sbomPackageCount "$sbom_package_count" \
+                  --argjson sbomRelationshipCount "$sbom_relationship_count" \
+                  --arg sbomVersion "$sbom_version" \
                   --arg sourceSha "$source_sha" \
-                  --arg versionId "$(jq -r '.id' <<<"$version_json")" \
-                  '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, runnableManifestDigest: $runnableManifestDigest, platform: "linux/amd64", remoteManifestVerified: true, provenanceVerified: true, sbomVerified: true}' \
+                  --arg versionId "$(jq -r '.id' <<<"$selected_version_json")" \
+                  '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, runnableManifestDigest: $runnableManifestDigest, platform: "linux/amd64", activeInventoryPaginated: true, activeVersionCount: $activeVersionCount, packageVersionCount: $packageVersionCount, deletedInventoryMode: "not-queryable-exact-read-scope", visibleDeletedTagConflictChecked: false, deletedVersionCount: null, deletedHistoryScope: "external-audit-ledger-only", selectedVersionRefetched: true, remoteManifestVerified: true, runtimeMetadata: {source: $runtimeSource, revision: $runtimeRevision, url: $runtimeUrl, buildSha: $sourceSha, buildShaEnv: $buildShaEnv}, provenance: {buildType: "https://mobyproject.org/buildkit@v1", vcsSource: $provenanceVcsSource, vcsRevision: $provenanceVcsRevision, dockerfile: $provenanceDockerfile, buildArg: $buildArg, buildSha: $provenanceBuildSha, verifiedBaseImageDigests: $baseImageDigests}, sbom: {spdxVersion: $sbomVersion, packageCount: $sbomPackageCount, relationshipCount: $sbomRelationshipCount}}' \
                   > "$evidence_path"
+                echo "::notice title=Candidate image verifier::verification succeeded on attempt ${attempt}/${verification_attempts}"
                 exit 0
               fi
             fi
 
-            if [[ "$attempt" -lt 12 ]]; then sleep 5; fi
+            retry_verification "$diagnostic_code"
           done
 
-          echo "Package ${package_name} did not become a private caller-linked, exact-digest, attested package." >&2
+          echo "Package ${package_name} verification ended without success." >&2
           exit 1
           VERIFY_SCRIPT
           chmod 700 "${RUNNER_TEMP}/verify-private-package.sh"
@@ -636,21 +834,34 @@ jobs:
           jq -e \
             --arg caller "$approved_caller" \
             --arg package "$package_name" \
-            '.name == $package and
+            '(.id | type) == "number" and .id > 0 and
+             .name == $package and
              .package_type == "container" and
+             (.owner.login | ascii_downcase) == "modvolt" and
              .visibility == "private" and
              (.repository.full_name | ascii_downcase) == $caller and
-             .repository.private == true' \
+             .repository.private == true and
+             (.version_count | type) == "number" and .version_count >= 0' \
             <<<"$package_json" >/dev/null
           versions_json="$(
             gh api --paginate \
               --header 'X-GitHub-Api-Version: 2022-11-28' \
-              "/user/packages/container/${package_name}/versions?per_page=100" |
+              "/user/packages/container/${package_name}/versions?state=active&per_page=100" |
               jq -s 'add'
           )"
           jq -e \
             --arg sha "$source_sha" \
-            'type == "array" and
+            --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+            'type == "array" and length == $expected and
+             ([.[].id] | length) == ([.[].id] | unique | length) and
+             ([.[].name] | length) == ([.[].name] | unique | length) and
+             all(.[];
+               (.id | type) == "number" and .id > 0 and
+               (.name | type) == "string" and (.name | test("^sha256:[0-9a-f]{64}$")) and
+               .metadata.package_type == "container" and
+               ((.metadata.container.tags // []) | type) == "array" and
+               ((.metadata.container.tags // []) | length) == ((.metadata.container.tags // []) | unique | length) and
+               all((.metadata.container.tags // [])[]; type == "string")) and
              ([.[] |
                select(((.metadata.container.tags // []) | index($sha)) != null)] |
               length == 0)' \
@@ -708,13 +919,13 @@ jobs:
           push: true
           tags: ${{ steps.names.outputs.preflight }}:${{ inputs.source_sha }}
           labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
             org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
           build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-preflight
           cache-to: type=gha,mode=max,scope=staging-preflight
-          provenance: mode=max
+          provenance: mode=max,version=v0.2
           sbom: true
 
       - name: Select exact preflight digest
@@ -777,20 +988,40 @@ jobs:
             --arg runId "$RUN_ID" \
             --arg sourceSha "$SOURCE_SHA" \
             --slurpfile package "${RUNNER_TEMP}/preflight-package.json" \
-            '{schemaVersion: 1, stage: "preflight-only", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, run: {id: $runId, attempt: $runAttempt}, repositoryDigest: $repositoryDigest, package: $package[0]}' \
+            '{schemaVersion: 2, kind: "site-logbook-staging-preflight-publication", stage: "preflight-only", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, run: {id: $runId, attempt: $runAttempt}, toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, repositoryDigest: $repositoryDigest, package: $package[0]}' \
             > preflight-publication.json
           jq -e \
             --arg digest "$PREFLIGHT_DIGEST" \
             --arg sha "$SOURCE_SHA" \
-            '.schemaVersion == 1 and
+            '.schemaVersion == 2 and
+             .kind == "site-logbook-staging-preflight-publication" and
              .stage == "preflight-only" and
              .sourceSha == $sha and
-             (.registryAction == "published" or .registryAction == "verified-noop") and
-             .package.visibility == "private" and
+             ((.initialPackageState == "00000" and .registryAction == "published") or
+              (.initialPackageState == "10000" and .registryAction == "verified-noop")) and
+             .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
+             .package.packageName == "site-logbook-staging-preflight" and
+             .package.visibility == "private" and .package.repository == "modvolt/site-logbook-registry" and
+             .package.registryRepository == "ghcr.io/modvolt/site-logbook-staging-preflight" and
+             .package.sourceSha == $sha and .package.platform == "linux/amd64" and
              .package.digest == $digest and
+             .package.activeInventoryPaginated == true and
+             (.package.activeVersionCount | type) == "number" and .package.activeVersionCount >= 1 and
+             .package.packageVersionCount == .package.activeVersionCount and
+             .package.deletedInventoryMode == "not-queryable-exact-read-scope" and
+             .package.visibleDeletedTagConflictChecked == false and .package.deletedVersionCount == null and
+             .package.deletedHistoryScope == "external-audit-ledger-only" and
+             .package.selectedVersionRefetched == true and
              .package.remoteManifestVerified == true and
-             .package.provenanceVerified == true and
-             .package.sbomVerified == true' \
+             .package.runtimeMetadata == {source: "https://github.com/modvolt/Site-Logbook", revision: $sha, url: ("https://github.com/modvolt/Site-Logbook/commit/" + $sha), buildSha: $sha, buildShaEnv: "BUILD_SHA"} and
+             .package.provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+             .package.provenance.vcsRevision == $sha and
+             .package.provenance.dockerfile == "deploy/staging/preflight/Dockerfile" and
+             .package.provenance.buildArg == "BUILD_SHA" and .package.provenance.buildSha == $sha and
+             .package.provenance.verifiedBaseImageDigests == ["sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"] and
+             (.package.provenance.vcsSource | ascii_downcase | test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+             (.package.sbom.spdxVersion == "SPDX-2.2" or .package.sbom.spdxVersion == "SPDX-2.3") and
+             .package.sbom.packageCount > 0 and .package.sbom.relationshipCount > 0' \
             preflight-publication.json >/dev/null
           sha256sum preflight-publication.json > preflight-publication.sha256
           [[ "$(awk '{print $1}' preflight-publication.sha256)" =~ ^[0-9a-f]{64}$ ]]
@@ -877,13 +1108,13 @@ jobs:
           push: true
           tags: ${{ steps.names.outputs.mailpit }}:${{ inputs.source_sha }}
           labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
             org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
           build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-mailpit
           cache-to: type=gha,mode=max,scope=staging-mailpit
-          provenance: mode=max
+          provenance: mode=max,version=v0.2
           sbom: true
 
       - name: Select exact Mailpit digest
@@ -954,13 +1185,13 @@ jobs:
           push: true
           tags: ${{ steps.names.outputs.api }}:${{ inputs.source_sha }}
           labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
             org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
           build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-api
           cache-to: type=gha,mode=max,scope=staging-api
-          provenance: mode=max
+          provenance: mode=max,version=v0.2
           sbom: true
 
       - name: Select exact API digest
@@ -1031,7 +1262,7 @@ jobs:
           push: true
           tags: ${{ steps.names.outputs.web }}:${{ inputs.source_sha }}
           labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
             org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
           build-args: |
@@ -1039,7 +1270,7 @@ jobs:
             VITE_BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-web
           cache-to: type=gha,mode=max,scope=staging-web
-          provenance: mode=max
+          provenance: mode=max,version=v0.2
           sbom: true
 
       - name: Select exact web digest
@@ -1110,13 +1341,13 @@ jobs:
           push: true
           tags: ${{ steps.names.outputs.alert_receiver }}:${{ inputs.source_sha }}
           labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook
             org.opencontainers.image.revision=${{ inputs.source_sha }}
             org.opencontainers.image.url=https://github.com/modvolt/Site-Logbook/commit/${{ inputs.source_sha }}
           build-args: BUILD_SHA=${{ inputs.source_sha }}
           cache-from: type=gha,scope=staging-alert-receiver
           cache-to: type=gha,mode=max,scope=staging-alert-receiver
-          provenance: mode=max
+          provenance: mode=max,version=v0.2
           sbom: true
 
       - name: Select exact alert receiver digest
@@ -1188,9 +1419,22 @@ jobs:
                .repository == "modvolt/site-logbook-registry" and
                .sourceSha == $sha and
                .platform == "linux/amd64" and
+               .activeInventoryPaginated == true and
+               (.activeVersionCount | type) == "number" and .activeVersionCount >= 1 and
+               .packageVersionCount == .activeVersionCount and
+               .deletedInventoryMode == "not-queryable-exact-read-scope" and
+               .visibleDeletedTagConflictChecked == false and
+               .deletedVersionCount == null and
+               .deletedHistoryScope == "external-audit-ledger-only" and
+               .selectedVersionRefetched == true and
                .remoteManifestVerified == true and
-               .provenanceVerified == true and
-               .sbomVerified == true)' \
+               .runtimeMetadata.source == "https://github.com/modvolt/Site-Logbook" and
+               .runtimeMetadata.revision == $sha and .runtimeMetadata.buildSha == $sha and
+               .provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+               .provenance.vcsRevision == $sha and .provenance.buildSha == $sha and
+               (.provenance.verifiedBaseImageDigests | type) == "array" and (.provenance.verifiedBaseImageDigests | length) > 0 and
+               (.sbom.spdxVersion == "SPDX-2.2" or .sbom.spdxVersion == "SPDX-2.3") and
+               .sbom.packageCount > 0 and .sbom.relationshipCount > 0)' \
             "${RUNNER_TEMP}/preflight-package.json" \
             "${RUNNER_TEMP}/mailpit-package.json" \
             "${RUNNER_TEMP}/api-package.json" \
@@ -1243,7 +1487,7 @@ jobs:
           if [[ "$REGISTRY_WRITE" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
 
           jq -n \
-            --arg schemaVersion "1" \
+            --arg schemaVersion "2" \
             --arg sourceSha "$SOURCE_SHA" \
             --arg preflight "${PREFLIGHT_REPOSITORY}@${PREFLIGHT_DIGEST}" \
             --arg mailpit "${MAILPIT_REPOSITORY}@${MAILPIT_DIGEST}" \
@@ -1261,14 +1505,17 @@ jobs:
             --slurpfile mailpitPackage "${RUNNER_TEMP}/mailpit-package.json" \
             --slurpfile preflightPackage "${RUNNER_TEMP}/preflight-package.json" \
             --slurpfile webPackage "${RUNNER_TEMP}/web-package.json" \
-            '{schemaVersion: ($schemaVersion | tonumber), sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web, alertReceiver: $alertReceiver}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0], alertReceiver: $alertReceiverPackage[0]}}' \
+            '{schemaVersion: ($schemaVersion | tonumber), kind: "site-logbook-staging-images", publicationStage: "complete", sourceSha: $sourceSha, callerRepository: $callerRepository, callerWorkflowRef: $callerWorkflowRef, initialPackageState: $initialPackageState, registryAction: $registryAction, publisherRun: {id: $runId, attempt: $runAttempt}, toolchain: {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"}, images: {preflight: $preflight, mailpit: $mailpit, api: $api, web: $web, alertReceiver: $alertReceiver}, packages: {preflight: $preflightPackage[0], mailpit: $mailpitPackage[0], api: $apiPackage[0], web: $webPackage[0], alertReceiver: $alertReceiverPackage[0]}}' \
             > staging-images.json
 
           jq -e \
             --arg sha "$SOURCE_SHA" \
-            '.schemaVersion == 1 and
+            '.schemaVersion == 2 and
+             .kind == "site-logbook-staging-images" and .publicationStage == "complete" and
              .sourceSha == $sha and
-             (.registryAction == "published" or .registryAction == "verified-noop") and
+             ((.initialPackageState == "10000" and .registryAction == "published") or
+              (.initialPackageState == "11111" and .registryAction == "verified-noop")) and
+             .toolchain == {buildx: "v0.34.1", buildkitImage: "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f"} and
              (.images | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
              (.images.preflight | test("^ghcr\\.io/modvolt/site-logbook-staging-preflight@sha256:[0-9a-f]{64}$")) and
              (.images.mailpit | test("^ghcr\\.io/modvolt/site-logbook-staging-mailpit@sha256:[0-9a-f]{64}$")) and
@@ -1279,7 +1526,31 @@ jobs:
              .packages.mailpit.digest == (.images.mailpit | split("@")[1]) and
              .packages.api.digest == (.images.api | split("@")[1]) and
              .packages.web.digest == (.images.web | split("@")[1]) and
-             .packages.alertReceiver.digest == (.images.alertReceiver | split("@")[1])' \
+             .packages.alertReceiver.digest == (.images.alertReceiver | split("@")[1]) and
+             (.packages | keys) == ["alertReceiver", "api", "mailpit", "preflight", "web"] and
+             (.packages | to_entries | all(.[].value;
+               .visibility == "private" and .repository == "modvolt/site-logbook-registry" and
+               .sourceSha == $sha and .platform == "linux/amd64" and
+               .activeInventoryPaginated == true and
+               (.activeVersionCount | type) == "number" and .activeVersionCount >= 1 and
+               .packageVersionCount == .activeVersionCount and
+               .deletedInventoryMode == "not-queryable-exact-read-scope" and
+               .visibleDeletedTagConflictChecked == false and .deletedVersionCount == null and
+               .deletedHistoryScope == "external-audit-ledger-only" and
+               .selectedVersionRefetched == true and .remoteManifestVerified == true and
+               .runtimeMetadata.source == "https://github.com/modvolt/Site-Logbook" and
+               .runtimeMetadata.revision == $sha and .runtimeMetadata.buildSha == $sha and
+               .provenance.buildType == "https://mobyproject.org/buildkit@v1" and
+               .provenance.vcsRevision == $sha and .provenance.buildSha == $sha and
+               (.provenance.vcsSource | ascii_downcase | test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")) and
+               (.provenance.verifiedBaseImageDigests | type) == "array" and (.provenance.verifiedBaseImageDigests | length) > 0 and
+               (.sbom.spdxVersion == "SPDX-2.2" or .sbom.spdxVersion == "SPDX-2.3") and
+               .sbom.packageCount > 0 and .sbom.relationshipCount > 0)) and
+             .packages.preflight.packageName == "site-logbook-staging-preflight" and .packages.preflight.runtimeMetadata.buildShaEnv == "BUILD_SHA" and .packages.preflight.provenance.dockerfile == "deploy/staging/preflight/Dockerfile" and .packages.preflight.provenance.buildArg == "BUILD_SHA" and
+             .packages.mailpit.packageName == "site-logbook-staging-mailpit" and .packages.mailpit.runtimeMetadata.buildShaEnv == "BUILD_SHA" and .packages.mailpit.provenance.dockerfile == "deploy/staging/mailpit/Dockerfile" and .packages.mailpit.provenance.buildArg == "BUILD_SHA" and
+             .packages.api.packageName == "site-logbook-staging-api" and .packages.api.runtimeMetadata.buildShaEnv == "BUILD_SHA" and .packages.api.provenance.dockerfile == "artifacts/api-server/Dockerfile" and .packages.api.provenance.buildArg == "BUILD_SHA" and
+             .packages.web.packageName == "site-logbook-staging-web" and .packages.web.runtimeMetadata.buildShaEnv == "VITE_BUILD_SHA" and .packages.web.provenance.dockerfile == "artifacts/stavba/Dockerfile" and .packages.web.provenance.buildArg == "VITE_BUILD_SHA" and
+             .packages.alertReceiver.packageName == "site-logbook-staging-alert-receiver" and .packages.alertReceiver.runtimeMetadata.buildShaEnv == "RECEIVER_BUILD_SHA" and .packages.alertReceiver.provenance.dockerfile == "deploy/operational-alert-receiver/Dockerfile" and .packages.alertReceiver.provenance.buildArg == "BUILD_SHA"' \
             staging-images.json >/dev/null
           sha256sum staging-images.json > staging-images.sha256
           [[ "$(awk '{print $1}' staging-images.sha256)" =~ ^[0-9a-f]{64}$ ]]

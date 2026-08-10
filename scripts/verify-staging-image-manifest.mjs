@@ -12,23 +12,63 @@ const IMAGE_SPECS = Object.freeze({
   preflight: {
     packageName: "site-logbook-staging-preflight",
     repository: "ghcr.io/modvolt/site-logbook-staging-preflight",
+    buildShaEnv: "BUILD_SHA",
+    dockerfile: "deploy/staging/preflight/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
   },
   mailpit: {
     packageName: "site-logbook-staging-mailpit",
     repository: "ghcr.io/modvolt/site-logbook-staging-mailpit",
+    buildShaEnv: "BUILD_SHA",
+    dockerfile: "deploy/staging/mailpit/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d",
+      "sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1",
+    ],
   },
   api: {
     packageName: "site-logbook-staging-api",
     repository: "ghcr.io/modvolt/site-logbook-staging-api",
+    buildShaEnv: "BUILD_SHA",
+    dockerfile: "artifacts/api-server/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+    ],
   },
   web: {
     packageName: "site-logbook-staging-web",
     repository: "ghcr.io/modvolt/site-logbook-staging-web",
+    buildShaEnv: "VITE_BUILD_SHA",
+    dockerfile: "artifacts/stavba/Dockerfile",
+    buildArg: "VITE_BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+      "sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10",
+    ],
   },
   alertReceiver: {
     packageName: "site-logbook-staging-alert-receiver",
     repository: "ghcr.io/modvolt/site-logbook-staging-alert-receiver",
+    buildShaEnv: "RECEIVER_BUILD_SHA",
+    dockerfile: "deploy/operational-alert-receiver/Dockerfile",
+    buildArg: "BUILD_SHA",
+    baseImageDigests: [
+      "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7",
+    ],
   },
+});
+const PUBLIC_SOURCE = "https://github.com/modvolt/Site-Logbook";
+const VCS_SOURCE =
+  /^(?:https:\/\/github\.com\/modvolt\/site-logbook(?:\.git)?|git\+https:\/\/github\.com\/modvolt\/site-logbook(?:\.git)?|git@github\.com:modvolt\/site-logbook\.git)$/i;
+const TOOLCHAIN = Object.freeze({
+  buildx: "v0.34.1",
+  buildkitImage:
+    "moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
 });
 
 export class StagingImageManifestError extends Error {
@@ -146,19 +186,31 @@ export function validateStagingImageManifest(
     manifest,
     [
       "schemaVersion",
+      "kind",
+      "publicationStage",
       "sourceSha",
       "callerRepository",
       "callerWorkflowRef",
       "initialPackageState",
       "registryAction",
       "publisherRun",
+      "toolchain",
       "images",
       "packages",
     ],
     "manifest",
   );
-  if (manifest.schemaVersion !== 1) {
-    fail("IMAGE_MANIFEST_SCHEMA_INVALID", "schemaVersion must equal 1.");
+  if (manifest.schemaVersion !== 2) {
+    fail("IMAGE_MANIFEST_SCHEMA_INVALID", "schemaVersion must equal 2.");
+  }
+  if (
+    manifest.kind !== "site-logbook-staging-images" ||
+    manifest.publicationStage !== "complete"
+  ) {
+    fail(
+      "IMAGE_MANIFEST_SCHEMA_INVALID",
+      "Manifest kind and publicationStage are invalid.",
+    );
   }
   const sourceSha = requireString(manifest.sourceSha, SHA40, "sourceSha");
   if (/^0{40}$/.test(sourceSha)) {
@@ -201,6 +253,13 @@ export function validateStagingImageManifest(
     );
   }
   assertKeys(manifest.publisherRun, ["id", "attempt"], "publisherRun");
+  assertKeys(manifest.toolchain, ["buildx", "buildkitImage"], "toolchain");
+  if (
+    manifest.toolchain.buildx !== TOOLCHAIN.buildx ||
+    manifest.toolchain.buildkitImage !== TOOLCHAIN.buildkitImage
+  ) {
+    fail("IMAGE_MANIFEST_TOOLCHAIN_INVALID", "Toolchain pin is invalid.");
+  }
   requireString(manifest.publisherRun.id, POSITIVE_DECIMAL, "publisherRun.id");
   requireString(
     manifest.publisherRun.attempt,
@@ -253,31 +312,108 @@ export function validateStagingImageManifest(
         "digest",
         "runnableManifestDigest",
         "platform",
+        "activeInventoryPaginated",
+        "activeVersionCount",
+        "packageVersionCount",
+        "deletedInventoryMode",
+        "visibleDeletedTagConflictChecked",
+        "deletedVersionCount",
+        "deletedHistoryScope",
+        "selectedVersionRefetched",
         "remoteManifestVerified",
-        "provenanceVerified",
-        "sbomVerified",
+        "runtimeMetadata",
+        "provenance",
+        "sbom",
       ],
       `packages.${key}`,
     );
     if (
       pkg.packageName !== spec.packageName ||
+      typeof pkg.packageId !== "string" ||
       !POSITIVE_DECIMAL.test(pkg.packageId) ||
       pkg.visibility !== "private" ||
       pkg.repository !== "modvolt/site-logbook-registry" ||
       pkg.registryRepository !== spec.repository ||
       pkg.sourceSha !== sourceSha ||
+      typeof pkg.versionId !== "string" ||
       !POSITIVE_DECIMAL.test(pkg.versionId) ||
       pkg.digest !== digest ||
       !/^sha256:[0-9a-f]{64}$/.test(pkg.runnableManifestDigest) ||
       pkg.platform !== "linux/amd64" ||
-      pkg.remoteManifestVerified !== true ||
-      pkg.provenanceVerified !== true ||
-      pkg.sbomVerified !== true
+      pkg.activeInventoryPaginated !== true ||
+      !Number.isInteger(pkg.activeVersionCount) ||
+      pkg.activeVersionCount < 1 ||
+      pkg.packageVersionCount !== pkg.activeVersionCount ||
+      pkg.deletedInventoryMode !== "not-queryable-exact-read-scope" ||
+      pkg.visibleDeletedTagConflictChecked !== false ||
+      pkg.deletedVersionCount !== null ||
+      pkg.deletedHistoryScope !== "external-audit-ledger-only" ||
+      pkg.selectedVersionRefetched !== true ||
+      pkg.remoteManifestVerified !== true
     ) {
       fail(
         "IMAGE_MANIFEST_PACKAGE_INVALID",
         `packages.${key} is not bound to its verified image.`,
       );
+    }
+    assertKeys(
+      pkg.runtimeMetadata,
+      ["source", "revision", "url", "buildSha", "buildShaEnv"],
+      `packages.${key}.runtimeMetadata`,
+    );
+    if (
+      pkg.runtimeMetadata.source !== PUBLIC_SOURCE ||
+      pkg.runtimeMetadata.revision !== sourceSha ||
+      pkg.runtimeMetadata.url !== `${PUBLIC_SOURCE}/commit/${sourceSha}` ||
+      pkg.runtimeMetadata.buildSha !== sourceSha ||
+      pkg.runtimeMetadata.buildShaEnv !== spec.buildShaEnv
+    ) {
+      fail(
+        "IMAGE_MANIFEST_RUNTIME_METADATA_INVALID",
+        `packages.${key}.runtimeMetadata is invalid.`,
+      );
+    }
+    assertKeys(
+      pkg.provenance,
+      [
+        "buildType",
+        "vcsSource",
+        "vcsRevision",
+        "dockerfile",
+        "buildArg",
+        "buildSha",
+        "verifiedBaseImageDigests",
+      ],
+      `packages.${key}.provenance`,
+    );
+    if (
+      pkg.provenance.buildType !== "https://mobyproject.org/buildkit@v1" ||
+      !VCS_SOURCE.test(pkg.provenance.vcsSource) ||
+      pkg.provenance.vcsRevision !== sourceSha ||
+      pkg.provenance.dockerfile !== spec.dockerfile ||
+      pkg.provenance.buildArg !== spec.buildArg ||
+      pkg.provenance.buildSha !== sourceSha ||
+      JSON.stringify(pkg.provenance.verifiedBaseImageDigests) !==
+        JSON.stringify(spec.baseImageDigests)
+    ) {
+      fail(
+        "IMAGE_MANIFEST_PROVENANCE_INVALID",
+        `packages.${key}.provenance is invalid.`,
+      );
+    }
+    assertKeys(
+      pkg.sbom,
+      ["spdxVersion", "packageCount", "relationshipCount"],
+      `packages.${key}.sbom`,
+    );
+    if (
+      !["SPDX-2.2", "SPDX-2.3"].includes(pkg.sbom.spdxVersion) ||
+      !Number.isInteger(pkg.sbom.packageCount) ||
+      pkg.sbom.packageCount < 1 ||
+      !Number.isInteger(pkg.sbom.relationshipCount) ||
+      pkg.sbom.relationshipCount < 1
+    ) {
+      fail("IMAGE_MANIFEST_SBOM_INVALID", `packages.${key}.sbom is invalid.`);
     }
   }
 
@@ -285,7 +421,7 @@ export function validateStagingImageManifest(
   return Object.freeze({
     decision: trusted ? "PASS" : "INTERNALLY_CONSISTENT_UNTRUSTED",
     trusted,
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha,
     manifestSha256,
     callerWorkflowRef: manifest.callerWorkflowRef,

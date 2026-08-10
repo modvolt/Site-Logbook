@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { validateStagingImageManifest } from "./verify-staging-image-manifest.mjs";
 
 const PRODUCTION_HOSTS = new Set(["modvoltapp.cz", "www.modvoltapp.cz"]);
 const STAGING_NAME_PATTERN =
@@ -360,7 +361,7 @@ function validateBoundArtifacts({
   );
   requireValue(
     imageManifest.schemaVersion,
-    1,
+    2,
     "artifacts.imageManifest.schemaVersion",
   );
   requireValue(
@@ -503,13 +504,34 @@ function validateBoundArtifacts({
     artifactHashAt(bytes[key], digest, `artifactBytes.${key}`);
   }
 
+  try {
+    const imageManifestHex = imageManifestSha256.slice("sha256:".length);
+    validateStagingImageManifest(
+      bytes.imageManifest,
+      `${imageManifestHex}  staging-images.json\n`,
+      {
+        expectedManifestSha256: imageManifestHex,
+        expectedSourceSha: commitSha,
+        expectedCallerWorkflowRef:
+          "modvolt/site-logbook-registry/.github/workflows/publish-staging-images.yml@refs/heads/main",
+        expectedRunId: publisherRunId,
+        expectedRunAttempt: String(publisherRunAttempt),
+      },
+    );
+  } catch (error) {
+    fail(
+      "EVIDENCE_IMAGE_MANIFEST_INVALID",
+      `raw image manifest failed strict verification: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
   const rawImageManifest = jsonArtifact(
     bytes.imageManifest,
     "artifactBytes.imageManifest",
   );
   requireValue(
     rawImageManifest.schemaVersion,
-    1,
+    2,
     "rawImageManifest.schemaVersion",
   );
   requireValue(

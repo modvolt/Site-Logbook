@@ -1008,8 +1008,8 @@ test("requires a private caller and private package verification", () => {
   );
   assertWorkflowContractError(
     workflow.replace(
-      "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}",
       "org.opencontainers.image.source=https://github.com/modvolt/Site-Logbook",
+      "org.opencontainers.image.source=https://github.com/modvolt/untrusted-source",
     ),
     "STAGING_IMAGE_PRIVACY_GUARD_MISSING",
   );
@@ -1251,7 +1251,7 @@ test("requires strict digest namespace and provenance guards", () => {
     "STAGING_IMAGE_ATTESTATION_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace(".schemaVersion == 2", ".schemaVersion >= 1"),
+    workflow.replaceAll(".schemaVersion == 2", ".schemaVersion >= 1"),
     "STAGING_IMAGE_ATTESTATION_MISSING",
   );
   assertWorkflowContractError(
@@ -1283,9 +1283,69 @@ test("requires strict digest namespace and provenance guards", () => {
     "STAGING_IMAGE_ATTESTATION_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace('test("^SPDX-[0-9]+\\\\.[0-9]+$")', 'test(".*")'),
+    workflow.replace(
+      '.SPDX.dataLicense == "CC0-1.0"',
+      ".SPDX.dataLicense != null",
+    ),
     "STAGING_IMAGE_ATTESTATION_MISSING",
   );
+  for (const [from, to, code] of [
+    [
+      "versions?state=active&per_page=100",
+      "versions?per_page=100",
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    ],
+    [
+      "length == $expected",
+      "length >= 0",
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    ],
+    [
+      "versions/${version_id}",
+      "versions/latest",
+      "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+    ],
+    [
+      "--format '{{json .Image}}'",
+      "--format '{{json .Manifest}}'",
+      "STAGING_IMAGE_ATTESTATION_MISSING",
+    ],
+    [
+      '.SLSA.invocation.parameters.args["build-arg:" + $argName] == $sha',
+      ".SLSA.invocation.parameters.args != null",
+      "STAGING_IMAGE_ATTESTATION_MISSING",
+    ],
+    [
+      '$relationship.relationshipType == "CONTAINS"',
+      "$relationship.relationshipType != null",
+      "STAGING_IMAGE_ATTESTATION_MISSING",
+    ],
+    [
+      "driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
+      "driver-opts: image=moby/buildkit:buildx-stable-1",
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+  ]) {
+    assertWorkflowContractError(workflow.replace(from, to), code);
+  }
+});
+
+test("binds candidate build identity into every final runtime image", () => {
+  for (const [file, marker] of [
+    ["deploy/staging/preflight/Dockerfile", "ENV BUILD_SHA=$BUILD_SHA"],
+    ["deploy/staging/mailpit/Dockerfile", "ENV BUILD_SHA=$BUILD_SHA"],
+    ["artifacts/stavba/Dockerfile", "ENV VITE_BUILD_SHA=$VITE_BUILD_SHA"],
+  ]) {
+    assert.throws(
+      () =>
+        validateStagingRuntimeContract({
+          [file]: source(file).replace(marker, ""),
+        }),
+      (error) =>
+        error instanceof StagingRuntimeContractError &&
+        error.code === "STAGING_RUNTIME_CONTRACT_MISSING",
+    );
+  }
 });
 
 test("requires all validation and publication builds to remain linux/amd64", () => {

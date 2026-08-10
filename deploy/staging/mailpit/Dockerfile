@@ -9,6 +9,7 @@ FROM alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8
 ARG BUILD_SHA=dev
 LABEL org.opencontainers.image.source="https://github.com/modvolt/Site-Logbook" \
       org.opencontainers.image.revision="$BUILD_SHA"
+ENV BUILD_SHA=$BUILD_SHA
 RUN apk add --no-cache openssl su-exec tzdata \
   && addgroup -S -g 10001 mailpit \
   && adduser -S -D -H -u 10001 -G mailpit mailpit

@@ -46,6 +46,7 @@ FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef
 ARG VITE_BUILD_SHA=dev
 LABEL org.opencontainers.image.source="https://github.com/modvolt/Site-Logbook" \
       org.opencontainers.image.revision="$VITE_BUILD_SHA"
+ENV VITE_BUILD_SHA=$VITE_BUILD_SHA
 
 # nginx substitutes the listen port, upstream and explicit host allowlist into
 # the config at startup. Production must override NGINX_SERVER_NAME.

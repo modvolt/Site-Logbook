@@ -69,7 +69,7 @@
   },
   "artifacts": {
     "imageManifest": {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "sourceSha": "0000000000000000000000000000000000000000",
       "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "publisherWorkflowUrl": "https://github.com/modvolt/site-logbook-registry/actions/runs/0",
