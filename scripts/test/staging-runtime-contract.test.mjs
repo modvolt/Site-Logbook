@@ -498,12 +498,55 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
-      workflow.replaceAll("/users/modvolt/packages", "/user/packages"),
+      workflow.replaceAll("/user/packages", "/users/modvolt/packages"),
       "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
-      workflow.replace("/users/modvolt/packages", "/users/attacker/packages"),
+      workflow.replace("/user/packages", "/users/attacker/packages"),
       "STAGING_PREDECESSOR_PACKAGE_API_NAMESPACE_DRIFT",
+    ],
+    [
+      workflow.replace(
+        "packages_metadata_token:",
+        "packages_metadata_write_token:",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: true",
+        "packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: false",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "GH_TOKEN: ${{ secrets.packages_metadata_token }}",
+        "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+      ),
+      "STAGING_PREDECESSOR_METADATA_CREDENTIAL_DRIFT",
+    ],
+    [
+      workflow.replace(
+        '[[ "$GH_TOKEN" != "$REGISTRY_GITHUB_TOKEN" ]]',
+        '[[ -n "$GH_TOKEN" ]]',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        '[[ "$normalized_scopes" == "read:packages" ]]',
+        '[[ "$normalized_scopes" == "read:packages,repo" ]]',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(".id == 289280891", ".id > 0"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace('GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api', "gh api"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
     ],
     [
       workflow.replace(
@@ -859,15 +902,51 @@ test("enforces a fixed two-stage append-only package state gate", () => {
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace(
-      "'/users/modvolt/packages?package_type=container&per_page=100'",
+    workflow.replaceAll(
+      "'/user/packages?package_type=container&visibility=private&per_page=100'",
       "'/user/packages?package_type=container&per_page=100'",
     ),
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
   );
   assertWorkflowContractError(
-    workflow.replace("/users/modvolt/packages", "/users/attacker/packages"),
+    workflow.replace("/user/packages", "/users/modvolt/packages"),
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "GH_TOKEN: ${{ secrets.packages_metadata_token }}",
+      "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    ),
+    "STAGING_IMAGE_METADATA_CREDENTIAL_BOUNDARY_BROKEN",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      "packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: true",
+      "packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: false",
+    ),
+    "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      '[[ "$GH_TOKEN" != "$REGISTRY_GITHUB_TOKEN" ]]',
+      '[[ -n "$GH_TOKEN" ]]',
+    ),
+    "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(
+      '[[ "$normalized_scopes" == "read:packages" ]]',
+      '[[ "$normalized_scopes" == "read:packages,repo" ]]',
+    ),
+    "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace(".id == 289280891", ".id > 0"),
+    "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+  );
+  assertWorkflowContractError(
+    workflow.replace('GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api', "gh api"),
+    "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
   );
   assertWorkflowContractError(
     workflow.replaceAll("length == 1 and .[0].name == $digest", "length > 0"),

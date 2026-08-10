@@ -36,6 +36,16 @@ const predecessorScripts = Object.fromEntries(
       step.run,
     ]),
 );
+const metadataCredentialScript = requireRunScript(
+  workflow,
+  "publish-staging-images",
+  "Require dedicated read-only Packages metadata credential",
+);
+const predecessorMetadataCredentialScript = requireRunScript(
+  predecessorWorkflow,
+  "publish-fixed-predecessor-api",
+  "Require dedicated read-only Packages metadata credential",
+);
 const packageStateScript = requireRunScript(
   workflow,
   "publish-staging-images",
@@ -59,21 +69,30 @@ const MOCK_GH = `#!/usr/bin/env bash
 set -euo pipefail
 endpoint="\${!#}"
 case "$endpoint" in
+  /user)
+    [[ "\${MOCK_IDENTITY_FAIL:-false}" != "true" ]] || exit 72
+    cat <<EOF
+HTTP/2.0 200 OK
+X-OAuth-Scopes: \${MOCK_OAUTH_SCOPES:-read:packages}
+
+{"login":"\${MOCK_LOGIN:-modvolt}","id":\${MOCK_USER_ID:-289280891},"type":"\${MOCK_USER_TYPE:-User}"}
+EOF
+    ;;
   repos/modvolt/site-logbook-registry)
     cat "$HARNESS_ROOT/fixtures/caller.json"
     ;;
-  "/users/modvolt/packages?package_type=container&per_page=100")
+  "/user/packages?package_type=container&visibility=private&per_page=100")
     [[ "\${MOCK_INVENTORY_FAIL:-false}" != "true" ]] || exit 73
     cat "$HARNESS_ROOT/fixtures/inventory.json"
     ;;
-  /users/modvolt/packages/container/*/versions?per_page=100)
-    package="\${endpoint#/users/modvolt/packages/container/}"
+  /user/packages/container/*/versions?per_page=100)
+    package="\${endpoint#/user/packages/container/}"
     package="\${package%%/*}"
     [[ "\${MOCK_VERSIONS_FAIL_FOR:-}" != "$package" ]] || exit 74
     cat "$HARNESS_ROOT/fixtures/versions-$package.json"
     ;;
-  /users/modvolt/packages/container/*)
-    package="\${endpoint#/users/modvolt/packages/container/}"
+  /user/packages/container/*)
+    package="\${endpoint#/user/packages/container/}"
     [[ "\${MOCK_PACKAGE_FAIL_FOR:-}" != "$package" ]] || exit 75
     cat "$HARNESS_ROOT/fixtures/package-$package.json"
     ;;
@@ -153,6 +172,7 @@ function stateFixtureFiles(state) {
 function commonEnvironment() {
   return {
     APPROVED_CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+    CALLER_GITHUB_TOKEN: "mock-caller-token-not-a-secret",
     CALLER_REPOSITORY: "modvolt/site-logbook-registry",
     CALLER_REPOSITORY_OWNER: "modvolt",
     GH_TOKEN: "mock-token-not-a-secret",
@@ -161,6 +181,19 @@ function commonEnvironment() {
     PUBLICATION_CONFIRMED: "true",
     SOURCE_SHA,
   };
+}
+
+function runMetadataCredential(script, environment = {}) {
+  return runBashHarness({
+    script,
+    files: baseFixtureFiles(),
+    environment: {
+      GH_TOKEN: "mock-read-packages-token-not-a-secret",
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      REGISTRY_GITHUB_TOKEN: "mock-registry-token-not-a-secret",
+      ...environment,
+    },
+  });
 }
 
 function parseGithubOutput(raw) {
@@ -280,10 +313,66 @@ test("parses the workflow as strict unique-key YAML and exposes the exact interf
     contents: "read",
     packages: "write",
   });
+  assert.deepEqual(workflow.on.workflow_call.secrets.packages_metadata_token, {
+    description:
+      "Dedicated classic PAT with exactly read:packages for private Packages REST metadata",
+    required: true,
+  });
+  assert.deepEqual(
+    predecessorWorkflow.on.workflow_call.secrets.packages_metadata_token,
+    {
+      description:
+        "Dedicated classic PAT with exactly read:packages for private Packages REST metadata",
+      required: true,
+    },
+  );
   assert.throws(
     () => parseWorkflow("name: duplicate\npermissions: {}\npermissions: {}\n"),
     /unique-key YAML|Map keys must be unique/u,
   );
+});
+
+test("accepts only a distinct exact-scope modvolt Packages metadata credential", () => {
+  for (const script of [
+    metadataCredentialScript,
+    predecessorMetadataCredentialScript,
+  ]) {
+    const accepted = runMetadataCredential(script);
+    assert.equal(accepted.status, 0, accepted.stderr);
+
+    const missing = runMetadataCredential(script, { GH_TOKEN: "" });
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /metadata credential is required/u);
+
+    const reused = runMetadataCredential(script, {
+      GH_TOKEN: "same-token",
+      REGISTRY_GITHUB_TOKEN: "same-token",
+    });
+    assert.notEqual(reused.status, 0);
+    assert.match(reused.stderr, /must be distinct from GITHUB_TOKEN/u);
+
+    const broad = runMetadataCredential(script, {
+      MOCK_OAUTH_SCOPES: "read:packages, repo",
+    });
+    assert.notEqual(broad.status, 0);
+    assert.match(broad.stderr, /exactly the read:packages scope/u);
+
+    const wrongOwner = runMetadataCredential(script, {
+      MOCK_LOGIN: "attacker",
+    });
+    assert.notEqual(wrongOwner.status, 0);
+    assert.match(wrongOwner.stderr, /exact modvolt user/u);
+
+    const wrongId = runMetadataCredential(script, { MOCK_USER_ID: "1" });
+    assert.notEqual(wrongId.status, 0);
+    assert.match(wrongId.stderr, /exact modvolt user/u);
+
+    const unsupported = runMetadataCredential(script, {
+      MOCK_IDENTITY_FAIL: "true",
+    });
+    assert.notEqual(unsupported.status, 0);
+    assert.match(unsupported.stderr, /identity could not be read/u);
+  }
 });
 
 test("runs extracted scripts in a scrubbed, no-egress container", () => {
@@ -337,9 +426,10 @@ test("accepts a genuinely empty inventory for first publication", () => {
 test("shellcheck accepts the exact extracted workflow scripts", () => {
   const result = runBashHarness({
     script: `set -euo pipefail
-shellcheck --shell=bash scripts/package-state.sh scripts/tag-absence.sh scripts/package-verifier.sh
+shellcheck --shell=bash scripts/metadata-credential.sh scripts/package-state.sh scripts/tag-absence.sh scripts/package-verifier.sh
 `,
     files: {
+      "scripts/metadata-credential.sh": metadataCredentialScript,
       "scripts/package-state.sh": packageStateScript,
       "scripts/tag-absence.sh": absenceScript,
       "scripts/package-verifier.sh": verifierScript,

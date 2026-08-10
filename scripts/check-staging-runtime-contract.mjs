@@ -808,6 +808,49 @@ export function validateStagingRuntimeContract(overrides = {}) {
       `required workflow_call input ${input}`,
     );
   }
+  for (const credentialBoundary of [
+    "    secrets:\n      packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: true",
+    "packages_metadata_token:",
+    "Dedicated classic PAT with exactly read:packages",
+    "Require dedicated read-only Packages metadata credential",
+    "GH_TOKEN: ${{ secrets.packages_metadata_token }}",
+    "REGISTRY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    '[[ "$GH_TOKEN" != "$REGISTRY_GITHUB_TOKEN" ]]',
+    "gh api --include",
+    "normalized_scopes",
+    '[[ "$normalized_scopes" == "read:packages" ]]',
+    '.login == "modvolt"',
+    ".id == 289280891",
+    '.type == "User"',
+    "CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    'GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api',
+  ]) {
+    requirePublicationText(
+      publishWorkflow,
+      credentialBoundary,
+      "STAGING_IMAGE_METADATA_CREDENTIAL_GUARD_MISSING",
+      `dedicated Packages metadata credential boundary ${credentialBoundary}`,
+    );
+  }
+  if (
+    (
+      publishWorkflow.match(
+        /^\s+GH_TOKEN: \$\{\{ secrets\.packages_metadata_token \}\}$/gm,
+      ) ?? []
+    ).length !== 13 ||
+    /^\s+GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}$/m.test(publishWorkflow) ||
+    (publishWorkflow.match(/\$\{\{ secrets\.GITHUB_TOKEN \}\}/g) ?? [])
+      .length !== 3 ||
+    (
+      publishWorkflow.match(/\$\{\{ secrets\.packages_metadata_token \}\}/g) ??
+      []
+    ).length !== 13
+  ) {
+    fail(
+      "STAGING_IMAGE_METADATA_CREDENTIAL_BOUNDARY_BROKEN",
+      "all Packages REST reads must use the named read-only credential while GITHUB_TOKEN remains isolated to caller metadata and registry login.",
+    );
+  }
   requirePublicationText(
     publishWorkflow,
     "permissions: {}\n\nconcurrency:",
@@ -987,29 +1030,37 @@ export function validateStagingRuntimeContract(overrides = {}) {
   );
   requirePublicationText(
     publishWorkflow,
-    "'/users/modvolt/packages?package_type=container&per_page=100'",
+    "'/user/packages?package_type=container&visibility=private&per_page=100'",
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-    "owner-qualified private package inventory",
+    "identity-bound private package inventory",
   );
   requirePublicationText(
     publishWorkflow,
-    "/users/modvolt/packages/container/${package_name}",
+    "/user/packages/container/${package_name}",
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-    "owner-qualified private package metadata lookup",
+    "identity-bound private package metadata lookup",
   );
   requirePublicationText(
     publishWorkflow,
-    "/users/modvolt/packages/container/${package_name}/versions?per_page=100",
+    "/user/packages/container/${package_name}/versions?per_page=100",
     "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-    "owner-qualified private package version lookup",
+    "identity-bound private package version lookup",
   );
   if (
-    /\/user\/packages/.test(publishWorkflow) ||
-    (publishWorkflow.match(/\/users\/modvolt\/packages/g) ?? []).length !== 8
+    /\/users\/modvolt\/packages/.test(publishWorkflow) ||
+    (publishWorkflow.match(/\/user\/packages/g) ?? []).length !== 8 ||
+    (
+      publishWorkflow.match(
+        /\/user\/packages\?package_type=container&visibility=private&per_page=100/g,
+      ) ?? []
+    ).length !== 2 ||
+    publishWorkflow.indexOf(
+      "Require dedicated read-only Packages metadata credential",
+    ) > publishWorkflow.indexOf("/user/packages")
   ) {
     fail(
       "STAGING_IMAGE_PACKAGE_STATE_GUARD_MISSING",
-      "every package read must use the exact owner-qualified modvolt namespace.",
+      "every package read must use the authenticated-user namespace only after the exact metadata identity and scope gate.",
     );
   }
   requirePublicationText(
@@ -1467,13 +1518,26 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const boundary of [
     "workflow_call:",
     "confirm_predecessor_registry_publication:",
+    "    secrets:\n      packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: true",
+    "packages_metadata_token:",
+    "Dedicated classic PAT with exactly read:packages",
+    "Require dedicated read-only Packages metadata credential",
+    "GH_TOKEN: ${{ secrets.packages_metadata_token }}",
+    "REGISTRY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    '[[ "$GH_TOKEN" != "$REGISTRY_GITHUB_TOKEN" ]]',
+    '[[ "$normalized_scopes" == "read:packages" ]]',
+    '.login == "modvolt"',
+    ".id == 289280891",
+    '.type == "User"',
+    "CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+    'GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api',
     "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3",
     "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c",
     "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
     "site-logbook-images-publication",
     "site-logbook-staging-api",
-    "'/users/modvolt/packages?package_type=container&per_page=100'",
-    '"/users/modvolt/packages/container/${PACKAGE_NAME}"',
+    "'/user/packages?package_type=container&visibility=private&per_page=100'",
+    '"/user/packages/container/${PACKAGE_NAME}"',
     "artifacts/api-server/Dockerfile",
     "version: v0.34.1",
     "driver-opts: image=moby/buildkit:v0.30.0@sha256:0168606be2315b7c807a03b3d8aa79beefdb31c98740cebdffdfeebf31190c9f",
@@ -1518,13 +1582,42 @@ export function validateStagingRuntimeContract(overrides = {}) {
     );
   }
   if (
-    /\/user\/packages/.test(predecessorWorkflow) ||
-    (predecessorWorkflow.match(/\/users\/modvolt\/packages/g) ?? []).length !==
-      13
+    /\/users\/modvolt\/packages/.test(predecessorWorkflow) ||
+    (predecessorWorkflow.match(/\/user\/packages/g) ?? []).length !== 13 ||
+    (
+      predecessorWorkflow.match(
+        /\/user\/packages\?package_type=container&visibility=private&per_page=100/g,
+      ) ?? []
+    ).length !== 2 ||
+    predecessorWorkflow.indexOf(
+      "Require dedicated read-only Packages metadata credential",
+    ) > predecessorWorkflow.indexOf("/user/packages")
   ) {
     fail(
       "STAGING_PREDECESSOR_PACKAGE_API_NAMESPACE_DRIFT",
-      "the predecessor publisher must bind package reads to the explicit modvolt namespace.",
+      "the predecessor publisher must use the authenticated-user package namespace only after the exact metadata identity and scope gate.",
+    );
+  }
+  if (
+    (
+      predecessorWorkflow.match(
+        /^\s+GH_TOKEN: \$\{\{ secrets\.packages_metadata_token \}\}$/gm,
+      ) ?? []
+    ).length !== 4 ||
+    /^\s+GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}$/m.test(
+      predecessorWorkflow,
+    ) ||
+    (predecessorWorkflow.match(/\$\{\{ secrets\.GITHUB_TOKEN \}\}/g) ?? [])
+      .length !== 3 ||
+    (
+      predecessorWorkflow.match(
+        /\$\{\{ secrets\.packages_metadata_token \}\}/g,
+      ) ?? []
+    ).length !== 4
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_METADATA_CREDENTIAL_DRIFT",
+      "all predecessor Packages REST reads must use the named read-only credential while GITHUB_TOKEN remains isolated to caller metadata and registry login.",
     );
   }
   if (
