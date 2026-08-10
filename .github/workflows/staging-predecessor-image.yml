@@ -7,6 +7,10 @@ on:
         description: Publish or verify only the fixed exact-0104 predecessor API image without deploying it
         required: true
         type: boolean
+      verify_existing_only:
+        description: Require the exact predecessor tag to exist and structurally disable every build or push step
+        required: true
+        type: boolean
     secrets:
       packages_metadata_token:
         description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata
@@ -31,6 +35,7 @@ jobs:
           EXPECTED_SOURCE_TREE: cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c
           PUBLICATION_CONFIRMED: ${{ inputs.confirm_predecessor_registry_publication }}
           SOURCE_REPOSITORY: modvolt/Site-Logbook
+          VERIFY_EXISTING_ONLY: ${{ inputs.verify_existing_only }}
         run: |
           set -euo pipefail
 
@@ -41,6 +46,8 @@ jobs:
 
           [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
             || fail "the exact predecessor registry publication confirmation is required."
+          [[ "$VERIFY_EXISTING_ONLY" == "true" || "$VERIFY_EXISTING_ONLY" == "false" ]] \
+            || fail "verify_existing_only must be an explicit boolean."
           [[ "$EXPECTED_SOURCE_SHA" == "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3" ]] \
             || fail "the fixed predecessor SHA drifted."
           [[ "$EXPECTED_SOURCE_TREE" == "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c" ]] \
@@ -145,6 +152,7 @@ jobs:
           GH_TOKEN: ${{ secrets.packages_metadata_token }}
           PUBLICATION_CONFIRMED: ${{ inputs.confirm_predecessor_registry_publication }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          VERIFY_EXISTING_ONLY: ${{ inputs.verify_existing_only }}
         run: |
           set -euo pipefail
 
@@ -155,6 +163,8 @@ jobs:
 
           [[ "$PUBLICATION_CONFIRMED" == "true" ]] \
             || fail "registry publication confirmation is required."
+          [[ "$VERIFY_EXISTING_ONLY" == "true" || "$VERIFY_EXISTING_ONLY" == "false" ]] \
+            || fail "verify_existing_only must be an explicit boolean."
           [[ "${CALLER_REPOSITORY,,}" == "$APPROVED_CALLER_REPOSITORY" ]] \
             || fail "the reusable workflow must be called by the approved private repository."
           [[ "${CALLER_REPOSITORY_OWNER,,}" == "modvolt" ]] \
@@ -285,11 +295,29 @@ jobs:
             esac
           fi
 
+          if [[ "$VERIFY_EXISTING_ONLY" == "true" ]]; then
+            [[ "$publish" == "false" && "$initial_tag_state" == "present" && "$existing_digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || fail "verify-existing-only requires an already-present exact predecessor tag and forbids publication."
+          fi
+
           {
             echo "existing_digest=${existing_digest}"
             echo "initial_tag_state=${initial_tag_state}"
             echo "publish=${publish}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Prove verify-existing-only cannot publish
+        if: inputs.verify_existing_only == true
+        shell: bash
+        env:
+          EXISTING_DIGEST: ${{ steps.package-state.outputs.existing_digest }}
+          INITIAL_TAG_STATE: ${{ steps.package-state.outputs.initial_tag_state }}
+          PUBLISH: ${{ steps.package-state.outputs.publish }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLISH" == "false" ]]
+          [[ "$INITIAL_TAG_STATE" == "present" ]]
+          [[ "$EXISTING_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
 
       - name: Check out the fixed public predecessor commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -331,7 +359,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate predecessor API build without registry write
-        if: steps.package-state.outputs.publish == 'true'
+        if: inputs.verify_existing_only == false && steps.package-state.outputs.publish == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -350,7 +378,7 @@ jobs:
           sbom: true
 
       - name: Recheck exact predecessor tag absence immediately before publication
-        if: steps.package-state.outputs.publish == 'true'
+        if: inputs.verify_existing_only == false && steps.package-state.outputs.publish == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.packages_metadata_token }}
@@ -419,7 +447,7 @@ jobs:
 
       - name: Build and publish fixed predecessor API image
         id: predecessor-api
-        if: steps.package-state.outputs.publish == 'true'
+        if: inputs.verify_existing_only == false && steps.package-state.outputs.publish == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -455,9 +483,26 @@ jobs:
         env:
           EXPECTED_DIGEST: ${{ steps.selected-digest.outputs.digest }}
           GH_TOKEN: ${{ secrets.packages_metadata_token }}
+          VERIFICATION_ATTEMPTS: "36"
+          VERIFICATION_POLL_SECONDS: "5"
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 12); do
+
+          retry_verification() {
+            local diagnostic_code="$1"
+            echo "::notice title=Fixed predecessor verifier::attempt ${attempt}/${VERIFICATION_ATTEMPTS}: ${diagnostic_code}"
+            if [[ "$attempt" == "$VERIFICATION_ATTEMPTS" ]]; then
+              echo "Fixed predecessor verification exhausted after ${VERIFICATION_ATTEMPTS} attempts: ${diagnostic_code}." >&2
+              exit 1
+            fi
+            sleep "$VERIFICATION_POLL_SECONDS"
+          }
+
+          [[ "$VERIFICATION_ATTEMPTS" == "36" ]]
+          [[ "$VERIFICATION_POLL_SECONDS" == "5" ]]
+          verification_succeeded="false"
+          for attempt in $(seq 1 "$VERIFICATION_ATTEMPTS"); do
+            diagnostic_code="PACKAGE_METADATA_NOT_READY"
             package_json="$(
               gh api --header 'X-GitHub-Api-Version: 2022-11-28' \
                 "/user/packages/container/${PACKAGE_NAME}" 2>/dev/null
@@ -472,7 +517,7 @@ jobs:
                 "/user/packages/container/${PACKAGE_NAME}/versions?state=deleted&per_page=100" 2>/dev/null |
                 jq -s 'add'
             )" || deleted_versions_json=""
-            if jq -e \
+            if ! jq -e \
               --arg package "$PACKAGE_NAME" \
               '(.id | type) == "number" and .id > 0 and
                .name == $package and .package_type == "container" and
@@ -481,8 +526,10 @@ jobs:
                (.repository.full_name | ascii_downcase) == "modvolt/site-logbook-registry" and
                .repository.private == true and
                (.version_count | type) == "number" and .version_count >= 0' \
-              <<<"$package_json" >/dev/null 2>&1 &&
-              jq -e --arg digest "$EXPECTED_DIGEST" --arg sha "$EXPECTED_SOURCE_SHA" --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
+              <<<"$package_json" >/dev/null 2>&1
+            then
+              diagnostic_code="PACKAGE_METADATA_NOT_READY"
+            elif ! jq -e --arg digest "$EXPECTED_DIGEST" --arg sha "$EXPECTED_SOURCE_SHA" --argjson expected "$(jq -r '.version_count' <<<"$package_json")" \
                 'type == "array" and length == $expected and
                  ([.[].id] | length) == ([.[].id] | unique | length) and
                  ([.[].name] | length) == ([.[].name] | unique | length) and
@@ -495,14 +542,19 @@ jobs:
                    all((.metadata.container.tags // [])[]; type == "string")) and
                  ([.[] | select(((.metadata.container.tags // []) | index($sha)) != null)] |
                   length == 1 and .[0].name == $digest)' \
-                <<<"$versions_json" >/dev/null 2>&1 &&
-              jq -e \
+                <<<"$versions_json" >/dev/null 2>&1
+            then
+              diagnostic_code="ACTIVE_VERSION_INVENTORY_NOT_READY"
+            elif ! jq -e \
                 'type == "array" and
                  length == 0 and
                  ([.[].id] | length) == ([.[].id] | unique | length) and
                  all(.[]; (.id | type) == "number" and .id > 0)' \
                 <<<"$deleted_versions_json" >/dev/null 2>&1
             then
+              diagnostic_code="DELETED_VERSION_INVENTORY_NOT_READY"
+            else
+              diagnostic_code="SELECTED_VERSION_REFETCH_NOT_READY"
               version_json="$(
                 jq -c --arg sha "$EXPECTED_SOURCE_SHA" \
                   '.[] | select(((.metadata.container.tags // []) | index($sha)) != null)' \
@@ -522,11 +574,7 @@ jobs:
                  (.metadata.container.tags // []) == [$sha]' \
                 <<<"$selected_version_json" >/dev/null 2>&1
               then
-                if [[ "$attempt" == "12" ]]; then
-                  echo "The selected predecessor package version changed during verification." >&2
-                  exit 1
-                fi
-                sleep 5
+                retry_verification "$diagnostic_code"
                 continue
               fi
               reference="${REGISTRY_REPOSITORY}@${EXPECTED_DIGEST}"
@@ -546,7 +594,7 @@ jobs:
               fi
               provenance_json="$(docker buildx imagetools inspect "$reference" --format '{{json .Provenance}}' 2>/dev/null)" || provenance_json=""
               sbom_json="$(docker buildx imagetools inspect "$reference" --format '{{json .SBOM}}' 2>/dev/null)" || sbom_json=""
-              if jq -e --arg digest "$EXPECTED_DIGEST" \
+              if ! jq -e --arg digest "$EXPECTED_DIGEST" \
                 '.schemaVersion == 2 and
                  .mediaType == "application/vnd.oci.image.index.v1+json" and
                  .digest == $digest and
@@ -567,15 +615,19 @@ jobs:
                   all($attestations[];
                     .annotations["vnd.docker.reference.digest"] == $runnable[0].digest and
                     .platform.os == "unknown" and .platform.architecture == "unknown"))' \
-                <<<"$manifest_json" >/dev/null 2>&1 &&
-                jq -e --arg sha "$EXPECTED_SOURCE_SHA" \
+                <<<"$manifest_json" >/dev/null 2>&1
+              then
+                diagnostic_code="OCI_INDEX_NOT_READY"
+              elif ! jq -e --arg sha "$EXPECTED_SOURCE_SHA" \
                   '.architecture == "amd64" and .os == "linux" and
                    .config.Labels["org.opencontainers.image.source"] == "https://github.com/modvolt/Site-Logbook" and
                    .config.Labels["org.opencontainers.image.revision"] == $sha and
                    .config.Labels["org.opencontainers.image.url"] == ("https://github.com/modvolt/Site-Logbook/commit/" + $sha) and
                    ((.config.Env // []) | index("BUILD_SHA=" + $sha)) != null' \
-                  <<<"$image_json" >/dev/null 2>&1 &&
-                jq -e --arg sha "$EXPECTED_SOURCE_SHA" \
+                  <<<"$image_json" >/dev/null 2>&1
+              then
+                diagnostic_code="RUNTIME_METADATA_NOT_READY"
+              elif ! jq -e --arg sha "$EXPECTED_SOURCE_SHA" \
                   '.SLSA.buildType == "https://mobyproject.org/buildkit@v1" and
                    .SLSA.invocation.environment.platform == "linux/amd64" and
                    .SLSA.metadata.completeness.parameters == true and
@@ -589,8 +641,10 @@ jobs:
                     $vcs.revision == $sha and
                     (($vcs.source | ascii_downcase) |
                      test("^(https://github\\.com/modvolt/site-logbook(?:\\.git)?|git\\+https://github\\.com/modvolt/site-logbook(?:\\.git)?|git@github\\.com:modvolt/site-logbook\\.git)$")))' \
-                  <<<"$provenance_json" >/dev/null 2>&1 &&
-                jq -e '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and
+                  <<<"$provenance_json" >/dev/null 2>&1
+              then
+                diagnostic_code="PROVENANCE_NOT_READY"
+              elif ! jq -e '.SPDX.SPDXID == "SPDXRef-DOCUMENT" and
                        .SPDX.dataLicense == "CC0-1.0" and
                        (.SPDX.spdxVersion == "SPDX-2.2" or .SPDX.spdxVersion == "SPDX-2.3") and
                        (.SPDX.documentNamespace | type) == "string" and
@@ -613,6 +667,8 @@ jobs:
                             ([ $packages[].SPDXID ] | index($relationship.relatedSpdxElement)) != null))))' \
                   <<<"$sbom_json" >/dev/null 2>&1
               then
+                diagnostic_code="SBOM_NOT_READY"
+              else
                 runnable_digest="$(
                   jq -r '[.manifests[] | select((.annotations["vnd.docker.reference.type"] // "") != "attestation-manifest")][0].digest' \
                     <<<"$manifest_json"
@@ -654,15 +710,14 @@ jobs:
                   --arg versionId "$(jq -r '.id' <<<"$selected_version_json")" \
                   '{packageName: $packageName, packageId: $packageId, visibility: "private", repository: $repository, registryRepository: $registryRepository, sourceSha: $sourceSha, versionId: $versionId, digest: $digest, runnableManifestDigest: $runnableManifestDigest, platform: "linux/amd64", activeInventoryPaginated: true, activeVersionCount: $activeVersionCount, packageVersionCount: $packageVersionCount, visibleDeletedTagConflictChecked: true, deletedVersionCount: $deletedVersionCount, deletedHistoryScope: "visible-package-versions-only", selectedVersionRefetched: true, remoteManifestVerified: true, runtimeMetadata: {source: $runtimeSource, revision: $runtimeRevision, url: $runtimeUrl, buildSha: $sourceSha}, provenance: {buildType: "https://mobyproject.org/buildkit@v1", vcsSource: $provenanceVcsSource, vcsRevision: $provenanceVcsRevision, dockerfile: $provenanceDockerfile, buildSha: $provenanceBuildSha, baseImageDigest: "sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7"}, sbom: {spdxVersion: $sbomVersion, packageCount: $sbomPackageCount, relationshipCount: $sbomRelationshipCount}}' \
                   > predecessor-package.json
+                verification_succeeded="true"
+                echo "::notice title=Fixed predecessor verifier::verification succeeded on attempt ${attempt}/${VERIFICATION_ATTEMPTS}"
                 break
               fi
             fi
-            if [[ "$attempt" == "12" ]]; then
-              echo "The predecessor package did not become exact, private, caller-linked and attested." >&2
-              exit 1
-            fi
-            sleep 5
+            retry_verification "$diagnostic_code"
           done
+          [[ "$verification_succeeded" == "true" ]]
 
       - name: Create secret-free fixed predecessor publication evidence
         shell: bash
@@ -674,9 +729,13 @@ jobs:
           PUBLISHED: ${{ steps.package-state.outputs.publish }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_ID: ${{ github.run_id }}
+          VERIFY_EXISTING_ONLY: ${{ inputs.verify_existing_only }}
         run: |
           set -euo pipefail
           if [[ "$PUBLISHED" == "true" ]]; then registry_action=published; else registry_action=verified-noop; fi
+          if [[ "$VERIFY_EXISTING_ONLY" == "true" ]]; then
+            [[ "$registry_action" == "verified-noop" && "$INITIAL_TAG_STATE" == "present" ]]
+          fi
           jq -n \
             --arg callerRepository "$CALLER_REPOSITORY" \
             --arg callerWorkflowRef "$CALLER_WORKFLOW_REF" \

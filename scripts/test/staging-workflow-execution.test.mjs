@@ -11,6 +11,7 @@ import {
 } from "../workflow-execution-harness.mjs";
 
 const SOURCE_SHA = "6dddd64676631fffca6aef9baf74d79b127f8a01";
+const PREDECESSOR_SOURCE_SHA = "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3";
 const PACKAGE_NAMES = [
   "site-logbook-staging-preflight",
   "site-logbook-staging-mailpit",
@@ -45,6 +46,11 @@ const predecessorMetadataCredentialScript = requireRunScript(
   predecessorWorkflow,
   "publish-fixed-predecessor-api",
   "Require dedicated read-only Packages metadata credential",
+);
+const predecessorPackageStateScript = requireRunScript(
+  predecessorWorkflow,
+  "publish-fixed-predecessor-api",
+  "Require approved private manual caller and exact tag state",
 );
 const packageStateScript = requireRunScript(
   workflow,
@@ -115,6 +121,35 @@ esac
 
 const MOCK_SLEEP = `#!/usr/bin/env sh
 exit 0
+`;
+
+const PREDECESSOR_MOCK_GH = `#!/usr/bin/env bash
+set -euo pipefail
+endpoint="\${!#}"
+case "$endpoint" in
+  repos/modvolt/site-logbook-registry)
+    cat "$HARNESS_ROOT/fixtures/predecessor-caller.json"
+    ;;
+  "/user/packages?package_type=container&visibility=private&per_page=100")
+    cat "$HARNESS_ROOT/fixtures/predecessor-inventory.json"
+    ;;
+  "/user/packages/container/site-logbook-staging-api/versions?state=active&per_page=100")
+    cat "$HARNESS_ROOT/fixtures/predecessor-versions.json"
+    ;;
+  "/user/packages/container/site-logbook-staging-api/versions?state=deleted&per_page=100")
+    cat "$HARNESS_ROOT/fixtures/predecessor-deleted-versions.json"
+    ;;
+  "/user/packages/container/site-logbook-staging-api/versions/9911")
+    cat "$HARNESS_ROOT/fixtures/predecessor-selected-version.json"
+    ;;
+  "/user/packages/container/site-logbook-staging-api")
+    cat "$HARNESS_ROOT/fixtures/predecessor-package.json"
+    ;;
+  *)
+    echo "Unexpected predecessor gh endpoint: $endpoint" >&2
+    exit 78
+    ;;
+esac
 `;
 
 function packageMetadata(name, index) {
@@ -193,6 +228,70 @@ function runMetadataCredential(script, environment = {}) {
       REGISTRY_GITHUB_TOKEN: "mock-registry-token-not-a-secret",
       ...environment,
     },
+  });
+}
+
+function runPredecessorPackageState({ present, verifyExistingOnly }) {
+  const digest = `sha256:${"c".repeat(64)}`;
+  const packageJson = {
+    id: 8811,
+    name: "site-logbook-staging-api",
+    package_type: "container",
+    owner: { login: "modvolt" },
+    visibility: "private",
+    repository: {
+      full_name: "modvolt/site-logbook-registry",
+      private: true,
+    },
+    version_count: 1,
+  };
+  const versionJson = {
+    id: 9911,
+    name: digest,
+    metadata: {
+      package_type: "container",
+      container: {
+        tags: present ? [PREDECESSOR_SOURCE_SHA] : ["other-source"],
+      },
+    },
+  };
+  return runBashHarness({
+    script: predecessorPackageStateScript,
+    files: {
+      "bin/gh": PREDECESSOR_MOCK_GH,
+      "fixtures/predecessor-caller.json": JSON.stringify({
+        full_name: "modvolt/site-logbook-registry",
+        owner: { login: "modvolt" },
+        private: true,
+      }),
+      "fixtures/predecessor-inventory.json": JSON.stringify(
+        present ? [packageJson] : [],
+      ),
+      "fixtures/predecessor-package.json": JSON.stringify(packageJson),
+      "fixtures/predecessor-versions.json": JSON.stringify([versionJson]),
+      "fixtures/predecessor-deleted-versions.json": "[]",
+      "fixtures/predecessor-selected-version.json": JSON.stringify(versionJson),
+    },
+    environment: {
+      APPROVED_CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      APPROVED_CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
+      CALLER_ACTOR: "modvolt",
+      CALLER_GITHUB_TOKEN: "mock-caller-token-not-a-secret",
+      CALLER_REPOSITORY: "modvolt/site-logbook-registry",
+      CALLER_REPOSITORY_OWNER: "modvolt",
+      CALLER_WORKFLOW_REF:
+        "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
+      EXPECTED_SOURCE_SHA: PREDECESSOR_SOURCE_SHA,
+      GH_TOKEN: "mock-read-packages-token-not-a-secret",
+      GITHUB_OUTPUT: "{HARNESS_ROOT}/github-output.txt",
+      HARNESS_ROOT: "{HARNESS_ROOT}",
+      PACKAGE_NAME: "site-logbook-staging-api",
+      PUBLICATION_CONFIRMED: "true",
+      TRIGGERING_ACTOR: "modvolt",
+      VERIFY_EXISTING_ONLY: verifyExistingOnly ? "true" : "false",
+    },
+    captureFiles: ["github-output.txt"],
   });
 }
 
@@ -326,6 +425,32 @@ test("parses the workflow as strict unique-key YAML and exposes the exact interf
       required: true,
     },
   );
+  assert.deepEqual(
+    predecessorWorkflow.on.workflow_call.inputs.verify_existing_only,
+    {
+      description:
+        "Require the exact predecessor tag to exist and structurally disable every build or push step",
+      required: true,
+      type: "boolean",
+    },
+  );
+  const predecessorPublicationSteps = predecessorWorkflow.jobs[
+    "publish-fixed-predecessor-api"
+  ].steps.filter((step) =>
+    [
+      "Validate predecessor API build without registry write",
+      "Recheck exact predecessor tag absence immediately before publication",
+      "Build and publish fixed predecessor API image",
+    ].includes(step.name),
+  );
+  assert.equal(predecessorPublicationSteps.length, 3);
+  assert.ok(
+    predecessorPublicationSteps.every(
+      (step) =>
+        step.if ===
+        "inputs.verify_existing_only == false && steps.package-state.outputs.publish == 'true'",
+    ),
+  );
   assert.throws(
     () => parseWorkflow("name: duplicate\npermissions: {}\npermissions: {}\n"),
     /unique-key YAML|Map keys must be unique/u,
@@ -373,6 +498,42 @@ test("accepts only a distinct exact-scope modvolt Packages metadata credential",
     assert.notEqual(unsupported.status, 0);
     assert.match(unsupported.stderr, /identity could not be read/u);
   }
+});
+
+test("makes fixed predecessor verify-existing-only fail closed before every publish step", () => {
+  const exactExisting = runPredecessorPackageState({
+    present: true,
+    verifyExistingOnly: true,
+  });
+  assert.equal(exactExisting.status, 0, exactExisting.stderr);
+  assert.deepEqual(
+    parseGithubOutput(exactExisting.captured["github-output.txt"]),
+    {
+      existing_digest: `sha256:${"c".repeat(64)}`,
+      initial_tag_state: "present",
+      publish: "false",
+    },
+  );
+
+  const absentVerifyOnly = runPredecessorPackageState({
+    present: false,
+    verifyExistingOnly: true,
+  });
+  assert.notEqual(absentVerifyOnly.status, 0);
+  assert.match(
+    absentVerifyOnly.stderr,
+    /verify-existing-only requires an already-present exact predecessor tag and forbids publication/u,
+  );
+
+  const absentPublication = runPredecessorPackageState({
+    present: false,
+    verifyExistingOnly: false,
+  });
+  assert.equal(absentPublication.status, 0, absentPublication.stderr);
+  assert.equal(
+    parseGithubOutput(absentPublication.captured["github-output.txt"]).publish,
+    "true",
+  );
 });
 
 test("runs extracted scripts in a scrubbed, no-egress container", () => {

@@ -1518,6 +1518,8 @@ export function validateStagingRuntimeContract(overrides = {}) {
   for (const boundary of [
     "workflow_call:",
     "confirm_predecessor_registry_publication:",
+    "verify_existing_only:",
+    "Require the exact predecessor tag to exist and structurally disable every build or push step",
     "    secrets:\n      packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: true",
     "packages_metadata_token:",
     "Dedicated classic PAT with exactly read:packages",
@@ -1531,6 +1533,10 @@ export function validateStagingRuntimeContract(overrides = {}) {
     '.type == "User"',
     "CALLER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
     'GH_TOKEN="$CALLER_GITHUB_TOKEN" gh api',
+    "VERIFY_EXISTING_ONLY: ${{ inputs.verify_existing_only }}",
+    '[[ "$VERIFY_EXISTING_ONLY" == "true" || "$VERIFY_EXISTING_ONLY" == "false" ]]',
+    "verify-existing-only requires an already-present exact predecessor tag and forbids publication.",
+    "Prove verify-existing-only cannot publish",
     "c3a83a0e68e4c2eb4b2a64661e0396c81f1adde3",
     "cd46c3bcf51d6ab64f2fe788e0a7af97e74c999c",
     "modvolt/site-logbook-registry/.github/workflows/publish-staging-predecessor.yml@refs/heads/main",
@@ -1571,6 +1577,20 @@ export function validateStagingRuntimeContract(overrides = {}) {
     'dataLicense == "CC0-1.0"',
     "provenance: mode=max,version=v0.2",
     "sbom: true",
+    'VERIFICATION_ATTEMPTS: "36"',
+    'VERIFICATION_POLL_SECONDS: "5"',
+    'for attempt in $(seq 1 "$VERIFICATION_ATTEMPTS")',
+    "PACKAGE_METADATA_NOT_READY",
+    "ACTIVE_VERSION_INVENTORY_NOT_READY",
+    "DELETED_VERSION_INVENTORY_NOT_READY",
+    "SELECTED_VERSION_REFETCH_NOT_READY",
+    "OCI_INDEX_NOT_READY",
+    "RUNTIME_METADATA_NOT_READY",
+    "PROVENANCE_NOT_READY",
+    "SBOM_NOT_READY",
+    "Fixed predecessor verification exhausted",
+    '[[ "$verification_succeeded" == "true" ]]',
+    '[[ "$registry_action" == "verified-noop" && "$INITIAL_TAG_STATE" == "present" ]]',
     'kind: "site-logbook-staging-predecessor-api"',
     "staging-predecessor-image.sha256",
     "if-no-files-found: error",
@@ -1674,6 +1694,26 @@ export function validateStagingRuntimeContract(overrides = {}) {
     fail(
       "STAGING_PREDECESSOR_PUBLICATION_DRIFT",
       "the fixed predecessor publisher must prebuild once with exact attestations and publish at most one identically attested API image.",
+    );
+  }
+  const verifyOnlyPublicationGuard =
+    "if: inputs.verify_existing_only == false && steps.package-state.outputs.publish == 'true'";
+  if (
+    (
+      predecessorWorkflow.match(
+        /if: inputs\.verify_existing_only == false && steps\.package-state\.outputs\.publish == 'true'/g,
+      ) ?? []
+    ).length !== 3 ||
+    (
+      predecessorWorkflow.match(
+        /^\s+if: steps\.package-state\.outputs\.publish == 'true'$/gm,
+      ) ?? []
+    ).length !== 0 ||
+    !predecessorWorkflow.includes(verifyOnlyPublicationGuard)
+  ) {
+    fail(
+      "STAGING_PREDECESSOR_VERIFY_ONLY_DRIFT",
+      "every predecessor build, tag-absence, and push step must be structurally disabled in verify-existing-only mode.",
     );
   }
   if (

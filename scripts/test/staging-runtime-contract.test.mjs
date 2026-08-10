@@ -514,6 +514,45 @@ test("keeps predecessor publication fixed to one exact-0104 API image", () => {
     ],
     [
       workflow.replace(
+        "      verify_existing_only:",
+        "      verify_existing_mode:",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "if: inputs.verify_existing_only == false && steps.package-state.outputs.publish == 'true'",
+        "if: steps.package-state.outputs.publish == 'true'",
+      ),
+      "STAGING_PREDECESSOR_VERIFY_ONLY_DRIFT",
+    ],
+    [
+      workflow.replace(
+        'VERIFICATION_ATTEMPTS: "36"',
+        'VERIFICATION_ATTEMPTS: "12"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        'VERIFICATION_POLL_SECONDS: "5"',
+        'VERIFICATION_POLL_SECONDS: "0"',
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace("PROVENANCE_NOT_READY", "REMOTE_EVIDENCE_NOT_READY"),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
+        "verify-existing-only requires an already-present exact predecessor tag and forbids publication.",
+        "verification requested",
+      ),
+      "STAGING_RUNTIME_CONTRACT_MISSING",
+    ],
+    [
+      workflow.replace(
         "packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: true",
         "packages_metadata_token:\n        description: Dedicated classic PAT with exactly read:packages for private Packages REST metadata\n        required: false",
       ),
